@@ -1,10 +1,10 @@
-current_phase: module-rebrand
+current_phase: embed-panel
 entry_phase: module-rebrand
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: .kit/planning/phases/module-rebrand/module-rebrand-CONTEXT.md
-active_plan: .kit/planning/phases/module-rebrand/module-rebrand-PLAN.md
-latest_cook_run: .kit/runs/work/20260527-2130-module-rebrand.md
-latest_check_report: .kit/reports/check/20260527-2145-module-rebrand.md
+active_context: .kit/planning/phases/embed-panel/embed-panel-CONTEXT.md
+active_plan: .kit/planning/phases/embed-panel/embed-panel-PLAN.md
+latest_cook_run: .kit/runs/work/20260527-2200-embed-panel.md
+latest_check_report: .kit/reports/check/20260527-2220-embed-panel.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-27 21:45
+last_updated: 2026-05-27 22:20

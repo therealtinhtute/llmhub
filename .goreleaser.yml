@@ -1,5 +1,14 @@
 version: 2
 
+before:
+  hooks:
+    - cmd: bun install
+      dir: web
+    - cmd: bun run build
+      dir: web
+    - cmd: mkdir -p internal/managementasset/static
+    - cmd: cp web/dist/index.html internal/managementasset/static/management.html
+
 builds:
   - id: "llmhub"
     env:

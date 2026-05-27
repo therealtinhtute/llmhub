@@ -1,5 +1,5 @@
 # Binaries
-cli-proxy-api
+llmhub
 *.exe
 
 # Configuration
@@ -46,6 +46,11 @@ GEMINI.md
 .bmad/*
 _bmad/*
 _bmad-output/*
+
+# Frontend build artifacts
+web/dist/
+web/node_modules/
+internal/managementasset/static/
 
 # macOS
 .DS_Store

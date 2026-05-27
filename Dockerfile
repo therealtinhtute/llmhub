@@ -1,3 +1,15 @@
+FROM oven/bun:1 AS frontend
+
+WORKDIR /web
+
+COPY web/package.json web/bun.lock* ./
+
+RUN bun install --frozen-lockfile
+
+COPY web/ .
+
+RUN bun run build
+
 FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
@@ -8,11 +20,14 @@ RUN go mod download
 
 COPY . .
 
+COPY --from=frontend /web/dist/index.html internal/managementasset/static/management.html
+
 ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./LLMHub ./cmd/server/
+RUN mkdir -p internal/managementasset/static && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./LLMHub ./cmd/server/
 
 FROM alpine:3.23
 

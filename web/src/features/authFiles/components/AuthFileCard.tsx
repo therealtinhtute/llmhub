@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
+import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import {
   IconDownload,
   IconInfo,

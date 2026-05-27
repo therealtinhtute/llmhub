@@ -1,12 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card } from '@/components/ui/Card';
+import { LegacyCard as Card } from '@/components/ui/LegacyCard';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { Input } from '@/components/ui/LegacyInput';
+import { Modal } from '@/components/ui/LegacyModal';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/icons';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { toast } from 'sonner';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import { logsApi } from '@/services/api/logs';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -65,7 +66,7 @@ type TabType = 'logs' | 'errors';
 
 export function LogsPage() {
   const { t } = useTranslation();
-  const { showNotification, showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const config = useConfigStore((state) => state.config);
   const requestLogEnabled = config?.requestLog ?? false;
@@ -198,12 +199,11 @@ export function LogsPage() {
           await logsApi.clearLogs();
           setLogState({ buffer: [], visibleFrom: 0 });
           latestTimestampRef.current = 0;
-          showNotification(t('logs.clear_success'), 'success');
+          toast.success(t('logs.clear_success'));
         } catch (err: unknown) {
           const message = getErrorMessage(err);
-          showNotification(
-            `${t('notification.delete_failed')}${message ? `: ${message}` : ''}`,
-            'error'
+          toast.error(
+            `${t('notification.delete_failed')}${message ? `: ${message}` : ''}`
           );
         }
       },
@@ -213,7 +213,7 @@ export function LogsPage() {
   const downloadLogs = () => {
     const text = logState.buffer.join('\n');
     downloadBlob({ filename: 'logs.txt', blob: new Blob([text], { type: 'text/plain' }) });
-    showNotification(t('logs.download_success'), 'success');
+    toast.success(t('logs.download_success'));
   };
 
   const loadErrorLogs = async () => {
@@ -244,12 +244,11 @@ export function LogsPage() {
     try {
       const response = await logsApi.downloadErrorLog(name);
       downloadBlob({ filename: name, blob: new Blob([response.data], { type: 'text/plain' }) });
-      showNotification(t('logs.error_log_download_success'), 'success');
+      toast.success(t('logs.error_log_download_success'));
     } catch (err: unknown) {
       const message = getErrorMessage(err);
-      showNotification(
-        `${t('notification.download_failed')}${message ? `: ${message}` : ''}`,
-        'error'
+      toast.error(
+        `${t('notification.download_failed')}${message ? `: ${message}` : ''}`
       );
     }
   };
@@ -368,9 +367,9 @@ export function LogsPage() {
   const copyLogLine = async (raw: string) => {
     const ok = await copyToClipboard(raw);
     if (ok) {
-      showNotification(t('logs.copy_success', { defaultValue: 'Copied to clipboard' }), 'success');
+      toast.success(t('logs.copy_success', { defaultValue: 'Copied to clipboard' }));
     } else {
-      showNotification(t('logs.copy_failed', { defaultValue: 'Copy failed' }), 'error');
+      toast.error(t('logs.copy_failed', { defaultValue: 'Copy failed' }));
     }
   };
 
@@ -428,13 +427,12 @@ export function LogsPage() {
         filename: `request-${id}.log`,
         blob: new Blob([response.data], { type: 'text/plain' })
       });
-      showNotification(t('logs.request_log_download_success'), 'success');
+      toast.success(t('logs.request_log_download_success'));
       setRequestLogId(null);
     } catch (err: unknown) {
       const message = getErrorMessage(err);
-      showNotification(
-        `${t('notification.download_failed')}${message ? `: ${message}` : ''}`,
-        'error'
+      toast.error(
+        `${t('notification.download_failed')}${message ? `: ${message}` : ''}`
       );
     } finally {
       setRequestLogDownloading(false);

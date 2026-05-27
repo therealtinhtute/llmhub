@@ -9,7 +9,8 @@ import {
   KIMI_CONFIG,
   XAI_CONFIG,
 } from '@/components/quota';
-import { useNotificationStore, useQuotaStore } from '@/stores';
+import { toast } from 'sonner';
+import { useQuotaStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
 import {
@@ -40,7 +41,6 @@ export type AuthFileQuotaSectionProps = {
 export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
   const { file, quotaType, disableControls } = props;
   const { t } = useTranslation();
-  const showNotification = useNotificationStore((state) => state.showNotification);
 
   const quota = useQuotaStore((state) => {
     if (quotaType === 'antigravity') return state.antigravityQuota[file.name] as QuotaState;
@@ -88,7 +88,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         ...prev,
         [file.name]: config.buildSuccessState(data),
       }));
-      showNotification(t('auth_files.quota_refresh_success', { name: file.name }), 'success');
+      toast.success(t('auth_files.quota_refresh_success', { name: file.name }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.unknown_error');
       const status = getStatusFromError(err);
@@ -96,9 +96,9 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         ...prev,
         [file.name]: config.buildErrorState(message, status),
       }));
-      showNotification(t('auth_files.quota_refresh_failed', { name: file.name, message }), 'error');
+      toast.error(t('auth_files.quota_refresh_failed', { name: file.name, message }));
     }
-  }, [disableControls, file, quota?.status, quotaType, showNotification, t, updateQuotaState]);
+  }, [disableControls, file, quota?.status, quotaType, t, updateQuotaState]);
 
   const config = getQuotaConfig(quotaType) as unknown as {
     i18nPrefix: string;

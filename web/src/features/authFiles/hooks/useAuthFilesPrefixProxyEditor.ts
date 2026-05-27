@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authFilesApi, type AuthFileFieldsPatch } from '@/services/api';
 import type { AuthFileItem } from '@/types';
-import { useNotificationStore } from '@/stores';
+import { toast } from 'sonner';
 import {
   applyCodexAuthFileWebsockets,
   normalizeProviderKey,
@@ -333,7 +333,6 @@ export function useAuthFilesPrefixProxyEditor(
 ): UseAuthFilesPrefixProxyEditorResult {
   const { disableControls, loadFiles } = options;
   const { t } = useTranslation();
-  const showNotification = useNotificationStore((state) => state.showNotification);
 
   const [prefixProxyEditor, setPrefixProxyEditor] = useState<PrefixProxyEditorState | null>(null);
 
@@ -466,7 +465,7 @@ export function useAuthFilesPrefixProxyEditor(
         if (!prev || prev.fileName !== name) return prev;
         return { ...prev, loading: false, error: errorMessage, rawText: '' };
       });
-      showNotification(`${t('notification.download_failed')}: ${errorMessage}`, 'error');
+      toast.error(`${t('notification.download_failed')}: ${errorMessage}`);
     }
   };
 
@@ -507,7 +506,7 @@ export function useAuthFilesPrefixProxyEditor(
       payload = buildAuthFileFieldsPatch(prefixProxyEditor, (key) => t(key));
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Invalid format';
-      showNotification(errorMessage, 'error');
+      toast.error(errorMessage);
       return;
     }
     if (!hasKeys(payload)) return;
@@ -519,12 +518,12 @@ export function useAuthFilesPrefixProxyEditor(
 
     try {
       await authFilesApi.patchFields(name, payload);
-      showNotification(t('auth_files.prefix_proxy_saved_success', { name }), 'success');
+      toast.success(t('auth_files.prefix_proxy_saved_success', { name }));
       await loadFiles();
       setPrefixProxyEditor(null);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : '';
-      showNotification(`${t('notification.update_failed')}: ${errorMessage}`, 'error');
+      toast.error(`${t('notification.update_failed')}: ${errorMessage}`);
       setPrefixProxyEditor((prev) => {
         if (!prev || prev.fileName !== name) return prev;
         return { ...prev, saving: false };

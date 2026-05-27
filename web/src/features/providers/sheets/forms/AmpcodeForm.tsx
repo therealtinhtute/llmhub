@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Collapsible } from '@/components/ui/Collapsible';
+import { Collapsible } from '@/components/ui/LegacyCollapsible';
 import { IconPlus, IconX } from '@/components/ui/icons';
 import type {
   AmpcodeConfig,

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Text } from '@codemirror/state';
 import { Chunk } from '@codemirror/merge';
-import { Modal } from '@/components/ui/Modal';
+import { Modal } from '@/components/ui/LegacyModal';
 import { Button } from '@/components/ui/Button';
 import styles from './DiffModal.module.scss';
 

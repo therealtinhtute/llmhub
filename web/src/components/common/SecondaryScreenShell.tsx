@@ -1,7 +1,7 @@
 import { forwardRef, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
 import { IconChevronLeft } from '@/components/ui/icons';
 import { usePageTransitionLayer } from './PageTransitionLayer';
 import styles from './SecondaryScreenShell.module.scss';

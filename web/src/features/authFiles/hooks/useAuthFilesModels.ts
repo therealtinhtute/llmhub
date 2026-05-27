@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
-import { useNotificationStore } from '@/stores';
+import { toast } from 'sonner';
 import type { AuthFileItem } from '@/types';
 import type { AuthFileModelItem } from '@/features/authFiles/constants';
 
@@ -20,7 +20,6 @@ export type UseAuthFilesModelsResult = {
 
 export function useAuthFilesModels(): UseAuthFilesModelsResult {
   const { t } = useTranslation();
-  const showNotification = useNotificationStore((state) => state.showNotification);
 
   const [modelsModalOpen, setModelsModalOpen] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -63,13 +62,13 @@ export function useAuthFilesModels(): UseAuthFilesModelsResult {
         ) {
           setModelsError('unsupported');
         } else {
-          showNotification(`${t('notification.load_failed')}: ${errorMessage}`, 'error');
+          toast.error(`${t('notification.load_failed')}: ${errorMessage}`);
         }
       } finally {
         setModelsLoading(false);
       }
     },
-    [showNotification, t]
+    [t]
   );
 
   return {

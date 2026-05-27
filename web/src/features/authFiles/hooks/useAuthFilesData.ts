@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type RefObj
 import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
 import { apiClient } from '@/services/api/client';
+import { toast } from 'sonner';
 import { useNotificationStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
 import { formatFileSize } from '@/utils/format';
@@ -53,7 +54,7 @@ export type UseAuthFilesDataResult = {
 
 export function useAuthFilesData(): UseAuthFilesDataResult {
   const { t } = useTranslation();
-  const { showNotification, showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useNotificationStore();
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,12 +201,11 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       });
 
       if (invalidFiles.length > 0) {
-        showNotification(t('auth_files.upload_error_json'), 'error');
+        toast.error(t('auth_files.upload_error_json'));
       }
       if (oversizedFiles.length > 0) {
-        showNotification(
-          t('auth_files.upload_error_size', { maxSize: formatFileSize(MAX_AUTH_FILE_SIZE) }),
-          'error'
+        toast.error(
+          t('auth_files.upload_error_size', { maxSize: formatFileSize(MAX_AUTH_FILE_SIZE) })
         );
       }
 
@@ -221,10 +221,11 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
 
         if (successCount > 0) {
           const suffix = validFiles.length > 1 ? ` (${successCount}/${validFiles.length})` : '';
-          showNotification(
-            `${t('auth_files.upload_success')}${suffix}`,
-            result.failed.length ? 'warning' : 'success'
-          );
+          if (result.failed.length) {
+            toast.warning(`${t('auth_files.upload_success')}${suffix}`);
+          } else {
+            toast.success(`${t('auth_files.upload_success')}${suffix}`);
+          }
           await loadFiles();
         }
 
@@ -232,17 +233,17 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
           const details = result.failed
             .map((item) => `${item.name}: ${item.error}`)
             .join('; ');
-          showNotification(`${t('notification.upload_failed')}: ${details}`, 'error');
+          toast.error(`${t('notification.upload_failed')}: ${details}`);
         }
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        showNotification(`${t('notification.upload_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('notification.upload_failed')}: ${errorMessage}`);
       } finally {
         setUploading(false);
         event.target.value = '';
       }
     },
-    [loadFiles, showNotification, t]
+    [loadFiles, t]
   );
 
   const handleDelete = useCallback(
@@ -256,18 +257,18 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
           setDeleting(name);
           try {
             const result = await authFilesApi.deleteFile(name);
-            showNotification(t('auth_files.delete_success'), 'success');
+            toast.success(t('auth_files.delete_success'));
             applyDeletedFiles(result.files.length > 0 ? result.files : [name]);
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : '';
-            showNotification(`${t('notification.delete_failed')}: ${errorMessage}`, 'error');
+            toast.error(`${t('notification.delete_failed')}: ${errorMessage}`);
           } finally {
             setDeleting(null);
           }
         },
       });
     },
-    [applyDeletedFiles, showConfirmation, showNotification, t]
+    [applyDeletedFiles, showConfirmation, t]
   );
 
   const handleDeleteAll = useCallback(
@@ -305,7 +306,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
           try {
             if (!isFiltered && !isProblemOnly && !isDisabledOnly) {
               await authFilesApi.deleteAll();
-              showNotification(t('auth_files.delete_all_success'), 'success');
+              toast.success(t('auth_files.delete_all_success'));
               setFiles((prev) => prev.filter((file) => isRuntimeOnlyAuthFile(file)));
               deselectAll();
             } else {
@@ -331,7 +332,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
                     ? t('auth_files.delete_problem_filtered_none', { type: typeLabel })
                     : t('auth_files.delete_problem_none');
                 }
-                showNotification(emptyMessage, 'info');
+                toast.info(emptyMessage);
                 setDeletingAll(false);
                 return;
               }
@@ -345,45 +346,39 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
               applyDeletedFiles(result.files);
 
               if (failed === 0 && isDisabledOnly) {
-                showNotification(
-                  t('auth_files.delete_filtered_result_success', { count: success }),
-                  'success'
+                toast.success(
+                  t('auth_files.delete_filtered_result_success', { count: success })
                 );
               } else if (failed === 0 && isProblemOnly) {
-                showNotification(
+                toast.success(
                   isFiltered
                     ? t('auth_files.delete_problem_filtered_success', {
                         count: success,
                         type: typeLabel,
                       })
-                    : t('auth_files.delete_problem_success', { count: success }),
-                  'success'
+                    : t('auth_files.delete_problem_success', { count: success })
                 );
               } else if (failed === 0) {
-                showNotification(
-                  t('auth_files.delete_filtered_success', { count: success, type: typeLabel }),
-                  'success'
+                toast.success(
+                  t('auth_files.delete_filtered_success', { count: success, type: typeLabel })
                 );
               } else if (isDisabledOnly) {
-                showNotification(
-                  t('auth_files.delete_filtered_result_partial', { success, failed }),
-                  'warning'
+                toast.warning(
+                  t('auth_files.delete_filtered_result_partial', { success, failed })
                 );
               } else if (isProblemOnly) {
-                showNotification(
+                toast.warning(
                   isFiltered
                     ? t('auth_files.delete_problem_filtered_partial', {
                         success,
                         failed,
                         type: typeLabel,
                       })
-                    : t('auth_files.delete_problem_partial', { success, failed }),
-                  'warning'
+                    : t('auth_files.delete_problem_partial', { success, failed })
                 );
               } else {
-                showNotification(
-                  t('auth_files.delete_filtered_partial', { success, failed, type: typeLabel }),
-                  'warning'
+                toast.warning(
+                  t('auth_files.delete_filtered_partial', { success, failed, type: typeLabel })
                 );
               }
 
@@ -399,14 +394,14 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
             }
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : '';
-            showNotification(`${t('notification.delete_failed')}: ${errorMessage}`, 'error');
+            toast.error(`${t('notification.delete_failed')}: ${errorMessage}`);
           } finally {
             setDeletingAll(false);
           }
         },
       });
     },
-    [applyDeletedFiles, deselectAll, files, showConfirmation, showNotification, t]
+    [applyDeletedFiles, deselectAll, files, showConfirmation, t]
   );
 
   const handleDownload = useCallback(
@@ -418,13 +413,13 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         );
         const blob = new Blob([response.data]);
         downloadBlob({ filename: name, blob });
-        showNotification(t('auth_files.download_success'), 'success');
+        toast.success(t('auth_files.download_success'));
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
-        showNotification(`${t('notification.download_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('notification.download_failed')}: ${errorMessage}`);
       }
     },
-    [showNotification, t]
+    [t]
   );
 
   const handleStatusToggle = useCallback(
@@ -441,18 +436,17 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         setFiles((prev) =>
           prev.map((f) => (f.name === name ? { ...f, disabled: res.disabled } : f))
         );
-        showNotification(
+        toast.success(
           enabled
             ? t('auth_files.status_enabled_success', { name })
-            : t('auth_files.status_disabled_success', { name }),
-          'success'
+            : t('auth_files.status_disabled_success', { name })
         );
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
         setFiles((prev) =>
           prev.map((f) => (f.name === name ? { ...f, disabled: previousDisabled } : f))
         );
-        showNotification(`${t('notification.update_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('notification.update_failed')}: ${errorMessage}`);
       } finally {
         setStatusUpdating((prev) => {
           if (!prev[name]) return prev;
@@ -462,7 +456,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         });
       }
     },
-    [showNotification, t]
+    [t]
   );
 
   const batchSetStatus = useCallback(
@@ -533,11 +527,10 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         );
 
         if (failCount === 0) {
-          showNotification(t('auth_files.batch_status_success', { count: successCount }), 'success');
+          toast.success(t('auth_files.batch_status_success', { count: successCount }));
         } else {
-          showNotification(
-            t('auth_files.batch_status_partial', { success: successCount, failed: failCount }),
-            'warning'
+          toast.warning(
+            t('auth_files.batch_status_partial', { success: successCount, failed: failCount })
           );
         }
 
@@ -554,7 +547,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         });
       }
     },
-    [deselectAll, files, showNotification, statusUpdating, t]
+    [deselectAll, files, statusUpdating, t]
   );
 
   const batchDownload = useCallback(
@@ -580,18 +573,16 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       }
 
       if (failCount === 0) {
-        showNotification(
-          t('auth_files.batch_download_success', { count: successCount }),
-          'success'
+        toast.success(
+          t('auth_files.batch_download_success', { count: successCount })
         );
       } else {
-        showNotification(
-          t('auth_files.batch_download_partial', { success: successCount, failed: failCount }),
-          'warning'
+        toast.warning(
+          t('auth_files.batch_download_partial', { success: successCount, failed: failCount })
         );
       }
     },
-    [showNotification, t]
+    [t]
   );
 
   const batchDelete = useCallback(
@@ -610,28 +601,26 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
             applyDeletedFiles(result.files);
 
             if (result.failed.length === 0) {
-              showNotification(
-                `${t('auth_files.delete_all_success')} (${result.deleted})`,
-                'success'
+              toast.success(
+                `${t('auth_files.delete_all_success')} (${result.deleted})`
               );
             } else {
-              showNotification(
+              toast.warning(
                 t('auth_files.delete_filtered_partial', {
                   success: result.deleted,
                   failed: result.failed.length,
                   type: t('auth_files.filter_all'),
-                }),
-                'warning'
+                })
               );
             }
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : '';
-            showNotification(`${t('notification.delete_failed')}: ${errorMessage}`, 'error');
+            toast.error(`${t('notification.delete_failed')}: ${errorMessage}`);
           }
         },
       });
     },
-    [applyDeletedFiles, showConfirmation, showNotification, t]
+    [applyDeletedFiles, showConfirmation, t]
   );
 
   return {

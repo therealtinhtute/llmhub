@@ -3,13 +3,14 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { AutocompleteInput } from '@/components/ui/AutocompleteInput';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { AutocompleteInput } from '@/components/ui/LegacyAutocompleteInput';
+import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import { IconInfo, IconX } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
-import { useAuthStore, useNotificationStore } from '@/stores';
+import { toast } from 'sonner';
+import { useAuthStore } from '@/stores';
 import { authFilesApi } from '@/services/api';
 import type { AuthFileItem, OAuthModelAliasEntry } from '@/types';
 import { generateId } from '@/utils/helpers';
@@ -62,7 +63,6 @@ export function AuthFilesOAuthModelAliasEditPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { showNotification } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const disableControls = connectionStatus !== 'connected';
 
@@ -255,7 +255,7 @@ export function AuthFilesOAuthModelAliasEditPage() {
         }
 
         const errorMessage = err instanceof Error ? err.message : '';
-        showNotification(`${t('notification.load_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('notification.load_failed')}: ${errorMessage}`);
       })
       .finally(() => {
         if (cancelled) return;
@@ -265,7 +265,7 @@ export function AuthFilesOAuthModelAliasEditPage() {
     return () => {
       cancelled = true;
     };
-  }, [modelAliasUnsupported, resolvedProviderKey, showNotification, t]);
+  }, [modelAliasUnsupported, resolvedProviderKey, t]);
 
   const updateProvider = useCallback(
     (value: string) => {
@@ -305,7 +305,7 @@ export function AuthFilesOAuthModelAliasEditPage() {
   const handleSave = useCallback(async () => {
     const channel = provider.trim();
     if (!channel) {
-      showNotification(t('oauth_model_alias.provider_required'), 'error');
+      toast.error(t('oauth_model_alias.provider_required'));
       return;
     }
 
@@ -329,15 +329,15 @@ export function AuthFilesOAuthModelAliasEditPage() {
       } else {
         await authFilesApi.deleteOauthModelAlias(channel);
       }
-      showNotification(t('oauth_model_alias.save_success'), 'success');
+      toast.success(t('oauth_model_alias.save_success'));
       handleBack();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : '';
-      showNotification(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`, 'error');
+      toast.error(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`);
     } finally {
       setSaving(false);
     }
-  }, [handleBack, mappings, provider, showNotification, t]);
+  }, [handleBack, mappings, provider, t]);
 
   const canSave = !disableControls && !saving && !modelAliasUnsupported;
 

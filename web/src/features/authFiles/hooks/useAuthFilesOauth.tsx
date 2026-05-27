@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
+import { toast } from 'sonner';
 import { useNotificationStore } from '@/stores';
 import type { AuthFileItem, OAuthModelAliasEntry } from '@/types';
 import type { AuthFileModelItem } from '@/features/authFiles/constants';
@@ -40,7 +41,7 @@ export type UseAuthFilesOauthOptions = {
 export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFilesOauthResult {
   const { viewMode, files } = options;
   const { t } = useTranslation();
-  const { showNotification, showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useNotificationStore();
 
   const [excluded, setExcluded] = useState<Record<string, string[]>>({});
   const [excludedError, setExcludedError] = useState<UnsupportedError>(null);
@@ -132,13 +133,13 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
         setExcludedError('unsupported');
         if (!excludedUnsupportedRef.current) {
           excludedUnsupportedRef.current = true;
-          showNotification(t('oauth_excluded.upgrade_required'), 'warning');
+          toast.warning(t('oauth_excluded.upgrade_required'));
         }
         return;
       }
       // 静默失败
     }
-  }, [showNotification, t]);
+  }, [t]);
 
   const loadModelAlias = useCallback(async () => {
     try {
@@ -157,13 +158,13 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
         setModelAliasError('unsupported');
         if (!mappingsUnsupportedRef.current) {
           mappingsUnsupportedRef.current = true;
-          showNotification(t('oauth_model_alias.upgrade_required'), 'warning');
+          toast.warning(t('oauth_model_alias.upgrade_required'));
         }
         return;
       }
       // 静默失败
     }
-  }, [showNotification, t]);
+  }, [t]);
 
   const deleteExcluded = useCallback(
     (provider: string) => {
@@ -176,13 +177,13 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
         onConfirm: async () => {
           const providerKey = normalizeProviderKey(provider);
           if (!providerKey) {
-            showNotification(t('oauth_excluded.provider_required'), 'error');
+            toast.error(t('oauth_excluded.provider_required'));
             return;
           }
           try {
             await authFilesApi.deleteOauthExcludedEntry(providerKey);
             await loadExcluded();
-            showNotification(t('oauth_excluded.delete_success'), 'success');
+            toast.success(t('oauth_excluded.delete_success'));
           } catch (err: unknown) {
             try {
               const current = await authFilesApi.getOauthExcludedModels();
@@ -193,7 +194,7 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
               });
               await authFilesApi.replaceOauthExcludedModels(next);
               await loadExcluded();
-              showNotification(t('oauth_excluded.delete_success'), 'success');
+              toast.success(t('oauth_excluded.delete_success'));
             } catch (fallbackErr: unknown) {
               const errorMessage =
                 fallbackErr instanceof Error
@@ -201,13 +202,13 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
                   : err instanceof Error
                     ? err.message
                     : '';
-              showNotification(`${t('oauth_excluded.delete_failed')}: ${errorMessage}`, 'error');
+              toast.error(`${t('oauth_excluded.delete_failed')}: ${errorMessage}`);
             }
           }
         }
       });
     },
-    [loadExcluded, showConfirmation, showNotification, t]
+    [loadExcluded, showConfirmation, t]
   );
 
   const deleteModelAlias = useCallback(
@@ -221,15 +222,15 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
           try {
             await authFilesApi.deleteOauthModelAlias(provider);
             await loadModelAlias();
-            showNotification(t('oauth_model_alias.delete_success'), 'success');
+            toast.success(t('oauth_model_alias.delete_success'));
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : '';
-            showNotification(`${t('oauth_model_alias.delete_failed')}: ${errorMessage}`, 'error');
+            toast.error(`${t('oauth_model_alias.delete_failed')}: ${errorMessage}`);
           }
         }
       });
     },
-    [loadModelAlias, showConfirmation, showNotification, t]
+    [loadModelAlias, showConfirmation, t]
   );
 
   const handleMappingUpdate = useCallback(
@@ -266,13 +267,13 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
       try {
         await authFilesApi.saveOauthModelAlias(normalizedProvider, nextMappings);
         await loadModelAlias();
-        showNotification(t('oauth_model_alias.save_success'), 'success');
+        toast.success(t('oauth_model_alias.save_success'));
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
-        showNotification(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`);
       }
     },
-    [loadModelAlias, modelAlias, showNotification, t]
+    [loadModelAlias, modelAlias, t]
   );
 
   const handleDeleteLink = useCallback(
@@ -314,15 +315,15 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
               await authFilesApi.saveOauthModelAlias(normalizedProvider, nextMappings);
             }
             await loadModelAlias();
-            showNotification(t('oauth_model_alias.save_success'), 'success');
+            toast.success(t('oauth_model_alias.save_success'));
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : '';
-            showNotification(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`, 'error');
+            toast.error(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`);
           }
         }
       });
     },
-    [loadModelAlias, modelAlias, showConfirmation, showNotification, t]
+    [loadModelAlias, modelAlias, showConfirmation, t]
   );
 
   const handleToggleFork = useCallback(
@@ -353,13 +354,13 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
       try {
         await authFilesApi.saveOauthModelAlias(normalizedProvider, nextMappings);
         await loadModelAlias();
-        showNotification(t('oauth_model_alias.save_success'), 'success');
+        toast.success(t('oauth_model_alias.save_success'));
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
-        showNotification(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('oauth_model_alias.save_failed')}: ${errorMessage}`);
       }
     },
-    [loadModelAlias, modelAlias, showNotification, t]
+    [loadModelAlias, modelAlias, t]
   );
 
   const handleRenameAlias = useCallback(
@@ -402,17 +403,16 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
       }
 
       if (hadFailure) {
-        showNotification(
+        toast.error(
           failureMessage
             ? `${t('oauth_model_alias.save_failed')}: ${failureMessage}`
-            : t('oauth_model_alias.save_failed'),
-          'error'
+            : t('oauth_model_alias.save_failed')
         );
       } else {
-        showNotification(t('oauth_model_alias.save_success'), 'success');
+        toast.success(t('oauth_model_alias.save_success'));
       }
     },
-    [loadModelAlias, modelAlias, showNotification, t]
+    [loadModelAlias, modelAlias, t]
   );
 
   const handleDeleteAlias = useCallback(
@@ -468,19 +468,18 @@ export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFil
           }
 
           if (hadFailure) {
-            showNotification(
+            toast.error(
               failureMessage
                 ? `${t('oauth_model_alias.delete_failed')}: ${failureMessage}`
-                : t('oauth_model_alias.delete_failed'),
-              'error'
+                : t('oauth_model_alias.delete_failed')
             );
           } else {
-            showNotification(t('oauth_model_alias.delete_success'), 'success');
+            toast.success(t('oauth_model_alias.delete_success'));
           }
         }
       });
     },
-    [loadModelAlias, modelAlias, showConfirmation, showNotification, t]
+    [loadModelAlias, modelAlias, showConfirmation, t]
   );
 
   return {

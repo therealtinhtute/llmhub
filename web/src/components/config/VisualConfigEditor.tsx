@@ -10,9 +10,9 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Input } from '@/components/ui/LegacyInput';
+import { Select } from '@/components/ui/LegacySelect';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import {
   IconCode,
   IconDiamond,

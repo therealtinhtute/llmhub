@@ -5,8 +5,8 @@ import {
   IconChevronUp,
   IconSlidersHorizontal,
 } from '@/components/ui/icons';
-import { Select } from '@/components/ui/Select';
-import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { Select } from '@/components/ui/LegacySelect';
+import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
 import styles from './OpenAIBrandToolbar.module.scss';
 
 export type OpenAISortBy = 'name' | 'priority' | 'recent-success';

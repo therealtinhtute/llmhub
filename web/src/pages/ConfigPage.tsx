@@ -5,7 +5,7 @@ import type { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { parse as parseYaml, parseDocument } from 'yaml';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { Input } from '@/components/ui/LegacyInput';
 import {
   IconCheck,
   IconChevronDown,
@@ -17,6 +17,7 @@ import { VisualConfigEditor } from '@/components/config/VisualConfigEditor';
 import { DiffModal } from '@/components/config/DiffModal';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useVisualConfig } from '@/hooks/useVisualConfig';
+import { toast } from 'sonner';
 import { useNotificationStore, useAuthStore, useThemeStore, useConfigStore } from '@/stores';
 import { configFileApi } from '@/services/api/configFile';
 import styles from './ConfigPage.module.scss';
@@ -48,7 +49,6 @@ export function ConfigPage() {
   const { t } = useTranslation();
   const pageTransitionLayer = usePageTransitionLayer();
   const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.isCurrentLayer : true;
-  const showNotification = useNotificationStore((state) => state.showNotification);
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -126,11 +126,10 @@ export function ConfigPage() {
 
     setActiveTab('source');
     localStorage.setItem('config-management:tab', 'source');
-    showNotification(
-      t('config_management.visual_mode_unavailable_detail', { message: visualParseError }),
-      'error'
+    toast.error(
+      t('config_management.visual_mode_unavailable_detail', { message: visualParseError })
     );
-  }, [activeTab, showNotification, t, visualParseError]);
+  }, [activeTab, t, visualParseError]);
 
   const handleConfirmSave = async () => {
     setSaving(true);
@@ -159,19 +158,18 @@ export function ConfigPage() {
             : typeof refreshError === 'string'
               ? refreshError
               : '';
-        showNotification(
-          `${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`,
-          'error'
+        toast.error(
+          `${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`
         );
       }
 
-      showNotification(t('config_management.save_success'), 'success');
+      toast.success(t('config_management.save_success'));
       if (commercialModeChanged) {
-        showNotification(t('notification.commercial_mode_restart_required'), 'warning');
+        toast.warning(t('notification.commercial_mode_restart_required'));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
-      showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
+      toast.error(`${t('notification.save_failed')}: ${message}`);
     } finally {
       setSaving(false);
     }
@@ -179,7 +177,7 @@ export function ConfigPage() {
 
   const handleSave = async () => {
     if (activeTab === 'visual' && visualParseError) {
-      showNotification(t('config_management.visual_mode_save_blocked'), 'error');
+      toast.error(t('config_management.visual_mode_save_blocked'));
       return;
     }
 
@@ -192,13 +190,12 @@ export function ConfigPage() {
       if (activeTab !== 'source') {
         const latestDocument = parseDocument(latestServerYaml);
         if (latestDocument.errors.length > 0) {
-          showNotification(
+          toast.error(
             t('config_management.visual_mode_latest_yaml_invalid', {
               message:
                 latestDocument.errors[0]?.message ??
                 t('config_management.visual_mode_save_blocked'),
-            }),
-            'error'
+            })
           );
           return;
         }
@@ -206,13 +203,12 @@ export function ConfigPage() {
         if (visualBaseYaml !== latestServerYaml) {
           const visualBaseDocument = parseDocument(visualBaseYaml);
           if (visualBaseDocument.errors.length > 0) {
-            showNotification(
+            toast.error(
               t('config_management.visual_mode_latest_yaml_invalid', {
                 message:
                   visualBaseDocument.errors[0]?.message ??
                   t('config_management.visual_mode_save_blocked'),
-              }),
-              'error'
+              })
             );
             return;
           }
@@ -238,7 +234,7 @@ export function ConfigPage() {
         setServerYaml(latestServerYaml);
         setMergedYaml(nextMergedYaml);
         loadVisualValuesFromYaml(latestServerYaml);
-        showNotification(t('config_management.diff.no_changes'), 'info');
+        toast.info(t('config_management.diff.no_changes'));
         return;
       }
 
@@ -247,7 +243,7 @@ export function ConfigPage() {
       setDiffModalOpen(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
-      showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
+      toast.error(`${t('notification.save_failed')}: ${message}`);
     } finally {
       setSaving(false);
     }
@@ -274,9 +270,8 @@ export function ConfigPage() {
       } else {
         const result = loadVisualValuesFromYaml(content);
         if (!result.ok) {
-          showNotification(
-            t('config_management.visual_mode_unavailable_detail', { message: result.error }),
-            'error'
+          toast.error(
+            t('config_management.visual_mode_unavailable_detail', { message: result.error })
           );
           return;
         }
@@ -290,7 +285,6 @@ export function ConfigPage() {
       applyVisualChangesToYaml,
       content,
       loadVisualValuesFromYaml,
-      showNotification,
       t,
       visualDirty,
     ]

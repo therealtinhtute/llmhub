@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Collapsible } from '@/components/ui/Collapsible';
+import { Collapsible } from '@/components/ui/LegacyCollapsible';
 import { IconCheck, IconX } from '@/components/ui/icons';
 import {
   getProviderTotalStats,

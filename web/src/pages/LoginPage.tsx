@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { Input } from '@/components/ui/LegacyInput';
+import { Select } from '@/components/ui/LegacySelect';
+import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
 import { IconEye, IconEyeOff } from '@/components/ui/icons';
-import { useAuthStore, useLanguageStore, useNotificationStore } from '@/stores';
+import { toast } from 'sonner';
+import { useAuthStore, useLanguageStore } from '@/stores';
 import { detectApiBaseFromLocation, normalizeApiBase } from '@/utils/connection';
 import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
@@ -85,7 +86,6 @@ export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { showNotification } = useNotificationStore();
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -166,16 +166,16 @@ export function LoginPage() {
         managementKey: managementKey.trim(),
         rememberPassword
       });
-      showNotification(t('common.connected_status'), 'success');
+      toast.success(t('common.connected_status'));
       navigate('/', { replace: true });
     } catch (err: unknown) {
       const message = getLocalizedErrorMessage(err, t);
       setError(message);
-      showNotification(`${t('notification.login_failed')}: ${message}`, 'error');
+      toast.error(`${t('notification.login_failed')}: ${message}`);
     } finally {
       setLoading(false);
     }
-  }, [apiBase, detectedBase, login, managementKey, navigate, rememberPassword, showNotification, t]);
+  }, [apiBase, detectedBase, login, managementKey, navigate, rememberPassword, t]);
 
   const handleSubmitKeyDown = useCallback(
     (event: React.KeyboardEvent) => {

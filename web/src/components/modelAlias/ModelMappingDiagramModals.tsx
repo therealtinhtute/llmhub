@@ -1,9 +1,9 @@
 import type { KeyboardEvent } from 'react';
 import type { TFunction } from 'i18next';
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/LegacyModal';
+import { Input } from '@/components/ui/LegacyInput';
 import { Button } from '@/components/ui/Button';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import { IconTrash2 } from '@/components/ui/icons';
 import type { AliasNode, SourceNode } from './ModelMappingDiagramTypes';
 import styles from './ModelMappingDiagram.module.scss';

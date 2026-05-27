@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Card } from '@/components/ui/Card';
+import { LegacyCard as Card } from '@/components/ui/LegacyCard';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { useNotificationStore, useThemeStore } from '@/stores';
+import { Input } from '@/components/ui/LegacyInput';
+import { toast } from 'sonner';
+import { useThemeStore } from '@/stores';
 import { oauthApi, type OAuthProvider } from '@/services/api/oauth';
 import { vertexApi, type VertexImportResponse } from '@/services/api/vertex';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -164,7 +165,6 @@ const resolveCallbackUrl = (
 export function OAuthPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { showNotification } = useNotificationStore();
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const [states, setStates] = useState<Record<OAuthProvider, ProviderState>>({} as Record<OAuthProvider, ProviderState>);
   const [vertexState, setVertexState] = useState<VertexImportState>({
@@ -262,12 +262,11 @@ export function OAuthPage() {
         const res = await oauthApi.getAuthStatus(state);
         if (res.status === 'ok') {
           completeProviderAuth(provider);
-          showNotification(t(getAuthKey(provider, 'oauth_status_success')), 'success');
+          toast.success(t(getAuthKey(provider, 'oauth_status_success')));
         } else if (res.status === 'error') {
           updateProviderState(provider, { status: 'error', error: res.error, polling: false });
-          showNotification(
-            `${t(getAuthKey(provider, 'oauth_status_error'))} ${res.error || ''}`,
-            'error'
+          toast.error(
+            `${t(getAuthKey(provider, 'oauth_status_error'))} ${res.error || ''}`
           );
           window.clearInterval(timer);
           delete pollingTimers.current[provider];
@@ -318,7 +317,7 @@ export function OAuthPage() {
           error: message,
           polling: false
         });
-        showNotification(message, 'error');
+        toast.error(message);
         return;
       }
       updateProviderState(provider, { url: res.url, state: res.state, status: 'waiting', polling: true });
@@ -326,9 +325,8 @@ export function OAuthPage() {
     } catch (err: unknown) {
       const message = getErrorMessage(err);
       updateProviderState(provider, { status: 'error', error: message, polling: false });
-      showNotification(
-        `${t(getAuthKey(provider, 'oauth_start_error'))}${message ? ` ${message}` : ''}`,
-        'error'
+      toast.error(
+        `${t(getAuthKey(provider, 'oauth_start_error'))}${message ? ` ${message}` : ''}`
       );
     }
   };
@@ -336,24 +334,24 @@ export function OAuthPage() {
   const copyLink = async (url?: string) => {
     if (!url) return;
     const copied = await copyToClipboard(url);
-    showNotification(
-      t(copied ? 'notification.link_copied' : 'notification.copy_failed'),
-      copied ? 'success' : 'error'
-    );
+    if (copied) {
+      toast.success(t('notification.link_copied'));
+    } else {
+      toast.error(t('notification.copy_failed'));
+    }
   };
 
   const submitCallback = async (provider: OAuthProvider) => {
     const callbackInput = (states[provider]?.callbackUrl || '').trim();
     if (!callbackInput) {
-      showNotification(
-        t(provider === 'xai' ? 'auth_login.xai_callback_required' : 'auth_login.oauth_callback_required'),
-        'warning'
+      toast.warning(
+        t(provider === 'xai' ? 'auth_login.xai_callback_required' : 'auth_login.oauth_callback_required')
       );
       return;
     }
     const redirectUrl = resolveCallbackUrl(provider, callbackInput, states[provider]?.state);
     if (!redirectUrl) {
-      showNotification(t(provider === 'xai' ? 'auth_login.xai_callback_state_missing' : 'auth_login.missing_state'), 'warning');
+      toast.warning(t(provider === 'xai' ? 'auth_login.xai_callback_state_missing' : 'auth_login.missing_state'));
       return;
     }
     updateProviderState(provider, {
@@ -364,7 +362,7 @@ export function OAuthPage() {
     try {
       await oauthApi.submitCallback(provider, redirectUrl);
       updateProviderState(provider, { callbackSubmitting: false, callbackStatus: 'success' });
-      showNotification(t('auth_login.oauth_callback_success'), 'success');
+      toast.success(t('auth_login.oauth_callback_success'));
     } catch (err: unknown) {
       const status = getErrorStatus(err);
       const message = getErrorMessage(err);
@@ -382,7 +380,7 @@ export function OAuthPage() {
       const notificationMessage = errorMessage
         ? `${t('auth_login.oauth_callback_error')} ${errorMessage}`
         : t('auth_login.oauth_callback_error');
-      showNotification(notificationMessage, 'error');
+      toast.error(notificationMessage);
     }
   };
 
@@ -394,7 +392,7 @@ export function OAuthPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.name.endsWith('.json')) {
-      showNotification(t('vertex_import.file_required'), 'warning');
+      toast.warning(t('vertex_import.file_required'));
       event.target.value = '';
       return;
     }
@@ -412,7 +410,7 @@ export function OAuthPage() {
     if (!vertexState.file) {
       const message = t('vertex_import.file_required');
       setVertexState((prev) => ({ ...prev, error: message }));
-      showNotification(message, 'warning');
+      toast.warning(message);
       return;
     }
     const location = vertexState.location.trim();
@@ -429,7 +427,7 @@ export function OAuthPage() {
         authFile: res['auth-file'] ?? res.auth_file
       };
       setVertexState((prev) => ({ ...prev, loading: false, result }));
-      showNotification(t('vertex_import.success'), 'success');
+      toast.success(t('vertex_import.success'));
     } catch (err: unknown) {
       const message = getErrorMessage(err);
       setVertexState((prev) => ({
@@ -440,7 +438,7 @@ export function OAuthPage() {
       const notification = message
         ? `${t('notification.upload_failed')}: ${message}`
         : t('notification.upload_failed');
-      showNotification(notification, 'error');
+      toast.error(notification);
     }
   };
 

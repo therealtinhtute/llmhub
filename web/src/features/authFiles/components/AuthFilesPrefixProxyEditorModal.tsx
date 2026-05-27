@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next';
-import { Modal } from '@/components/ui/Modal';
+import { Modal } from '@/components/ui/LegacyModal';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Input } from '@/components/ui/Input';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
+import { Input } from '@/components/ui/LegacyInput';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import type {
   PrefixProxyEditorField,
   PrefixProxyEditorFieldValue,

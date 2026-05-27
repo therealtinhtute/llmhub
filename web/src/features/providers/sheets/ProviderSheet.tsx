@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useImperativeHandle, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sheet } from '@/components/ui/Sheet';
+import { LegacySheet as Sheet } from '@/components/ui/LegacySheet';
 import { IconLoader2, IconPencil } from '@/components/ui/icons';
 import type { ProviderRecentUsageMap } from '@/components/providers/utils';
 import { useNotificationStore } from '@/stores';

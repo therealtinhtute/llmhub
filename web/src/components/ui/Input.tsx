@@ -1,46 +1,21 @@
-import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
+import * as React from "react"
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  hint?: string;
-  error?: string;
-  rightElement?: ReactNode;
-}
+import { cn } from "@/lib/utils"
 
-export function Input({ label, hint, error, rightElement, className = '', id, ...rest }: InputProps) {
-  const generatedId = useId();
-  const inputId = id ?? generatedId;
-  const hintId = hint ? `${inputId}-hint` : undefined;
-  const errorId = error ? `${inputId}-error` : undefined;
-  const describedBy = [rest['aria-describedby'], errorId, hintId].filter(Boolean).join(' ') || undefined;
-
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
-    <div className="form-group">
-      {label && <label htmlFor={inputId}>{label}</label>}
-      <div style={{ position: 'relative' }}>
-        <input
-          id={inputId}
-          className={`input ${className}`.trim()}
-          aria-invalid={Boolean(error) || rest['aria-invalid']}
-          aria-describedby={describedBy}
-          {...rest}
-        />
-        {rightElement && (
-          <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
-            {rightElement}
-          </div>
-        )}
-      </div>
-      {hint && (
-        <div id={hintId} className="hint">
-          {hint}
-        </div>
+    <input
+      type={type}
+      data-slot="input"
+      className={cn(
+        "h-9 w-full min-w-0 rounded-none border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
+        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
+        className
       )}
-      {error && (
-        <div id={errorId} className="error-box">
-          {error}
-        </div>
-      )}
-    </div>
-  );
+      {...props}
+    />
+  )
 }
+
+export { Input }

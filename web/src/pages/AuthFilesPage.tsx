@@ -16,13 +16,13 @@ import type { AnimationPlaybackControlsWithThen } from 'motion-dom';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
-import { Card } from '@/components/ui/Card';
+import { LegacyCard as Card } from '@/components/ui/LegacyCard';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/LegacyInput';
+import { Select } from '@/components/ui/LegacySelect';
 import { IconFilterAll, IconSearch } from '@/components/ui/icons';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import { copyToClipboard } from '@/utils/clipboard';
 import {
   MAX_CARD_PAGE_SIZE,
@@ -57,7 +57,8 @@ import {
   writePersistedAuthFilesCompactMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
-import { useAuthStore, useNotificationStore, useThemeStore } from '@/stores';
+import { toast } from 'sonner';
+import { useAuthStore, useThemeStore } from '@/stores';
 import styles from './AuthFilesPage.module.scss';
 
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
@@ -78,7 +79,6 @@ const buildWildcardSearch = (value: string): RegExp | null => {
 
 export function AuthFilesPage() {
   const { t } = useTranslation();
-  const showNotification = useNotificationStore((state) => state.showNotification);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const pageTransitionLayer = usePageTransitionLayer();
@@ -453,14 +453,13 @@ export function AuthFilesPage() {
   const copyTextWithNotification = useCallback(
     async (text: string) => {
       const copied = await copyToClipboard(text);
-      showNotification(
-        copied
-          ? t('notification.link_copied', { defaultValue: 'Copied to clipboard' })
-          : t('notification.copy_failed', { defaultValue: 'Copy failed' }),
-        copied ? 'success' : 'error'
-      );
+      if (copied) {
+        toast.success(t('notification.link_copied', { defaultValue: 'Copied to clipboard' }));
+      } else {
+        toast.error(t('notification.copy_failed', { defaultValue: 'Copy failed' }));
+      }
     },
-    [showNotification, t]
+    [t]
   );
 
   const openExcludedEditor = useCallback(

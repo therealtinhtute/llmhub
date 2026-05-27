@@ -8,8 +8,8 @@ import {
   IconPlus,
   IconX,
 } from '@/components/ui/icons';
-import { Collapsible } from '@/components/ui/Collapsible';
-import { Select } from '@/components/ui/Select';
+import { Collapsible } from '@/components/ui/LegacyCollapsible';
+import { Select } from '@/components/ui/LegacySelect';
 import { hasDisableAllModelsRule } from '@/components/providers/utils';
 import type {
   GeminiKeyConfig,

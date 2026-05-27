@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Card } from '@/components/ui/Card';
+import { LegacyCard as Card } from '@/components/ui/LegacyCard';
 
 export function PlaceholderPage({ titleKey }: { titleKey: string }) {
   const { t } = useTranslation();

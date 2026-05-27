@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { Card } from '@/components/ui/Card';
+import { LegacyCard as Card } from '@/components/ui/LegacyCard';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { EmptyState } from '@/components/ui/LegacyEmptyState';
 import styles from '@/pages/AuthFilesPage.module.scss';
 
 type UnsupportedError = 'unsupported' | null;

@@ -23,11 +23,11 @@ import {
   IconSidebarSystem,
 } from '@/components/ui/icons';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
+import { toast } from 'sonner';
 import {
   useAuthStore,
   useConfigStore,
   useLanguageStore,
-  useNotificationStore,
   useThemeStore,
 } from '@/stores';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -208,7 +208,6 @@ const THEME_CARDS: Array<{
 
 export function MainLayout() {
   const { t } = useTranslation();
-  const { showNotification } = useNotificationStore();
   const location = useLocation();
 
   const logout = useAuthStore((state) => state.logout);
@@ -530,13 +529,10 @@ export function MainLayout() {
       const reason = rejected.reason;
       const message =
         typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : '';
-      showNotification(
-        `${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`,
-        'error'
-      );
+      toast.error(`${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`);
       return;
     }
-    showNotification(t('notification.data_refreshed'), 'success');
+    toast.success(t('notification.data_refreshed'));
   };
   const mobileSidebarToggleLabel = sidebarOpen
     ? t('sidebar.toggle_collapse', { defaultValue: 'Close navigation' })

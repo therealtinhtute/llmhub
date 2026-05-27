@@ -1,9 +1,9 @@
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { Select } from '@/components/ui/Select';
-import { useNotificationStore } from '@/stores';
+import { Modal } from '@/components/ui/LegacyModal';
+import { Select } from '@/components/ui/LegacySelect';
+import { toast } from 'sonner';
 import styles from './VisualConfigEditor.module.scss';
 import { copyToClipboard } from '@/utils/clipboard';
 import type {
@@ -169,7 +169,6 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
   onChange: (nextValue: string) => void;
 }) {
   const { t } = useTranslation();
-  const showNotification = useNotificationStore((state) => state.showNotification);
   const apiKeys = useMemo(
     () =>
       value
@@ -263,10 +262,11 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 
   const handleCopy = async (apiKey: string) => {
     const copied = await copyToClipboard(apiKey);
-    showNotification(
-      t(copied ? 'notification.link_copied' : 'notification.copy_failed'),
-      copied ? 'success' : 'error'
-    );
+    if (copied) {
+      toast.success(t('notification.link_copied'));
+    } else {
+      toast.error(t('notification.copy_failed'));
+    }
   };
 
   const handleGenerate = () => {

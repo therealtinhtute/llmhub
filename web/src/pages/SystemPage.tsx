@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card } from '@/components/ui/Card';
+import { LegacyCard as Card } from '@/components/ui/LegacyCard';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Modal } from '@/components/ui/LegacyModal';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
+import { toast } from 'sonner';
 import {
   useAuthStore,
   useConfigStore,
@@ -71,7 +72,7 @@ const compareVersions = (latest?: string | null, current?: string | null) => {
 
 export function SystemPage() {
   const { t, i18n } = useTranslation();
-  const { showNotification, showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useNotificationStore();
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const auth = useAuthStore();
   const config = useConfigStore((state) => state.config);
@@ -179,7 +180,7 @@ export function SystemPage() {
     }
 
     if (!auth.apiBase) {
-      showNotification(t('notification.connection_required'), 'warning');
+      toast.warning(t('notification.connection_required'));
       return;
     }
 
@@ -218,7 +219,7 @@ export function SystemPage() {
         if (typeof localStorage === 'undefined') return;
         const keysToRemove = [STORAGE_KEY_AUTH, 'isLoggedIn', 'apiBase', 'apiUrl', 'managementKey'];
         keysToRemove.forEach((key) => localStorage.removeItem(key));
-        showNotification(t('notification.login_storage_cleared'), 'success');
+        toast.success(t('notification.login_storage_cleared'));
       },
     });
   };
@@ -267,15 +268,14 @@ export function SystemPage() {
     try {
       await configApi.updateRequestLog(requestLogDraft);
       clearCache('request-log');
-      showNotification(t('notification.request_log_updated'), 'success');
+      toast.success(t('notification.request_log_updated'));
       setRequestLogModalOpen(false);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : typeof error === 'string' ? error : '';
       updateConfigValue('request-log', previous);
-      showNotification(
-        `${t('notification.update_failed')}${message ? `: ${message}` : ''}`,
-        'error'
+      toast.error(
+        `${t('notification.update_failed')}${message ? `: ${message}` : ''}`
       );
     } finally {
       setRequestLogSaving(false);
@@ -291,29 +291,29 @@ export function SystemPage() {
       const comparison = compareVersions(latest, auth.serverVersion);
 
       if (!latest) {
-        showNotification(t('system_info.version_check_error'), 'error');
+        toast.error(t('system_info.version_check_error'));
         return;
       }
 
       if (comparison === null) {
-        showNotification(t('system_info.version_current_missing'), 'warning');
+        toast.warning(t('system_info.version_current_missing'));
         return;
       }
 
       if (comparison > 0) {
-        showNotification(t('system_info.version_update_available', { version: latest }), 'warning');
+        toast.warning(t('system_info.version_update_available', { version: latest }));
       } else {
-        showNotification(t('system_info.version_is_latest'), 'success');
+        toast.success(t('system_info.version_is_latest'));
       }
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : typeof error === 'string' ? error : '';
       const suffix = message ? `: ${message}` : '';
-      showNotification(`${t('system_info.version_check_error')}${suffix}`, 'error');
+      toast.error(`${t('system_info.version_check_error')}${suffix}`);
     } finally {
       setCheckingVersion(false);
     }
-  }, [auth.serverVersion, showNotification, t]);
+  }, [auth.serverVersion, t]);
 
   useEffect(() => {
     fetchConfig().catch(() => {

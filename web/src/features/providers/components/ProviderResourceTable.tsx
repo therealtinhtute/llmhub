@@ -14,8 +14,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/Table';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+} from '@/components/ui/LegacyTable';
+import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import {
   getOpenAIProviderRecentStatusData,

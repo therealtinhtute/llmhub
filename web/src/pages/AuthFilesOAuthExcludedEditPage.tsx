@@ -3,14 +3,15 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
-import { AutocompleteInput } from '@/components/ui/AutocompleteInput';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
+import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
+import { AutocompleteInput } from '@/components/ui/LegacyAutocompleteInput';
+import { EmptyState } from '@/components/ui/LegacyEmptyState';
 import { IconInfo } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
-import { useAuthStore, useNotificationStore } from '@/stores';
+import { toast } from 'sonner';
+import { useAuthStore } from '@/stores';
 import { authFilesApi } from '@/services/api';
 import type { AuthFileItem, OAuthModelAliasEntry } from '@/types';
 import styles from './AuthFilesOAuthExcludedEditPage.module.scss';
@@ -39,7 +40,6 @@ export function AuthFilesOAuthExcludedEditPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { showNotification } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const disableControls = connectionStatus !== 'connected';
 
@@ -230,7 +230,7 @@ export function AuthFilesOAuthExcludedEditPage() {
         }
 
         const errorMessage = err instanceof Error ? err.message : '';
-        showNotification(`${t('notification.load_failed')}: ${errorMessage}`, 'error');
+        toast.error(`${t('notification.load_failed')}: ${errorMessage}`);
       })
       .finally(() => {
         if (cancelled) return;
@@ -240,7 +240,7 @@ export function AuthFilesOAuthExcludedEditPage() {
     return () => {
       cancelled = true;
     };
-  }, [excludedUnsupported, resolvedProviderKey, showNotification, t]);
+  }, [excludedUnsupported, resolvedProviderKey, t]);
 
   const updateProvider = useCallback(
     (value: string) => {
@@ -272,7 +272,7 @@ export function AuthFilesOAuthExcludedEditPage() {
   const handleSave = useCallback(async () => {
     const normalizedProvider = normalizeProviderKey(provider);
     if (!normalizedProvider) {
-      showNotification(t('oauth_excluded.provider_required'), 'error');
+      toast.error(t('oauth_excluded.provider_required'));
       return;
     }
 
@@ -284,15 +284,15 @@ export function AuthFilesOAuthExcludedEditPage() {
       } else {
         await authFilesApi.deleteOauthExcludedEntry(normalizedProvider);
       }
-      showNotification(t('oauth_excluded.save_success'), 'success');
+      toast.success(t('oauth_excluded.save_success'));
       handleBack();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : '';
-      showNotification(`${t('oauth_excluded.save_failed')}: ${errorMessage}`, 'error');
+      toast.error(`${t('oauth_excluded.save_failed')}: ${errorMessage}`);
     } finally {
       setSaving(false);
     }
-  }, [handleBack, provider, selectedModels, showNotification, t]);
+  }, [handleBack, provider, selectedModels, t]);
 
   const canSave = !disableControls && !saving && !excludedUnsupported;
 

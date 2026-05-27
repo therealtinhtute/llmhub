@@ -5,7 +5,7 @@ import {
   IconRefreshCw,
   IconSearch,
 } from '@/components/ui/icons';
-import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
 import type { ModelInfo } from '@/utils/models';
 import styles from './sharedForm.module.scss';
 

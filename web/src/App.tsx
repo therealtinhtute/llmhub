@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, RouterProvider, createHashRouter } from 'react-router-dom';
 import { LoginPage } from '@/pages/LoginPage';
-import { NotificationContainer } from '@/components/common/NotificationContainer';
+import { Toaster } from '@/components/ui/sonner';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ProtectedRoute } from '@/router/ProtectedRoute';
@@ -10,7 +10,7 @@ import { useLanguageStore, useThemeStore } from '@/stores';
 function RootShell() {
   return (
     <>
-      <NotificationContainer />
+      <Toaster position="top-right" richColors closeButton />
       <ConfirmationModal />
       <Outlet />
     </>

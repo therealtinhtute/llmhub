@@ -2,7 +2,8 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { Skeleton } from '@/components/ui/LegacySkeleton';
+import { toast } from 'sonner';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import { useProviderRecentRequests } from '@/components/providers/hooks/useProviderRecentRequests';
 import { getOpenAIProviderRecentWindowStats } from '@/components/providers/utils';
@@ -62,7 +63,7 @@ const matchesFilter = (r: ProviderResource, normalized: string): boolean => {
 export function ProvidersWorkbenchPage() {
   const { t, i18n } = useTranslation();
   const connectionStatus = useAuthStore((s) => s.connectionStatus);
-  const { showNotification, showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useNotificationStore();
 
   const pageTransitionLayer = usePageTransitionLayer();
   const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
@@ -275,47 +276,45 @@ export function ProvidersWorkbenchPage() {
         onConfirm: async () => {
           try {
             await workbench.deleteProvider(resource);
-            showNotification(t('providersPage.toast.deleted'), 'success');
+            toast.success(t('providersPage.toast.deleted'));
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            showNotification(`${t('notification.delete_failed')}: ${msg}`, 'error');
+            toast.error(`${t('notification.delete_failed')}: ${msg}`);
           }
         },
       });
     },
-    [showConfirmation, showNotification, t, workbench]
+    [showConfirmation, t, workbench]
   );
 
   const handleToggleDisabled = useCallback(
     async (resource: ProviderResource, disabled: boolean) => {
       try {
         await workbench.toggleDisabled(resource, disabled);
-        showNotification(
+        toast.success(
           disabled
             ? t('providersPage.toast.disabled')
-            : t('providersPage.toast.enabled'),
-          'success'
+            : t('providersPage.toast.enabled')
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        showNotification(
-          `${t('providersPage.toast.toggleFailed')}: ${msg}`,
-          'error'
+        toast.error(
+          `${t('providersPage.toast.toggleFailed')}: ${msg}`
         );
       }
     },
-    [showNotification, t, workbench]
+    [t, workbench]
   );
 
   const handleCreated = useCallback(() => {
-    showNotification(t('providersPage.toast.created'), 'success');
+    toast.success(t('providersPage.toast.created'));
     closeSheet();
-  }, [closeSheet, showNotification, t]);
+  }, [closeSheet, t]);
 
   const handleUpdated = useCallback(() => {
-    showNotification(t('providersPage.toast.updated'), 'success');
+    toast.success(t('providersPage.toast.updated'));
     closeSheet();
-  }, [closeSheet, showNotification, t]);
+  }, [closeSheet, t]);
 
   // 加载状态
   if (!workbench.snapshot && workbench.isPending) {

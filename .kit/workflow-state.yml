@@ -7,4 +7,4 @@ active_plan: .kit/planning/phases/doc-cleanup/doc-cleanup-PLAN.md
 latest_cook_run: .kit/runs/work/20260527-2230-doc-cleanup.md
 latest_check_report: .kit/reports/check/20260527-2245-doc-cleanup.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-27 22:45
+last_updated: 2026-05-27 23:00

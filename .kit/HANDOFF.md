@@ -1,103 +1,78 @@
 ---
 session-date: 2026-05-27
 branch: master
-status: in-progress
+status: phase-1-complete
 continuity-mode: full-harness
-active-phase: module-rebrand
-last-updated: 2026-05-27 21:15
+active-phase: doc-cleanup (complete — all phases done)
+last-updated: 2026-05-27 23:00
 ---
 
 # Session Handoff — master
 
 ## Current State
 
-**Branch**: `master` (in sync with `origin/master`, HEAD at `41420d3`)  
-**Status**: planning-complete, implementation not started  
-**Continuity Mode**: full-harness  
-**Active Phase**: `module-rebrand`  
-**Last Commit**: `41420d3` — ✨ feat(all): add new feature.
+**Branch**: `master` — in sync with `origin/master` (HEAD: `8c551e9`)
+**Working Tree**: clean — 0 staged, 0 modified, 0 untracked
+**Continuity Mode**: full-harness
+**Active Phase**: `doc-cleanup` (DONE — Phase 1 roadmap fully complete)
+**Latest Cook Run**: `.kit/runs/work/20260527-2230-doc-cleanup.md`
+**Latest Check**: `.kit/reports/check/20260527-2245-doc-cleanup.md` → **APPROVED**
 
-**Working Tree**:
-- 0 staged files
-- 0 modified files
-- 3 untracked (new planning artifacts — not committed yet)
+## What Was Built
 
-## What We're Building
+Phase 1 LLMHub rebrand — 3 phases, all complete, all checked, all pushed.
 
-Phase 1 of the LLMHub rebrand: turning the `CLIProxyAPI` fork into `LLMHub` as a monorepo. The fork currently has no in-repo frontend; the management UI (`/management.html`) is served from a runtime-downloaded file from GitHub. Phase 1 imports the CPAMC React panel into `web/`, builds it into a single HTML file, embeds it in the Go binary, and renames all product identity from upstream to LLMHub.
+| Phase | Commits | Gate |
+|-------|---------|------|
+| module-rebrand | `691337a` | APPROVED |
+| embed-panel | `82e9868` | APPROVED |
+| doc-cleanup | `6ba5135`, `72fa66b`, `7cee396`, `8c551e9` | APPROVED |
 
-This session completed all planning. Zero implementation code has been written yet.
+**Runtime verified**: `make build` → binary at `./llmhub`, panel at `/management.html` (HTTP 200, 2 MB embedded SPA), title `LLMHub Management Center`, `lang="en"`, root endpoint returns `"message":"LLMHub Server"`.
 
-## Continuity Anchors
+## Completed This Session ✓
 
-**Spec**: `.kit/planning/SPEC.md` — locked, status: draft/approved  
-**Roadmap**: `.kit/planning/ROADMAP.md` — written this session  
-**Latest Cook Run**: none  
-**Latest Check Verdict**: none  
-**Proof / Drift Notes**: planning artifacts are untracked (not committed) — commit before starting work or the next session will see a dirty tree
+- **module-rebrand**: Go module `github.com/router-for-me/CLIProxyAPI/v7` → `github.com/therealtinhtute/llmhub`, ~200 files bulk-repathed, `PanelGitHubRepository` config field removed, `DefaultAuthDir` → `~/.llmhub`, binary/docker names rebranded
+- **embed-panel**: CPAMC imported to `web/`, Bun build, `go:embed` via `internal/managementasset/static/`, `updater.go` gutted to 2 constants, server handler rewritten to serve embedded bytes, Makefile + Dockerfile + goreleaser hooks added
+- **doc-cleanup**: READMEs rebranded, CN+JA READMEs deleted, sponsor images trashed, `config.example.yaml` stripped of panel-download keys, `.github/` CI workflows updated to `therealtinhtute` org
+- **English-only pass**: `internal/tui/i18n.go` — Chinese `zhStrings` map removed (~150 strings), `ToggleLocale` made no-op; `oauth_tab.go` Chinese prompt → English; `web/src/` — 63+ "CLI Proxy API"/"CLIProxyAPI" strings rebranded; `web/index.html` `lang="zh-CN"` → `lang="en"`
+- All 7 commits pushed to `origin/master`
 
-## Progress This Session
+## Open Items (non-blocking)
 
-### Completed ✓
-- Read and analyzed `SPEC.md` (LLMHub rebrand + embedded web UI)
-- Explored repo: confirmed module path `github.com/router-for-me/CLIProxyAPI/v7`, 964 Go import lines, current `managementasset/updater.go` download logic, no existing `web/` dir
-- Fetched upstream CPAMC stack: React 19 + Vite 8 + `vite-plugin-singlefile` + Bun → single HTML output
-- `/think` session: produced decision-complete design plan (embed via `static/` copy, Bun build, goreleaser hooks)
-- `/plan full`: wrote ROADMAP.md + 3 phases × (CONTEXT.md + PLAN.md) + workflow-state.yml
+| Item | Severity | File | Note |
+|------|----------|------|------|
+| Broken local link | 🟡 Minor | `README.md` | Links to `MANAGEMENT_API.md` — file doesn't exist; was originally an external URL |
+| Empty directory | 💡 | `assets/` | All 9 sponsor images removed; directory is now empty |
+| model_updater URL | 💡 | `internal/registry/model_updater.go` | Still fetches from `raw.githubusercontent.com/router-for-me/models/...` — a runtime URL, not branding, but points to upstream org. Low priority until `therealtinhtute/models` repo exists |
+| Panel i18n locales | 💡 | `web/src/i18n/locales/` | zh-CN, zh-TW, ru locale JSON files still exist in web/ source — these are dead weight if language switching is removed from the panel UI, but harmless in build |
 
-### In Progress ⏳
-- Nothing — ready to start `module-rebrand` implementation
+## Key Decisions (this session)
 
-### Not Started
-- `module-rebrand` — Go module path rename, product identity, config cleanup
-- `embed-panel` — CPAMC import, Bun build, go:embed integration, server handler rewrite
-- `doc-cleanup` — README rebrand, example config update, sponsor block removal
+1. **ToggleLocale kept as no-op** — app.go calls it on `L` keypress; changing app.go was out of scope. The `L` keybinding now silently does nothing.
+2. **Third-party project names preserved** — 10 "CLIProxyAPI" references in README are external repo names (CLIProxyAPI Tray, Dashboard, Quota Inspector) — not our branding to rename.
+3. **models repo URL not changed** — `internal/registry/model_updater.go` fetches from upstream's models.json. Functional dependency, not cosmetic — left for later when a fork/mirror of the models repo exists.
+4. **web/ locale files not deleted** — panel UI may reference them; safe to clean up in a future pass once panel language switching is confirmed removed.
 
-## Key Decisions
+## Blockers
 
-1. **Module path drops `/v7`**: `github.com/therealtinhtute/llmhub` — fork starts fresh versioning
-2. **Single HTML embed**: CPAMC uses `vite-plugin-singlefile`, output is one `index.html` — perfect for `go:embed`
-3. **Copy step for embed**: `go:embed` can't traverse `../`, so build copies `web/dist/index.html` → `internal/managementasset/static/management.html` before Go compile
-4. **Remove `PanelGitHubRepository` entirely**: no deprecation — once panel is embedded the key is meaningless
-5. **Gut `updater.go` fully**: all GitHub download logic removed, not kept as fallback
-6. **Bun as package manager**: matches CPAMC natively, confirmed available in dev env
-
-## Blockers & Issues
-
-None currently. Planning is unblocked. Two preconditions for `embed-panel` phase:
-- Bun installed (confirmed by user)
-- CPAMC repo accessible at `https://github.com/router-for-me/Cli-Proxy-API-Management-Center`
-
-## Technical Context
-
-**Key call sites to change (embed-panel phase)**:
-- `internal/api/server.go:731-758` — `serveManagementControlPanel` handler (reads from disk → reads from `[]byte`)
-- `cmd/server/main.go:566,644` — `StartAutoUpdater` calls to remove
-- `internal/api/server.go:747` — `EnsureLatestManagementHTML` call to remove
-
-**Key constants to change (module-rebrand phase)**:
-- `internal/config/config.go:25` — `DefaultAuthDir = "~/.cli-proxy-api"` → `"~/.llmhub"`
-- `internal/config/config.go:23` — `DefaultPanelGitHubRepository` — remove
-- `internal/config/config.go:206` — `PanelGitHubRepository` field — remove
-- `cmd/server/main.go:58` — banner `CLIProxyAPI Version` → `LLMHub Version`
-- `.goreleaser.yml:4,16` — binary `cli-proxy-api` → `llmhub`
-
-**Phase guard**: after `module-rebrand`, `PanelGitHubRepository` is removed from config but `server.go:747` still calls `EnsureLatestManagementHTML(... cfg.RemoteManagement.PanelGitHubRepository)` — this call site will break and must be patched in the same phase (pass empty string as temporary bridge until `embed-panel` removes the download path entirely).
-
-**CPAMC tech stack**:
-- React 19.2.1 + TypeScript
-- Vite 8.0.10 + `vite-plugin-singlefile` → single `dist/index.html`
-- Bun 1.3.14
-- Build: `bun install && bun run build`
+None. Phase 1 is clean and shipped.
 
 ## Next Steps
 
-1. **→ START HERE: Commit planning artifacts** — `git add .kit/` and commit before starting implementation. Prevents dirty tree during work runs. Message: `docs(planning): add LLMHub Phase 1 roadmap and phase plans`
-2. **Implement module-rebrand** — follow `.kit/planning/phases/module-rebrand/module-rebrand-PLAN.md` Wave 1→4. Entry: `go.mod` line 1, then bulk sed on 964 import lines. Verify with `go build ./...`.
-3. **Run `/check` after module-rebrand** — gate before starting embed-panel. Update `workflow-state.yml` `current_phase` to `embed-panel`.
-4. **Implement embed-panel** — follow `.kit/planning/phases/embed-panel/embed-panel-PLAN.md`. Entry: clone CPAMC → `bun run build` → copy to `static/` → write `embed.go` → rewrite handler.
-5. **Implement doc-cleanup last** — follow `.kit/planning/phases/doc-cleanup/doc-cleanup-PLAN.md`. Lowest risk, no build dependency.
+1. **→ START HERE (if continuing)**: Create `MANAGEMENT_API.md` locally or point the README link to GitHub docs — fixes the 🟡 broken link in `README.md:line ~45`
+2. **Optional cleanup**: `git rm -r assets/` — remove the now-empty assets directory
+3. **Optional cleanup**: Remove `L` keybinding from `internal/tui/app.go` (lines 185-188 and 216-219) since `ToggleLocale` is now a no-op
+4. **Optional cleanup**: Delete dead locale files `web/src/i18n/locales/zh-CN.json`, `zh-TW.json`, `ru.json` if panel language switching is confirmed unused
+5. **Phase 2 (if roadmap continues)**: Not yet planned — check `.kit/planning/ROADMAP.md` for what's next beyond Phase 1
+
+## Environment State
+
+- Server running in background on `127.0.0.1:8317` (PID from last session — may no longer be alive)
+- Test config at `/tmp/llmhub-test-config.yaml` (ephemeral, `secret-key: test123`)
+- Binary at `./llmhub` (from `make build`)
+- Frontend source at `web/` (Bun installed, build confirmed working)
 
 ---
 
-*Generated by /handoff on 2026-05-27 21:15*
+*Generated by /handoff on 2026-05-27 23:00*

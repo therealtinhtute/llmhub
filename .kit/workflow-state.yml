@@ -1,0 +1,10 @@
+current_phase: module-rebrand
+entry_phase: module-rebrand
+spec: .kit/planning/SPEC.md
+roadmap: .kit/planning/ROADMAP.md
+active_context: .kit/planning/phases/module-rebrand/module-rebrand-CONTEXT.md
+active_plan: .kit/planning/phases/module-rebrand/module-rebrand-PLAN.md
+latest_cook_run: none
+latest_check_report: none
+handoff: .kit/HANDOFF.md
+last_updated: 2026-05-27 21:15

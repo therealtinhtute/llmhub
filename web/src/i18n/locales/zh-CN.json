@@ -57,12 +57,12 @@
     "unsaved_changes_message": "你有未保存的更改，离开后将丢失这些更改。确定要离开吗？"
   },
   "title": {
-    "main": "CLI Proxy API Management Center",
-    "login": "CLI Proxy API Management Center",
+    "main": "LLMHub Management Center",
+    "login": "LLMHub Management Center",
     "abbr": "CPAMC"
   },
   "splash": {
-    "title": "CLI Proxy API",
+    "title": "LLMHub",
     "subtitle": "管理中心"
   },
   "auto_login": {
@@ -92,7 +92,7 @@
     "error_timeout": "连接超时，服务器无响应",
     "error_unauthorized": "认证失败，管理密钥缺失或无效",
     "error_forbidden": "访问被拒绝，远程管理未启用、管理密钥未配置或 IP 被临时封禁",
-    "error_not_found": "未找到 Management API，请确认服务地址指向 CLIProxyAPI 后端",
+    "error_not_found": "未找到 Management API，请确认服务地址指向 LLMHub 后端",
     "error_server": "后端处理管理接口时发生错误，请查看服务日志",
     "error_cors": "跨域请求被阻止，请检查服务器配置",
     "error_ssl": "SSL/TLS 证书验证失败"
@@ -138,7 +138,7 @@
   },
   "dashboard": {
     "title": "仪表盘",
-    "subtitle": "欢迎使用 CLI Proxy API 管理中心",
+    "subtitle": "欢迎使用 LLMHub 管理中心",
     "openai_providers": "OpenAI 提供商",
     "quick_actions": "快捷操作",
     "current_config": "当前配置",
@@ -313,7 +313,7 @@
     "models_empty": "该凭证暂无可用模型",
     "models_empty_desc": "该认证凭证可能尚未被服务器加载或没有绑定任何模型",
     "models_unsupported": "当前版本不支持此功能",
-    "models_unsupported_desc": "请更新 CLI Proxy API 到最新版本后重试",
+    "models_unsupported_desc": "请更新 LLMHub 到最新版本后重试",
     "models_excluded_badge": "已禁用",
     "models_excluded_hint": "此 OAuth 模型已被禁用",
     "status_toggle_label": "启用",
@@ -547,7 +547,7 @@
     "scope_provider": "当前范围：{{provider}}",
     "upgrade_required": "当前 CPA 版本不支持 OAuth 模型禁用，请升级 CPA 版本",
     "upgrade_required_title": "需要升级 CPA 版本",
-    "upgrade_required_desc": "当前服务器版本不支持获取 OAuth 模型禁用功能，请升级到最新版本的 CPA（CLI Proxy API）后重试。"
+    "upgrade_required_desc": "当前服务器版本不支持获取 OAuth 模型禁用功能，请升级到最新版本的 CPA（LLMHub）后重试。"
   },
   "oauth_model_alias": {
     "title": "OAuth 模型别名",
@@ -609,7 +609,7 @@
     "provider_required": "请先填写提供商名称",
     "upgrade_required": "当前 CPA 版本不支持模型别名功能，请升级 CPA 版本",
     "upgrade_required_title": "需要升级 CPA 版本",
-    "upgrade_required_desc": "当前服务器版本不支持 OAuth 模型别名功能，请升级到最新版本的 CPA（CLI Proxy API）后重试。"
+    "upgrade_required_desc": "当前服务器版本不支持 OAuth 模型别名功能，请升级到最新版本的 CPA（LLMHub）后重试。"
   },
   "auth_login": {
     "codex_oauth_title": "Codex OAuth",
@@ -694,7 +694,7 @@
     "oauth_callback_required": "请先粘贴完整的回调 URL。",
     "oauth_callback_success": "回调 URL 已提交，请继续等待认证。",
     "oauth_callback_error": "提交回调 URL 失败:",
-    "oauth_callback_upgrade_hint": "请更新CLI Proxy API或检查连接",
+    "oauth_callback_upgrade_hint": "请更新LLMHub或检查连接",
     "oauth_callback_status_success": "回调 URL 已提交，等待认证中...",
     "oauth_callback_status_error": "回调 URL 提交失败:",
     "missing_state": "无法获取认证状态参数",
@@ -785,8 +785,8 @@
     "copy_failed": "复制失败",
     "lines": "行",
     "removed": "已过滤",
-    "upgrade_required_title": "需要升级 CLI Proxy API",
-    "upgrade_required_desc": "当前服务器版本不支持日志查看功能，请升级到最新版本的 CLI Proxy API 以使用此功能。"
+    "upgrade_required_title": "需要升级 LLMHub",
+    "upgrade_required_desc": "当前服务器版本不支持日志查看功能，请升级到最新版本的 LLMHub 以使用此功能。"
   },
   "config_management": {
     "title": "配置面板",
@@ -1065,7 +1065,7 @@
   },
   "system_info": {
     "title": "管理中心信息",
-    "about_title": "CLI Proxy API Management Center",
+    "about_title": "LLMHub Management Center",
     "connection_status_title": "连接状态",
     "api_status_label": "API 状态:",
     "config_status_label": "配置状态:",
@@ -1095,7 +1095,7 @@
     "quick_links_title": "快捷链接",
     "quick_links_desc": "访问项目仓库和文档，获取帮助和更新。",
     "link_main_repo": "主程序仓库",
-    "link_main_repo_desc": "CLI Proxy API 核心程序源代码",
+    "link_main_repo_desc": "LLMHub 核心程序源代码",
     "link_webui_repo": "WebUI 仓库",
     "link_webui_repo_desc": "管理中心前端界面源代码",
     "link_docs": "使用教程",
@@ -1193,7 +1193,7 @@
     "toggle_collapse": "收起侧边栏"
   },
   "footer": {
-    "api_version": "CLI Proxy API 版本",
+    "api_version": "LLMHub 版本",
     "build_date": "构建时间",
     "version": "管理中心版本",
     "author": "作者"

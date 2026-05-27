@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/config"
 )
 
 type OAuthModelAliasSummary struct {

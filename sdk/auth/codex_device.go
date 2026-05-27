@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/browser"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/therealtinhtute/llmhub/internal/auth/codex"
+	"github.com/therealtinhtute/llmhub/internal/browser"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/util"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
 

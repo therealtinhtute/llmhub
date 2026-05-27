@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	fileauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	fileauth "github.com/therealtinhtute/llmhub/sdk/auth"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 func TestPatchAuthFileFields_MergeHeadersAndDeleteEmptyValues(t *testing.T) {

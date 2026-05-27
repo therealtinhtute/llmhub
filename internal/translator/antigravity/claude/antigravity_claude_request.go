@@ -8,10 +8,10 @@ package claude
 import (
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/common"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	"github.com/therealtinhtute/llmhub/internal/cache"
+	"github.com/therealtinhtute/llmhub/internal/thinking"
+	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
+	"github.com/therealtinhtute/llmhub/internal/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

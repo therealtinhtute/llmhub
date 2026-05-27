@@ -11,13 +11,13 @@ import (
 	"time"
 
 	gin "github.com/gin-gonic/gin"
-	proxyconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
-	sdkaccess "github.com/router-for-me/CLIProxyAPI/v7/sdk/access"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
+	proxyconfig "github.com/therealtinhtute/llmhub/internal/config"
+	internallogging "github.com/therealtinhtute/llmhub/internal/logging"
+	"github.com/therealtinhtute/llmhub/internal/redisqueue"
+	"github.com/therealtinhtute/llmhub/internal/registry"
+	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
 )
 
 func newTestServer(t *testing.T) *Server {

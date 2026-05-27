@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 type apiKeyUsageEntry struct {

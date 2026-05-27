@@ -11,11 +11,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/zstd"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
+	"github.com/therealtinhtute/llmhub/internal/registry"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
 )
 
 type compactCaptureExecutor struct {

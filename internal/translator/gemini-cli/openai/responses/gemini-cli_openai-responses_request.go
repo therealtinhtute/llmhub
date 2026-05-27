@@ -1,8 +1,8 @@
 package responses
 
 import (
-	. "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini-cli/gemini"
-	. "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/openai/responses"
+	. "github.com/therealtinhtute/llmhub/internal/translator/gemini-cli/gemini"
+	. "github.com/therealtinhtute/llmhub/internal/translator/gemini/openai/responses"
 )
 
 func ConvertOpenAIResponsesRequestToGeminiCLI(modelName string, inputRawJSON []byte, stream bool) []byte {

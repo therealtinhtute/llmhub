@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 )
 

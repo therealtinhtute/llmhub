@@ -1,7 +1,7 @@
 // Package logging re-exports request logging primitives for SDK consumers.
 package logging
 
-import internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+import internallogging "github.com/therealtinhtute/llmhub/internal/logging"
 
 const defaultErrorLogsMaxFiles = 10
 

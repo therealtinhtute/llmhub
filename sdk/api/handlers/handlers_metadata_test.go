@@ -3,7 +3,7 @@ package handlers
 import (
 	"testing"
 
-	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	"golang.org/x/net/context"
 )
 

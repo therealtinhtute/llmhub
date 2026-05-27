@@ -1,7 +1,7 @@
 version: 2
 
 builds:
-  - id: "cli-proxy-api"
+  - id: "llmhub"
     env:
       - CGO_ENABLED=0
     goos:
@@ -13,11 +13,11 @@ builds:
       - amd64
       - arm64
     main: ./cmd/server/
-    binary: cli-proxy-api
+    binary: llmhub
     ldflags:
       - -s -w -X 'main.Version={{.Version}}' -X 'main.Commit={{.ShortCommit}}' -X 'main.BuildDate={{.Date}}'
 archives:
-  - id: "cli-proxy-api"
+  - id: "llmhub"
     format: tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{- if eq .Arch "arm64" -}}aarch64{{- else -}}{{ .Arch }}{{- end -}}

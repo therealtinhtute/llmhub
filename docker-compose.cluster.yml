@@ -1,6 +1,6 @@
 services:
-  cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
+  llmhub:
+    image: ${LLMHUB_IMAGE:-eceasy/llmhub:latest}
     pull_policy: always
     build:
       context: .
@@ -9,14 +9,14 @@ services:
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-none}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-    container_name: cli-proxy-api-cluster
+    container_name: llmhub-cluster
     environment:
       HOME_JWT: ${HOME_JWT:-}
     ports:
       - "8317:8317"
     volumes:
-      - ./home:/root/.cli-proxy-api
-      - ./logs:/CLIProxyAPI/logs
+      - ./home:/root/.llmhub
+      - ./logs:/LLMHub/logs
     command: >
       sh -eu -c '
         if [ -z "$$HOME_JWT" ]; then
@@ -24,6 +24,6 @@ services:
           exit 1
         fi
 
-        exec ./CLIProxyAPI -home-jwt "$$HOME_JWT"
+        exec ./LLMHub -home-jwt "$$HOME_JWT"
       '
     restart: unless-stopped

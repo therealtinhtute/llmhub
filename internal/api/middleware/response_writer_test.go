@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	"github.com/therealtinhtute/llmhub/internal/interfaces"
+	"github.com/therealtinhtute/llmhub/internal/logging"
 )
 
 func TestExtractRequestBodyPrefersOverride(t *testing.T) {

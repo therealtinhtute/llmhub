@@ -4,7 +4,7 @@ spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
 active_context: .kit/planning/phases/module-rebrand/module-rebrand-CONTEXT.md
 active_plan: .kit/planning/phases/module-rebrand/module-rebrand-PLAN.md
-latest_cook_run: none
-latest_check_report: none
+latest_cook_run: .kit/runs/work/20260527-2130-module-rebrand.md
+latest_check_report: .kit/reports/check/20260527-2145-module-rebrand.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-27 21:15
+last_updated: 2026-05-27 21:45

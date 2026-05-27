@@ -14,11 +14,11 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	. "github.com/router-for-me/CLIProxyAPI/v7/internal/constant"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
-	responsesconverter "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/openai/openai/responses"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
+	. "github.com/therealtinhtute/llmhub/internal/constant"
+	"github.com/therealtinhtute/llmhub/internal/interfaces"
+	"github.com/therealtinhtute/llmhub/internal/registry"
+	responsesconverter "github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

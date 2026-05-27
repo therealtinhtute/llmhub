@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/config"
 )
 
 // Helper: compress data with gzip

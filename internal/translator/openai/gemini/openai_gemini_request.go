@@ -11,7 +11,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
+	"github.com/therealtinhtute/llmhub/internal/thinking"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

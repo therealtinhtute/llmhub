@@ -1,4 +1,4 @@
-// Package api exposes server option helpers for embedding CLIProxyAPI.
+// Package api exposes server option helpers for embedding LLMHub.
 //
 // It wraps internal server option types so external projects can configure the embedded
 // HTTP server without importing internal packages.
@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	internalapi "github.com/router-for-me/CLIProxyAPI/v7/internal/api"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/logging"
+	internalapi "github.com/therealtinhtute/llmhub/internal/api"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
+	"github.com/therealtinhtute/llmhub/sdk/config"
+	"github.com/therealtinhtute/llmhub/sdk/logging"
 )
 
 // ServerOption customises HTTP server construction.

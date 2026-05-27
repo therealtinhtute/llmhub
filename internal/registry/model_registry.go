@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	misc "github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
+	misc "github.com/therealtinhtute/llmhub/internal/misc"
 	log "github.com/sirupsen/logrus"
 )
 

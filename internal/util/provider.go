@@ -1,4 +1,4 @@
-// Package util provides utility functions used across the CLIProxyAPI application.
+// Package util provides utility functions used across the LLMHub application.
 // These functions handle common tasks such as determining AI service providers
 // from model names and managing HTTP proxies.
 package util
@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	log "github.com/sirupsen/logrus"
 )
 

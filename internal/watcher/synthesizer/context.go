@@ -3,7 +3,7 @@ package synthesizer
 import (
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/config"
 )
 
 // SynthesisContext provides the context needed for auth synthesis.

@@ -14,14 +14,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+	"github.com/therealtinhtute/llmhub/internal/interfaces"
+	"github.com/therealtinhtute/llmhub/internal/logging"
+	"github.com/therealtinhtute/llmhub/internal/thinking"
+	"github.com/therealtinhtute/llmhub/internal/util"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	"github.com/therealtinhtute/llmhub/sdk/config"
+	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"golang.org/x/net/context"
 )
 

@@ -23,25 +23,25 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/access"
-	managementHandlers "github.com/router-for-me/CLIProxyAPI/v7/internal/api/handlers/management"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/api/middleware"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/api/modules"
-	ampmodule "github.com/router-for-me/CLIProxyAPI/v7/internal/api/modules/amp"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/home"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/managementasset"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	sdkaccess "github.com/router-for-me/CLIProxyAPI/v7/sdk/access"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/claude"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/gemini"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/openai"
-	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/therealtinhtute/llmhub/internal/access"
+	managementHandlers "github.com/therealtinhtute/llmhub/internal/api/handlers/management"
+	"github.com/therealtinhtute/llmhub/internal/api/middleware"
+	"github.com/therealtinhtute/llmhub/internal/api/modules"
+	ampmodule "github.com/therealtinhtute/llmhub/internal/api/modules/amp"
+	"github.com/therealtinhtute/llmhub/internal/cache"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/home"
+	"github.com/therealtinhtute/llmhub/internal/logging"
+	"github.com/therealtinhtute/llmhub/internal/managementasset"
+	"github.com/therealtinhtute/llmhub/internal/redisqueue"
+	"github.com/therealtinhtute/llmhub/internal/util"
+	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers/claude"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers/gemini"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers/openai"
+	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
 	"gopkg.in/yaml.v3"
@@ -744,7 +744,7 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 		if os.IsNotExist(err) {
 			// Synchronously ensure management.html is available with a detached context.
 			// Control panel bootstrap should not be canceled by client disconnects.
-			if !managementasset.EnsureLatestManagementHTML(context.Background(), managementasset.StaticDir(s.configFilePath), cfg.ProxyURL, cfg.RemoteManagement.PanelGitHubRepository) {
+			if !managementasset.EnsureLatestManagementHTML(context.Background(), managementasset.StaticDir(s.configFilePath), cfg.ProxyURL, "") {
 				c.AbortWithStatus(http.StatusNotFound)
 				return
 			}

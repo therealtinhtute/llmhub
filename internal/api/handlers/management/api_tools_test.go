@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
 )
 
 func TestAPICallTransportDirectBypassesGlobalProxy(t *testing.T) {

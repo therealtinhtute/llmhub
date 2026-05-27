@@ -83,7 +83,7 @@ var zhStrings = map[string]string{
 	"error_prefix": "⚠ 错误: ",
 
 	// ── Status bar ──
-	"status_left":                 " CLIProxyAPI 管理终端",
+	"status_left":                 " LLMHub 管理终端",
 	"status_right":                "Tab/Shift+Tab: 切换 • L: 语言 • q/Ctrl+C: 退出 ",
 	"initializing_tui":            "正在初始化...",
 	"auth_gate_title":             "🔐 连接管理 API",
@@ -235,7 +235,7 @@ var enStrings = map[string]string{
 	"error_prefix": "⚠ Error: ",
 
 	// ── Status bar ──
-	"status_left":                 " CLIProxyAPI Management TUI",
+	"status_left":                 " LLMHub Management TUI",
 	"status_right":                "Tab/Shift+Tab: switch • L: lang • q/Ctrl+C: quit ",
 	"initializing_tui":            "Initializing...",
 	"auth_gate_title":             "🔐 Connect Management API",

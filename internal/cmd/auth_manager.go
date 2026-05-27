@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
+	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 )
 
 // newAuthManager creates a new authentication manager instance with all supported

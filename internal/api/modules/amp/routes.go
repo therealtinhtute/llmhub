@@ -9,11 +9,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/claude"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/gemini"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/openai"
+	"github.com/therealtinhtute/llmhub/internal/logging"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers/claude"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers/gemini"
+	"github.com/therealtinhtute/llmhub/sdk/api/handlers/openai"
 	log "github.com/sirupsen/logrus"
 )
 

@@ -29,13 +29,13 @@ import (
 	"strings"
 	"time"
 
-	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	sdkauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
+	codexauth "github.com/therealtinhtute/llmhub/internal/auth/codex"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/logging"
+	"github.com/therealtinhtute/llmhub/internal/util"
+	sdkauth "github.com/therealtinhtute/llmhub/sdk/auth"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 )
 

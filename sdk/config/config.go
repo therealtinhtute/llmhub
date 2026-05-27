@@ -1,10 +1,10 @@
 // Package config provides the public SDK configuration API.
 //
 // It re-exports the server configuration types and helpers so external projects can
-// embed CLIProxyAPI without importing internal packages.
+// embed LLMHub without importing internal packages.
 package config
 
-import internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+import internalconfig "github.com/therealtinhtute/llmhub/internal/config"
 
 type SDKConfig = internalconfig.SDKConfig
 
@@ -30,10 +30,6 @@ type OpenAICompatibilityAPIKey = internalconfig.OpenAICompatibilityAPIKey
 type OpenAICompatibilityModel = internalconfig.OpenAICompatibilityModel
 
 type TLS = internalconfig.TLSConfig
-
-const (
-	DefaultPanelGitHubRepository = internalconfig.DefaultPanelGitHubRepository
-)
 
 func LoadConfig(configFile string) (*Config, error) { return internalconfig.LoadConfig(configFile) }
 

@@ -418,8 +418,8 @@ func commitBranchMarker(t *testing.T, seedDir string, worktree *git.Worktree, br
 	}
 	if _, err := worktree.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "CLIProxyAPI",
-			Email: "cliproxy@local",
+			Name:  "LLMHub",
+			Email: "llmhub@local",
 			When:  time.Unix(1711929600, 0),
 		},
 	}); err != nil {

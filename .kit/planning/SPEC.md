@@ -1,170 +1,193 @@
-# SPEC: LLMHub Rebrand Monorepo With Embedded Web UI
+# SPEC: LLMHub Phase 2 — Web UI Rebuild with shadcn + Design Tokens
 
 Status: draft
-Input Type: new-initiative
+Input Type: change-request
 Lane: high-risk
-Risk Flags: auth, external-systems, public-contract, cross-platform, existing-behavior, multi-domain
-Affected Surfaces: api, browser, desktop, provider, docs
+Risk Flags: existing-behavior, multi-domain, public-contract
+Affected Surfaces: browser, desktop
 Downstream: plan full
 Updated At: 2026-05-27
 
 ## Source Mode
-refine
+lock-from-idea
 
 ## Source Inputs
-- Existing `.kit/planning/SPEC.md` draft for LLMHub monorepo refactor
-- Existing `.kit/planning/IDEA.md`
-- User clarification that the work must be split into three phases:
-  - phase 1: rebrand the original project, keep source behavior as close to upstream as possible, import the web UI source, and embed it into this repo
-  - phase 2: refactor the web UI style and UX after phase 1 is stable
-  - phase 3: brainstorm later for feature additions, provider additions, and larger product evolution
-- Repo facts gathered during refinement:
-  - there is currently no in-repo frontend source or frontend build tooling
-  - the management UI is currently served from a downloaded `management.html`
-  - `/management.html` is the current management entrypoint route
-  - the current config includes `remote-management.panel-github-repository`
-  - the current management asset updater still depends on upstream release and fallback URLs
+- Existing `web/` codebase (~45k lines: TSX/TS/SCSS)
+- `design-token.json` (scraped from aiengineeringfromscratch.com)
+- shadcn/ui documentation (https://ui.shadcn.com/llms.txt)
+- User decisions from brainstorm session
 
 ## Scenario
-project bootstrap
+Phase 2 of the LLMHub monorepo initiative. Phase 1 (rebrand + embedded panel) is complete and stable. This phase rebuilds the web UI's styling layer and component system.
 
 ## Goal
-Turn this fork into `LLMHub` as a monorepo product with one Go backend and one embedded web UI, while keeping phase 1 as a low-delta upstream rebrand and packaging migration rather than a broad product rewrite.
+Replace the entire SCSS Modules + hand-rolled UI component stack with Tailwind CSS v4 + shadcn/ui, applying the AI Engineering from Scratch design token visual language. Simplify theming from 4 variants to 2 (light + dark). Preserve all existing functionality, routes, API integration, state management, and i18n.
 
 ## Users / Actors
-- Primary maintainer: the fork owner evolving `LLMHub`
-- Operators: people running the proxy locally or on servers
-- Management UI users: operators managing auths, config, logs, and runtime status
-- Downstream developers: developers building from source or importing packages from this fork
+- Primary maintainer: implementing the rebuild
+- Operators: using the management panel to manage LLMHub instances
+- Management UI users: managing auths, providers, config, logs, quota, OAuth, system info
 
 ## Requirements
-1. The repository must become the single source of truth for both backend and management frontend, with frontend source living under `web/`.
-2. Phase 1 must preserve upstream runtime behavior and structure as much as possible, with changes limited to rebranding, monorepo packaging, and embedded panel delivery.
-3. Phase 1 must import the upstream management panel source into `web/` with minimal restructuring, changing only what is required to build inside this repo and embed into the Go binary.
-4. The production build must package frontend assets into the Go server binary using `go:embed`, so the management UI no longer depends on a separate repository, downloaded asset, or second deployment unit.
-5. The server must stop serving a runtime-downloaded `management.html` file and must instead serve embedded frontend assets from the Go binary.
-6. `/management.html` must remain the management UI entrypoint in phase 1 for compatibility, even if it is internally backed by an embedded app rather than a local downloaded file.
-7. The Go module path must change from `github.com/router-for-me/CLIProxyAPI/v7` to `github.com/therealtinhtute/llmhub`, and source imports in this repository must be updated accordingly.
-8. Product-visible identity must be changed from upstream naming to `LLMHub` in runtime banners, README and core docs, packaged UI branding, binary naming, and other visible product surfaces.
-9. The default auth storage path must change from `~/.cli-proxy-api` to `~/.llmhub`.
-10. Phase 1 must keep existing management API routes and existing config keys unless a key is made obsolete by the embedded-panel architecture.
-11. `remote-management.panel-github-repository` must be removed from the target architecture in phase 1 because embedded panel delivery makes that config path meaningless.
-12. `remote-management.disable-control-panel` must remain meaningful in phase 1, because operators may still need to disable the bundled UI.
-13. Phase 1 cleanup must be moderate, not aggressive: remove sponsor blocks, promotional content, and ecosystem listing noise from core product docs, while keeping operational docs and source surfaces still relevant to the fork.
-14. Phase 2 must be explicitly reserved for UI and UX refactoring after the imported panel is stable and embedded.
-15. Phase 3 must be explicitly reserved for later brainstorming about new features, new providers, and deeper runtime or product changes.
-16. Phase 1 must not include deep executor, provider, routing, auth, or thinking-pipeline redesign beyond the minimum required to support rebranding and embedded panel delivery.
+
+### Foundation
+1. Install and configure Tailwind CSS v4 in the Vite build pipeline. Tailwind output must inline correctly via `vite-plugin-singlefile`.
+2. Initialize shadcn/ui for Vite + React 19. Configure `components.json` with the project's path alias (`@/`).
+3. Map design tokens from `design-token.json` to Tailwind v4 `@theme` CSS custom properties (colors, typography, spacing, shadows, border-radius).
+4. Add Google Fonts CDN links to `index.html` for VT323, Source Serif 4, and JetBrains Mono.
+5. Create a light theme and dark theme using Tailwind v4 CSS custom properties. Remove the `white` and `auto` theme variants.
+
+### Component Replacement
+6. Replace hand-rolled `Button` with shadcn `Button`. Map existing variants (primary, secondary, ghost, danger) to shadcn variants styled with design tokens.
+7. Replace hand-rolled `Card` with shadcn `Card`.
+8. Replace hand-rolled `Input` with shadcn `Input`.
+9. Replace hand-rolled `Select` with shadcn `Select`.
+10. Replace hand-rolled `Modal` with shadcn `Dialog` + `AlertDialog`.
+11. Replace hand-rolled `Sheet` with shadcn `Sheet`.
+12. Replace hand-rolled `Table` with shadcn `Table`.
+13. Replace hand-rolled `Skeleton` with shadcn `Skeleton`.
+14. Replace hand-rolled `Collapsible` with shadcn `Collapsible`.
+15. Replace hand-rolled `ToggleSwitch` with shadcn `Switch`.
+16. Replace hand-rolled `EmptyState` with shadcn `Empty`.
+17. Replace hand-rolled `AutocompleteInput` with shadcn `Combobox`.
+18. Replace hand-rolled `LoadingSpinner` with shadcn `Spinner`.
+19. Replace hand-rolled `SelectionCheckbox` with shadcn `Checkbox`.
+20. Replace hand-rolled `NotificationContainer` + `useNotificationStore` with Sonner toast.
+21. Replace custom `MainLayout` sidebar with shadcn `Sidebar` component.
+
+### Page Rebuild
+22. Rebuild `LoginPage` with shadcn components + Tailwind utilities.
+23. Rebuild `DashboardPage` with shadcn components + Tailwind utilities.
+24. Rebuild `ProvidersWorkbenchPage` (most complex page) with shadcn components + Tailwind utilities. Preserve provider adapters/descriptors logic.
+25. Rebuild `AuthFilesPage` with shadcn components + Tailwind utilities.
+26. Rebuild `AuthFilesOAuthExcludedEditPage` with shadcn components + Tailwind utilities.
+27. Rebuild `AuthFilesOAuthModelAliasEditPage` with shadcn components + Tailwind utilities.
+28. Rebuild `OAuthPage` with shadcn components + Tailwind utilities.
+29. Rebuild `QuotaPage` with shadcn components + Tailwind utilities.
+30. Rebuild `ConfigPage` with shadcn components + Tailwind utilities. Preserve CodeMirror integration.
+31. Rebuild `LogsPage` with shadcn components + Tailwind utilities.
+32. Rebuild `SystemPage` with shadcn components + Tailwind utilities.
+
+### Cleanup
+33. Delete all `.module.scss` files (20 files, ~9.8k lines).
+34. Delete global SCSS files (`variables.scss`, `themes.scss`, `reset.scss`, `layout.scss`, `global.scss`, `components.scss`, `mixins.scss`).
+35. Remove `sass` from devDependencies. Remove SCSS preprocessor config from `vite.config.ts`.
+36. Update `useThemeStore` to support only `light` and `dark` themes. Remove `white` and `auto` theme logic.
+37. Update `MainLayout` theme picker to show only light/dark options.
+
+### Verification
+38. `bun run build` produces a single `dist/index.html` with all Tailwind CSS inlined.
+39. `bun run type-check` passes with zero errors.
+40. All 10 routes render correctly in both light and dark themes.
+41. All existing API integrations (login, providers, auth files, config, logs, quota, OAuth, system) continue to work unchanged.
+42. Mobile responsive behavior preserved on all pages.
+43. i18n switching works for all 4 locales.
+44. Page transitions (motion/framer-motion) work as before.
+45. CodeMirror YAML editor and diff modal work correctly.
+46. `make build` (full Go binary build) succeeds with the new frontend.
 
 ## Boundaries
+
 ### In Scope
-- Introduce an in-repo `web/` frontend as the management UI source of truth
-- Import the upstream management panel source with minimal change
-- Replace runtime panel download with embedded asset delivery
-- Keep `/management.html` as the panel entrypoint in phase 1
-- Rename module path and visible product identity to `LLMHub`
-- Rename packaging defaults such as auth directory and product naming
-- Keep core operational docs while removing obvious promo and ecosystem noise
-- Preserve management API compatibility in phase 1
-- Reserve phase 2 and phase 3 explicitly in the spec so implementation does not drift
+- Full replacement of SCSS with Tailwind CSS v4
+- Full replacement of hand-rolled UI primitives with shadcn/ui
+- Application of design-token.json visual language
+- Theme simplification (4 → 2)
+- Google Fonts CDN integration
+- Sonner toast migration
+- shadcn Sidebar adoption
+- All page rebuilds
 
 ### Out of Scope
-- Rebuilding the management UI from scratch in phase 1
-- Refactoring the web UI visual style in phase 1
-- Changing provider selection, retry behavior, auth scheduling, thinking pipeline logic, or executor architecture in phase 1
-- Adding new management API capabilities in phase 1
-- Adding new providers or new product features in phase 1
-- Removing every upstream artifact regardless of usefulness
-- Changing `/management.html` to a brand new route in phase 1
+- Changing Zustand stores (except useThemeStore theme list and useNotificationStore removal)
+- Changing API layer or typed callers
+- Changing routing structure or adding/removing routes
+- Changing i18n keys or locale file structure
+- Adding new features or pages
+- Backend changes
+- New provider support
+- Changing CodeMirror version or functionality
+- Changing motion/framer-motion version or animation logic (beyond restyling)
 
 ## Constraints
-- Follow a monorepo mental model: one repo, one product, one build story.
-- Keep phase 1 as a low-delta fork migration rather than a broad cleanup or architecture rewrite.
-- Preserve operator-facing compatibility for proxy behavior and management workflows wherever practical.
-- There is currently no in-repo frontend toolchain, so the spec must assume new frontend tooling will be introduced and owned by this repo.
-- The current management serving path is coupled to runtime download helpers and a physical file path; implementation planning must account for removing that coupling safely.
-- Existing auth and management flows are sensitive surfaces and must avoid regressions.
-- The local worktree does not provide a committed baseline, so planning should assume a fork-owned reshape rather than history-sensitive surgical commits.
+- Single-file build (`vite-plugin-singlefile`) must keep working
+- Big-bang approach: no hybrid SCSS + Tailwind period; all SCSS deleted in one pass
+- Google Fonts CDN (not inlined) for VT323, Source Serif 4, JetBrains Mono
+- Keep motion library for animations
+- Bun as package manager
+- `@/` path alias preserved
+- All i18n keys unchanged
 
-## Phase Structure
-### Phase 1
-- Full product rebrand to `LLMHub`
-- Import upstream panel source into `web/`
-- Build and embed frontend assets into the Go binary
-- Preserve behavior and routes wherever practical
-- Do moderate doc cleanup only
+## Design Token Mapping
 
-### Phase 2
-- Refactor web UI style, UX, and information architecture after phase 1 is stable
-- Keep backend contracts from phase 1 stable unless a later spec says otherwise
+### Colors (Light)
+| Token | Value | Tailwind Usage |
+|-------|-------|---------------|
+| `--bg` | `#fafaf5` | `bg-background` |
+| `--bg-surface` | `#f3f1e8` | `bg-card`, `bg-muted` |
+| `--ink` | `#1a1a1a` | `text-foreground` |
+| `--ink-soft` | `#4a4a4a` | `text-muted-foreground` |
+| `--ink-mute` | `#7a7a78` | secondary text |
+| `--blueprint` | `#3553ff` | `text-primary`, `bg-primary` |
+| `--rule-soft` | `rgba(26,26,26,0.16)` | `border-border` |
+| `--code-bg` | `#efece0` | code block backgrounds |
 
-### Phase 3
-- Separate future brainstorm for new features, providers, and deeper runtime or product evolution
+### Colors (Dark)
+Derive from the existing dark theme in `themes.scss`, mapped to design token variable names. Keep the warm-dark palette (`#151412` bg, `#1d1b18` surface, `#f6f4f1` text).
 
-## Acceptance Criteria
-- The spec explicitly defines phase 1 as a low-delta rebrand and embed effort, not a deep product rewrite.
-- The spec explicitly defines phase 2 as the UI/UX refactor phase and phase 3 as later product expansion brainstorming.
-- The spec locks the web UI baseline for phase 1 to an upstream panel import into `web/`.
-- The spec locks production delivery to embedded frontend assets served by the Go binary.
-- The spec locks `/management.html` as the phase-1 panel entrypoint.
-- The spec locks module path migration to `github.com/therealtinhtute/llmhub`.
-- The spec locks product naming to `LLMHub`.
-- The spec states that `remote-management.panel-github-repository` is removed from the target architecture in phase 1.
-- The spec states that `disable-control-panel` remains supported.
-- The spec states that phase 1 cleanup is moderate and preserves core docs while removing obvious promo noise.
-- In Scope and Out of Scope make it unambiguous that runtime/provider redesign is deferred.
+### Typography
+| Role | Font | Size | Weight | Tailwind Class |
+|------|------|------|--------|---------------|
+| H1 | VT323 | 48px | 400 | `font-display text-5xl` |
+| H2 | VT323 | 30.4px | 400 | `font-display text-3xl` |
+| H3 | JetBrains Mono | 15.2px | 600 | `font-mono text-sm font-semibold uppercase tracking-wider` |
+| Body | Source Serif 4 | ~17px | 400 | `font-body text-base` |
+| Code | JetBrains Mono | ~15px | 400 | `font-mono text-sm` |
+
+### Spacing
+Base unit: 11px from design tokens. Map to Tailwind's default spacing scale (closest: `2.75` = 11px). Pragmatic approach: use Tailwind's standard 4px grid where it fits naturally.
+
+### Border Radius
+All 0 — `rounded-none` everywhere. Override shadcn defaults.
+
+### Shadows
+| Token | Value |
+|-------|-------|
+| `--shadow-hard` | `3px 3px 0 var(--ink)` |
+| `--shadow-hard-lg` | `5px 5px 0 var(--ink)` |
 
 ## Validation Expectations
-- Frontend proof:
-  - `web/` exists as the in-repo source of truth for the management UI.
-  - the imported panel source can build successfully inside the monorepo.
-  - the resulting build output can be embedded into the Go binary.
-- Backend proof:
-  - Go code serves embedded frontend assets rather than fetched `management.html`.
-  - `/management.html` still opens the management UI after the migration.
-  - the binary builds successfully after module-path migration and embedded asset integration.
-- Compatibility proof:
-  - management API routes used by the imported panel remain functional in phase 1.
-  - proxy runtime behavior is unchanged except for intentional branding, packaging, and panel-hosting changes.
-  - `disable-control-panel` still disables panel access.
-- Config proof:
-  - runtime behavior no longer depends on `panel-github-repository`.
-  - obsolete updater/config logic tied only to external panel download is removed or bypassed.
-- Docs proof:
-  - primary docs describe `LLMHub`, not the upstream product.
-  - obvious sponsor, promo, and ecosystem list noise is removed from core docs.
-  - operational docs still needed to build and run the fork remain available.
-
-## Dependencies / Assumptions
-- The canonical repository for this fork is `git@github.com:therealtinhtute/llmhub.git`.
-- The fork brand name is `LLMHub`.
-- The desired module path is `github.com/therealtinhtute/llmhub`.
-- The phase-1 web UI baseline is the upstream CPAMC source imported into `web/`.
-- `go:embed` is the preferred production distribution mechanism over runtime disk serving.
-- Frontend tooling required by the imported panel will be introduced into this repo and maintained here.
-- License attribution will be preserved where required even if sponsor and ecosystem content is removed.
+- **Build proof**: `bun run build` succeeds; output is a single HTML file with inlined Tailwind CSS; file size comparable to current build (±30%).
+- **Visual proof**: all 10 routes render with the design token aesthetic (VT323 headings, sharp corners, blueprint blue accent) in both light and dark themes.
+- **Functional proof**: login flow, provider management, auth file editing, config editing (CodeMirror), log viewing, quota display, OAuth management, system info — all work identically to pre-rebuild.
+- **Responsive proof**: all pages usable on mobile viewports (≤768px).
+- **i18n proof**: language switching works across all 4 locales.
+- **Theme proof**: light/dark toggle works; only 2 themes available; `data-theme` attribute applied correctly.
+- **Animation proof**: page transitions animate between routes; no regression in motion behavior.
+- **Go build proof**: `make build` produces a working binary with the new frontend embedded.
 
 ## Key Decisions
-- Chosen path: low-delta phase 1 rebrand plus in-repo web UI import and embed.
-  - Rationale: this matches the user’s intent to keep the original project behavior and structure as intact as possible before any stylistic or product evolution work.
-- Rejected alternative: aggressive repo cleanup in phase 1.
-  - Why not: it would make phase 1 drift into a broad rewrite, increase migration risk, and obscure whether behavior parity was preserved.
-- Rejected alternative: keep the panel in another repository and fetch or vendor build output.
-  - Why not: it preserves the weakest coupling in the current design and fails the one-repo ownership goal.
-- Rejected alternative: redesign the web UI during import.
-  - Why not: it mixes phase 1 and phase 2, making it harder to prove that the imported UI still works before stylistic changes.
-- Rejected alternative: keep `panel-github-repository` as a deprecated config key.
-  - Why not: once the panel is embedded, the key no longer has real meaning and only keeps dead conceptual surface around.
-- Rejected alternative: replace `/management.html` with a brand new route in phase 1.
-  - Why not: the current code and tests already treat `/management.html` as a live contract, so changing it now adds risk without real product benefit.
-
-## Open Questions
-- None currently blocking this spec.
+1. **Full Tailwind v4 + shadcn (Option A)** over hybrid approach (Option B).
+   - Why: user chose big-bang. Hybrid defeats the purpose and leaves two styling systems as maintenance burden.
+2. **Google Fonts CDN** over inline font subsets.
+   - Why: keeps single-file output small. Offline panel use is not a requirement.
+3. **Keep motion library** over pure CSS replacement.
+   - Why: page transition logic is complex; rewriting adds risk for no clear benefit.
+4. **Sonner** over keeping hand-rolled notifications.
+   - Why: less custom code, better UX, shadcn-recommended integration.
+5. **shadcn Sidebar** over restyling current sidebar.
+   - Why: gets collapsible, keyboard shortcuts, mobile sheet mode for free.
+6. **Light + dark only** over preserving all 4 themes.
+   - Why: reduces theme maintenance; `white` theme was barely distinct from `light`; `auto` can be reimplemented as a preference that switches between the two.
 
 ## Deferred Ideas
-- Full UI redesign and style system work after the embedded panel is stable
-- New providers, new product features, and broader runtime changes
-- SDK/package-surface redesign after the module migration settles
-- Larger doc reorganization beyond the moderate cleanup required in phase 1
+- `auto` theme preference (detect system dark mode and switch between light/dark)
+- New pages or routes
+- Dashboard redesign with charts (shadcn Chart component)
+- Form validation library integration (React Hook Form + shadcn Field)
+- Data table with sorting/filtering (shadcn Data Table)
+- Command palette (shadcn Command)
+- RTL support
 
 ## Ambiguity Report
 - Goal clarity: high

@@ -1,10 +1,10 @@
-current_phase: doc-cleanup
-entry_phase: module-rebrand
+current_phase: shadcn-primitives
+entry_phase: tailwind-foundation
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: .kit/planning/phases/doc-cleanup/doc-cleanup-CONTEXT.md
-active_plan: .kit/planning/phases/doc-cleanup/doc-cleanup-PLAN.md
-latest_cook_run: .kit/runs/work/20260527-2230-doc-cleanup.md
-latest_check_report: .kit/reports/check/20260527-2245-doc-cleanup.md
+active_context: .kit/planning/phases/shadcn-primitives/shadcn-primitives-CONTEXT.md
+active_plan: .kit/planning/phases/shadcn-primitives/shadcn-primitives-PLAN.md
+latest_cook_run: .kit/runs/work/20260528-0020-shadcn-primitives.md
+latest_check_report: .kit/reports/check/20260528-0300-shadcn-primitives.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-27 23:00
+last_updated: 2026-05-28 03:00

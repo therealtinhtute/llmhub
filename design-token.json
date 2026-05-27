@@ -1,0 +1,448 @@
+{
+  "url": "https://aiengineeringfromscratch.com/lesson.html?path=phases/00-setup-and-tooling/10-terminal-and-shell",
+  "title": "Terminal & Shell",
+  "description": "A lesson from the AI Engineering from Scratch curriculum. 435 lessons across 20 phases, four languages, every algorithm built from raw math.",
+  "scrapedAt": "2026-05-27T14:38:42.892Z",
+  "colors": {
+    "bg": "#fafaf5",
+    "bgSecondary": "#fafaf5",
+    "text": "#1a1a1a",
+    "textSecondary": "#666666",
+    "primary": "#3553ff",
+    "secondary": "#3553ff",
+    "border": "#efece0",
+    "palette": [
+      {
+        "hex": "#efece0",
+        "role": "badge",
+        "count": 1,
+        "area": 6501053,
+        "contrast": "dark"
+      },
+      {
+        "hex": "#fafaf5",
+        "role": "block",
+        "count": 1,
+        "area": 402333,
+        "contrast": "dark"
+      },
+      {
+        "hex": "#3553ff",
+        "role": "button",
+        "count": 1,
+        "area": 102061,
+        "contrast": "light"
+      },
+      {
+        "hex": "#1a1a1a",
+        "role": "button",
+        "count": 1,
+        "area": 2663,
+        "contrast": "light"
+      }
+    ]
+  },
+  "typography": {
+    "headingFont": {
+      "family": "VT323, ui-monospace, \"JetBrains Mono\", monospace",
+      "cleanFamily": "VT323",
+      "weights": [
+        "400"
+      ],
+      "usedFor": "heading",
+      "fallback": "sans-serif"
+    },
+    "bodyFont": {
+      "family": "\"Source Serif 4\", \"Source Serif Pro\", \"Iowan Old Style\", Georgia, serif",
+      "cleanFamily": "Source Serif 4",
+      "weights": [
+        "400"
+      ],
+      "usedFor": "body",
+      "fallback": "sans-serif"
+    },
+    "fontSizes": [
+      48,
+      41.6,
+      30.4,
+      25.6,
+      22.4,
+      18.4,
+      18,
+      16.96,
+      16,
+      15.68
+    ],
+    "lineHeights": [],
+    "details": [
+      {
+        "role": "H1",
+        "size": 48,
+        "weight": "400",
+        "lineHeight": "48px",
+        "letterSpacing": "0.96px",
+        "font": "VT323"
+      },
+      {
+        "role": "H2",
+        "size": 30.4,
+        "weight": "400",
+        "lineHeight": "31.92px",
+        "letterSpacing": "0.608px",
+        "font": "VT323"
+      },
+      {
+        "role": "H3",
+        "size": 15.2,
+        "weight": "600",
+        "lineHeight": "15.2px",
+        "letterSpacing": "1.824px",
+        "font": "JetBrains Mono"
+      },
+      {
+        "role": "Body",
+        "size": 16.96,
+        "weight": "400",
+        "lineHeight": "28.832px",
+        "letterSpacing": "normal",
+        "font": "Source Serif 4"
+      },
+      {
+        "role": "Code",
+        "size": 14.9248,
+        "weight": "400",
+        "lineHeight": "25.3722px",
+        "letterSpacing": "normal",
+        "font": "JetBrains Mono"
+      }
+    ]
+  },
+  "spacing": {
+    "base": 11,
+    "common": [
+      {
+        "value": 11,
+        "count": 53,
+        "role": "element"
+      },
+      {
+        "value": 1,
+        "count": 48,
+        "role": "element"
+      },
+      {
+        "value": 10,
+        "count": 33,
+        "role": "element"
+      },
+      {
+        "value": 12,
+        "count": 22,
+        "role": "element"
+      },
+      {
+        "value": 4,
+        "count": 15,
+        "role": "element"
+      },
+      {
+        "value": 22,
+        "count": 15,
+        "role": "element"
+      },
+      {
+        "value": 5,
+        "count": 14,
+        "role": "element"
+      },
+      {
+        "value": 7,
+        "count": 12,
+        "role": "element"
+      }
+    ]
+  },
+  "borderRadius": [],
+  "shadows": [],
+  "components": {
+    "primaryButton": {
+      "bg": "#3553ff",
+      "border": "",
+      "borderRadius": 0,
+      "color": "#ffffff",
+      "fontSize": 14.4,
+      "fontWeight": "400",
+      "paddingH": 18,
+      "paddingV": 12,
+      "variant": "filled"
+    },
+    "buttons": [
+      {
+        "bg": "#3553ff",
+        "border": "",
+        "borderRadius": 0,
+        "color": "#ffffff",
+        "fontSize": 14.4,
+        "fontWeight": "400",
+        "paddingH": 18,
+        "paddingV": 12,
+        "variant": "filled"
+      },
+      {
+        "bg": "transparent",
+        "border": "0.555556px solid rgba(26, 26, 26, 0.16)",
+        "borderRadius": 0,
+        "color": "#4a4a4a",
+        "fontSize": 13.3333,
+        "fontWeight": "400",
+        "paddingH": 0,
+        "paddingV": 0,
+        "variant": "outline"
+      },
+      {
+        "bg": "transparent",
+        "border": "0.555556px solid rgba(26, 26, 26, 0.16)",
+        "borderRadius": 0,
+        "color": "#1a1a1a",
+        "fontSize": 15.2,
+        "fontWeight": "400",
+        "paddingH": 0,
+        "paddingV": 0,
+        "variant": "outline"
+      },
+      {
+        "bg": "transparent",
+        "border": "",
+        "borderRadius": 0,
+        "color": "#4a4a4a",
+        "fontSize": 14.72,
+        "fontWeight": "400",
+        "paddingH": 20,
+        "paddingV": 7,
+        "variant": "ghost"
+      },
+      {
+        "bg": "#3553ff",
+        "border": "",
+        "borderRadius": 0,
+        "color": "#3553ff",
+        "fontSize": 14.72,
+        "fontWeight": "400",
+        "paddingH": 20,
+        "paddingV": 7,
+        "variant": "filled"
+      },
+      {
+        "bg": "transparent",
+        "border": "",
+        "borderRadius": 0,
+        "color": "#3553ff",
+        "fontSize": 10.88,
+        "fontWeight": "400",
+        "paddingH": 10,
+        "paddingV": 4,
+        "variant": "ghost"
+      }
+    ],
+    "card": null
+  },
+  "fontFaces": [],
+  "cssCustomProperties": [
+    {
+      "name": "--font-display",
+      "value": "'VT323', ui-monospace, 'JetBrains Mono', monospace",
+      "category": "typography"
+    },
+    {
+      "name": "--font-body",
+      "value": "'Source Serif 4', 'Source Serif Pro', 'Iowan Old Style', Georgia, serif",
+      "category": "typography"
+    },
+    {
+      "name": "--font-mono",
+      "value": "'JetBrains Mono', ui-monospace, 'Consolas', monospace",
+      "category": "typography"
+    },
+    {
+      "name": "--font-heading",
+      "value": "var(--font-display)",
+      "category": "typography"
+    },
+    {
+      "name": "--bg",
+      "value": "#fafaf5",
+      "category": "color"
+    },
+    {
+      "name": "--bg-surface",
+      "value": "#f3f1e8",
+      "category": "color"
+    },
+    {
+      "name": "--bg-surface-hover",
+      "value": "#ece9dc",
+      "category": "color"
+    },
+    {
+      "name": "--ink",
+      "value": "#1a1a1a",
+      "category": "color"
+    },
+    {
+      "name": "--ink-soft",
+      "value": "#4a4a4a",
+      "category": "color"
+    },
+    {
+      "name": "--ink-mute",
+      "value": "#7a7a78",
+      "category": "color"
+    },
+    {
+      "name": "--rule",
+      "value": "#1a1a1a",
+      "category": "color"
+    },
+    {
+      "name": "--rule-soft",
+      "value": "rgba(26, 26, 26, 0.16)",
+      "category": "color"
+    },
+    {
+      "name": "--paper-rule",
+      "value": "rgba(26, 26, 26, 0.08)",
+      "category": "color"
+    },
+    {
+      "name": "--blueprint",
+      "value": "#3553ff",
+      "category": "color"
+    },
+    {
+      "name": "--blueprint-tint",
+      "value": "rgba(53, 83, 255, 0.08)",
+      "category": "color"
+    },
+    {
+      "name": "--blueprint-tint-strong",
+      "value": "rgba(53, 83, 255, 0.18)",
+      "category": "color"
+    },
+    {
+      "name": "--status-complete",
+      "value": "#3553ff",
+      "category": "color"
+    },
+    {
+      "name": "--status-in-progress",
+      "value": "#4a4a4a",
+      "category": "color"
+    },
+    {
+      "name": "--status-planned",
+      "value": "#b8b6ad",
+      "category": "color"
+    },
+    {
+      "name": "--warn",
+      "value": "#b8870f",
+      "category": "color"
+    },
+    {
+      "name": "--code-bg",
+      "value": "#efece0",
+      "category": "color"
+    },
+    {
+      "name": "--modal-bg",
+      "value": "#fafaf5",
+      "category": "color"
+    },
+    {
+      "name": "--overlay-bg",
+      "value": "rgba(26, 26, 26, 0.55)",
+      "category": "color"
+    },
+    {
+      "name": "--header-bg",
+      "value": "rgba(250, 250, 245, 0.94)",
+      "category": "color"
+    },
+    {
+      "name": "--header-offset",
+      "value": "92px",
+      "category": "spacing"
+    },
+    {
+      "name": "--text",
+      "value": "var(--ink)",
+      "category": "typography"
+    },
+    {
+      "name": "--text-muted",
+      "value": "var(--ink-soft)",
+      "category": "typography"
+    },
+    {
+      "name": "--border",
+      "value": "var(--rule-soft)",
+      "category": "other"
+    },
+    {
+      "name": "--accent",
+      "value": "var(--blueprint)",
+      "category": "other"
+    },
+    {
+      "name": "--accent-hover",
+      "value": "#2840d6",
+      "category": "color"
+    },
+    {
+      "name": "--secondary",
+      "value": "var(--blueprint)",
+      "category": "other"
+    },
+    {
+      "name": "--complete",
+      "value": "var(--status-complete)",
+      "category": "other"
+    },
+    {
+      "name": "--planned",
+      "value": "var(--status-planned)",
+      "category": "other"
+    },
+    {
+      "name": "--shadow-color",
+      "value": "var(--ink)",
+      "category": "other"
+    },
+    {
+      "name": "--shadow-hard",
+      "value": "3px 3px 0 var(--ink)",
+      "category": "other"
+    },
+    {
+      "name": "--shadow-hard-lg",
+      "value": "5px 5px 0 var(--ink)",
+      "category": "other"
+    },
+    {
+      "name": "--dot-color",
+      "value": "var(--paper-rule)",
+      "category": "other"
+    }
+  ],
+  "tags": [
+    "light",
+    "sharp",
+    "accented",
+    "monospace",
+    "serif"
+  ],
+  "mood": "Editorial and authoritative — feels like a magazine or news site.",
+  "heroHeadline": "Terminal & Shell",
+  "heroSubtitle": "The terminal is where AI engineers live. Get comfortable here.",
+  "isJapanese": false
+}

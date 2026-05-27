@@ -1,73 +1,125 @@
-# ROADMAP: LLMHub Phase 1 — Rebrand + Embedded Web UI
+# ROADMAP: LLMHub Phase 2 — Web UI Rebuild with shadcn + Design Tokens
 
 ## Planning Basis
 - source spec: `.kit/planning/SPEC.md`
 - planning mode: `full`
-- entry phase: `module-rebrand`
+- entry phase: `tailwind-foundation`
 - execution mode: sequential (each phase depends on prior)
 
-## Phase 1: module-rebrand
-**Goal:** Migrate the Go module path to `github.com/therealtinhtute/llmhub`, rename product identity strings to LLMHub, change auth dir default to `~/.llmhub`, remove the `panel-github-repository` config key, and rename build artifacts.
+---
+
+## Phase 1: tailwind-foundation
+**Goal:** Install Tailwind CSS v4 + shadcn/ui into the Vite build pipeline. Map design tokens to CSS custom properties. Set up light/dark theming. Add Google Fonts. Verify single-file build still works.
 
 **Deliverables:**
-- `go.mod` module line changed to `github.com/therealtinhtute/llmhub`
-- All ~964 Go import paths updated
-- `DefaultAuthDir` changed to `~/.llmhub`
-- `DefaultPanelGitHubRepository` constant and `PanelGitHubRepository` config field removed
-- Startup banner prints `LLMHub`
-- `.goreleaser.yml` binary renamed to `llmhub`
-- `docker-compose.yml` auth mount path updated
-- `go build ./...` passes clean
+- Tailwind CSS v4 installed and configured in Vite
+- shadcn/ui initialized with `components.json`
+- `src/index.css` with `@theme` block mapping all design tokens (colors, typography, spacing, shadows, radius)
+- Light + dark theme CSS custom properties
+- Google Fonts CDN links in `index.html`
+- `bun run build` produces single HTML with Tailwind CSS inlined
 
 **Dependencies:**
-- None (first phase)
+- None (entry phase)
 
 **Risks / Watch-fors:**
-- Bulk import replacement can break if `v7` version suffix isn't handled correctly (new path drops `/v7`)
-- Config removal may leave dead references in management API handlers or TUI
-- Docker volume path change may surprise existing deployments (spec-accepted)
+- Tailwind v4 uses CSS-first config (`@theme` in CSS, no `tailwind.config.js`) — different from v3 docs
+- `vite-plugin-singlefile` must inline Tailwind's generated CSS; verify early
+- shadcn CLI `init` may scaffold files that conflict with existing `src/` structure
 
-## Phase 2: embed-panel
-**Goal:** Import the upstream CPAMC React panel source into `web/`, build it with Bun + Vite (produces single HTML via `vite-plugin-singlefile`), embed the build output into the Go binary via `go:embed`, and replace the runtime download serving path with embedded asset delivery.
+---
+
+## Phase 2: shadcn-primitives
+**Goal:** Install all needed shadcn components via CLI. Customize each component to match design tokens (0 radius, hard shadows, blueprint blue). Replace all 16 hand-rolled UI primitives with shadcn equivalents. Migrate notifications to Sonner.
 
 **Deliverables:**
-- `web/` directory with CPAMC source (copied, no git history)
-- `bun install && bun run build` produces `web/dist/index.html`
-- `internal/managementasset/static/management.html` copied from build output
-- `internal/managementasset/embed.go` with `//go:embed` serving the panel
-- `internal/managementasset/updater.go` GitHub download logic removed
-- `internal/api/server.go` `serveManagementControlPanel` serves from embedded bytes
-- `cmd/server/main.go` `StartAutoUpdater` calls removed
-- `disable-control-panel` flag still works (returns 404 when true)
-- `.goreleaser.yml` `before.hooks` builds frontend before Go compile
-- `web/dist/` added to `.gitignore`
+- 16 shadcn components installed and customized: Button, Card, Input, Select, Dialog, AlertDialog, Sheet, Table, Skeleton, Collapsible, Switch, Empty, Combobox, Spinner, Checkbox, Sonner
+- All hand-rolled `components/ui/` files replaced
+- `useNotificationStore` replaced with Sonner toast calls
+- `NotificationContainer` component removed
+- All existing imports updated to new components
 
 **Dependencies:**
-- Phase 1 complete (module path must be settled before adding new packages)
-- Bun available in dev environment
-- CPAMC source cloneable from `https://github.com/router-for-me/Cli-Proxy-API-Management-Center`
+- Phase 1 complete (Tailwind + shadcn initialized, design tokens mapped)
 
 **Risks / Watch-fors:**
-- CPAMC API calls may not match the Go server's management API routes (requires runtime verification)
-- `go:embed` cannot traverse `../` — requires a copy step from `web/dist/` to `internal/managementasset/static/`
-- Build pipeline must include frontend build before Go compile in CI/goreleaser
-- CPAMC's `bun.lockb` or `bun.lock` must be committed for reproducible builds
+- shadcn `Select` uses Radix, which has different API than current custom Select — consumer components need prop changes
+- `Modal` → `Dialog` migration: current modal uses motion animations — need to verify Dialog plays well with motion or use Dialog's built-in animations
+- Sonner migration touches every component that calls `showNotification()` — search and replace carefully
+- `AutocompleteInput` → `Combobox` may have different selection/filtering behavior
 
-## Phase 3: doc-cleanup
-**Goal:** Update README files, example config, and other docs to reflect LLMHub branding. Remove sponsor blocks, promotional content, and ecosystem listing noise while preserving operational documentation.
+---
+
+## Phase 3: layout-shell
+**Goal:** Replace the custom `MainLayout` sidebar with shadcn Sidebar. Rebuild the app shell (header, sidebar, content area) with Tailwind utilities. Simplify theme picker to light/dark only. Update `useThemeStore`.
 
 **Deliverables:**
-- `README.md` rebranded to LLMHub, sponsor/promo sections removed
-- `README_CN.md` and `README_JA.md` rebranded
-- `config.example.yaml` updated: `panel-github-repository` removed, `auth-dir` default shows `~/.llmhub`
-- `assets/` sponsor images evaluated for removal
-- No `router-for-me` or `CLI Proxy API` branding in primary docs
-- Operational docs (install, config reference, build instructions) preserved
+- shadcn `Sidebar` component installed and wired as the main navigation
+- `MainLayout.tsx` rebuilt with Tailwind classes (no SCSS)
+- Theme picker shows only light/dark options
+- `useThemeStore` updated: only `light` | `dark` types
+- `THEME_CARDS` array reduced to 2 entries
+- Mobile sidebar (sheet mode) working
+- Sidebar collapse/expand working
 
 **Dependencies:**
-- Phase 1 complete (product identity settled)
-- Phase 2 ideally complete (config example should reflect embedded panel, not download)
+- Phase 2 complete (shadcn Button, Sheet, and other primitives available)
 
 **Risks / Watch-fors:**
-- Over-cleanup risk: some upstream doc content may still be operationally useful
-- Non-English READMEs may have different structure than English version
+- shadcn Sidebar has its own state management (SidebarProvider) — must coexist with existing Zustand stores
+- Current sidebar uses `sidebarCollapsed` state with ResizeObserver for `--content-center-x` — need to verify shadcn Sidebar exposes similar hooks
+- `PageTransition` component depends on content ref from MainLayout — ensure ref forwarding works with new layout
+- Navigation group labels and icons need remapping to shadcn Sidebar's `SidebarGroup` / `SidebarMenuItem` structure
+
+---
+
+## Phase 4: page-rebuild
+**Goal:** Rebuild all 11 page/feature components with Tailwind utilities and shadcn components. Remove all SCSS module imports. Preserve all business logic, API calls, and i18n keys.
+
+**Deliverables:**
+- All 11 pages rebuilt: LoginPage, DashboardPage, ProvidersWorkbenchPage, AuthFilesPage, AuthFilesOAuthExcludedEditPage, AuthFilesOAuthModelAliasEditPage, OAuthPage, QuotaPage, ConfigPage, LogsPage, SystemPage
+- All provider feature sub-components rebuilt (ProviderSheet, ProviderHeaderCard, ProviderResourceTable, ProviderCategoryList, ProviderResourcePanel, ProviderStatusBar, OpenAIBrandToolbar)
+- Config components rebuilt (ConfigSection, ConfigSourceEditor, VisualConfigEditor, DiffModal)
+- ModelMappingDiagram components rebuilt
+- QuotaCard/QuotaSection rebuilt
+- SecondaryScreenShell rebuilt
+- CodeMirror integration preserved (restyled with Tailwind)
+- Zero SCSS module imports remaining in any TSX file
+
+**Dependencies:**
+- Phase 3 complete (layout shell provides the app frame)
+
+**Risks / Watch-fors:**
+- ProvidersWorkbenchPage is the most complex page (~2k SCSS lines) — highest risk of regression
+- AuthFilesPage has the largest SCSS module (2045 lines) — many edge-case styles
+- ConfigPage CodeMirror styling: CodeMirror has its own CSS that may conflict with Tailwind's reset
+- LogsPage has scroll-locked auto-scroll behavior that depends on specific CSS
+- ModelMappingDiagram has complex CSS grid/flex layouts
+
+---
+
+## Phase 5: cleanup-verify
+**Goal:** Delete all SCSS files and sass dependency. Remove SCSS config from Vite. Run full verification suite: build, type-check, visual check, responsive check, i18n, theme toggle, animations, Go build.
+
+**Deliverables:**
+- All 20 `.module.scss` files deleted
+- All 7 global SCSS files deleted
+- `sass` removed from `package.json` devDependencies
+- SCSS preprocessor config removed from `vite.config.ts`
+- `bun run build` succeeds (single HTML)
+- `bun run type-check` passes
+- All 10 routes render in both themes
+- Mobile responsive on all pages
+- i18n works for all 4 locales
+- Page transitions work
+- CodeMirror works
+- `make build` (Go binary) succeeds
+
+**Dependencies:**
+- Phase 4 complete (all pages rebuilt, no SCSS imports remain)
+
+**Risks / Watch-fors:**
+- Hidden SCSS imports that weren't caught during page rebuild
+- Global CSS classes from `components.scss` used by components not in the explicit rebuild list
+- CodeMirror CSS may have been loaded via SCSS — verify it has standalone CSS loading
+- `PageTransition.scss` and `SplashScreen.scss` are non-module SCSS files — need Tailwind equivalents

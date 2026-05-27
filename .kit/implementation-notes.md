@@ -50,3 +50,43 @@ Started: 2026-05-27
 ## Wave 2 — .github/ CI files (extended scope)
 - Extended T4 beyond the plan's `assets/` cleanup to also fix `.github/` CI files. These had `router-for-me/models.git` references in 3 workflow files and old branding in FUNDING.yml and docker-image.yml.
 - DOCKERHUB_REPO changed from `eceasy/cli-proxy-api` to `eceasy/llmhub` — matches the docker-compose.yml change from embed-panel phase.
+
+---
+
+Phase: tailwind-foundation
+Started: 2026-05-28
+
+## T2 — shadcn init: manual instead of CLI
+- Created `components.json` and `src/lib/utils.ts` manually instead of `bunx shadcn@latest init`.
+- **Why**: CLI is interactive and may scaffold files conflicting with existing `src/` structure. Manual creation is deterministic.
+- **Tradeoff**: If shadcn CLI adds new required files in future versions, they won't be present. Low risk — schema is stable.
+
+## T1 — index.css: replaced Vite scaffold default
+- Overwrote existing `src/index.css` (Vite boilerplate with default styles) with Tailwind import.
+- **Why**: File was unused — `main.tsx` imported `global.scss` not `index.css`. Boilerplate styles would conflict with design tokens.
+
+## T3 — Dark theme selector: `.dark` class vs `[data-theme='dark']`
+- Used `.dark` class selector (shadcn convention) for dark theme in `index.css`.
+- **Why**: shadcn components expect `.dark` on `<html>`. Existing SCSS uses `[data-theme='dark']`.
+- **Tradeoff**: `useThemeStore` will need to apply `.dark` class in addition to or instead of `data-theme` — addressed in Phase 3 (layout-shell).
+
+---
+
+Phase: shadcn-primitives
+Started: 2026-05-28
+
+## T4 — Compat wrapper approach for consumer migration
+- Created `Legacy*.tsx` thin wrappers that preserve old component APIs while delegating to shadcn internals.
+- 11 wrappers: LegacyModal, LegacySelect, LegacySheet, LegacyInput, LegacyTable, LegacySkeleton, LegacyCollapsible, LegacyToggleSwitch, LegacySelectionCheckbox, LegacyEmptyState, LegacyLoadingSpinner.
+- **Why**: User chose this over direct consumer updates. Avoids touching 20+ consumer files' internal logic during component installation phase. Consumers keep their existing API contracts.
+- **Tradeoff**: Extra indirection layer; Legacy files must be removed in Phase 4 when consumers adopt shadcn APIs directly.
+
+## T4 — LegacySheet: confirmClose is async
+- `LegacySheet.confirmClose` returns `Promise<boolean>`. The shadcn `Sheet` `onOpenChange` is synchronous.
+- Handled by making `handleOpenChange` async — Radix Dialog fires `onOpenChange` but doesn't gate on its return value, so we prevent close via `onPointerDownOutside`/`onEscapeKeyDown` prevention when `closeDisabled` is true, and run the async guard ourselves.
+
+## T5 — Notification migration: kept ConfirmationModal as-is
+- Replaced `showNotification()` → Sonner `toast()` across all consumers.
+- Kept `showConfirmation()` + `ConfirmationModal` + `useNotificationStore` confirmation state as-is.
+- **Why**: `showConfirmation` is a complex pattern (Zustand state → global modal with async onConfirm/onCancel callbacks). Migrating to AlertDialog API would require changing 8+ call sites' control flow. Deferred to Phase 4.
+- **Tradeoff**: `useNotificationStore` still exists but only for confirmation state. `NotificationContainer` replaced by Sonner `<Toaster />`.

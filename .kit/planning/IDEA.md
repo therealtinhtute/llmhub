@@ -1,42 +1,57 @@
-# IDEA: LLMHub Low-Delta Rebrand Monorepo
+# IDEA: LLMHub Phase 2 — Web UI Rebuild with shadcn + Design Tokens
 
-## Summary
-Refactor the current fork into `LLMHub` as a monorepo where the Go backend and management web UI live in one repository and ship as one self-contained product.
+## Origin
+Phase 1 (rebrand + embedded panel) is complete. The management panel (`web/`) is a ~45k-line React SPA using hand-rolled UI components styled with SCSS Modules (~9.8k lines). The styling layer is the heaviest maintenance burden. The visual language (warm gray, rounded corners) needs a rebrand to match the AI Engineering from Scratch design system.
 
-The work is intentionally split into three phases:
-- phase 1: rebrand the original project, import the web UI source into `web/`, and embed it into the Go binary while preserving behavior as closely as possible
-- phase 2: refactor the web UI style and UX after phase 1 is stable
-- phase 3: brainstorm later for new features, providers, and deeper product changes
+## Core Idea
+Big-bang rewrite of the entire styling layer:
+1. Replace all SCSS with **Tailwind CSS v4** utility classes
+2. Replace all 16 hand-rolled UI primitives with **shadcn/ui** components
+3. Apply **design-token.json** visual language (VT323 headings, Source Serif 4 body, blueprint blue accent, sharp 0-radius corners)
+4. Simplify themes from 4 (auto/white/light/dark) to 2 (light + dark)
 
-## Why Now
-- The current repo still reflects upstream branding and product identity.
-- The current management panel is coupled to a runtime download model instead of living in this repo.
-- There is currently no in-repo frontend source or toolchain.
-- A one-repo, one-binary model simplifies ownership, build, and deployment.
+## What Stays
+- React 19, Vite 8, TypeScript 6 — no framework change
+- Zustand stores (7 stores) — untouched
+- API layer (Axios singleton + typed callers) — untouched
+- react-router-dom 7 (HashRouter) — untouched
+- i18n (react-i18next, 4 locales) — untouched
+- CodeMirror (YAML editor + merge view) — stays, restyled
+- motion (framer-motion v12) — stays for page transitions
+- vite-plugin-singlefile — stays (single-file build constraint)
+- Bun as package manager — stays
 
-## Chosen Direction
-- Single repo
-- Single distributable binary
-- Frontend source under `web/`
-- Upstream panel imported as-is first
-- Frontend build output embedded with `go:embed`
-- Product name `LLMHub`
-- Module path `github.com/therealtinhtute/llmhub`
-- Keep `/management.html` as the initial panel entrypoint
-- Moderate cleanup only in phase 1
+## What Changes
+- SCSS Modules → Tailwind v4 utility classes (delete all `.module.scss` and global SCSS)
+- Hand-rolled Button, Card, Input, Select, Modal, Sheet, Table, Skeleton, Collapsible, ToggleSwitch, EmptyState, AutocompleteInput, LoadingSpinner, SelectionCheckbox → shadcn equivalents
+- Hand-rolled notification system → Sonner (shadcn toast)
+- Custom MainLayout sidebar → shadcn Sidebar component
+- CSS variable theming (3 themes) → Tailwind v4 `@theme` with design tokens (2 themes: light + dark)
+- Fonts: system fonts → Google Fonts CDN (VT323, Source Serif 4, JetBrains Mono)
 
-## Explicit Non-Goals For Phase 1
-- Deep provider/runtime architecture redesign
-- New proxy product capabilities
-- UI redesign during the import step
-- Broad cleanup that removes useful operational docs or changes too much source structure
+## Key Constraints
+- Single-file build must keep working (all assets inlined into one HTML)
+- Google Fonts loaded via CDN `<link>` in `index.html`
+- No new runtime dependencies beyond shadcn's peer deps (Radix UI primitives)
+- All 10 routes/pages must be rebuilt
+- 4 i18n locale files unchanged (keys stay the same)
+
+## Design Token Summary (from design-token.json)
+- **BG**: `#fafaf5` (light), dark TBD
+- **Text**: `#1a1a1a` primary, `#4a4a4a` secondary, `#7a7a78` muted
+- **Accent**: `#3553ff` (blueprint blue)
+- **Border**: `rgba(26, 26, 26, 0.16)` (soft rule)
+- **Border radius**: 0 (sharp corners everywhere)
+- **Heading font**: VT323, monospace fallback
+- **Body font**: Source Serif 4, serif fallback
+- **Code font**: JetBrains Mono, monospace fallback
+- **Shadows**: `3px 3px 0 var(--ink)` (hard shadow), `5px 5px 0 var(--ink)` (hard shadow lg)
+- **Buttons**: filled (`#3553ff` bg, white text, 0 radius) + outline + ghost variants
 
 ## Rejected Alternatives
-1. Aggressively clean the repo in phase 1.
-   This would mix migration and redesign, making behavior parity harder to protect.
-2. Keep the management panel in a separate repository or keep downloading it at runtime.
-   This preserves the current external coupling and weakens monorepo ownership.
-3. Redesign the web UI while importing it.
-   This mixes phase 1 and phase 2 and creates too many moving parts at once.
-4. Keep `panel-github-repository` as a deprecated config surface.
-   Once the panel is embedded, that config becomes dead weight rather than compatibility value.
+1. **Option B: Hybrid (shadcn + keep SCSS for complex pages)** — rejected because the user chose big-bang. A hybrid approach defeats the purpose and leaves two styling systems.
+2. **Option C: CSS Modules + design tokens, no Tailwind** — rejected because user explicitly wants shadcn + Tailwind. The SCSS module layer is the heaviest burden and wouldn't shrink.
+3. **Inline font subsets** — rejected in favor of Google Fonts CDN. Offline use is not a requirement, and inlining adds ~200-400KB.
+4. **Replace motion with pure CSS** — rejected. Page transitions are complex; rewriting animation logic adds risk for no clear benefit.
+5. **Keep hand-rolled notifications** — rejected in favor of Sonner. Less custom code, better UX, shadcn-recommended.
+6. **Restyle current sidebar** — rejected in favor of shadcn Sidebar component. Gets collapsible, keyboard, mobile sheet for free.

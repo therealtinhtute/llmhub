@@ -1,10 +1,10 @@
-current_phase: embed-panel
+current_phase: doc-cleanup
 entry_phase: module-rebrand
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: .kit/planning/phases/embed-panel/embed-panel-CONTEXT.md
-active_plan: .kit/planning/phases/embed-panel/embed-panel-PLAN.md
-latest_cook_run: .kit/runs/work/20260527-2200-embed-panel.md
-latest_check_report: .kit/reports/check/20260527-2220-embed-panel.md
+active_context: .kit/planning/phases/doc-cleanup/doc-cleanup-CONTEXT.md
+active_plan: .kit/planning/phases/doc-cleanup/doc-cleanup-PLAN.md
+latest_cook_run: .kit/runs/work/20260527-2230-doc-cleanup.md
+latest_check_report: .kit/reports/check/20260527-2245-doc-cleanup.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-27 22:20
+last_updated: 2026-05-27 22:45

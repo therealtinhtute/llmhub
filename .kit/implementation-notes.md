@@ -30,3 +30,23 @@ Started: 2026-05-27
 ## Wave 4 — Dockerfile multi-stage
 - Added `oven/bun:1` as a frontend build stage to Dockerfile. The `COPY --from=frontend` step copies the built HTML into the Go build context before `go build`.
 - Also updated `.gitignore` binary name from `cli-proxy-api` to `llmhub` (missed in module-rebrand).
+
+---
+
+Phase: doc-cleanup
+Started: 2026-05-27
+
+## Wave 1 — README rebrand approach
+- Full rewrite of all three READMEs rather than surgical edits. The sponsor sections were deeply interleaved with branding, making surgical edits error-prone.
+- "Getting Started" links to `help.router-for.me` replaced with local config reference note ("Documentation is being migrated"). The external doc site is tied to the old project.
+- Third-party project names containing "CLIProxyAPI" (Tray, Dashboard, Quota Inspector) deliberately kept — these are external GitHub repo names we don't control.
+- Telegram group URL `t.me/CLIProxyAPI` kept in CN README — it's an external resource.
+- Sections renamed: "Who is with us?" → "Community Projects", "谁与我们在一起？" → "社区项目", "関連プロジェクト" → "コミュニティプロジェクト".
+
+## Wave 2 — config.example.yaml
+- Removed `panel-github-repository` and `disable-auto-update-panel` entries entirely since the panel is now embedded (no GitHub download needed).
+- Updated `disable-control-panel` comment from "asset download" to "bundled management control panel".
+
+## Wave 2 — .github/ CI files (extended scope)
+- Extended T4 beyond the plan's `assets/` cleanup to also fix `.github/` CI files. These had `router-for-me/models.git` references in 3 workflow files and old branding in FUNDING.yml and docker-image.yml.
+- DOCKERHUB_REPO changed from `eceasy/cli-proxy-api` to `eceasy/llmhub` — matches the docker-compose.yml change from embed-panel phase.

@@ -26,15 +26,12 @@ auths/*
 !auths/.gitkeep
 
 # Documentation
-docs/*
-AGENTS.md
 GEMINI.md
 
 # Tooling metadata
 .vscode/*
 .worktrees/
 .codex/*
-.claude/*
 .gemini/*
 .serena/*
 .agent/*

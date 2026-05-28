@@ -46,7 +46,6 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarRail,
-  SidebarSeparator,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import {
@@ -355,9 +354,8 @@ export function MainLayout() {
         </SidebarHeader>
 
         <SidebarContent>
-          {navGroups.map((group, idx) => (
+          {navGroups.map((group) => (
             <SidebarGroup key={group.id}>
-              {idx > 0 && <SidebarSeparator />}
               <SidebarGroupLabel>{t(group.labelKey)}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>

@@ -2,16 +2,10 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { StatusBarData, StatusBlockDetail } from '@/utils/recentRequests';
 
-const defaultStyles: Record<string, string> = {};
-
-/**
- * 根据成功率 (0–1) 在三个色标之间做 RGB 线性插值
- * 0 → 红 (#ef4444)  →  0.5 → 金黄 (#facc15)  →  1 → 绿 (#22c55e)
- */
 const COLOR_STOPS = [
-  { r: 239, g: 68, b: 68 },   // #ef4444
-  { r: 250, g: 204, b: 21 },  // #facc15
-  { r: 34, g: 197, b: 94 },   // #22c55e
+  { r: 239, g: 68, b: 68 },
+  { r: 250, g: 204, b: 21 },
+  { r: 34, g: 197, b: 94 },
 ] as const;
 
 function rateToColor(rate: number): string {
@@ -38,29 +32,25 @@ function formatSuccessRate(rate: number): string {
   return `${rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded}%`;
 }
 
-type StylesModule = Record<string, string>;
-
 interface ProviderStatusBarProps {
   statusData: StatusBarData;
-  styles?: StylesModule;
+  styles?: Record<string, string>;
 }
 
-export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderStatusBarProps) {
+export function ProviderStatusBar({ statusData }: ProviderStatusBarProps) {
   const { t } = useTranslation();
-  const s = (stylesProp || defaultStyles) as StylesModule;
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
   const blocksRef = useRef<HTMLDivElement>(null);
 
   const hasData = statusData.totalSuccess + statusData.totalFailure > 0;
   const rateClass = !hasData
-    ? ''
+    ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px bg-muted text-muted-foreground tabular-nums'
     : statusData.successRate >= 90
-      ? s.statusRateHigh
+      ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900'
       : statusData.successRate >= 50
-        ? s.statusRateMedium
-        : s.statusRateLow;
+        ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900'
+        : 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-destructive bg-destructive/10';
 
-  // 点击外部关闭 tooltip（移动端）
   useEffect(() => {
     if (activeTooltip === null) return;
     const handler = (e: PointerEvent) => {
@@ -73,15 +63,11 @@ export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderSt
   }, [activeTooltip]);
 
   const handlePointerEnter = useCallback((e: React.PointerEvent, idx: number) => {
-    if (e.pointerType === 'mouse') {
-      setActiveTooltip(idx);
-    }
+    if (e.pointerType === 'mouse') setActiveTooltip(idx);
   }, []);
 
   const handlePointerLeave = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType === 'mouse') {
-      setActiveTooltip(null);
-    }
+    if (e.pointerType === 'mouse') setActiveTooltip(null);
   }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent, idx: number) => {
@@ -92,8 +78,8 @@ export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderSt
   }, []);
 
   const getTooltipPositionClass = (idx: number, total: number): string => {
-    if (idx <= 2) return s.statusTooltipLeft;
-    if (idx >= total - 3) return s.statusTooltipRight;
+    if (idx <= 2) return 'left-0 translate-x-0 [--tooltip-arrow-left:8px] [--tooltip-arrow-transform:none]';
+    if (idx >= total - 3) return 'left-auto! right-0 translate-x-0 [--tooltip-arrow-right:8px] [--tooltip-arrow-transform:none] [--tooltip-arrow-left:auto]';
     return '';
   };
 
@@ -103,24 +89,24 @@ export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderSt
     const timeRange = `${formatTime(detail.startTime)} – ${formatTime(detail.endTime)}`;
 
     return (
-      <div className={`${s.statusTooltip} ${posClass}`}>
-        <span className={s.tooltipTime}>{timeRange}</span>
+      <div className={`status-bar-tooltip absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 bg-background border border-border px-2.5 py-1.5 text-[11px] leading-snug whitespace-nowrap shadow-[0_4px_12px_rgba(0,0,0,0.12)] z-50 pointer-events-none text-foreground ${posClass}`}>
+        <span className="text-muted-foreground block mb-0.5">{timeRange}</span>
         {total > 0 ? (
-          <span className={s.tooltipStats}>
-            <span className={s.tooltipSuccess}>{t('status_bar.success_short')} {detail.success}</span>
-            <span className={s.tooltipFailure}>{t('status_bar.failure_short')} {detail.failure}</span>
-            <span className={s.tooltipRate}>({(detail.rate * 100).toFixed(1)}%)</span>
+          <span className="flex items-center gap-2">
+            <span className="text-success">{t('status_bar.success_short')} {detail.success}</span>
+            <span className="text-destructive">{t('status_bar.failure_short')} {detail.failure}</span>
+            <span className="text-muted-foreground ml-0.5">({(detail.rate * 100).toFixed(1)}%)</span>
           </span>
         ) : (
-          <span className={s.tooltipStats}>{t('status_bar.no_requests')}</span>
+          <span className="flex items-center gap-2">{t('status_bar.no_requests')}</span>
         )}
       </div>
     );
   };
 
   return (
-    <div className={s.statusBar}>
-      <div className={s.statusBlocks} ref={blocksRef}>
+    <div className="flex items-center gap-1.5 max-w-full">
+      <div className="flex gap-0.5 flex-1 min-w-[120px] relative" ref={blocksRef}>
         {statusData.blockDetails.map((detail, idx) => {
           const isIdle = detail.rate === -1;
           const blockStyle = isIdle ? undefined : { backgroundColor: rateToColor(detail.rate) };
@@ -129,13 +115,13 @@ export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderSt
           return (
             <div
               key={idx}
-              className={`${s.statusBlockWrapper} ${isActive ? s.statusBlockActive : ''}`}
+              className={`flex-1 min-w-[4px] relative cursor-pointer [-webkit-tap-highlight-color:transparent] group${isActive ? ' is-active' : ''}`}
               onPointerEnter={(e) => handlePointerEnter(e, idx)}
               onPointerLeave={handlePointerLeave}
               onPointerDown={(e) => handlePointerDown(e, idx)}
             >
               <div
-                className={`${s.statusBlock} ${isIdle ? s.statusBlockIdle : ''}`}
+                className={`w-full h-1.5 transition-[transform,opacity] duration-150 ease-in-out group-hover:scale-y-[1.8] group-hover:opacity-90${isActive ? ' scale-y-[1.8] opacity-90' : ''}${isIdle ? ' bg-border' : ''}`}
                 style={blockStyle}
               />
               {isActive && renderTooltip(detail, idx)}
@@ -143,7 +129,7 @@ export function ProviderStatusBar({ statusData, styles: stylesProp }: ProviderSt
           );
         })}
       </div>
-      <span className={`${s.statusRate} ${rateClass}`}>
+      <span className={rateClass}>
         {hasData ? formatSuccessRate(statusData.successRate) : '--'}
       </span>
     </div>

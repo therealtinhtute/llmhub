@@ -16,12 +16,12 @@ import {
 } from './table';
 import { cn } from '@/lib/utils';
 
-interface TableProps extends TableHTMLAttributes<HTMLTableElement> {
+interface AppTableProps extends TableHTMLAttributes<HTMLTableElement> {
   className?: string;
   cols?: ReactNode;
 }
 
-function Table({ children, cols, className, ...rest }: PropsWithChildren<TableProps>) {
+function AppTable({ children, cols, className, ...rest }: PropsWithChildren<AppTableProps>) {
   return (
     <div className="overflow-auto">
       <ShadcnTable className={className} {...rest}>
@@ -32,7 +32,7 @@ function Table({ children, cols, className, ...rest }: PropsWithChildren<TablePr
   );
 }
 
-function TableHeader({
+function AppTableHeader({
   children,
   className,
   ...rest
@@ -44,7 +44,7 @@ function TableHeader({
   );
 }
 
-function TableBody({
+function AppTableBody({
   children,
   className,
   ...rest
@@ -56,11 +56,11 @@ function TableBody({
   );
 }
 
-interface TableRowProps extends HTMLAttributes<HTMLTableRowElement> {
+interface AppTableRowProps extends HTMLAttributes<HTMLTableRowElement> {
   selected?: boolean;
 }
 
-function TableRow({ children, className, selected, ...rest }: PropsWithChildren<TableRowProps>) {
+function AppTableRow({ children, className, selected, ...rest }: PropsWithChildren<AppTableRowProps>) {
   return (
     <ShadcnTableRow
       className={cn(selected && 'bg-muted', className)}
@@ -72,16 +72,16 @@ function TableRow({ children, className, selected, ...rest }: PropsWithChildren<
   );
 }
 
-interface TableHeadProps extends ThHTMLAttributes<HTMLTableCellElement> {
+interface AppTableHeadProps extends ThHTMLAttributes<HTMLTableCellElement> {
   alignRight?: boolean;
 }
 
-function TableHead({
+function AppTableHead({
   children,
   className,
   alignRight,
   ...rest
-}: PropsWithChildren<TableHeadProps>) {
+}: PropsWithChildren<AppTableHeadProps>) {
   return (
     <ShadcnTableHead className={cn(alignRight && 'text-right', className)} {...rest}>
       {children}
@@ -89,16 +89,16 @@ function TableHead({
   );
 }
 
-interface TableCellProps extends TdHTMLAttributes<HTMLTableCellElement> {
+interface AppTableCellProps extends TdHTMLAttributes<HTMLTableCellElement> {
   alignRight?: boolean;
 }
 
-function TableCell({
+function AppTableCell({
   children,
   className,
   alignRight,
   ...rest
-}: PropsWithChildren<TableCellProps>) {
+}: PropsWithChildren<AppTableCellProps>) {
   return (
     <ShadcnTableCell className={cn(alignRight && 'text-right', className)} {...rest}>
       {children}
@@ -106,4 +106,4 @@ function TableCell({
   );
 }
 
-export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell };
+export { AppTable, AppTableHeader, AppTableBody, AppTableRow, AppTableHead, AppTableCell };

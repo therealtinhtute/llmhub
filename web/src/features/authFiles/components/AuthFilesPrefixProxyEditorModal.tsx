@@ -1,15 +1,14 @@
 import { useTranslation } from 'react-i18next';
-import { Modal } from '@/components/ui/LegacyModal';
+import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
-import { Input } from '@/components/ui/LegacyInput';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { FormInput as Input } from '@/components/ui/FormInput';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import type {
   PrefixProxyEditorField,
   PrefixProxyEditorFieldValue,
   PrefixProxyEditorState,
 } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
-import styles from '@/pages/AuthFilesPage.module.scss';
 
 export type AuthFilesPrefixProxyEditorModalProps = {
   disableControls: boolean;
@@ -80,47 +79,47 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
       }
     >
       {editor && (
-        <div className={styles.prefixProxyEditor}>
+        <div className="flex flex-col gap-3 max-h-[60vh] overflow-auto">
           {editor.loading ? (
-            <div className={styles.prefixProxyLoading}>
+            <div className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground py-2">
               <LoadingSpinner size={14} />
               <span>{t('auth_files.prefix_proxy_loading')}</span>
             </div>
           ) : (
             <>
-              {editor.error && <div className={styles.prefixProxyError}>{editor.error}</div>}
-              <div className={styles.prefixProxyJsonWrapper}>
-                <label className={styles.prefixProxyLabel}>
+              {editor.error && <div className="py-2 px-3 border border-destructive bg-destructive/10 text-destructive text-[12px]">{editor.error}</div>}
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[12px] text-muted-foreground font-semibold">
                   {t('auth_files.prefix_proxy_info_label')}
                 </label>
                 <textarea
-                  className={styles.prefixProxyTextarea}
+                  className="w-full p-2 px-3 border border-border bg-muted text-foreground text-[12px] font-mono resize-y min-h-[120px] box-border focus:outline-none focus:border-primary"
                   rows={8}
                   readOnly
                   value={editor.fileInfoText}
                 />
               </div>
-              <div className={styles.prefixProxyJsonWrapper}>
-                <label className={styles.prefixProxyLabel}>
+              <div className="flex flex-col gap-[6px]">
+                <label className="text-[12px] text-muted-foreground font-semibold">
                   {editor.json
                     ? t('auth_files.prefix_proxy_source_label')
                     : t('auth_files.prefix_proxy_invalid_content_label')}
                 </label>
                 {editor.json ? (
                   <textarea
-                    className={styles.prefixProxyTextarea}
+                    className="w-full p-2 px-3 border border-border bg-muted text-foreground text-[12px] font-mono resize-y min-h-[120px] box-border focus:outline-none focus:border-primary"
                     rows={10}
                     readOnly
                     value={previewText}
                   />
                 ) : (
-                  <pre className={styles.prefixProxyInvalidContentPreview}>
+                  <pre className="w-full max-h-[220px] m-0 p-2 px-3 border border-border bg-muted text-muted-foreground text-[12px] font-mono leading-[1.5] whitespace-pre-wrap overflow-auto box-border">
                     {invalidContentPreview}
                   </pre>
                 )}
               </div>
               {editor.json && (
-                <div className={styles.prefixProxyFields}>
+                <div className="grid [grid-template-columns:1fr] gap-2">
                   <Input
                     label={t('auth_files.prefix_label')}
                     value={editor.prefix}
@@ -143,7 +142,7 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                     onChange={(e) => onChange('priority', e.target.value)}
                   />
                   {editor.providerKey === 'codex' && (
-                    <div className="form-group">
+                    <div className="flex flex-col gap-1.5 mb-3">
                       <label>{t('auth_files.codex_websockets_label')}</label>
                       <ToggleSwitch
                         checked={editor.websockets}
@@ -151,13 +150,13 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                         disabled={disableControls || editor.saving || !editor.json}
                         ariaLabel={t('auth_files.codex_websockets_label')}
                       />
-                      <div className="hint">{t('auth_files.codex_websockets_hint')}</div>
+                      <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('auth_files.codex_websockets_hint')}</div>
                     </div>
                   )}
-                  <div className="form-group">
+                  <div className="flex flex-col gap-1.5 mb-3">
                     <label>{t('auth_files.headers_label')}</label>
                     <textarea
-                      className={`input ${editor.headersError ? styles.prefixProxyTextareaInvalid : ''}`}
+                      className={`min-h-[42px] bg-muted border border-border shadow-none focus:bg-background focus:border-foreground focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--foreground)_12%,transparent)] min-h-[112px] w-full px-3 py-2 text-sm ${editor.headersError ? 'border-destructive shadow-[0_0_0_3px_rgba(239,68,68,0.12)]' : ''}`}
                       value={editor.headersText}
                       placeholder={t('auth_files.headers_placeholder')}
                       rows={4}
@@ -165,8 +164,8 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                       disabled={disableControls || editor.saving || !editor.json}
                       onChange={(e) => onChange('headersText', e.target.value)}
                     />
-                    {editor.headersError && <div className="error-box">{editor.headersError}</div>}
-                    <div className="hint">{t('auth_files.headers_hint')}</div>
+                    {editor.headersError && <div className="p-[10px_14px] mb-0 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{editor.headersError}</div>}
+                    <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('auth_files.headers_hint')}</div>
                   </div>
                   <Input
                     label={t('auth_files.note_label')}

@@ -3,9 +3,9 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { AutocompleteInput } from '@/components/ui/LegacyAutocompleteInput';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { AutocompleteInput } from '@/components/ui/AutocompleteInput';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconInfo, IconX } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
@@ -14,7 +14,6 @@ import { useAuthStore } from '@/stores';
 import { authFilesApi } from '@/services/api';
 import type { AuthFileItem, OAuthModelAliasEntry } from '@/types';
 import { generateId } from '@/utils/helpers';
-import styles from './AuthFilesOAuthModelAliasEditPage.module.scss';
 
 type AuthFileModelItem = { id: string; display_name?: string; type?: string; owned_by?: string };
 
@@ -348,7 +347,7 @@ export function AuthFilesOAuthModelAliasEditPage() {
       onBack={handleBack}
       backLabel={t('common.back')}
       backAriaLabel={t('common.back')}
-      contentClassName={styles.pageContent}
+      contentClassName="w-full max-w-[1000px] mx-auto px-4 pb-12 max-md:px-4"
       rightAction={
         <Button size="sm" onClick={handleSave} loading={saving} disabled={!canSave}>
           {t('oauth_model_alias.save')}
@@ -366,22 +365,22 @@ export function AuthFilesOAuthModelAliasEditPage() {
         </Card>
       ) : (
         <>
-          <Card className={styles.settingsCard}>
-            <div className={styles.settingsHeader}>
-              <div className={styles.settingsHeaderTitle}>
+          <Card className="p-0 overflow-visible">
+            <div className="flex flex-col gap-1 px-4 py-3 border-b border-border max-md:px-4">
+              <div className="inline-flex items-center gap-1 font-bold text-foreground">
                 <IconInfo size={16} />
                 <span>{t('oauth_model_alias.title')}</span>
               </div>
-              <div className={styles.settingsHeaderHint}>{headerHint}</div>
+              <div className="text-[13px] text-muted-foreground">{headerHint}</div>
             </div>
 
-            <div className={styles.settingsSection}>
-              <div className={styles.settingsRow}>
-                <div className={styles.settingsInfo}>
-                  <div className={styles.settingsLabel}>{t('oauth_model_alias.provider_label')}</div>
-                  <div className={styles.settingsDesc}>{t('oauth_model_alias.provider_hint')}</div>
+            <div className="flex flex-col gap-2 px-4 py-3 pb-4 max-md:px-4">
+              <div className="flex items-start justify-between gap-4 max-md:flex-col max-md:items-stretch max-md:gap-2">
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <div className="text-[14px] font-semibold text-foreground">{t('oauth_model_alias.provider_label')}</div>
+                  <div className="text-[13px] text-muted-foreground">{t('oauth_model_alias.provider_hint')}</div>
                 </div>
-                <div className={styles.settingsControl}>
+                <div className="shrink-0 w-[min(360px,45%)] min-w-[220px] max-md:w-full max-md:min-w-0">
                   <AutocompleteInput
                     id="oauth-model-alias-provider"
                     placeholder={t('oauth_model_alias.provider_placeholder')}
@@ -395,14 +394,14 @@ export function AuthFilesOAuthModelAliasEditPage() {
               </div>
 
               {providerOptions.length > 0 && (
-                <div className={styles.tagList}>
+                <div className="flex flex-wrap gap-1">
                   {providerOptions.map((option) => {
                     const isActive = normalizeProviderKey(provider) === option.toLowerCase();
                     return (
                       <button
                         key={option}
                         type="button"
-                        className={`${styles.tag} ${isActive ? styles.tagActive : ''}`}
+                        className={`inline-flex items-center px-[10px] py-1 border text-[12px] cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-primary border-primary text-white hover:bg-primary hover:border-primary hover:text-white' : 'border-border bg-muted text-muted-foreground hover:border-primary hover:text-foreground hover:bg-secondary'}`}
                         onClick={() => updateProvider(option)}
                         disabled={disableControls || saving}
                       >
@@ -415,9 +414,9 @@ export function AuthFilesOAuthModelAliasEditPage() {
             </div>
           </Card>
 
-          <Card className={styles.settingsCard}>
-            <div className={styles.mappingsHeader}>
-              <div className={styles.mappingsTitle}>{t('oauth_model_alias.alias_label')}</div>
+          <Card className="p-0 overflow-visible">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border max-md:px-4">
+              <div className="font-bold text-foreground">{t('oauth_model_alias.alias_label')}</div>
               <Button
                 variant="secondary"
                 size="sm"
@@ -428,9 +427,9 @@ export function AuthFilesOAuthModelAliasEditPage() {
               </Button>
             </div>
 
-            <div className={styles.mappingsBody}>
+            <div className="px-4 py-2 pb-4 max-md:px-4">
               {mappings.map((entry, index) => (
-                <div key={entry.id} className={styles.mappingRow}>
+                <div key={entry.id} className="grid [grid-template-columns:1fr_auto_1fr_auto_auto] items-center gap-2 py-[10px] border-b border-border last:border-b-0 max-md:[grid-template-columns:1fr]">
                   <AutocompleteInput
                     wrapperStyle={{ flex: 1, marginBottom: 0 }}
                     placeholder={t('oauth_model_alias.alias_name_placeholder')}
@@ -445,15 +444,15 @@ export function AuthFilesOAuthModelAliasEditPage() {
                           : undefined,
                     }))}
                   />
-                  <span className={styles.mappingSeparator}>→</span>
+                  <span className="text-muted-foreground text-center max-md:hidden">→</span>
                   <input
-                    className={`input ${styles.mappingAliasInput}`}
+                    className="input w-full"
                     placeholder={t('oauth_model_alias.alias_placeholder')}
                     value={entry.alias}
                     onChange={(e) => updateMappingEntry(index, 'alias', e.target.value)}
                     disabled={disableControls || saving}
                   />
-                  <div className={styles.mappingFork}>
+                  <div className="flex items-center max-md:justify-start">
                     <ToggleSwitch
                       label={t('oauth_model_alias.alias_fork_label')}
                       labelPosition="left"

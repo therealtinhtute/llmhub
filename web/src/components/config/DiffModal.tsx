@@ -2,9 +2,8 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Text } from '@codemirror/state';
 import { Chunk } from '@codemirror/merge';
-import { Modal } from '@/components/ui/LegacyModal';
+import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import styles from './DiffModal.module.scss';
 
 type DiffModalProps = {
   open: boolean;
@@ -188,11 +187,11 @@ function StatBar({ additions, deletions }: { additions: number; deletions: numbe
   if (total === 0) return null;
   const addBlocks = Math.round((additions / total) * STAT_BLOCKS);
   return (
-    <span className={styles.statBar}>
+    <span className="inline-flex gap-[2px] ml-[2px]">
       {Array.from({ length: STAT_BLOCKS }, (_, i) => (
         <span
           key={i}
-          className={`${styles.statBlock} ${i < addBlocks ? styles.statBlockAdd : styles.statBlockDel}`}
+          className={`w-2 h-2 rounded-[2px] ${i < addBlocks ? 'bg-[#3fb950]' : 'bg-[#f85149]'}`}
         />
       ))}
     </span>
@@ -220,7 +219,7 @@ export function DiffModal({
       title={t('config_management.diff.title')}
       onClose={onCancel}
       width="min(1200px, 90vw)"
-      className={styles.diffModal}
+      className="p-0 overflow-hidden [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-6 [&>[data-slot=dialog-footer]]:px-6 [&>[data-slot=dialog-footer]]:pb-6"
       closeDisabled={loading}
       footer={
         <>
@@ -233,34 +232,39 @@ export function DiffModal({
         </>
       }
     >
-      <div className={styles.content}>
+      <div className="flex flex-col h-[70vh] min-h-[420px] max-md:h-[65vh] max-md:min-h-[360px]">
         {diff.hunks.length === 0 ? (
-          <div className={styles.emptyState}>{t('config_management.diff.no_changes')}</div>
+          <div className="flex-1 border border-dashed border-border bg-muted text-muted-foreground text-[14px] grid place-items-center m-3">
+            {t('config_management.diff.no_changes')}
+          </div>
         ) : (
-          <div className={styles.diffContainer}>
-            <div className={styles.fileHeader}>
-              <svg className={styles.fileIcon} viewBox="0 0 16 16" width="16" height="16">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {/* File header */}
+            <div className="flex items-center gap-2 px-3 py-[10px] bg-muted border-b border-border flex-shrink-0">
+              <svg className="flex-shrink-0 text-[var(--text-tertiary)]" viewBox="0 0 16 16" width="16" height="16">
                 <path
                   fillRule="evenodd"
                   d="M3.75 1.5a.25.25 0 00-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V6H9.75A1.75 1.75 0 018 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0112.25 15h-8.5A1.75 1.75 0 012 13.25V1.75z"
                   fill="currentColor"
                 />
               </svg>
-              <span className={styles.fileName}>config.yaml</span>
-              <span className={styles.fileStats}>
-                <span className={styles.statAdditions}>+{diff.additions}</span>
-                <span className={styles.statDeletions}>-{diff.deletions}</span>
+              <span className="text-[13px] max-md:text-[12px] font-semibold font-mono text-foreground">config.yaml</span>
+              <span className="ml-auto flex items-center gap-2 text-[12px] max-md:text-[11px] font-bold font-mono">
+                <span className="text-[#3fb950]">+{diff.additions}</span>
+                <span className="text-[#f85149]">-{diff.deletions}</span>
                 <StatBar additions={diff.additions} deletions={diff.deletions} />
               </span>
             </div>
 
-            <div className={styles.diffBody}>
+            {/* Diff body */}
+            <div className="flex-1 min-h-0 overflow-auto font-mono text-[12px] max-md:text-[11px] leading-[20px] max-md:leading-[18px]">
               {diff.hunks.map((hunk, hunkIdx) => (
-                <div key={hunkIdx} className={styles.hunk}>
-                  <div className={styles.hunkHeader}>
-                    <span className={styles.hunkGutter}>
+                <div key={hunkIdx} className="[&+&]:border-t [&+&]:border-border">
+                  {/* Hunk header */}
+                  <div className="flex items-center bg-[color-mix(in_srgb,#388bfd_8%,hsl(var(--background)))] border-b border-[color-mix(in_srgb,#388bfd_12%,hsl(var(--border)))] text-[color-mix(in_srgb,#388bfd_75%,hsl(var(--muted-foreground)))] min-h-[20px]">
+                    <span className="w-[50px] max-md:w-9 flex-shrink-0 flex items-center justify-center self-stretch border-r border-[color-mix(in_srgb,#388bfd_12%,hsl(var(--border)))]">
                       <svg
-                        className={styles.hunkExpandIcon}
+                        className="text-[color-mix(in_srgb,#388bfd_70%,hsl(var(--muted-foreground)))] opacity-70"
                         viewBox="0 0 16 16"
                         width="12"
                         height="12"
@@ -271,33 +275,48 @@ export function DiffModal({
                         />
                       </svg>
                     </span>
-                    <span className={styles.hunkGutter} />
-                    <span className={styles.hunkText}>
+                    <span className="w-[50px] max-md:w-9 flex-shrink-0 border-r border-[color-mix(in_srgb,#388bfd_12%,hsl(var(--border)))]" />
+                    <span className="py-1 pl-[28px] max-md:pl-5 pr-2 text-[12px] whitespace-nowrap">
                       @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
                     </span>
                   </div>
 
-                  {hunk.lines.map((line, lineIdx) => (
-                    <div
-                      key={`${hunkIdx}-${lineIdx}`}
-                      className={`${styles.diffLine} ${styles[line.type]}`}
-                    >
-                      <span
-                        className={`${styles.lineNum} ${line.oldNum === null ? styles.lineNumEmpty : ''}`}
-                      >
-                        {line.oldNum ?? ''}
-                      </span>
-                      <span
-                        className={`${styles.lineNum} ${line.newNum === null ? styles.lineNumEmpty : ''}`}
-                      >
-                        {line.newNum ?? ''}
-                      </span>
-                      <span className={styles.linePrefix}>
-                        {line.type === 'deletion' ? '-' : line.type === 'addition' ? '+' : ' '}
-                      </span>
-                      <code className={styles.lineText}>{line.text || ' '}</code>
-                    </div>
-                  ))}
+                  {hunk.lines.map((line, lineIdx) => {
+                    const isAddition = line.type === 'addition';
+                    const isDeletion = line.type === 'deletion';
+                    const lineRowClass = isAddition
+                      ? 'flex min-h-[20px] bg-[color-mix(in_srgb,#3fb950_8%,hsl(var(--background)))]'
+                      : isDeletion
+                        ? 'flex min-h-[20px] bg-[color-mix(in_srgb,#f85149_8%,hsl(var(--background)))]'
+                        : 'flex min-h-[20px] bg-background';
+                    const gutterClass = isAddition
+                      ? 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-[color-mix(in_srgb,#3fb950_60%,hsl(var(--muted-foreground)))] select-none tabular-nums border-r border-[color-mix(in_srgb,#3fb950_18%,hsl(var(--border)))] box-border bg-[color-mix(in_srgb,#3fb950_12%,hsl(var(--background)))]'
+                      : isDeletion
+                        ? 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-[color-mix(in_srgb,#f85149_60%,hsl(var(--muted-foreground)))] select-none tabular-nums border-r border-[color-mix(in_srgb,#f85149_18%,hsl(var(--border)))] box-border bg-[color-mix(in_srgb,#f85149_12%,hsl(var(--background)))]'
+                        : 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-muted-foreground/60 select-none tabular-nums border-r border-border/60 box-border';
+                    const prefixClass = isAddition
+                      ? 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-[#3fb950] max-md:text-[11px]'
+                      : isDeletion
+                        ? 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-[#f85149] max-md:text-[11px]'
+                        : 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-muted-foreground/60 max-md:text-[11px]';
+
+                    return (
+                      <div key={`${hunkIdx}-${lineIdx}`} className={lineRowClass}>
+                        <span className={`${gutterClass} ${line.oldNum === null ? 'text-transparent' : ''}`}>
+                          {line.oldNum ?? ''}
+                        </span>
+                        <span className={`${gutterClass} ${line.newNum === null ? 'text-transparent' : ''}`}>
+                          {line.newNum ?? ''}
+                        </span>
+                        <span className={prefixClass}>
+                          {line.type === 'deletion' ? '-' : line.type === 'addition' ? '+' : ' '}
+                        </span>
+                        <code className={`flex-1 min-w-0 pr-3 whitespace-pre-wrap break-words ${isAddition || isDeletion ? '' : 'text-foreground'}`}>
+                          {line.text || ' '}
+                        </code>
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>

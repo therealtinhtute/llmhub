@@ -1,6 +1,5 @@
 import type { DragEvent, MouseEvent as ReactMouseEvent, RefObject } from 'react';
 import type { AliasNode, ProviderNode, SourceNode } from './ModelMappingDiagramTypes';
-import styles from './ModelMappingDiagram.module.scss';
 
 interface ProviderColumnProps {
   providerNodes: ProviderNode[];
@@ -29,21 +28,21 @@ export function ProviderColumn({
 }: ProviderColumnProps) {
   return (
     <div
-      className={`${styles.column} ${styles.providers}`}
+      className="flex flex-col gap-3 z-[2] shrink-0 items-end min-w-[140px]"
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onContextMenu(e, 'background');
       }}
     >
-      <div className={styles.columnHeader}>{label}</div>
+      <div className="text-[13px] font-semibold text-muted-foreground uppercase mb-2 px-1">{label}</div>
       {providerNodes.map(({ provider, sources }) => {
         const collapsed = collapsedProviders.has(provider);
         const groupHeight = collapsed ? undefined : providerGroupHeights[provider];
         return (
           <div
             key={provider}
-            className={styles.providerGroup}
+            className="flex items-center justify-end w-full"
             style={groupHeight ? { height: groupHeight } : undefined}
           >
             <div
@@ -51,7 +50,7 @@ export function ProviderColumn({
                 if (el) providerRefs.current?.set(provider, el);
                 else providerRefs.current?.delete(provider);
               }}
-              className={`${styles.item} ${styles.providerItem}`}
+              className="bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative transition-all duration-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:-translate-y-px hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)] hover:z-10 border-l-[3px] pl-2 gap-2 cursor-pointer"
               style={{ borderLeftColor: getProviderColor(provider) }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -61,17 +60,21 @@ export function ProviderColumn({
             >
               <button
                 type="button"
-                className={styles.collapseBtn}
+                className="shrink-0 w-6 h-6 flex items-center justify-center border-none bg-muted cursor-pointer text-muted-foreground transition-[background-color,color] duration-150 hover:bg-border hover:text-foreground"
                 onClick={() => onToggleCollapse(provider)}
                 aria-label={collapsed ? expandLabel : collapseLabel}
                 title={collapsed ? expandLabel : collapseLabel}
               >
-                <span className={collapsed ? styles.chevronRight : styles.chevronDown} />
+                {collapsed ? (
+                  <span className="inline-block w-0 h-0 border-solid border-y-[4px] border-y-transparent border-l-[5px] border-l-current" />
+                ) : (
+                  <span className="inline-block w-0 h-0 border-solid border-x-[4px] border-x-transparent border-t-[5px] border-t-current" />
+                )}
               </button>
-              <span className={styles.providerLabel} style={{ color: getProviderColor(provider) }}>
+              <span className="font-semibold text-[13px] flex-1 overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: getProviderColor(provider) }}>
                 {provider}
               </span>
-              <span className={styles.itemCount}>{sources.length}</span>
+              <span className="text-[11px] text-muted-foreground/60 ml-2 bg-muted px-[6px] py-[1px]">{sources.length}</span>
             </div>
           </div>
         );
@@ -119,14 +122,14 @@ export function SourceColumn({
 }: SourceColumnProps) {
   return (
     <div
-      className={`${styles.column} ${styles.sources}`}
+      className="flex flex-col gap-3 z-[2] shrink-0 items-start min-w-[200px]"
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onContextMenu(e, 'background');
       }}
     >
-      <div className={styles.columnHeader}>{label}</div>
+      <div className="text-[13px] font-semibold text-muted-foreground uppercase mb-2 px-1">{label}</div>
       {providerNodes.flatMap(({ provider, sources }) => {
         if (collapsedProviders.has(provider)) return [];
         return sources.map((source) => (
@@ -136,11 +139,7 @@ export function SourceColumn({
               if (el) sourceRefs.current?.set(source.id, el);
               else sourceRefs.current?.delete(source.id);
             }}
-            className={`${styles.item} ${styles.sourceItem} ${
-              draggedSource?.id === source.id ? styles.dragging : ''
-            } ${dropTargetSource === source.id ? styles.dropTarget : ''} ${
-              selectedSourceId === source.id ? styles.selected : ''
-            }`}
+            className={`bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative transition-all duration-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:-translate-y-px hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)] hover:z-10 cursor-grab active:cursor-grabbing ${draggedSource?.id === source.id ? 'opacity-50 border-dashed' : ''} ${dropTargetSource === source.id ? 'bg-muted border-primary border-[2px]' : ''} ${selectedSourceId === source.id ? 'border-primary bg-muted shadow-[0_0_0_2px_hsl(var(--primary)/0.18)]' : ''}`}
             onClick={() => onSelectSource?.(source)}
             draggable={draggable}
             onDragStart={(e) => onDragStart(e, source)}
@@ -154,14 +153,15 @@ export function SourceColumn({
               onContextMenu(e, 'source', source.id);
             }}
           >
-            <span className={styles.itemName} title={source.name}>
+            <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={source.name}>
               {source.name}
             </span>
             <div
-              className={styles.dot}
+              className="w-[6px] h-[6px] absolute top-1/2 -mt-[3px] right-[-3px] shrink-0"
               style={{
                 background: getProviderColor(source.provider),
-                opacity: source.aliases.length > 0 ? 1 : 0.3
+                opacity: source.aliases.length > 0 ? 1 : 0.3,
+                borderRadius: '50%'
               }}
             />
           </div>
@@ -206,14 +206,14 @@ export function AliasColumn({
 }: AliasColumnProps) {
   return (
     <div
-      className={`${styles.column} ${styles.aliases}`}
+      className="flex flex-col gap-3 z-[2] shrink-0 items-start min-w-[200px]"
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onContextMenu(e, 'background');
       }}
     >
-      <div className={styles.columnHeader}>{label}</div>
+      <div className="text-[13px] font-semibold text-muted-foreground uppercase mb-2 px-1">{label}</div>
       {aliasNodes.map((node) => (
         <div
           key={node.id}
@@ -221,11 +221,7 @@ export function AliasColumn({
             if (el) aliasRefs.current?.set(node.id, el);
             else aliasRefs.current?.delete(node.id);
           }}
-          className={`${styles.item} ${styles.aliasItem} ${
-            dropTargetAlias === node.alias ? styles.dropTarget : ''
-          } ${draggedAlias === node.alias ? styles.dragging : ''} ${
-            selectedAlias === node.alias ? styles.selected : ''
-          }`}
+          className={`bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative transition-all duration-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:-translate-y-px hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)] hover:z-10 cursor-grab active:cursor-grabbing ${dropTargetAlias === node.alias ? 'bg-muted border-primary border-[2px]' : ''} ${draggedAlias === node.alias ? 'opacity-50 border-dashed' : ''} ${selectedAlias === node.alias ? 'border-primary bg-muted shadow-[0_0_0_2px_hsl(var(--primary)/0.18)]' : ''}`}
           onClick={() => onSelectAlias?.(node.alias)}
           draggable={draggable}
           onDragStart={(e) => onDragStart(e, node.alias)}
@@ -239,11 +235,11 @@ export function AliasColumn({
             onContextMenu(e, 'alias', node.alias);
           }}
         >
-          <div className={`${styles.dot} ${styles.dotLeft}`} />
-          <span className={styles.itemName} title={node.alias}>
+          <div className="w-[6px] h-[6px] absolute top-1/2 -mt-[3px] left-[-3px] shrink-0 bg-muted-foreground/60" style={{ borderRadius: '50%' }} />
+          <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={node.alias}>
             {node.alias}
           </span>
-          <span className={styles.itemCount}>{node.sources.length}</span>
+          <span className="text-[11px] text-muted-foreground/60 ml-2 bg-muted px-[6px] py-[1px]">{node.sources.length}</span>
         </div>
       ))}
     </div>

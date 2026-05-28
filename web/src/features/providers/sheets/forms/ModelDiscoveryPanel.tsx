@@ -5,9 +5,8 @@ import {
   IconRefreshCw,
   IconSearch,
 } from '@/components/ui/icons';
-import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
+import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import type { ModelInfo } from '@/utils/models';
-import styles from './sharedForm.module.scss';
 
 interface ModelDiscoveryPanelProps {
   loading: boolean;
@@ -78,16 +77,19 @@ export function ModelDiscoveryPanel({
     setSelected(new Set());
   };
 
+  const connectivityBtnCls = "inline-flex items-center gap-1.5 h-7 px-3 border border-border bg-background text-foreground text-[12px] font-medium cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
+  const connectivityBtnGhostCls = "inline-flex items-center gap-1.5 h-6 px-2 border border-transparent bg-transparent text-muted-foreground text-[11px] font-medium cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
+
   return (
-    <div className={styles.discoveryPanel}>
-      <div className={styles.discoveryToolbar}>
-        <div className={styles.discoverySearchWrap}>
-          <span className={styles.discoverySearchIcon} aria-hidden="true">
+    <div className="flex flex-col gap-[10px] p-3 border border-border bg-muted">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 flex items-center">
+          <span className="absolute left-[10px] inline-flex items-center text-muted-foreground pointer-events-none" aria-hidden="true">
             <IconSearch size={14} />
           </span>
           <input
             type="search"
-            className={styles.discoverySearch}
+            className="w-full h-8 py-1.5 px-[10px] pl-[30px] border border-border bg-background text-foreground text-[12px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)]"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('providersPage.discovery.searchPlaceholder')}
@@ -95,13 +97,13 @@ export function ModelDiscoveryPanel({
         </div>
         <button
           type="button"
-          className={styles.connectivityBtn}
+          className={connectivityBtnCls}
           onClick={onReload}
           disabled={loading}
           aria-label={t('providersPage.discovery.reload')}
         >
           {loading ? (
-            <span className={`${styles.statusIcon} ${styles.statusIconLoading}`}>
+            <span className="inline-flex items-center justify-center w-[14px] h-[14px] animate-spin text-muted-foreground">
               <IconLoader2 size={14} />
             </span>
           ) : (
@@ -112,53 +114,54 @@ export function ModelDiscoveryPanel({
       </div>
 
       {loading && !models.length ? (
-        <div className={styles.discoveryEmpty}>
+        <div className="p-4 text-center text-[12px] text-muted-foreground border border-dashed border-border bg-background">
           {t('providersPage.discovery.loading')}
         </div>
       ) : error ? (
-        <div className={styles.connectivityError}>{error}</div>
+        <div className="border border-[var(--destructive-30)] bg-[var(--destructive-10)] text-destructive px-[10px] py-2 text-[11px] leading-[1.4] break-words">
+          {error}
+        </div>
       ) : hasFetched && !models.length ? (
-        <div className={styles.discoveryEmpty}>
+        <div className="p-4 text-center text-[12px] text-muted-foreground border border-dashed border-border bg-background">
           {t('providersPage.discovery.empty')}
         </div>
       ) : models.length ? (
         <>
-          <div className={styles.discoveryBatchRow}>
+          <div className="flex items-center justify-between px-1 py-0.5">
             <SelectionCheckbox
               checked={allSelectableChecked}
               onChange={toggleAll}
               disabled={selectable.length === 0}
               label={
-                <span className={styles.discoveryBatchLabel}>
+                <span className="text-[12px] font-medium text-foreground">
                   {allSelectableChecked
                     ? t('providersPage.discovery.clearAll')
                     : t('providersPage.discovery.selectAll')}
                 </span>
               }
             />
-            <span className={styles.discoveryCount}>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
               {t('providersPage.discovery.selectedCount', {
                 selected: selected.size,
                 total: selectable.length,
               })}
             </span>
           </div>
-          <ul className={styles.discoveryList}>
+          <ul className="list-none m-0 p-0 flex flex-col gap-0.5 max-h-[240px] overflow-y-auto border border-border bg-background">
             {filtered.map((m) => {
               const existing = existingNames.has(m.name);
               return (
                 <li
                   key={m.name}
-                  className={
-                    existing
-                      ? `${styles.discoveryItem} ${styles.discoveryItemExisting}`
-                      : styles.discoveryItem
-                  }
+                  className={[
+                    'flex items-center justify-between gap-2 px-[10px] py-2 border-b border-border text-[12px] text-foreground last:border-b-0',
+                    existing ? 'bg-muted text-muted-foreground' : '',
+                  ].join(' ')}
                 >
                   {existing ? (
                     <>
-                      <span className={styles.discoveryName}>{m.name}</span>
-                      <span className={styles.discoveryAddedTag}>
+                      <span className="font-mono text-[12px] break-all">{m.name}</span>
+                      <span className="text-[11px] text-muted-foreground px-2 py-0.5 border border-border bg-background">
                         {t('providersPage.discovery.alreadyAdded')}
                       </span>
                     </>
@@ -167,7 +170,7 @@ export function ModelDiscoveryPanel({
                       checked={selected.has(m.name)}
                       onChange={() => toggle(m.name)}
                       label={
-                        <span className={styles.discoveryName}>{m.name}</span>
+                        <span className="font-mono text-[12px] break-all">{m.name}</span>
                       }
                     />
                   )}
@@ -177,15 +180,15 @@ export function ModelDiscoveryPanel({
           </ul>
         </>
       ) : (
-        <div className={styles.discoveryEmpty}>
+        <div className="p-4 text-center text-[12px] text-muted-foreground border border-dashed border-border bg-background">
           {t('providersPage.discovery.notLoaded')}
         </div>
       )}
 
-      <div className={styles.discoveryFooter}>
+      <div className="flex items-center justify-end gap-2">
         <button
           type="button"
-          className={styles.connectivityBtnGhost}
+          className={connectivityBtnGhostCls}
           onClick={onClose}
           disabled={mutating}
         >
@@ -193,7 +196,7 @@ export function ModelDiscoveryPanel({
         </button>
         <button
           type="button"
-          className={styles.discoveryApplyBtn}
+          className="inline-flex items-center gap-1.5 h-[30px] px-[14px] border border-transparent bg-primary text-primary-foreground text-[12px] font-medium cursor-pointer hover:bg-[var(--primary-hover)] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           onClick={handleApply}
           disabled={mutating || selected.size === 0}
         >

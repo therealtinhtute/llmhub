@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
-import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconDownload,
   IconInfo,
@@ -35,7 +35,7 @@ import {
 } from '@/features/authFiles/constants';
 import type { AuthFileStatusBarData } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import { AuthFileQuotaSection } from '@/features/authFiles/components/AuthFileQuotaSection';
-import styles from '@/pages/AuthFilesPage.module.scss';
+
 
 const HEALTHY_STATUS_MESSAGES = new Set(['ok', 'healthy', 'ready', 'success', 'available']);
 
@@ -101,20 +101,20 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
   const showQuotaLayout = Boolean(quotaType) && !isRuntimeOnly && !compact;
 
-  const providerCardClass =
+  const providerCardBgImage =
     quotaType === 'antigravity'
-      ? styles.antigravityCard
+      ? 'linear-gradient(180deg,rgba(224,247,250,0.06),transparent)'
       : quotaType === 'claude'
-        ? styles.claudeCard
+        ? 'linear-gradient(180deg,rgba(251,236,228,0.08),transparent)'
         : quotaType === 'codex'
-          ? styles.codexCard
+          ? 'linear-gradient(180deg,rgba(234,231,255,0.08),transparent)'
           : quotaType === 'gemini-cli'
-            ? styles.geminiCliCard
+            ? 'linear-gradient(180deg,rgba(224,232,255,0.08),transparent)'
             : quotaType === 'kimi'
-              ? styles.kimiCard
+              ? 'linear-gradient(180deg,rgba(220,232,255,0.08),transparent)'
               : quotaType === 'xai'
-                ? styles.xaiCard
-                : '';
+                ? 'linear-gradient(180deg,rgba(243,244,246,0.08),transparent)'
+                : undefined;
 
   const rawAuthIndex = file['auth_index'] ?? file.authIndex;
   const authIndexKey = normalizeRecentRequestAuthIndex(rawAuthIndex);
@@ -137,25 +137,26 @@ export function AuthFileCard(props: AuthFileCardProps) {
           ? t('auth_files.health_status_healthy')
           : t('auth_files.status_toggle_label');
   const stateBadgeClass = isRuntimeOnly
-    ? styles.stateBadgeVirtual
+    ? 'text-muted-foreground bg-secondary/80 border border-dashed border-border/90'
     : file.disabled
-      ? styles.stateBadgeDisabled
+      ? 'text-muted-foreground bg-secondary/85 border border-border'
       : hasStatusWarning
-        ? styles.stateBadgeWarning
-        : styles.stateBadgeActive;
+        ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border border-amber-400/30'
+        : 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border border-emerald-400/40';
 
   return (
     <div
-      className={`${styles.fileCard} ${compact ? styles.fileCardCompact : ''} ${providerCardClass} ${selected ? styles.fileCardSelected : ''} ${file.disabled ? styles.fileCardDisabled : ''}`}
+      className={`relative overflow-hidden border border-border/70 ${compact ? 'p-3' : 'p-4'} flex flex-col min-h-full transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-px hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.15)] hover:border-primary/28 bg-background/85 backdrop-blur-[8px] ${selected ? 'border-primary/60 shadow-[0_0_0_1px_color-mix(in_srgb,hsl(var(--primary))_30%,transparent)] hover:border-primary/60' : ''} ${file.disabled ? 'bg-muted border-border/62 hover:translate-y-0 hover:shadow-none hover:border-border' : ''}`}
+      style={providerCardBgImage ? { backgroundImage: providerCardBgImage } : undefined}
     >
-      <div className={styles.fileCardLayout}>
-        <div className={styles.fileCardMain}>
-          <div className={styles.cardHeader}>
+      <div className="flex items-stretch gap-3 min-h-full">
+        <div className={`flex flex-col min-w-0 flex-1 ${compact ? 'gap-2' : 'gap-[10px]'}`}>
+          <div className={`flex items-start ${compact ? 'gap-2' : 'gap-[10px]'}`}>
             {!isRuntimeOnly && (
               <SelectionCheckbox
                 checked={selected}
                 onChange={() => onToggleSelect(file.name)}
-                className={styles.cardSelection}
+                className={`shrink-0 ${compact ? 'mt-[6px]' : 'mt-2'}`}
                 aria-label={
                   selected ? t('auth_files.batch_deselect') : t('auth_files.batch_select_all')
                 }
@@ -163,7 +164,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
               />
             )}
             <div
-              className={styles.providerAvatar}
+              className={`shrink-0 inline-flex items-center justify-center border border-border/60 ${compact ? 'w-[34px] h-[34px]' : 'w-10 h-10'}`}
               style={{
                 backgroundColor: typeColor.bg,
                 color: typeColor.text,
@@ -171,17 +172,17 @@ export function AuthFileCard(props: AuthFileCardProps) {
               }}
             >
               {providerIcon ? (
-                <img src={providerIcon} alt="" className={styles.providerAvatarImage} />
+                <img src={providerIcon} alt="" className={`object-contain ${compact ? 'w-4 h-4' : 'w-[22px] h-[22px]'}`} />
               ) : (
-                <span className={styles.providerAvatarFallback}>
+                <span className={`font-bold leading-none ${compact ? 'text-[14px]' : 'text-[18px]'}`}>
                   {typeLabel.slice(0, 1).toUpperCase()}
                 </span>
               )}
             </div>
-            <div className={styles.cardHeaderContent}>
-              <div className={styles.cardBadgeRow}>
+            <div className={`flex flex-col flex-1 min-w-0 ${compact ? 'gap-[3px]' : 'gap-[6px]'}`}>
+              <div className={`flex flex-wrap items-center ${compact ? 'gap-1' : 'gap-2'}`}>
                 <span
-                  className={styles.typeBadge}
+                  className={`inline-flex items-center border border-transparent font-semibold leading-none whitespace-nowrap shrink-0 ${compact ? 'py-[3px] px-[7px] text-[10px]' : 'py-[3px] px-2 text-[11px]'}`}
                   style={{
                     backgroundColor: typeColor.bg,
                     color: typeColor.text,
@@ -190,35 +191,35 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 >
                   {typeLabel}
                 </span>
-                <span className={`${styles.stateBadge} ${stateBadgeClass}`}>{stateLabel}</span>
+                <span className={`inline-flex items-center font-bold leading-none whitespace-nowrap tracking-[0.02em] ${compact ? 'py-[3px] px-[7px] text-[10px]' : 'py-[3px] px-2 text-[10px]'} ${stateBadgeClass}`}>{stateLabel}</span>
               </div>
-              <span className={styles.fileName} title={file.name}>
+              <span className={`font-extrabold text-foreground break-all leading-[1.4] tracking-[-0.01em] overflow-hidden [-webkit-box-orient:vertical] [display:-webkit-box] ${compact ? 'text-[13px] [-webkit-line-clamp:1]' : 'text-[14px] [-webkit-line-clamp:2]'}`} title={file.name}>
                 {file.name}
               </span>
               {!compact && noteValue && (
-                <div className={styles.noteText} title={noteValue}>
-                  <span className={styles.noteLabel}>{t('auth_files.note_display')}</span>
-                  <span className={styles.noteValue}>{noteValue}</span>
+                <div className="text-[12px] text-muted-foreground leading-[1.5] flex gap-[6px] items-start min-w-0" title={noteValue}>
+                  <span className="shrink-0 text-muted-foreground/60 font-semibold">{t('auth_files.note_display')}</span>
+                  <span className="min-w-0 break-words overflow-hidden text-ellipsis [-webkit-box-orient:vertical] [display:-webkit-box] [-webkit-line-clamp:2]">{noteValue}</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className={`${styles.cardMeta} ${compact ? styles.cardMetaCompact : ''}`}>
-            <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>{t('auth_files.file_size')}</span>
-              <span className={styles.metaValue}>
+          <div className={`flex flex-wrap items-baseline px-[2px] ${compact ? 'gap-[3px_12px]' : 'gap-1 gap-x-[14px]'}`}>
+            <div className="inline-flex items-baseline gap-[5px] min-w-0 p-0 border-none bg-none">
+              <span className={`font-medium text-muted-foreground/60 leading-[1.2] whitespace-nowrap after:content-[':'] ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{t('auth_files.file_size')}</span>
+              <span className={`min-w-0 font-semibold text-muted-foreground leading-[1.4] break-words ${compact ? 'text-[11px]' : 'text-[12px]'}`}>
                 {file.size ? formatFileSize(file.size) : '-'}
               </span>
             </div>
-            <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>{t('auth_files.file_modified')}</span>
-              <span className={styles.metaValue}>{formatModified(file)}</span>
+            <div className="inline-flex items-baseline gap-[5px] min-w-0 p-0 border-none bg-none">
+              <span className={`font-medium text-muted-foreground/60 leading-[1.2] whitespace-nowrap after:content-[':'] ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{t('auth_files.file_modified')}</span>
+              <span className={`min-w-0 font-semibold text-muted-foreground leading-[1.4] break-words ${compact ? 'text-[11px]' : 'text-[12px]'}`}>{formatModified(file)}</span>
             </div>
             {priorityValue !== undefined && (
-              <div className={`${styles.metaItem} ${styles.priorityBadge}`}>
-                <span className={styles.metaLabel}>{t('auth_files.priority_display')}</span>
-                <span className={`${styles.metaValue} ${styles.priorityValue}`}>
+              <div className="inline-flex items-baseline gap-[5px] min-w-0 p-0 border-none bg-none">
+                <span className={`font-medium text-muted-foreground/60 leading-[1.2] whitespace-nowrap after:content-[':'] ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{t('auth_files.priority_display')}</span>
+                <span className={`min-w-0 font-semibold text-muted-foreground leading-[1.4] break-words tabular-nums ${compact ? 'text-[11px]' : 'text-[12px]'}`}>
                   {priorityValue}
                 </span>
               </div>
@@ -226,29 +227,31 @@ export function AuthFileCard(props: AuthFileCardProps) {
           </div>
 
           {rawStatusMessage && hasStatusWarning && (
-            <div className={styles.healthStatusMessage} title={rawStatusMessage}>
-              <IconInfo className={styles.messageIcon} size={14} />
+            <div className={`flex items-start gap-[6px] text-[11px] text-amber-700 dark:text-amber-400 bg-amber-100/60 dark:bg-amber-900/60 border border-amber-400/30 p-[8px_10px] break-words ${compact ? 'text-[11px] p-[6px_8px]' : ''}`} title={rawStatusMessage}>
+              <IconInfo className="shrink-0 mt-[1px]" size={14} />
               <span>{rawStatusMessage}</span>
             </div>
           )}
 
-          <div className={`${styles.cardInsights} ${compact ? styles.cardInsightsCompact : ''}`}>
-            <div className={`${styles.cardStats} ${compact ? styles.cardStatsCompact : ''}`}>
-              <div className={`${styles.statPill} ${styles.statSuccess}`}>
-                <span className={styles.statLabel}>{t('stats.success')}</span>
-                <span className={styles.statValue}>{fileStats.success}</span>
+          <div className={`flex flex-col p-[0_2px] ${compact ? 'gap-[6px]' : 'gap-2'}`}>
+            <div className={`flex items-center flex-wrap ${compact ? 'gap-[6px]' : 'gap-2'}`}>
+              <div className={`inline-flex items-baseline gap-[5px] min-w-0 bg-emerald-100/50 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 ${compact ? 'py-[3px] px-2' : 'py-1 px-[10px]'}`}>
+                <span className={`font-semibold leading-none ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{t('stats.success')}</span>
+                <span className={`font-bold leading-none tabular-nums ${compact ? 'text-[12px]' : 'text-[13px]'}`}>{fileStats.success}</span>
               </div>
-              <div className={`${styles.statPill} ${styles.statFailure}`}>
-                <span className={styles.statLabel}>{t('stats.failure')}</span>
-                <span className={styles.statValue}>{fileStats.failure}</span>
+              <div className={`inline-flex items-baseline gap-[5px] min-w-0 bg-destructive/10 text-destructive ${compact ? 'py-[3px] px-2' : 'py-1 px-[10px]'}`}>
+                <span className={`font-semibold leading-none ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{t('stats.failure')}</span>
+                <span className={`font-bold leading-none tabular-nums ${compact ? 'text-[12px]' : 'text-[13px]'}`}>{fileStats.failure}</span>
               </div>
             </div>
 
-            <div className={`${styles.statusPanel} ${compact ? styles.statusPanelCompact : ''}`}>
-              <div className={styles.statusPanelLabel}>
-                <span>{t('auth_files.health_status_label')}</span>
-              </div>
-              <ProviderStatusBar statusData={statusData} styles={styles} />
+            <div className={`flex flex-col ${compact ? 'gap-[3px]' : 'gap-1'}`}>
+              {!compact && (
+                <div className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-[0.03em]">
+                  <span>{t('auth_files.health_status_label')}</span>
+                </div>
+              )}
+              <ProviderStatusBar statusData={statusData} />
             </div>
 
             {showQuotaLayout && quotaType && (
@@ -260,69 +263,69 @@ export function AuthFileCard(props: AuthFileCardProps) {
             )}
           </div>
 
-          <div className={styles.cardActions}>
-            <div className={styles.cardActionsMain}>
+          <div className={`flex items-center justify-between gap-2 mt-auto pt-2 border-t border-border/50 max-md:flex-wrap`}>
+            <div className="flex items-center gap-[6px] min-w-0 flex-1 max-md:flex-wrap max-md:w-full">
               {showModelsButton && (
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => onShowModels(file)}
-                  className={`${styles.primaryActionButton} ${styles.modelsActionButton}`}
+                  className="min-w-0 px-[10px] bg-primary/10 border-primary/20 hover:border-primary/35 hover:bg-primary/14 max-md:flex-1 max-md:min-w-0"
                   title={t('auth_files.models_button', { defaultValue: '模型' })}
                   disabled={disableControls}
                 >
                   <>
-                    <span className={styles.modelsActionIconWrap}>
-                      <IconModelCluster className={styles.actionIcon} size={16} />
+                    <span className="w-[22px] h-[22px] shrink-0 inline-flex items-center justify-center bg-primary/16">
+                      <IconModelCluster className="block" size={16} />
                     </span>
-                    <span className={styles.actionButtonLabel}>
+                    <span className="overflow-hidden text-ellipsis whitespace-nowrap">
                       {t('auth_files.models_button', { defaultValue: '模型' })}
                     </span>
                   </>
                 </Button>
               )}
               {!isRuntimeOnly && (
-                <div className={styles.cardUtilityActions}>
+                <div className="flex items-center gap-[3px] p-[2px] bg-secondary/50">
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => onDownload(file.name)}
-                    className={styles.iconButton}
+                    className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
                     title={t('auth_files.download_button')}
                     disabled={disableControls}
                   >
-                    <IconDownload className={styles.actionIcon} size={16} />
+                    <IconDownload className="block" size={16} />
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => onOpenPrefixProxyEditor(file)}
-                    className={styles.iconButton}
+                    className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
                     title={t('auth_files.prefix_proxy_button')}
                     disabled={disableControls}
                   >
-                    <IconSettings className={styles.actionIcon} size={16} />
+                    <IconSettings className="block" size={16} />
                   </Button>
                   <Button
                     variant="danger"
                     size="sm"
                     onClick={() => onDelete(file.name)}
-                    className={styles.iconButton}
+                    className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
                     title={t('auth_files.delete_button')}
                     disabled={disableControls || deleting === file.name}
                   >
                     {deleting === file.name ? (
                       <LoadingSpinner size={14} />
                     ) : (
-                      <IconTrash2 className={styles.actionIcon} size={16} />
+                      <IconTrash2 className="block" size={16} />
                     )}
                   </Button>
                 </div>
               )}
             </div>
             {!isRuntimeOnly && (
-              <div className={styles.statusToggle}>
-                <span className={styles.statusToggleLabel}>
+              <div className={`inline-flex items-center gap-[6px] shrink-0 ml-auto max-md:w-full max-md:justify-between`}>
+                <span className="text-[11px] font-medium text-muted-foreground/60">
                   {t('auth_files.status_toggle_label')}
                 </span>
                 <ToggleSwitch

@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Collapsible } from '@/components/ui/LegacyCollapsible';
+import { DetailsCollapsible as Collapsible } from '@/components/ui/DetailsCollapsible';
 import { IconPlus, IconX } from '@/components/ui/icons';
 import type {
   AmpcodeConfig,
@@ -8,7 +8,6 @@ import type {
   AmpcodeUpstreamApiKeyMapping,
 } from '@/types';
 import type { ProviderResource } from '../../types';
-import styles from './sharedForm.module.scss';
 
 interface AmpcodeFormState {
   upstreamUrl: string;
@@ -120,33 +119,38 @@ export function AmpcodeForm({
     }
   };
 
+  const inputCls = "w-full h-9 px-3 py-2 border border-border bg-background text-foreground text-[13px] font-[inherit] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)] disabled:opacity-60 disabled:cursor-not-allowed";
+  const textareaCls = "w-full px-3 py-2 border border-border bg-background text-foreground text-[13px] font-mono leading-[1.5] box-border resize-y min-h-[80px] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)] disabled:opacity-60 disabled:cursor-not-allowed";
+  const removeBtnCls = "inline-flex items-center gap-1 px-2 py-1 border border-transparent bg-transparent text-destructive cursor-pointer text-[12px] hover:bg-[var(--destructive-10)] disabled:opacity-50 disabled:cursor-not-allowed";
+  const addBtnCls = "inline-flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-border bg-background text-muted-foreground cursor-pointer text-[12px] font-medium self-start hover:border-primary hover:text-primary";
+
   return (
-    <form id={formId} className={styles.form} onSubmit={handleSubmit} noValidate>
-      <div className={styles.section}>
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor={`${fid}-url`}>
+    <form id={formId} className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+      <div className="flex flex-col gap-3">
+        <div className="grid gap-1.5">
+          <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-url`}>
             {t('providersPage.ampcode.upstreamUrl')}
           </label>
           <input
             id={`${fid}-url`}
-            className={styles.input}
+            className={inputCls}
             value={form.upstreamUrl}
             onChange={(e) => setForm((s) => ({ ...s, upstreamUrl: e.target.value }))}
             placeholder="https://api.ampcode.com"
             disabled={mutating}
           />
         </div>
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor={`${fid}-key`}>
+        <div className="grid gap-1.5">
+          <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-key`}>
             {t('providersPage.ampcode.upstreamApiKey')}
-            <span className={styles.labelHint}>
+            <span className="text-[11px] text-muted-foreground font-normal">
               {' '}
               · {t('providersPage.ampcode.upstreamApiKeyHint')}
             </span>
           </label>
           <input
             id={`${fid}-key`}
-            className={styles.input}
+            className={inputCls}
             type="password"
             value={form.upstreamApiKey}
             onChange={(e) =>
@@ -155,32 +159,32 @@ export function AmpcodeForm({
             disabled={mutating}
           />
         </div>
-        <label className={styles.checkboxRow}>
+        <label className="flex items-start gap-[10px] cursor-pointer select-none">
           <input
             type="checkbox"
-            className={styles.checkboxBox}
+            className="mt-0.5 w-4 h-4 border border-border bg-background cursor-pointer appearance-none relative checked:bg-primary checked:border-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
             checked={form.forceModelMappings}
             disabled={mutating}
             onChange={(e) =>
               setForm((s) => ({ ...s, forceModelMappings: e.target.checked }))
             }
           />
-          <span className={styles.checkboxText}>
+          <span className="flex flex-col gap-0.5 text-[13px] text-foreground">
             <span>{t('providersPage.ampcode.forceModelMappings')}</span>
-            <small>{t('providersPage.ampcode.forceModelMappingsHint')}</small>
+            <small className="text-muted-foreground text-[11px]">{t('providersPage.ampcode.forceModelMappingsHint')}</small>
           </span>
         </label>
       </div>
 
       <Collapsible label={t('providersPage.ampcode.keyMappingsSection')} defaultOpen>
-        <div className={styles.entriesList}>
+        <div className="flex flex-col gap-[10px]">
           {form.upstreamMappings.map((m, idx) => (
-            <div key={idx} className={styles.entryCard}>
-              <div className={styles.entryCardHeader}>
+            <div key={idx} className="border border-border p-3 flex flex-col gap-[10px] bg-muted">
+              <div className="flex items-center justify-between text-[12px] font-medium text-muted-foreground">
                 <span>{t('providersPage.ampcode.mappingRow', { index: idx + 1 })}</span>
                 <button
                   type="button"
-                  className={styles.removeBtn}
+                  className={removeBtnCls}
                   disabled={mutating || form.upstreamMappings.length <= 1}
                   onClick={() =>
                     setForm((s) => ({
@@ -192,12 +196,12 @@ export function AmpcodeForm({
                   <IconX size={12} />
                 </button>
               </div>
-              <div className={styles.field}>
-                <label className={styles.label}>
+              <div className="grid gap-1.5">
+                <label className="text-[12px] font-medium text-foreground">
                   {t('providersPage.ampcode.upstreamApiKey')}
                 </label>
                 <input
-                  className={styles.input}
+                  className={inputCls}
                   value={m.upstreamApiKey}
                   onChange={(e) =>
                     setForm((s) => ({
@@ -210,16 +214,16 @@ export function AmpcodeForm({
                   disabled={mutating}
                 />
               </div>
-              <div className={styles.field}>
-                <label className={styles.label}>
+              <div className="grid gap-1.5">
+                <label className="text-[12px] font-medium text-foreground">
                   {t('providersPage.ampcode.clientKeys')}
-                  <span className={styles.labelHint}>
+                  <span className="text-[11px] text-muted-foreground font-normal">
                     {' '}
                     · {t('providersPage.ampcode.clientKeysHint')}
                   </span>
                 </label>
                 <textarea
-                  className={styles.textarea}
+                  className={textareaCls}
                   rows={3}
                   value={m.clientKeysText}
                   onChange={(e) =>
@@ -237,7 +241,7 @@ export function AmpcodeForm({
           ))}
           <button
             type="button"
-            className={styles.addBtn}
+            className={addBtnCls}
             disabled={mutating}
             onClick={() =>
               setForm((s) => ({
@@ -253,14 +257,14 @@ export function AmpcodeForm({
       </Collapsible>
 
       <Collapsible label={t('providersPage.ampcode.modelMappingsSection')}>
-        <div className={styles.entriesList}>
+        <div className="flex flex-col gap-[10px]">
           {form.modelMappings.map((m, idx) => (
             <div
               key={idx}
               style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}
             >
               <input
-                className={styles.input}
+                className={inputCls}
                 placeholder="from"
                 value={m.from}
                 onChange={(e) =>
@@ -274,7 +278,7 @@ export function AmpcodeForm({
                 disabled={mutating}
               />
               <input
-                className={styles.input}
+                className={inputCls}
                 placeholder="to"
                 value={m.to}
                 onChange={(e) =>
@@ -289,7 +293,7 @@ export function AmpcodeForm({
               />
               <button
                 type="button"
-                className={styles.removeBtn}
+                className={removeBtnCls}
                 disabled={mutating || form.modelMappings.length <= 1}
                 onClick={() =>
                   setForm((s) => ({
@@ -304,7 +308,7 @@ export function AmpcodeForm({
           ))}
           <button
             type="button"
-            className={styles.addBtn}
+            className={addBtnCls}
             disabled={mutating}
             onClick={() =>
               setForm((s) => ({
@@ -319,7 +323,7 @@ export function AmpcodeForm({
         </div>
       </Collapsible>
 
-      {error ? <div className={styles.errorBox}>{error}</div> : null}
+      {error ? <div className="border border-[var(--destructive-30)] bg-[var(--destructive-10)] text-destructive px-3 py-[10px] text-[12px] leading-[1.5]">{error}</div> : null}
     </form>
   );
 }

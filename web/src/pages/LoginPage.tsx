@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/LegacyInput';
-import { Select } from '@/components/ui/LegacySelect';
-import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
+import { FormInput as Input } from '@/components/ui/FormInput';
+import { FormSelect as Select } from '@/components/ui/FormSelect';
+import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { IconEye, IconEyeOff } from '@/components/ui/icons';
 import { toast } from 'sonner';
 import { useAuthStore, useLanguageStore } from '@/stores';
@@ -13,12 +13,17 @@ import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 import type { ApiError } from '@/types';
-import styles from './LoginPage.module.scss';
 
 /**
  * 将 API 错误转换为本地化的用户友好消息
  */
 type RedirectState = { from?: { pathname?: string } };
+
+const BRAND_WORDS = [
+  { word: 'CLI', style: { '--target-opacity': '0.95', animationDelay: '0.1s' } as React.CSSProperties },
+  { word: 'PROXY', style: { '--target-opacity': '0.70', animationDelay: '0.35s' } as React.CSSProperties },
+  { word: 'API', style: { '--target-opacity': '0.45', animationDelay: '0.6s' } as React.CSSProperties },
+];
 
 function getLocalizedErrorMessage(error: unknown, t: (key: string) => string): string {
   const apiError = error as Partial<ApiError>;
@@ -196,41 +201,47 @@ export function LoginPage() {
   const showSplash = autoLoading || autoLoginSuccess;
 
   return (
-    <div className={styles.container}>
+    <div className="min-h-screen flex">
       {/* 左侧品牌展示区 */}
-      <div className={styles.brandPanel}>
-        <div className={styles.brandContent}>
-          <span className={styles.brandWord}>CLI</span>
-          <span className={styles.brandWord}>PROXY</span>
-          <span className={styles.brandWord}>API</span>
+      <div className="flex-1 flex flex-col justify-center items-center bg-black px-8 py-8 relative overflow-hidden max-md:hidden">
+        <div className="relative z-[1] flex flex-col items-end w-full">
+          {BRAND_WORDS.map(({ word, style }) => (
+            <span
+              key={word}
+              className="text-[14vw] font-black text-white/90 tracking-tight leading-[0.85] uppercase text-right opacity-0 [animation:brandFadeIn_0.8s_ease-out_forwards]"
+              style={style}
+            >
+              {word}
+            </span>
+          ))}
         </div>
       </div>
 
       {/* 右侧功能交互区 */}
-      <div className={styles.formPanel}>
+      <div className="flex-1 flex flex-col justify-center items-center p-8 bg-background relative max-md:p-6 max-md:min-h-screen">
         {showSplash ? (
           /* 启动动画 */
-          <div className={styles.splashContent}>
-            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className={styles.splashLogo} />
-            <h1 className={styles.splashTitle}>{t('splash.title')}</h1>
-            <p className={styles.splashSubtitle}>{t('splash.subtitle')}</p>
-            <div className={styles.splashLoader}>
-              <div className={styles.splashLoaderBar} />
+          <div className="flex flex-col items-center gap-4 [animation:splashEnter_0.6s_ease-out]">
+            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className="h-20 w-auto shadow-lg [animation:splashLogoPulse_1.5s_ease-in-out_infinite]" />
+            <h1 className="text-[28px] font-extrabold text-foreground m-0 tracking-tight">{t('splash.title')}</h1>
+            <p className="text-base font-medium text-muted-foreground m-0 -mt-2">{t('splash.subtitle')}</p>
+            <div className="w-[120px] h-[3px] bg-border overflow-hidden mt-4">
+              <div className="w-full h-full bg-primary [animation:splashLoading_1.2s_ease-in-out_infinite]" />
             </div>
           </div>
         ) : (
           /* 登录表单 */
-          <div className={styles.formContent}>
+          <div className="w-full max-w-[420px] flex flex-col items-center gap-6">
             {/* Logo */}
-            <img src={INLINE_LOGO_JPEG} alt="Logo" className={styles.logo} />
+            <img src={INLINE_LOGO_JPEG} alt="Logo" className="w-20 h-20 object-cover shadow-lg border-[3px] border-border" />
 
             {/* 登录表单卡片 */}
-            <div className={styles.loginCard}>
-              <div className={styles.loginHeader}>
-                <div className={styles.titleRow}>
-                  <div className={styles.title}>{t('title.login')}</div>
+            <div className="w-full bg-card border border-border shadow-lg p-6 flex flex-col gap-4 max-md:p-4 max-md:shadow-none max-md:border-0 max-md:bg-transparent">
+              <div className="flex flex-col gap-2 text-center">
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <div className="text-[22px] font-extrabold text-foreground">{t('title.login')}</div>
                   <Select
-                    className={styles.languageSelect}
+                    className="min-w-[108px] shrink-0"
                     value={language}
                     options={languageOptions}
                     onChange={handleLanguageChange}
@@ -238,22 +249,22 @@ export function LoginPage() {
                     ariaLabel={t('language.switch')}
                   />
                 </div>
-                <div className={styles.subtitle}>{t('login.subtitle')}</div>
+                <div className="text-muted-foreground text-sm">{t('login.subtitle')}</div>
               </div>
 
-              <div className={styles.connectionBox}>
-                <div className={styles.label}>{t('login.connection_current')}</div>
-                <div className={styles.value}>{apiBase || detectedBase}</div>
-                <div className={styles.hint}>{t('login.connection_auto_hint')}</div>
+              <div className="bg-muted border border-dashed border-border p-3 flex flex-col gap-1">
+                <div className="text-muted-foreground text-sm">{t('login.connection_current')}</div>
+                <div className="font-bold text-foreground break-all">{apiBase || detectedBase}</div>
+                <div className="text-muted-foreground text-xs">{t('login.connection_auto_hint')}</div>
               </div>
 
-              <div className={styles.toggleAdvanced}>
+              <div className="flex justify-start w-full">
                 <SelectionCheckbox
                   checked={showCustomBase}
                   onChange={setShowCustomBase}
                   ariaLabel={t('login.custom_connection_label')}
                   label={t('login.custom_connection_label')}
-                  labelClassName={styles.toggleLabel}
+                  labelClassName="text-muted-foreground text-sm font-medium"
                 />
               </div>
 
@@ -296,13 +307,13 @@ export function LoginPage() {
                 }
               />
 
-              <div className={styles.toggleAdvanced}>
+              <div className="flex justify-start w-full">
                 <SelectionCheckbox
                   checked={rememberPassword}
                   onChange={setRememberPassword}
                   ariaLabel={t('login.remember_password_label')}
                   label={t('login.remember_password_label')}
-                  labelClassName={styles.toggleLabel}
+                  labelClassName="text-muted-foreground text-sm font-medium"
                 />
               </div>
 
@@ -310,7 +321,7 @@ export function LoginPage() {
                 {loading ? t('login.submitting') : t('login.submit_button')}
               </Button>
 
-              {error && <div className={styles.errorBox}>{error}</div>}
+              {error && <div className="bg-destructive/10 border border-destructive/40 px-3 py-2 text-destructive text-sm">{error}</div>}
             </div>
           </div>
         )}

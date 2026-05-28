@@ -10,9 +10,10 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
-import { Input } from '@/components/ui/LegacyInput';
-import { Select } from '@/components/ui/LegacySelect';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { FormInput as Input } from '@/components/ui/FormInput';
+import { Input as BaseInput } from '@/components/ui/Input';
+import { FormSelect as Select } from '@/components/ui/FormSelect';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconCode,
   IconDiamond,
@@ -38,7 +39,6 @@ import {
   PayloadFilterRulesEditor,
   PayloadRulesEditor,
 } from './VisualConfigEditorBlocks';
-import styles from './VisualConfigEditor.module.scss';
 
 type VisualSectionId = 'server' | 'auth' | 'system' | 'quota' | 'streaming' | 'payload';
 
@@ -75,10 +75,12 @@ type ToggleRowProps = {
 
 function ToggleRow({ title, description, checked, disabled, onChange }: ToggleRowProps) {
   return (
-    <div className={styles.toggleRow}>
-      <div className={styles.toggleCopy}>
-        <div className={styles.toggleTitle}>{title}</div>
-        {description ? <div className={styles.toggleDescription}>{description}</div> : null}
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] max-md:grid-cols-[minmax(0,1fr)] gap-[14px] items-center min-h-[74px] p-[14px] border border-border bg-transparent">
+      <div className="flex flex-col gap-[5px] min-w-0">
+        <div className="text-foreground text-[14px] font-bold leading-tight">{title}</div>
+        {description ? (
+          <div className="text-muted-foreground text-[12px] leading-[1.55]">{description}</div>
+        ) : null}
       </div>
       <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} ariaLabel={title} />
     </div>
@@ -86,15 +88,19 @@ function ToggleRow({ title, description, checked, disabled, onChange }: ToggleRo
 }
 
 function SectionGrid({ children }: { children: ReactNode }) {
-  return <div className={styles.sectionGrid}>{children}</div>;
+  return (
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] max-md:grid-cols-[minmax(0,1fr)] gap-[14px]">
+      {children}
+    </div>
+  );
 }
 
 function SectionStack({ children }: { children: ReactNode }) {
-  return <div className={styles.sectionStack}>{children}</div>;
+  return <div className="flex flex-col gap-[14px]">{children}</div>;
 }
 
 function Divider() {
-  return <div className={styles.divider} />;
+  return <div className="h-px bg-border" />;
 }
 
 function SectionSubsection({
@@ -107,10 +113,12 @@ function SectionSubsection({
   children: ReactNode;
 }) {
   return (
-    <div className={styles.subsection}>
-      <div className={styles.subsectionHeader}>
-        <h3 className={styles.subsectionTitle}>{title}</h3>
-        {description ? <p className={styles.subsectionDescription}>{description}</p> : null}
+    <div className="flex flex-col gap-3 p-4 border border-border bg-transparent">
+      <div className="flex flex-col gap-[5px]">
+        <h3 className="m-0 text-foreground text-[15px] font-bold leading-tight">{title}</h3>
+        {description ? (
+          <p className="m-0 text-muted-foreground text-[12px] leading-[1.6]">{description}</p>
+        ) : null}
       </div>
       {children}
     </div>
@@ -137,18 +145,18 @@ function FieldShell({
   children: ReactNode;
 }) {
   return (
-    <div className={styles.fieldShell}>
-      <label id={labelId} htmlFor={htmlFor} className={styles.fieldLabel}>
+    <div className="flex flex-col gap-[7px] min-w-0">
+      <label id={labelId} htmlFor={htmlFor} className="text-muted-foreground text-[12px] font-bold tracking-[0.02em]">
         {label}
       </label>
       {children}
       {error ? (
-        <div id={errorId} className="error-box">
+        <div id={errorId} className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">
           {error}
         </div>
       ) : null}
       {hint ? (
-        <div id={hintId} className={styles.fieldHint}>
+        <div id={hintId} className="text-muted-foreground text-[12px] leading-[1.55]">
           {hint}
         </div>
       ) : null}
@@ -378,7 +386,7 @@ export function VisualConfigEditor({
   }, []);
 
   const navContent = (
-    <div className={styles.navList}>
+    <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 min-w-0 max-[1200px]:grid-cols-[repeat(2,minmax(0,1fr))]">
       {sections.map((section, index) => {
         const Icon = section.icon;
 
@@ -386,22 +394,31 @@ export function VisualConfigEditor({
           <button
             key={section.id}
             type="button"
-            className={`${styles.navButton} ${
-              activeSectionId === section.id ? styles.navButtonActive : ''
+            className={`flex items-center gap-[10px] w-full min-h-[48px] px-[11px] py-[9px] border text-left transition-colors bg-transparent appearance-none cursor-pointer ${
+              activeSectionId === section.id
+                ? 'border-foreground bg-[color-mix(in_srgb,hsl(var(--foreground))_6%,transparent)]'
+                : 'border-border hover:bg-[color-mix(in_srgb,hsl(var(--foreground))_5%,transparent)]'
             }`}
             onClick={() => handleSectionJump(section.id)}
           >
-            <span className={styles.navIndex}>{String(index + 1).padStart(2, '0')}</span>
-            <span className={styles.navMain}>
-              <span className={styles.navHeadingRow}>
-                <span className={styles.navLabelWrap}>
-                  <span className={styles.navIcon}>
+            <span className="min-w-[24px] pt-[2px] text-muted-foreground/60 text-[11px] font-[750] tracking-[0.08em] flex-none">
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <span className="flex flex-col min-w-0 flex-1">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="inline-flex items-center gap-[7px] min-w-0">
+                  <span className="inline-flex items-center justify-center w-4 text-muted-foreground flex-none">
                     <Icon size={14} />
                   </span>
-                  <span className={styles.navLabel}>{section.title}</span>
+                  <span className="text-foreground text-[13px] font-bold leading-tight">
+                    {section.title}
+                  </span>
                 </span>
                 {section.errorCount > 0 ? (
-                  <span className={styles.navBadge} aria-hidden="true">
+                  <span
+                    className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-amber-100 dark:bg-amber-900 border border-amber-400/30 text-amber-700 dark:text-amber-400 text-[11px] font-bold flex-none"
+                    aria-hidden="true"
+                  >
                     {section.errorCount}
                   </span>
                 ) : null}
@@ -414,16 +431,18 @@ export function VisualConfigEditor({
   );
 
   return (
-    <div className={styles.visualEditor}>
-      <div className={styles.overview}>
-        <div className={styles.overviewHeader}>
-          <div className={styles.overviewMeta}>
-            <span className={styles.overviewPill}>
+    <div className="flex flex-col gap-[18px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-[10px] pb-[18px] max-md:pb-[14px] border-b border-border">
+        <div className="flex items-center min-w-0 max-md:items-stretch">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="inline-flex items-center min-h-[28px] px-[9px] border border-border text-muted-foreground text-[12px] font-bold leading-tight">
               {t('config_management.visual.quick_jump', { defaultValue: '快速跳转' })}
             </span>
-            <span className={styles.overviewPill}>{activeSection?.title}</span>
+            <span className="inline-flex items-center min-h-[28px] px-[9px] border border-border text-muted-foreground text-[12px] font-bold leading-tight">
+              {activeSection?.title}
+            </span>
             {hasValidationIssues ? (
-              <span className={`${styles.overviewPill} ${styles.overviewPillWarning}`}>
+              <span className="inline-flex items-center min-h-[28px] px-[9px] border border-amber-400/30 bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-400 text-[12px] font-bold leading-tight">
                 {t('config_management.visual.validation.validation_blocked')}
               </span>
             ) : null}
@@ -431,12 +450,12 @@ export function VisualConfigEditor({
         </div>
       </div>
 
-      <div className={styles.workspace}>
+      <div className="flex flex-col gap-[14px] max-md:gap-3 min-w-0">
         {isMobile ? (
-          <div className={styles.mobileSectionNav}>
+          <div className="sticky top-[calc(var(--header-height,64px)+10px)] z-[4] mb-1 bg-[color-mix(in_srgb,hsl(var(--muted))_92%,transparent)]">
             <div
               ref={mobileNavScrollerRef}
-              className={styles.mobileSectionNavScroller}
+              className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-1.5 overflow-visible pt-[2px] pb-2"
               aria-label={t('config_management.visual.quick_jump', { defaultValue: '快速跳转' })}
             >
               {sections.map((section, index) => (
@@ -446,17 +465,24 @@ export function VisualConfigEditor({
                     mobileNavButtonRefs.current[section.id] = node;
                   }}
                   type="button"
-                  className={`${styles.mobileSectionNavButton} ${
-                    activeSectionId === section.id ? styles.mobileSectionNavButtonActive : ''
+                  className={`inline-flex items-center gap-[7px] min-w-0 w-full px-[10px] py-[9px] border text-left bg-background appearance-none cursor-pointer ${
+                    activeSectionId === section.id
+                      ? 'border-foreground bg-foreground/[0.06]'
+                      : 'border-border'
                   }`}
                   onClick={() => handleSectionJump(section.id)}
                 >
-                  <span className={styles.mobileSectionNavIndex}>
+                  <span className="text-muted-foreground/60 text-[11px] font-[750] tracking-[0.08em]">
                     {String(index + 1).padStart(2, '0')}
                   </span>
-                  <span className={styles.mobileSectionNavLabel}>{section.title}</span>
+                  <span className="text-foreground text-[13px] font-bold leading-tight">
+                    {section.title}
+                  </span>
                   {section.errorCount > 0 ? (
-                    <span className={styles.mobileSectionNavBadge} aria-hidden="true">
+                    <span
+                      className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 bg-amber-100 dark:bg-amber-900 border border-amber-400/30 text-amber-700 dark:text-amber-400 text-[11px] font-bold"
+                      aria-hidden="true"
+                    >
                       {section.errorCount}
                     </span>
                   ) : null}
@@ -466,11 +492,13 @@ export function VisualConfigEditor({
           </div>
         ) : null}
 
-        <aside className={styles.sidebar}>
-          <div className={styles.sidebarRail}>{navContent}</div>
+        <aside className="max-md:hidden sticky top-[calc(var(--header-height,64px)+12px)] z-[5] self-stretch min-w-0">
+          <div className="pb-3 border-b border-border bg-[color-mix(in_srgb,hsl(var(--muted))_88%,transparent)]">
+            {navContent}
+          </div>
         </aside>
 
-        <div className={styles.sections}>
+        <div className="flex gap-0 w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden items-stretch pb-3 max-md:pb-[10px] [scroll-padding-left:0] [scroll-snap-type:x_mandatory] [scrollbar-gutter:stable] [scrollbar-width:thin] [&>*]:flex-none [&>*]:w-full [&>*]:max-w-full">
           <ConfigSection
             id="server"
             ref={(node) => {
@@ -615,7 +643,7 @@ export function VisualConfigEditor({
                 disabled={disabled}
                 hint={t('config_management.visual.sections.auth.auth_dir_hint')}
               />
-              <div className={styles.subsection}>
+              <div className="flex flex-col gap-3 p-4 border border-border bg-transparent">
                 <ApiKeysCardEditor
                   value={values.apiKeysText}
                   disabled={disabled}
@@ -729,8 +757,8 @@ export function VisualConfigEditor({
                 description={t('config_management.visual.sections.headers.description')}
               >
                 <SectionStack>
-                  <div className={styles.subsectionHeader}>
-                    <h3 className={styles.subsectionTitle}>
+                  <div className="flex flex-col gap-[5px]">
+                    <h3 className="m-0 text-foreground text-[15px] font-bold leading-tight">
                       {t('config_management.visual.sections.headers.claude_title')}
                     </h3>
                   </div>
@@ -792,8 +820,8 @@ export function VisualConfigEditor({
                     />
                   </SectionGrid>
                   <Divider />
-                  <div className={styles.subsectionHeader}>
-                    <h3 className={styles.subsectionTitle}>
+                  <div className="flex flex-col gap-[5px]">
+                    <h3 className="m-0 text-foreground text-[15px] font-bold leading-tight">
                       {t('config_management.visual.sections.headers.codex_title')}
                     </h3>
                   </div>
@@ -1052,10 +1080,9 @@ export function VisualConfigEditor({
                   error={keepaliveError}
                   errorId={keepaliveErrorId}
                 >
-                  <div className={styles.fieldControl}>
-                    <input
+                  <div className="relative">
+                    <BaseInput
                       id={keepaliveInputId}
-                      className="input"
                       type="number"
                       placeholder="0"
                       value={values.streaming.keepaliveSeconds}
@@ -1070,7 +1097,7 @@ export function VisualConfigEditor({
                       disabled={disabled}
                     />
                     {isKeepaliveDisabled ? (
-                      <span className={styles.inlinePill}>
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center min-h-[24px] px-2 border border-border bg-background text-muted-foreground text-[11px] font-bold">
                         {t('config_management.visual.sections.streaming.disabled')}
                       </span>
                     ) : null}
@@ -1105,10 +1132,9 @@ export function VisualConfigEditor({
                   error={nonstreamKeepaliveError}
                   errorId={nonstreamKeepaliveErrorId}
                 >
-                  <div className={styles.fieldControl}>
-                    <input
+                  <div className="relative">
+                    <BaseInput
                       id={nonstreamKeepaliveInputId}
-                      className="input"
                       type="number"
                       placeholder="0"
                       value={values.streaming.nonstreamKeepaliveInterval}
@@ -1123,7 +1149,7 @@ export function VisualConfigEditor({
                       disabled={disabled}
                     />
                     {isNonstreamKeepaliveDisabled ? (
-                      <span className={styles.inlinePill}>
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center min-h-[24px] px-2 border border-border bg-background text-muted-foreground text-[11px] font-bold">
                         {t('config_management.visual.sections.streaming.disabled')}
                       </span>
                     ) : null}

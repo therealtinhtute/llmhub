@@ -8,14 +8,14 @@ import {
   IconTrash2,
 } from '@/components/ui/icons';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/LegacyTable';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+  AppTable as Table,
+  AppTableBody as TableBody,
+  AppTableCell as TableCell,
+  AppTableHead as TableHead,
+  AppTableHeader as TableHeader,
+  AppTableRow as TableRow,
+} from '@/components/ui/AppTable';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import {
   getOpenAIProviderRecentStatusData,
@@ -27,8 +27,6 @@ import {
 import type { OpenAIProviderConfig } from '@/types';
 import type { StatusBarData } from '@/utils/recentRequests';
 import type { ProviderResource } from '../types';
-import styles from './ProviderResourceTable.module.scss';
-import statusBarStyles from './providerStatusBar.module.scss';
 
 interface ProviderResourceTableProps {
   resources: ProviderResource[];
@@ -92,14 +90,14 @@ export function ProviderResourceTable({
   const { t } = useTranslation();
 
   const renderMetric = (key: string, label: string, value: number) => (
-    <span key={key} className={styles.metric}>
-      <span className={styles.metricLabel}>{label}</span>
-      <span className={styles.metricValue}>{value}</span>
+    <span key={key} className="inline-flex items-center gap-1 px-2 py-0.5 border border-border bg-muted text-[11px] leading-[1.4] whitespace-nowrap">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground font-semibold tabular-nums">{value}</span>
     </span>
   );
 
   const renderFlagTag = (key: string, label: string) => (
-    <span key={key} className={styles.flagTag}>
+    <span key={key} className="inline-flex items-center px-2 py-0.5 border border-[var(--primary-30)] bg-[var(--primary-10)] text-primary text-[11px] font-medium leading-[1.4] whitespace-nowrap">
       {label}
     </span>
   );
@@ -129,13 +127,13 @@ export function ProviderResourceTable({
         items.push(renderFlagTag('cloak', t('providersPage.table.cloakTag')));
       }
     }
-    return <div className={styles.metricsCell}>{items}</div>;
+    return <div className="flex flex-wrap gap-1.5 items-center">{items}</div>;
   };
 
   const renderStatus = (r: ProviderResource) => {
     if (r.brand === 'ampcode' && r.flags.isPlaceholder) {
       return (
-        <span className={`${styles.statusBadge} ${styles.statusDisabled}`}>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 dark:text-amber-400 text-[11px] font-medium whitespace-nowrap">
           <IconAlertTriangle size={12} />
           {t('providersPage.status.notConfigured')}
         </span>
@@ -143,14 +141,14 @@ export function ProviderResourceTable({
     }
     if (r.disabled) {
       return (
-        <span className={`${styles.statusBadge} ${styles.statusDisabled}`}>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 dark:text-amber-400 text-[11px] font-medium whitespace-nowrap">
           <IconAlertTriangle size={12} />
           {t('providersPage.status.disabled')}
         </span>
       );
     }
     return (
-      <span className={`${styles.statusBadge} ${styles.statusActive}`}>
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-emerald-400/40 bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium whitespace-nowrap">
         <IconCheckCircle2 size={12} />
         {t('providersPage.status.active')}
       </span>
@@ -161,9 +159,9 @@ export function ProviderResourceTable({
     if (r.brand === 'openaiCompatibility') {
       const extra = r.apiKeyEntryCount > 1 ? ` · +${r.apiKeyEntryCount - 1}` : '';
       return (
-        <div className={styles.primaryCell}>
-          <span className={styles.primaryName}>{r.name ?? r.identifier}</span>
-          <span className={styles.primarySub}>
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="font-medium text-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">{r.name ?? r.identifier}</span>
+          <span className="text-[11px] text-muted-foreground font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">
             {(r.apiKeyPreview ?? '—') + extra}
           </span>
         </div>
@@ -171,19 +169,19 @@ export function ProviderResourceTable({
     }
     if (r.brand === 'ampcode') {
       return (
-        <div className={styles.primaryCell}>
-          <span className={styles.primaryName}>Amp CLI</span>
-          <span className={styles.primarySub}>
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="font-medium text-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">Amp CLI</span>
+          <span className="text-[11px] text-muted-foreground font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">
             {r.apiKeyPreview ?? t('providersPage.table.noFallbackKey')}
           </span>
         </div>
       );
     }
     return (
-      <div className={styles.primaryCell}>
-        <span className={styles.primaryName}>{r.apiKeyPreview ?? '—'}</span>
+      <div className="flex flex-col gap-1 min-w-0">
+        <span className="font-medium text-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">{r.apiKeyPreview ?? '—'}</span>
         {r.authIndex ? (
-          <span className={styles.primarySub}>auth: {r.authIndex}</span>
+          <span className="text-[11px] text-muted-foreground font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">auth: {r.authIndex}</span>
         ) : null}
       </div>
     );
@@ -192,16 +190,16 @@ export function ProviderResourceTable({
   const renderBaseUrl = (r: ProviderResource) => {
     if (r.brand === 'claude' && !r.baseUrl) {
       return (
-        <span className={styles.baseUrl}>
+        <span className="font-mono text-[11px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px] block">
           https://api.anthropic.com {t('providersPage.status.defaultSuffix')}
         </span>
       );
     }
     if (r.brand === 'ampcode' && !r.baseUrl) {
-      return <span className={styles.baseUrl}>{t('providersPage.status.notConfigured')}</span>;
+      return <span className="font-mono text-[11px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px] block">{t('providersPage.status.notConfigured')}</span>;
     }
     return (
-      <span className={styles.baseUrl}>
+      <span className="font-mono text-[11px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px] block">
         {r.baseUrl ?? t('providersPage.status.notSet')}
       </span>
     );
@@ -232,27 +230,27 @@ export function ProviderResourceTable({
               <TableCell>{renderBaseUrl(resource)}</TableCell>
               <TableCell>
                 {resource.brand === 'ampcode' ? (
-                  <span className={styles.baseUrl}>—</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">—</span>
                 ) : resource.prefix ? (
-                  <span className={styles.chip}>{resource.prefix}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 border border-border bg-muted text-muted-foreground text-[11px]">{resource.prefix}</span>
                 ) : (
-                  <span className={styles.baseUrl}>{t('providersPage.status.none')}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{t('providersPage.status.none')}</span>
                 )}
               </TableCell>
               <TableCell>{renderModelsSummary(resource)}</TableCell>
               <TableCell>
-                <div className={styles.statusCell}>
+                <div className="flex flex-col gap-1.5 items-start min-w-0">
                   {renderStatus(resource)}
                   {usageByProvider && resource.brand !== 'ampcode' ? (
                     <>
                       {(() => {
                         const stats = resolveTotalStats(resource, usageByProvider);
                         return (
-                          <div className={styles.stats}>
-                            <span className={`${styles.statPill} ${styles.statSuccess}`}>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold leading-[1.4] border whitespace-nowrap tabular-nums bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-400/40">
                               {t('stats.success')}: {stats.success}
                             </span>
-                            <span className={`${styles.statPill} ${styles.statFailure}`}>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold leading-[1.4] border whitespace-nowrap tabular-nums bg-destructive/10 text-destructive border-destructive/30">
                               {t('stats.failure')}: {stats.failure}
                             </span>
                           </div>
@@ -260,17 +258,16 @@ export function ProviderResourceTable({
                       })()}
                       <ProviderStatusBar
                         statusData={resolveStatusBarData(resource, usageByProvider)}
-                        styles={statusBarStyles}
                       />
                     </>
                   ) : null}
                 </div>
               </TableCell>
               <TableCell alignRight>
-                <div className={styles.actions}>
+                <div className="flex gap-1 items-center justify-end">
                   {!isAmpcode && onToggleDisabled ? (
                     <span
-                      className={styles.toggleWrap}
+                      className="inline-flex items-center mr-1"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ToggleSwitch
@@ -289,7 +286,7 @@ export function ProviderResourceTable({
                   ) : null}
                   <button
                     type="button"
-                    className={styles.iconBtn}
+                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
                     aria-label={t('providersPage.actions.view')}
                     title={t('providersPage.actions.view')}
                     onClick={(e) => {
@@ -301,7 +298,7 @@ export function ProviderResourceTable({
                   </button>
                   <button
                     type="button"
-                    className={styles.iconBtn}
+                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
                     aria-label={t('providersPage.actions.edit')}
                     title={t('providersPage.actions.edit')}
                     disabled={disableMutations}
@@ -315,7 +312,7 @@ export function ProviderResourceTable({
                   {isAmpcode ? (
                     <button
                       type="button"
-                      className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
                       aria-label={t('providersPage.actions.clear')}
                       title={t('providersPage.actions.clear')}
                       disabled={disableMutations || resource.flags.isPlaceholder}
@@ -329,7 +326,7 @@ export function ProviderResourceTable({
                   ) : (
                     <button
                       type="button"
-                      className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
                       aria-label={t('providersPage.actions.delete')}
                       title={t('providersPage.actions.delete')}
                       disabled={disableMutations}

@@ -5,7 +5,7 @@ import type { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { parse as parseYaml, parseDocument } from 'yaml';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/LegacyInput';
+import { FormInput as Input } from '@/components/ui/FormInput';
 import {
   IconCheck,
   IconChevronDown,
@@ -20,7 +20,6 @@ import { useVisualConfig } from '@/hooks/useVisualConfig';
 import { toast } from 'sonner';
 import { useNotificationStore, useAuthStore, useThemeStore, useConfigStore } from '@/stores';
 import { configFileApi } from '@/services/api/configFile';
-import styles from './ConfigPage.module.scss';
 
 type ConfigEditorTab = 'visual' | 'source';
 
@@ -434,9 +433,12 @@ export function ConfigPage() {
   };
 
   const getStatusClass = () => {
-    if (error || hasVisualModeError || hasVisualValidationErrors) return styles.error;
-    if (isDirty) return styles.modified;
-    if (!loading && !saving) return styles.saved;
+    if (error || hasVisualModeError || hasVisualValidationErrors)
+      return 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30';
+    if (isDirty)
+      return 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30';
+    if (!loading && !saving)
+      return 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/10 dark:bg-emerald-900/10 border-emerald-500/34';
     return '';
   };
 
@@ -474,18 +476,21 @@ export function ConfigPage() {
   }, [isDirty, loadConfig, showConfirmation, t]);
 
   const floatingActions = (
-    <div className={styles.floatingActionContainer} ref={floatingActionsRef}>
-      <div className={styles.floatingActionList}>
+    <div
+      className="fixed left-[var(--content-center-x,50%)] bottom-[calc(16px+env(safe-area-inset-bottom))] -translate-x-1/2 z-50 pointer-events-auto w-fit max-w-[calc(100vw-24px)]"
+      ref={floatingActionsRef}
+    >
+      <div className="inline-flex items-center gap-1.5 p-1.5 max-w-[inherit] overflow-x-auto border border-border bg-[color-mix(in_srgb,hsl(var(--background))_92%,transparent)] shadow-lg scrollbar-none [&::-webkit-scrollbar]:hidden">
         <div
-          className={`${styles.floatingStatus} ${
-            isMobile ? styles.floatingStatusCompact : ''
+          className={`inline-flex items-center min-w-0 min-h-[34px] px-2.5 border text-foreground text-[11px] font-bold leading-tight text-center overflow-hidden text-ellipsis whitespace-nowrap ${
+            isMobile ? 'max-w-[112px] px-2 text-[10px]' : 'max-w-[min(300px,46vw)]'
           } ${getStatusClass()}`}
         >
           {getFloatingStatusText()}
         </div>
         <button
           type="button"
-          className={styles.floatingActionButton}
+          className="relative flex items-center justify-center w-[38px] h-[38px] text-foreground cursor-pointer transition-colors hover:not-disabled:bg-foreground hover:not-disabled:text-background disabled:opacity-45 disabled:cursor-not-allowed bg-transparent border-0 p-0 m-0 appearance-none"
           onClick={handleReload}
           disabled={loading || saving}
           title={t('config_management.reload')}
@@ -495,7 +500,7 @@ export function ConfigPage() {
         </button>
         <button
           type="button"
-          className={styles.floatingActionButton}
+          className="relative flex items-center justify-center w-[38px] h-[38px] text-foreground cursor-pointer transition-colors hover:not-disabled:bg-foreground hover:not-disabled:text-background disabled:opacity-45 disabled:cursor-not-allowed bg-transparent border-0 p-0 m-0 appearance-none"
           onClick={handleSave}
           disabled={
             disableControls ||
@@ -510,21 +515,32 @@ export function ConfigPage() {
           aria-label={t('config_management.save')}
         >
           <IconCheck size={16} />
-          {isDirty && <span className={styles.dirtyDot} aria-hidden="true" />}
+          {isDirty && (
+            <span
+              className="absolute top-2 right-2 w-[7px] h-[7px] rounded-full bg-amber-400 shadow-[0_0_0_2px_hsl(var(--background))]"
+              aria-hidden="true"
+            />
+          )}
         </button>
       </div>
     </div>
   );
 
   return (
-    <div className={styles.container}>
-      <div className={styles.pageHeader}>
-        <div className={styles.pageHeaderCopy}>
-          <h1 className={styles.pageTitle}>{t('config_management.title')}</h1>
-          <div className={styles.tabBar}>
+    <div
+      className="w-[min(100%,1480px)] min-h-full flex flex-col gap-[clamp(18px,2.4vw,28px)] mx-auto overflow-y-auto pb-[calc(var(--config-action-bar-height,0px)+16px+env(safe-area-inset-bottom)+12px)]"
+    >
+      <div className="flex items-start">
+        <div className="flex flex-col gap-[10px] min-w-0 w-[min(100%,360px)]">
+          <h1 className="text-[28px] font-bold text-foreground m-0">{t('config_management.title')}</h1>
+          <div className="grid grid-cols-2 gap-[2px] p-[2px] border border-border bg-[color-mix(in_srgb,hsl(var(--background))_72%,transparent)]">
             <button
               type="button"
-              className={`${styles.tabItem} ${activeTab === 'visual' ? styles.tabActive : ''}`}
+              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap transition-colors disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
+                activeTab === 'visual'
+                  ? 'text-background bg-foreground border-foreground'
+                  : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-foreground/[0.05]'
+              }`}
               onClick={() => handleTabChange('visual')}
               disabled={saving || loading}
             >
@@ -532,7 +548,11 @@ export function ConfigPage() {
             </button>
             <button
               type="button"
-              className={`${styles.tabItem} ${activeTab === 'source' ? styles.tabActive : ''}`}
+              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap transition-colors disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
+                activeTab === 'source'
+                  ? 'text-background bg-foreground border-foreground'
+                  : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-foreground/[0.05]'
+              }`}
               onClick={() => handleTabChange('source')}
               disabled={saving || loading}
             >
@@ -542,11 +562,11 @@ export function ConfigPage() {
         </div>
       </div>
 
-      <div className={styles.workspaceShell}>
-        <div className={styles.content}>
-          {error && <div className="error-box">{error}</div>}
+      <div className="flex flex-col gap-4 min-w-0">
+        <div className="flex flex-col gap-4 min-h-0">
+          {error && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{error}</div>}
           {!error && visualParseError && (
-            <div className="error-box">
+            <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">
               {t('config_management.visual_mode_unavailable_detail', { message: visualParseError })}
             </div>
           )}
@@ -560,9 +580,9 @@ export function ConfigPage() {
               onChange={setVisualValues}
             />
           ) : (
-            <div className={styles.sourceWorkspace}>
-              <div className={styles.sourceToolbar}>
-                <div className={styles.searchInputWrapper}>
+            <div className="flex flex-col gap-3 min-h-0">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] max-md:grid-cols-[minmax(0,1fr)] gap-2 items-center p-2 border border-border bg-[color-mix(in_srgb,hsl(var(--background))_76%,transparent)]">
+                <div className="min-w-0 relative flex items-center">
                   <Input
                     value={searchQuery}
                     onChange={(e) => handleSearchChange(e.target.value)}
@@ -571,11 +591,11 @@ export function ConfigPage() {
                       defaultValue: '搜索配置内容...',
                     })}
                     disabled={disableControls || loading}
-                    className={styles.searchInput}
+                    className="min-h-[38px]! pr-[128px]! bg-muted!"
                     rightElement={
-                      <div className={styles.searchRight}>
+                      <div className="inline-flex items-center gap-1.5">
                         {searchQuery && lastSearchedQuery === searchQuery && (
-                          <span className={styles.searchCount}>
+                          <span className="inline-flex items-center min-h-[26px] px-2 border border-border text-muted-foreground text-[12px] font-[650] pointer-events-none whitespace-nowrap">
                             {searchResults.total > 0
                               ? `${searchResults.current} / ${searchResults.total}`
                               : t('config_management.search_no_results', {
@@ -585,7 +605,7 @@ export function ConfigPage() {
                         )}
                         <button
                           type="button"
-                          className={styles.searchButton}
+                          className="inline-flex items-center justify-center w-[30px] h-[30px] border border-foreground bg-foreground text-background transition-colors hover:not-disabled:bg-[var(--primary-hover)] hover:not-disabled:border-[var(--primary-hover)] disabled:opacity-45 disabled:cursor-not-allowed p-0 m-0 appearance-none cursor-pointer"
                           onClick={() => executeSearch('next')}
                           disabled={!searchQuery || disableControls || loading}
                           title={t('config_management.search_button', { defaultValue: '搜索' })}
@@ -597,7 +617,7 @@ export function ConfigPage() {
                   />
                 </div>
 
-                <div className={styles.searchActions}>
+                <div className="flex gap-1.5 flex-shrink-0 max-md:justify-stretch [&_button]:min-w-[38px] [&_button]:w-[38px] [&_button]:h-[38px] [&_button]:p-0! max-md:[&_button]:flex-1 max-md:[&_button]:w-auto">
                   <Button
                     variant="secondary"
                     size="sm"
@@ -623,7 +643,7 @@ export function ConfigPage() {
                 </div>
               </div>
 
-              <div className={styles.editorWrapper}>
+              <div className="w-full flex-none h-[clamp(500px,70vh,1040px)] supports-[height:100dvh]:h-[clamp(500px,70dvh,1040px)] border border-border overflow-hidden bg-background [&_.cm-editor]:h-full [&_.cm-editor]:text-[13px] [&_.cm-editor]:font-mono [&_.cm-editor]:bg-transparent [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:[-webkit-overflow-scrolling:touch] [&_.cm-scroller]:[touch-action:pan-x_pan-y] [&_.cm-scroller]:[overscroll-behavior:contain] [&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-[color-mix(in_srgb,hsl(var(--muted))_86%,transparent)] [&_.cm-lineNumbers_.cm-gutterElement]:px-2 [&_.cm-lineNumbers_.cm-gutterElement]:min-w-[40px] [&_.cm-lineNumbers_.cm-gutterElement]:text-muted-foreground [&_.cm-activeLine]:bg-foreground/[0.05] [&_.cm-activeLineGutter]:bg-foreground/[0.05] [&_.cm-selectionMatch]:bg-[rgba(224,170,20,0.24)] [&_.cm-searchMatch]:bg-[rgba(224,170,20,0.32)] [&_.cm-searchMatch]:outline [&_.cm-searchMatch]:outline-1 [&_.cm-searchMatch]:outline-[rgba(224,170,20,0.48)] [&_.cm-searchMatch-selected]:bg-[rgba(198,87,70,0.32)]">
                 <Suspense fallback={null}>
                   <LazyConfigSourceEditor
                     editorRef={editorRef}

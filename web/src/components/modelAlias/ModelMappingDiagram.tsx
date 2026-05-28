@@ -17,7 +17,6 @@ import type {
   DiagramLine,
   SourceNode
 } from './ModelMappingDiagramTypes';
-import styles from './ModelMappingDiagram.module.scss';
 
 export interface ModelMappingDiagramProps {
   modelAlias: Record<string, OAuthModelAliasEntry[]>;
@@ -508,12 +507,12 @@ export const ModelMappingDiagram = forwardRef<ModelMappingDiagramRef, ModelMappi
 
 
   return (
-    <div className={[styles.scrollContainer, className].filter(Boolean).join(' ')}>
+    <div className={['w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]', className].filter(Boolean).join(' ')}>
       {enableTapLinking && onUpdate && (
-        <div className={styles.tapHint}>{t('oauth_model_alias.diagram_tap_hint')}</div>
+        <div className="sticky left-0 z-[3] text-[12px] text-muted-foreground px-1 mb-2">{t('oauth_model_alias.diagram_tap_hint')}</div>
       )}
       <div
-        className={styles.container}
+        className="inline-flex relative min-w-full min-h-[300px] justify-between py-5 select-none max-md:[min-width:max(100%,960px)] max-md:py-3"
         ref={containerRef}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -521,7 +520,7 @@ export const ModelMappingDiagram = forwardRef<ModelMappingDiagramRef, ModelMappi
           handleContextMenu(e, 'background');
         }}
       >
-        <svg className={styles.connections}>
+        <svg className="absolute left-0 top-0 w-full h-full pointer-events-none z-[1] overflow-visible [&_path]:fill-none [&_path]:[stroke-width:2]">
           {lines.map((line) => (
             <path
               key={line.id}

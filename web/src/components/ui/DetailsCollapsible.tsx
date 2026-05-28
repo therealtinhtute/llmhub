@@ -2,7 +2,7 @@ import { type HTMLAttributes, type PropsWithChildren, type ReactNode } from 'rea
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface CollapsibleProps extends HTMLAttributes<HTMLDetailsElement> {
+interface DetailsCollapsibleProps extends HTMLAttributes<HTMLDetailsElement> {
   label: ReactNode;
   hint?: ReactNode;
   defaultOpen?: boolean;
@@ -11,7 +11,7 @@ interface CollapsibleProps extends HTMLAttributes<HTMLDetailsElement> {
   flush?: boolean;
 }
 
-function Collapsible({
+function DetailsCollapsible({
   label,
   hint,
   defaultOpen,
@@ -21,7 +21,7 @@ function Collapsible({
   children,
   className,
   ...rest
-}: PropsWithChildren<CollapsibleProps>) {
+}: PropsWithChildren<DetailsCollapsibleProps>) {
   return (
     <details
       className={cn('group border border-border rounded-md', flush && 'border-0', className)}
@@ -44,4 +44,4 @@ function Collapsible({
   );
 }
 
-export { Collapsible };
+export { DetailsCollapsible };

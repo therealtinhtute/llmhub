@@ -1,10 +1,9 @@
 import { useTranslation } from 'react-i18next';
-import { Modal } from '@/components/ui/LegacyModal';
+import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { EmptyState } from '@/components/ui/EmptyState';
 import type { AuthFileModelItem } from '@/features/authFiles/constants';
 import { isModelExcluded } from '@/features/authFiles/constants';
-import styles from '@/pages/AuthFilesPage.module.scss';
 
 export type AuthFileModelsModalProps = {
   open: boolean;
@@ -34,7 +33,7 @@ export function AuthFileModelsModal(props: AuthFileModelsModalProps) {
       }
     >
       {loading ? (
-        <div className={styles.hint}>
+        <div className="text-[13px] text-muted-foreground leading-[1.55]">
           {t('auth_files.models_loading', { defaultValue: '正在加载模型列表...' })}
         </div>
       ) : error === 'unsupported' ? (
@@ -52,13 +51,13 @@ export function AuthFileModelsModal(props: AuthFileModelsModalProps) {
           })}
         />
       ) : (
-        <div className={styles.modelsList}>
+        <div className="flex flex-col gap-2">
           {models.map((model) => {
             const excludedModel = isModelExcluded(model.id, fileType, excluded);
             return (
               <div
                 key={model.id}
-                className={`${styles.modelItem} ${excludedModel ? styles.modelItemExcluded : ''}`}
+                className={`flex items-center gap-2 py-2 px-3 border flex-wrap cursor-pointer transition-all ${excludedModel ? 'opacity-60 bg-secondary border-dashed hover:border-destructive' : 'bg-muted border-border hover:bg-accent hover:border-primary active:scale-[0.98]'}`}
                 onClick={() => {
                   onCopyText(model.id);
                 }}
@@ -70,13 +69,13 @@ export function AuthFileModelsModal(props: AuthFileModelsModalProps) {
                     : t('common.copy', { defaultValue: '点击复制' })
                 }
               >
-                <span className={styles.modelId}>{model.id}</span>
+                <span className={`font-['Consolas','Monaco','Courier_New',monospace] text-[13px] font-semibold break-all ${excludedModel ? 'line-through text-muted-foreground' : 'text-foreground'}`}>{model.id}</span>
                 {model.display_name && model.display_name !== model.id && (
-                  <span className={styles.modelDisplayName}>{model.display_name}</span>
+                  <span className="text-[12px] text-muted-foreground shrink-0">{model.display_name}</span>
                 )}
-                {model.type && <span className={styles.modelType}>{model.type}</span>}
+                {model.type && <span className="text-[11px] text-muted-foreground bg-secondary py-[2px] px-2 shrink-0 ml-auto">{model.type}</span>}
                 {excludedModel && (
-                  <span className={styles.modelExcludedBadge}>
+                  <span className="text-[10px] text-destructive bg-destructive/10 py-[2px] px-[6px] border border-destructive shrink-0">
                     {t('auth_files.models_excluded_badge', { defaultValue: '已禁用' })}
                   </span>
                 )}

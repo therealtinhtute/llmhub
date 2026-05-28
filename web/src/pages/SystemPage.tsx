@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/LegacyModal';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { Modal } from '@/components/ui/Modal';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
 import { toast } from 'sonner';
 import {
@@ -30,7 +30,6 @@ import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
 import iconDeepseek from '@/assets/icons/deepseek.svg';
 import iconMinimax from '@/assets/icons/minimax.svg';
-import styles from './SystemPage.module.scss';
 
 const MODEL_CATEGORY_ICONS: Record<string, string | { light: string; dark: string }> = {
   gpt: { light: iconOpenaiLight, dark: iconOpenaiDark },
@@ -43,6 +42,9 @@ const MODEL_CATEGORY_ICONS: Record<string, string | { light: string; dark: strin
   deepseek: iconDeepseek,
   minimax: iconMinimax,
 };
+
+const linkIconClass = (type: 'github' | 'docs' | 'primary') =>
+  `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-[#10b981]' : 'bg-primary'}`;
 
 const parseVersionSegments = (version?: string | null) => {
   if (!version) return null;
@@ -341,35 +343,35 @@ export function SystemPage() {
   }, [auth.connectionStatus, auth.apiBase]);
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.pageTitle}>{t('system_info.title')}</h1>
-      <div className={styles.content}>
-        <Card className={styles.aboutCard}>
-          <div className={styles.aboutHeader}>
-            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className={styles.aboutLogo} />
-            <div className={styles.aboutTitle}>{t('system_info.about_title')}</div>
+    <div className="w-full">
+      <h1 className="text-[28px] font-bold text-foreground mb-6">{t('system_info.title')}</h1>
+      <div className="flex flex-col gap-6">
+        <Card className="overflow-hidden">
+          <div className="flex flex-col items-center justify-center w-full gap-3 py-4 px-0 pb-6">
+            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className="w-[108px] h-[108px] object-cover shadow-[0_12px_32px_rgba(0,0,0,0.16)]" />
+            <div className="w-[min(100%,920px)] text-[clamp(28px,4.2vw,44px)] font-extrabold leading-tight text-foreground tracking-tight text-center text-balance break-words">{t('system_info.about_title')}</div>
           </div>
 
-          <div className={styles.aboutInfoGrid}>
+          <div className="grid grid-cols-2 gap-3 max-[900px]:grid-cols-1">
             <button
               type="button"
-              className={`${styles.infoTile} ${styles.tapTile}`}
+              className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left cursor-pointer transition-transform hover:-translate-y-px hover:border-primary active:translate-y-0"
               onClick={handleInfoVersionTap}
             >
-              <div className={styles.tileHeader}>
-                <div className={styles.tileLabel}>{t('footer.version')}</div>
+              <div className="flex items-start justify-between gap-2 min-h-[40px]">
+                <div className="text-[13px] font-semibold text-muted-foreground">{t('footer.version')}</div>
               </div>
-              <div className={styles.tileValue}>{appVersion}</div>
+              <div className="text-[22px] font-bold text-foreground leading-tight break-words">{appVersion}</div>
             </button>
 
-            <div className={styles.infoTile}>
-              <div className={styles.tileHeader}>
-                <div className={styles.tileLabel}>{t('footer.api_version')}</div>
+            <div className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left">
+              <div className="flex items-start justify-between gap-2 min-h-[40px]">
+                <div className="text-[13px] font-semibold text-muted-foreground">{t('footer.api_version')}</div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className={styles.tileAction}
+                  className="shrink-0 whitespace-nowrap -mt-1 -mr-2"
                   onClick={() => void handleVersionCheck()}
                   loading={checkingVersion}
                   title={t('system_info.version_check_button')}
@@ -378,40 +380,40 @@ export function SystemPage() {
                   {t('system_info.version_check_button')}
                 </Button>
               </div>
-              <div className={styles.tileValue}>{apiVersion}</div>
+              <div className="text-[22px] font-bold text-foreground leading-tight break-words">{apiVersion}</div>
             </div>
 
-            <div className={styles.infoTile}>
-              <div className={styles.tileLabel}>{t('footer.build_date')}</div>
-              <div className={styles.tileValue}>{buildTime}</div>
+            <div className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left">
+              <div className="text-[13px] font-semibold text-muted-foreground">{t('footer.build_date')}</div>
+              <div className="text-[22px] font-bold text-foreground leading-tight break-words">{buildTime}</div>
             </div>
 
-            <div className={styles.infoTile}>
-              <div className={styles.tileLabel}>{t('connection.status')}</div>
-              <div className={styles.tileValue}>{t(`common.${auth.connectionStatus}_status`)}</div>
-              <div className={styles.tileSub}>{auth.apiBase || '-'}</div>
+            <div className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left">
+              <div className="text-[13px] font-semibold text-muted-foreground">{t('connection.status')}</div>
+              <div className="text-[22px] font-bold text-foreground leading-tight break-words">{t(`common.${auth.connectionStatus}_status`)}</div>
+              <div className="text-xs text-muted-foreground/70 leading-snug">{auth.apiBase || '-'}</div>
             </div>
           </div>
         </Card>
 
         <Card title={t('system_info.quick_links_title')}>
-          <p className={styles.sectionDescription}>{t('system_info.quick_links_desc')}</p>
-          <div className={styles.quickLinks}>
+          <p className="text-sm text-muted-foreground mb-3">{t('system_info.quick_links_desc')}</p>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-3">
             <a
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className={styles.linkCard}
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-all hover:bg-accent hover:border-primary hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
             >
-              <div className={`${styles.linkIcon} ${styles.github}`}>
+              <div className={linkIconClass('github')}>
                 <IconGithub size={22} />
               </div>
-              <div className={styles.linkContent}>
-                <div className={styles.linkTitle}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 text-[15px] font-semibold text-foreground mb-0.5">
                   {t('system_info.link_main_repo')}
                   <IconExternalLink size={14} />
                 </div>
-                <div className={styles.linkDesc}>{t('system_info.link_main_repo_desc')}</div>
+                <div className="text-[13px] text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">{t('system_info.link_main_repo_desc')}</div>
               </div>
             </a>
 
@@ -419,17 +421,17 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className={styles.linkCard}
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-all hover:bg-accent hover:border-primary hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
             >
-              <div className={`${styles.linkIcon} ${styles.github}`}>
+              <div className={linkIconClass('github')}>
                 <IconCode size={22} />
               </div>
-              <div className={styles.linkContent}>
-                <div className={styles.linkTitle}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 text-[15px] font-semibold text-foreground mb-0.5">
                   {t('system_info.link_webui_repo')}
                   <IconExternalLink size={14} />
                 </div>
-                <div className={styles.linkDesc}>{t('system_info.link_webui_repo_desc')}</div>
+                <div className="text-[13px] text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">{t('system_info.link_webui_repo_desc')}</div>
               </div>
             </a>
 
@@ -437,17 +439,17 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className={styles.linkCard}
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-all hover:bg-accent hover:border-primary hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
             >
-              <div className={`${styles.linkIcon} ${styles.docs}`}>
+              <div className={linkIconClass('docs')}>
                 <IconBookOpen size={22} />
               </div>
-              <div className={styles.linkContent}>
-                <div className={styles.linkTitle}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 text-[15px] font-semibold text-foreground mb-0.5">
                   {t('system_info.link_docs')}
                   <IconExternalLink size={14} />
                 </div>
-                <div className={styles.linkDesc}>{t('system_info.link_docs_desc')}</div>
+                <div className="text-[13px] text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">{t('system_info.link_docs_desc')}</div>
               </div>
             </a>
           </div>
@@ -466,39 +468,39 @@ export function SystemPage() {
             </Button>
           }
         >
-          <p className={styles.sectionDescription}>{t('system_info.models_desc')}</p>
+          <p className="text-sm text-muted-foreground mb-3">{t('system_info.models_desc')}</p>
           {modelStatus && (
-            <div className={`status-badge ${modelStatus.type}`}>{modelStatus.message}</div>
+            <div className={`inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border leading-[1.5] rounded-sm ${modelStatus.type === 'success' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40' : modelStatus.type === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : modelStatus.type === 'warning' ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30' : 'border-border text-muted-foreground bg-muted'}`}>{modelStatus.message}</div>
           )}
-          {modelsError && <div className="error-box">{modelsError}</div>}
+          {modelsError && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{modelsError}</div>}
           {modelsLoading ? (
-            <div className="hint">{t('common.loading')}</div>
+            <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('common.loading')}</div>
           ) : models.length === 0 ? (
-            <div className="hint">{t('system_info.models_empty')}</div>
+            <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('system_info.models_empty')}</div>
           ) : (
-            <div className="item-list">
+            <div className="flex flex-col">
               {groupedModels.map((group) => {
                 const iconSrc = getIconForCategory(group.id);
                 return (
-                  <div key={group.id} className="item-row">
-                    <div className="item-meta">
-                      <div className={styles.groupTitle}>
-                        {iconSrc && <img src={iconSrc} alt="" className={styles.groupIcon} />}
-                        <span className="item-title">{group.label}</span>
+                  <div key={group.id} className="flex items-center justify-between gap-2 py-2.5 border-b border-border last:border-b-0">
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        {iconSrc && <img src={iconSrc} alt="" className="w-[18px] h-[18px] shrink-0" />}
+                        <span className="text-sm font-medium text-foreground">{group.label}</span>
                       </div>
-                      <div className="item-subtitle">
+                      <div className="text-xs text-muted-foreground">
                         {t('system_info.models_count', { count: group.items.length })}
                       </div>
                     </div>
-                    <div className={styles.modelTags}>
+                    <div className="flex flex-wrap gap-2">
                       {group.items.map((model) => (
                         <span
                           key={`${model.name}-${model.alias ?? 'default'}`}
-                          className={styles.modelTag}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 border border-border bg-muted font-mono text-sm"
                           title={model.description || ''}
                         >
-                          <span className={styles.modelName}>{model.name}</span>
-                          {model.alias && <span className={styles.modelAlias}>{model.alias}</span>}
+                          <span className="text-foreground font-semibold">{model.name}</span>
+                          {model.alias && <span className="text-muted-foreground text-xs">{model.alias}</span>}
                         </span>
                       ))}
                     </div>
@@ -510,8 +512,8 @@ export function SystemPage() {
         </Card>
 
         <Card title={t('system_info.clear_login_title')}>
-          <p className={styles.sectionDescription}>{t('system_info.clear_login_desc')}</p>
-          <div className={styles.clearLoginActions}>
+          <p className="text-sm text-muted-foreground mb-3">{t('system_info.clear_login_desc')}</p>
+          <div className="flex justify-end items-center">
             <Button variant="danger" onClick={handleClearLoginStorage}>
               {t('system_info.clear_login_button')}
             </Button>
@@ -539,7 +541,7 @@ export function SystemPage() {
         }
       >
         <div className="request-log-modal">
-          <div className="status-badge warning">{t('basic_settings.request_log_warning')}</div>
+          <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30 leading-[1.5]">{t('basic_settings.request_log_warning')}</div>
           <ToggleSwitch
             label={t('basic_settings.request_log_enable')}
             labelPosition="left"

@@ -15,7 +15,7 @@ const SIZE_MAP: Record<string, string> = {
   xl: 'sm:max-w-xl',
 };
 
-interface LegacySheetProps {
+interface AppSheetProps {
   open: boolean;
   onClose: () => void;
   size?: 'md' | 'lg' | 'xl';
@@ -29,7 +29,7 @@ interface LegacySheetProps {
   className?: string;
 }
 
-export function LegacySheet({
+export function AppSheet({
   open,
   onClose,
   size = 'md',
@@ -41,7 +41,7 @@ export function LegacySheet({
   confirmClose,
   children,
   className,
-}: LegacySheetProps) {
+}: AppSheetProps) {
   const handleOpenChange = async (nextOpen: boolean) => {
     if (nextOpen) return;
     if (closeDisabled) return;

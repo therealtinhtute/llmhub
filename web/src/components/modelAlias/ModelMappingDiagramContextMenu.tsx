@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from 'i18next';
 import type { ContextMenuState } from './ModelMappingDiagramTypes';
-import styles from './ModelMappingDiagram.module.scss';
 
 interface DiagramContextMenuProps {
   contextMenu: ContextMenuState | null;
@@ -46,8 +45,11 @@ export function DiagramContextMenu({
 
   const { type, data } = contextMenu;
 
+  const menuItemCls = 'px-3 py-2 text-[13px] text-foreground cursor-pointer transition-colors duration-100 flex items-center gap-2 hover:bg-muted';
+  const menuItemDangerCls = 'px-3 py-2 text-[13px] text-destructive cursor-pointer transition-colors duration-100 flex items-center gap-2 hover:bg-destructive/10';
+
   const renderBackground = () => (
-    <div className={styles.menuItem} onClick={onAddAlias}>
+    <div className={menuItemCls} onClick={onAddAlias}>
       <span>{t('oauth_model_alias.diagram_add_alias')}</span>
     </div>
   );
@@ -56,14 +58,14 @@ export function DiagramContextMenu({
     if (!data) return null;
     return (
       <>
-        <div className={styles.menuItem} onClick={() => onRenameAlias(data)}>
+        <div className={menuItemCls} onClick={() => onRenameAlias(data)}>
           <span>{t('oauth_model_alias.diagram_rename')}</span>
         </div>
-        <div className={styles.menuItem} onClick={() => onOpenAliasSettings(data)}>
+        <div className={menuItemCls} onClick={() => onOpenAliasSettings(data)}>
           <span>{t('oauth_model_alias.diagram_settings')}</span>
         </div>
-        <div className={styles.menuDivider} />
-        <div className={`${styles.menuItem} ${styles.danger}`} onClick={() => onDeleteAlias(data)}>
+        <div className="h-px my-1 bg-border pointer-events-none" />
+        <div className={menuItemDangerCls} onClick={() => onDeleteAlias(data)}>
           <span>{t('oauth_model_alias.diagram_delete_alias')}</span>
         </div>
       </>
@@ -74,11 +76,11 @@ export function DiagramContextMenu({
     if (!data) return null;
     return (
       <>
-        <div className={styles.menuItem} onClick={() => onEditProvider(data)}>
+        <div className={menuItemCls} onClick={() => onEditProvider(data)}>
           <span>{t('common.edit')}</span>
         </div>
-        <div className={styles.menuDivider} />
-        <div className={`${styles.menuItem} ${styles.danger}`} onClick={() => onDeleteProvider(data)}>
+        <div className="h-px my-1 bg-border pointer-events-none" />
+        <div className={menuItemDangerCls} onClick={() => onDeleteProvider(data)}>
           <span>{t('oauth_model_alias.delete')}</span>
         </div>
       </>
@@ -88,7 +90,7 @@ export function DiagramContextMenu({
   const renderSource = () => {
     if (!data) return null;
     return (
-      <div className={styles.menuItem} onClick={() => onOpenSourceSettings(data)}>
+      <div className={menuItemCls} onClick={() => onOpenSourceSettings(data)}>
         <span>{t('oauth_model_alias.diagram_settings')}</span>
       </div>
     );
@@ -97,7 +99,7 @@ export function DiagramContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className={styles.contextMenu}
+      className="fixed bg-background border border-border shadow-[0_4px_12px_rgba(0,0,0,0.15)] z-[9999] min-w-[120px] overflow-hidden py-1"
       style={{ top: contextMenu.y, left: contextMenu.x }}
       onClick={(e) => e.stopPropagation()}
     >

@@ -1,8 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
-import styles from '@/pages/AuthFilesPage.module.scss';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 type UnsupportedError = 'unsupported' | null;
 
@@ -36,18 +35,18 @@ export function OAuthExcludedCard(props: OAuthExcludedCardProps) {
       ) : Object.keys(excluded).length === 0 ? (
         <EmptyState title={t('oauth_excluded.list_empty_all')} />
       ) : (
-        <div className={styles.excludedList}>
+        <div className="flex flex-col gap-2">
           {Object.entries(excluded).map(([provider, models]) => (
-            <div key={provider} className={styles.excludedItem}>
-              <div className={styles.excludedInfo}>
-                <div className={styles.excludedProvider}>{provider}</div>
-                <div className={styles.excludedModels}>
+            <div key={provider} className="flex justify-between items-center p-3 bg-muted border border-border gap-3 max-md:flex-col max-md:items-start">
+              <div className="flex flex-col gap-[2px] min-w-0 flex-1">
+                <div className="font-semibold text-foreground text-[14px]">{provider}</div>
+                <div className="text-[12px] text-muted-foreground">
                   {models?.length
                     ? t('oauth_excluded.model_count', { count: models.length })
                     : t('oauth_excluded.no_models')}
                 </div>
               </div>
-              <div className={styles.excludedActions}>
+              <div className="flex gap-1 shrink-0">
                 <Button variant="secondary" size="sm" onClick={() => onEdit(provider)}>
                   {t('common.edit')}
                 </Button>

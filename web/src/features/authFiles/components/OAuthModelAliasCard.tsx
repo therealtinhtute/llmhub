@@ -1,13 +1,12 @@
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ModelMappingDiagram, type ModelMappingDiagramRef } from '@/components/modelAlias';
 import { IconChevronUp } from '@/components/ui/icons';
 import type { OAuthModelAliasEntry } from '@/types';
 import type { AuthFileModelItem } from '@/features/authFiles/constants';
-import styles from '@/pages/AuthFilesPage.module.scss';
 
 type UnsupportedError = 'unsupported' | null;
 type ViewMode = 'diagram' | 'list';
@@ -53,8 +52,8 @@ export function OAuthModelAliasCard(props: OAuthModelAliasCardProps) {
     <Card
       title={t('oauth_model_alias.title')}
       extra={
-        <div className={styles.cardExtraButtons}>
-          <div className={styles.viewModeSwitch}>
+        <div className="flex gap-2 items-center flex-wrap min-w-0 max-w-full max-md:w-full">
+          <div className="inline-flex items-center gap-1 flex-wrap min-w-0 max-w-full p-[2px] bg-muted border border-border max-md:w-full max-md:justify-stretch">
             <Button
               variant={viewMode === 'list' ? 'secondary' : 'ghost'}
               size="sm"
@@ -91,9 +90,9 @@ export function OAuthModelAliasCard(props: OAuthModelAliasCardProps) {
         Object.keys(modelAlias).length === 0 ? (
           <EmptyState title={t('oauth_model_alias.list_empty_all')} />
         ) : (
-          <div className={styles.aliasChartSection}>
-            <div className={styles.aliasChartHeader}>
-              <h4 className={styles.aliasChartTitle}>{t('oauth_model_alias.chart_title')}</h4>
+          <div className="mb-4 pb-4 border-b border-border">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h4 className="m-0 text-[14px] font-semibold text-muted-foreground">{t('oauth_model_alias.chart_title')}</h4>
               <Button
                 variant="ghost"
                 size="sm"
@@ -116,25 +115,25 @@ export function OAuthModelAliasCard(props: OAuthModelAliasCardProps) {
               onDeleteAlias={onDeleteAlias}
               onEditProvider={onEditProvider}
               onDeleteProvider={onDeleteProvider}
-              className={styles.aliasChart}
+              className="w-full min-h-[120px]"
             />
           </div>
         )
       ) : Object.keys(modelAlias).length === 0 ? (
         <EmptyState title={t('oauth_model_alias.list_empty_all')} />
       ) : (
-        <div className={styles.excludedList}>
+        <div className="flex flex-col gap-2">
           {Object.entries(modelAlias).map(([provider, mappings]) => (
-            <div key={provider} className={styles.excludedItem}>
-              <div className={styles.excludedInfo}>
-                <div className={styles.excludedProvider}>{provider}</div>
-                <div className={styles.excludedModels}>
+            <div key={provider} className="flex justify-between items-center p-3 bg-muted border border-border gap-3 max-md:flex-col max-md:items-start">
+              <div className="flex flex-col gap-[2px] min-w-0 flex-1">
+                <div className="font-semibold text-foreground text-[14px]">{provider}</div>
+                <div className="text-[12px] text-muted-foreground">
                   {mappings?.length
                     ? t('oauth_model_alias.model_count', { count: mappings.length })
                     : t('oauth_model_alias.no_models')}
                 </div>
               </div>
-              <div className={styles.excludedActions}>
+              <div className="flex gap-1 shrink-0">
                 <Button variant="secondary" size="sm" onClick={() => onEditProvider(provider)}>
                   {t('common.edit')}
                 </Button>

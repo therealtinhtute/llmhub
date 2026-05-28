@@ -7,7 +7,6 @@ import openaiLogo from '@/assets/icons/openai-light.svg';
 import vertexLogo from '@/assets/icons/vertex.svg';
 import { IconAlertTriangle } from '@/components/ui/icons';
 import type { ProviderBrand, ProviderGroup } from '../types';
-import styles from './ProviderCategoryList.module.scss';
 
 const PROVIDER_LOGOS: Record<ProviderBrand, { src: string; invertOnDark?: boolean }> = {
   gemini: { src: geminiLogo },
@@ -32,9 +31,11 @@ export function ProviderCategoryList({
   const { t } = useTranslation();
 
   return (
-    <aside className={styles.aside}>
-      <p className={styles.eyebrow}>{t('providersPage.categories.title')}</p>
-      <div className={styles.list}>
+    <aside className="bg-background border border-border shadow p-3 min-w-0">
+      <p className="mx-2 mt-1 mb-2 text-[11px] font-medium tracking-[0.05em] uppercase text-muted-foreground">
+        {t('providersPage.categories.title')}
+      </p>
+      <div className="flex flex-col gap-1">
         {groups.map((group) => {
           const active = group.id === activeBrand;
           const realResources = group.resources.filter(
@@ -43,30 +44,41 @@ export function ProviderCategoryList({
           const total = realResources.length || (group.id === 'ampcode' ? 1 : 0);
           const activeCount = realResources.filter((r) => !r.disabled).length;
           const logo = PROVIDER_LOGOS[group.id];
-          const itemClass = `${styles.item} ${active ? styles.active : ''}`;
 
           return (
             <button
               key={group.id}
               type="button"
-              className={itemClass}
+              className={[
+                'flex items-center justify-between gap-3 px-3 py-[10px] border text-left w-full cursor-pointer min-w-0 transition-colors',
+                active
+                  ? 'border-[var(--primary-30)] bg-[var(--primary-10)] text-primary'
+                  : 'border-transparent bg-transparent text-foreground hover:bg-[color-mix(in_srgb,var(--accent-bg)_50%,transparent)] hover:border-border',
+                'focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2',
+              ].join(' ')}
               onClick={() => onSelect(group.id)}
               aria-current={active ? 'page' : undefined}
             >
-              <span className={styles.itemLeft}>
+              <span className="flex items-center gap-[10px] min-w-0 flex-1">
                 {logo ? (
                   <img
                     src={logo.src}
                     alt=""
                     aria-hidden="true"
-                    className={`${styles.logo} ${logo.invertOnDark ? styles.logoInvertOnDark : ''}`}
+                    className={[
+                      'w-6 h-6 flex-shrink-0 object-contain bg-secondary p-0.5',
+                      logo.invertOnDark ? '[data-theme=dark]_&:invert [data-theme=dark]_&:hue-rotate-180' : '',
+                    ].join(' ')}
                   />
                 ) : null}
-                <span className={styles.itemText}>
-                  <span className={styles.itemTitle}>
+                <span className="flex flex-col min-w-0">
+                  <span className="text-[13px] font-medium whitespace-nowrap overflow-hidden text-ellipsis">
                     {t(`providersPage.providerNames.${group.id}`)}
                   </span>
-                  <span className={styles.itemSubtitle}>
+                  <span className={[
+                    'text-[11px] mt-0.5 font-normal',
+                    active ? 'text-primary opacity-85' : 'text-muted-foreground',
+                  ].join(' ')}>
                     {group.id === 'ampcode'
                       ? t(
                           group.resources[0]?.disabled
@@ -83,13 +95,16 @@ export function ProviderCategoryList({
               {group.issue ? (
                 <IconAlertTriangle
                   size={16}
-                  style={{ color: 'var(--amber-text)', flexShrink: 0 }}
+                  className="text-amber-700 dark:text-amber-400 shrink-0"
                 />
               ) : (
                 <span
-                  className={`${styles.badge} ${
-                    group.id !== 'ampcode' && total === 0 ? styles.badgeAmber : ''
-                  }`}
+                  className={[
+                    'inline-flex items-center justify-center min-w-6 px-2 py-0.5 text-[11px] font-medium border flex-shrink-0',
+                    group.id !== 'ampcode' && total === 0
+                      ? 'bg-[rgba(245,158,11,0.10)] border-[rgba(245,158,11,0.30)] text-amber-700 dark:text-amber-400'
+                      : 'bg-background border-border text-muted-foreground',
+                  ].join(' ')}
                 >
                   {group.id === 'ampcode' ? (group.resources[0]?.disabled ? '—' : '1') : total}
                 </span>

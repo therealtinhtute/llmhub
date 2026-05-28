@@ -14,7 +14,6 @@ import {
   type OpenAISortBy,
   type SortDir,
 } from './OpenAIBrandToolbar';
-import styles from './ProviderResourcePanel.module.scss';
 
 const LOGOS: Record<ProviderBrand, { src: string; invertOnDark?: boolean }> = {
   gemini: { src: geminiLogo },
@@ -72,32 +71,32 @@ export function ProviderResourcePanel({
   const realResources = filteredResources.filter((r) => !r.flags.isPlaceholder);
 
   return (
-    <section className={styles.panel}>
-      <div className={styles.header}>
-        <div className={styles.headerMain}>
-          <div className={styles.titleArea}>
-            <div className={styles.titleRow}>
+    <section className="bg-background border border-border shadow p-5 min-w-0 flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0 flex flex-col">
+            <div className="flex items-center gap-3">
               {logo ? (
                 <img
                   src={logo.src}
                   alt=""
                   aria-hidden="true"
-                  className={`${styles.logo} ${logo.invertOnDark ? styles.logoInvertOnDark : ''}`}
+                  className="w-6 h-6 object-contain flex-shrink-0"
                 />
               ) : null}
-              <h2 className={styles.title}>
+              <h2 className="text-[20px] font-semibold text-foreground m-0 tracking-[-0.005em]">
                 {t(`providersPage.providerNames.${group.id}`)}
               </h2>
             </div>
           </div>
           {group.id !== 'ampcode' ? (
-            <div className={styles.searchWrap}>
-              <span className={styles.searchIcon} aria-hidden="true">
+            <div className="relative min-w-0 md:w-[280px]">
+              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground pointer-events-none inline-flex" aria-hidden="true">
                 <IconSearch size={14} />
               </span>
               <input
                 type="search"
-                className={styles.searchInput}
+                className="w-full h-9 pl-9 pr-3 border border-border bg-background text-foreground text-[13px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)]"
                 value={filter}
                 onChange={(event) => onFilterChange(event.target.value)}
                 placeholder={t('providersPage.table.filterPlaceholder')}
@@ -106,7 +105,7 @@ export function ProviderResourcePanel({
           ) : null}
         </div>
         {openaiControls ? (
-          <div className={styles.headerToolbarRow}>
+          <div className="flex justify-end items-center flex-wrap gap-2">
             <OpenAIBrandToolbar
               sortBy={openaiControls.sortBy}
               sortDir={openaiControls.sortDir}
@@ -121,8 +120,8 @@ export function ProviderResourcePanel({
       </div>
 
       {group.issue ? (
-        <div className={styles.issue}>
-          <div className={styles.issueTitle}>
+        <div className="border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] p-3 px-[14px] text-[13px] text-amber-700 dark:text-amber-400 leading-[1.5]">
+          <div className="font-semibold mb-1">
             {t('providersPage.table.providerIssue')}
             {group.issue.status ? ` · ${group.issue.status}` : ''}
           </div>
@@ -131,23 +130,13 @@ export function ProviderResourcePanel({
       ) : null}
 
       {realResources.length === 0 && group.id !== 'ampcode' ? (
-        <div className={styles.empty}>
+        <div className="border border-dashed border-border p-8 text-center text-muted-foreground text-[13px]">
           <div>{t('providersPage.table.empty')}</div>
-          <div className={styles.emptyAction}>
+          <div className="mt-3">
             <button
               type="button"
               onClick={onCreate}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-primary)',
-                cursor: 'pointer',
-                fontSize: 13,
-              }}
+              className="inline-flex items-center gap-1.5 py-1.5 px-3 border border-border bg-background cursor-pointer text-[13px]"
             >
               <IconPlus size={14} />
               <span>{t('providersPage.actions.new')}</span>

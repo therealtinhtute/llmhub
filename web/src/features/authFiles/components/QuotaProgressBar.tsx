@@ -1,5 +1,3 @@
-import styles from '@/pages/AuthFilesPage.module.scss';
-
 export type QuotaProgressBarProps = {
   percent: number | null;
   highThreshold: number;
@@ -9,19 +7,19 @@ export type QuotaProgressBarProps = {
 export function QuotaProgressBar({ percent, highThreshold, mediumThreshold }: QuotaProgressBarProps) {
   const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
   const normalized = percent === null ? null : clamp(percent, 0, 100);
-  const fillClass =
+  const fillColor =
     normalized === null
-      ? styles.quotaBarFillMedium
+      ? 'bg-[var(--quota-medium-color,#e0aa14)]'
       : normalized >= highThreshold
-        ? styles.quotaBarFillHigh
+        ? 'bg-success'
         : normalized >= mediumThreshold
-          ? styles.quotaBarFillMedium
-          : styles.quotaBarFillLow;
+          ? 'bg-[var(--quota-medium-color,#e0aa14)]'
+          : 'bg-destructive';
   const widthPercent = Math.round(normalized ?? 0);
 
   return (
-    <div className={styles.quotaBar}>
-      <div className={`${styles.quotaBarFill} ${fillClass}`} style={{ width: `${widthPercent}%` }} />
+    <div className="h-2 bg-secondary overflow-hidden">
+      <div className={`h-full transition-[width] duration-200 ease-out ${fillColor}`} style={{ width: `${widthPercent}%` }} />
     </div>
   );
 }

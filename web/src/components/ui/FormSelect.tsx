@@ -12,7 +12,7 @@ export interface SelectOption {
   label: string;
 }
 
-interface SelectProps {
+interface FormSelectProps {
   value: string;
   options: ReadonlyArray<SelectOption>;
   onChange: (value: string) => void;
@@ -27,7 +27,7 @@ interface SelectProps {
   id?: string;
 }
 
-export function Select({
+export function FormSelect({
   value,
   options,
   onChange,
@@ -40,7 +40,7 @@ export function Select({
   fullWidth = true,
   size = 'md',
   id,
-}: SelectProps) {
+}: FormSelectProps) {
   return (
     <ShadcnSelect value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger
@@ -49,7 +49,6 @@ export function Select({
         aria-labelledby={ariaLabelledBy}
         aria-describedby={ariaDescribedBy}
         className={cn(
-          'rounded-none',
           size === 'sm' && 'h-7 text-xs px-2',
           fullWidth && 'w-full',
           className,

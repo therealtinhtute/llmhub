@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/LegacyInput';
+import { FormInput as Input } from '@/components/ui/FormInput';
 import { toast } from 'sonner';
 import { useThemeStore } from '@/stores';
 import { oauthApi, type OAuthProvider } from '@/services/api/oauth';
 import { vertexApi, type VertexImportResponse } from '@/services/api/vertex';
 import { copyToClipboard } from '@/utils/clipboard';
-import styles from './OAuthPage.module.scss';
 import iconCodex from '@/assets/icons/codex.svg';
 import iconClaude from '@/assets/icons/claude.svg';
 import iconAntigravity from '@/assets/icons/antigravity.svg';
@@ -443,10 +442,10 @@ export function OAuthPage() {
   };
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.pageTitle}>{t('nav.oauth', { defaultValue: 'OAuth' })}</h1>
+    <div className="w-full">
+      <h1 className="text-[28px] font-bold text-foreground mb-6">{t('nav.oauth', { defaultValue: 'OAuth' })}</h1>
 
-      <div className={styles.content}>
+      <div className="flex flex-col gap-6">
         {PROVIDERS.map((provider) => {
           const state = states[provider.id] || {};
           const canSubmitCallback = CALLBACK_SUPPORTED.includes(provider.id) && Boolean(state.url);
@@ -455,9 +454,9 @@ export function OAuthPage() {
               ? t('auth_login.login_another_account')
               : t(getAuthKey(provider.id, 'oauth_button'));
           const statusBadgeClassName = [
-            'status-badge',
-            state.status === 'success' ? 'success' : '',
-            state.status === 'error' ? 'error' : ''
+            'inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border border-border text-muted-foreground bg-muted leading-[1.5] rounded-sm',
+            state.status === 'success' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40' : '',
+            state.status === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : ''
           ]
             .filter(Boolean)
             .join(' ');
@@ -465,11 +464,11 @@ export function OAuthPage() {
             <div key={provider.id}>
               <Card
                 title={
-                  <span className={styles.cardTitle}>
+                  <span className="flex items-center gap-2">
                     <img
                       src={getIcon(provider.icon, resolvedTheme)}
                       alt=""
-                      className={styles.cardTitleIcon}
+                      className="w-6 h-6"
                     />
                     {t(provider.titleKey)}
                   </span>
@@ -480,10 +479,10 @@ export function OAuthPage() {
                   </Button>
                 }
               >
-                <div className={styles.cardContent}>
-                  <div className={styles.cardHint}>{t(provider.hintKey)}</div>
+                <div className="flex flex-col gap-3">
+                  <div className="text-[13px] leading-relaxed text-muted-foreground">{t(provider.hintKey)}</div>
                   {provider.id === 'gemini-cli' && (
-                    <div className={styles.geminiProjectField}>
+                    <div className="flex flex-col gap-2">
                       <Input
                         label={t('auth_login.gemini_cli_project_id_label')}
                         hint={t('auth_login.gemini_cli_project_id_hint')}
@@ -501,10 +500,10 @@ export function OAuthPage() {
                     </div>
                   )}
                   {state.url && (
-                    <div className={styles.authUrlBox}>
-                      <div className={styles.authUrlLabel}>{t(provider.urlLabelKey)}</div>
-                      <div className={styles.authUrlValue}>{state.url}</div>
-                      <div className={styles.authUrlActions}>
+                    <div className="bg-muted border border-dashed border-border p-3 flex flex-col gap-1">
+                      <div className="text-muted-foreground text-sm">{t(provider.urlLabelKey)}</div>
+                      <div className="font-bold text-foreground break-all overflow-wrap-anywhere leading-relaxed max-w-full">{state.url}</div>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
                         <Button variant="secondary" size="sm" onClick={() => copyLink(state.url!)}>
                           {t(getAuthKey(provider.id, 'copy_link'))}
                         </Button>
@@ -519,7 +518,7 @@ export function OAuthPage() {
                     </div>
                   )}
                   {canSubmitCallback && (
-                    <div className={styles.callbackSection}>
+                    <div className="flex flex-col gap-2">
                       <Input
                         label={t(
                           provider.id === 'xai'
@@ -545,7 +544,7 @@ export function OAuthPage() {
                             : 'auth_login.oauth_callback_placeholder'
                         )}
                       />
-                      <div className={styles.callbackActions}>
+                      <div className="flex gap-3">
                         <Button
                           variant="secondary"
                           size="sm"
@@ -556,12 +555,12 @@ export function OAuthPage() {
                         </Button>
                       </div>
                       {state.callbackStatus === 'success' && state.status === 'waiting' && (
-                        <div className="status-badge success">
+                        <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40 leading-[1.5]">
                           {t('auth_login.oauth_callback_status_success')}
                         </div>
                       )}
                       {state.callbackStatus === 'error' && (
-                        <div className="status-badge error">
+                        <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-destructive bg-destructive/10 border-destructive/30 leading-[1.5]">
                           {t('auth_login.oauth_callback_status_error')} {state.callbackError || ''}
                         </div>
                       )}
@@ -577,7 +576,7 @@ export function OAuthPage() {
                     </div>
                   )}
                   {state.status === 'success' && (
-                    <div className={styles.successActions}>
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button variant="secondary" size="sm" onClick={() => navigate('/auth-files')}>
                         {t('auth_login.view_auth_files')}
                       </Button>
@@ -592,8 +591,8 @@ export function OAuthPage() {
         {/* Vertex JSON 登录 */}
         <Card
           title={
-            <span className={styles.cardTitle}>
-              <img src={iconVertex} alt="" className={styles.cardTitleIcon} />
+            <span className="flex items-center gap-2">
+              <img src={iconVertex} alt="" className="w-6 h-6" />
               {t('vertex_import.title')}
             </span>
           }
@@ -603,8 +602,8 @@ export function OAuthPage() {
             </Button>
           }
         >
-          <div className={styles.cardContent}>
-            <div className={styles.cardHint}>{t('vertex_import.description')}</div>
+          <div className="flex flex-col gap-3">
+            <div className="text-[13px] leading-relaxed text-muted-foreground">{t('vertex_import.description')}</div>
             <Input
               label={t('vertex_import.location_label')}
               hint={t('vertex_import.location_hint')}
@@ -617,21 +616,19 @@ export function OAuthPage() {
               }
               placeholder={t('vertex_import.location_placeholder')}
             />
-            <div className={styles.formItem}>
-              <label className={styles.formItemLabel}>{t('vertex_import.file_label')}</label>
-              <div className={styles.filePicker}>
+            <div className="flex flex-col gap-1">
+              <label className="font-semibold text-foreground">{t('vertex_import.file_label')}</label>
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button variant="secondary" size="sm" onClick={handleVertexFilePick}>
                   {t('vertex_import.choose_file')}
                 </Button>
                 <div
-                  className={`${styles.fileName} ${
-                    vertexState.fileName ? '' : styles.fileNamePlaceholder
-                  }`.trim()}
+                  className={`flex-1 min-w-[220px] px-3 py-2.5 border border-border bg-background text-sm ${vertexState.fileName ? 'text-foreground' : 'text-muted-foreground'}`}
                 >
                   {vertexState.fileName || t('vertex_import.file_placeholder')}
                 </div>
               </div>
-              <div className={styles.cardHintSecondary}>{t('vertex_import.file_hint')}</div>
+              <div className="text-xs leading-snug text-muted-foreground/70">{t('vertex_import.file_hint')}</div>
               <input
                 ref={vertexFileInputRef}
                 type="file"
@@ -641,36 +638,36 @@ export function OAuthPage() {
               />
             </div>
             {vertexState.error && (
-              <div className="status-badge error">
+              <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-destructive bg-destructive/10 border-destructive/30 leading-[1.5]">
                 {vertexState.error}
               </div>
             )}
             {vertexState.result && (
-              <div className={styles.connectionBox}>
-                <div className={styles.connectionLabel}>{t('vertex_import.result_title')}</div>
-                <div className={styles.keyValueList}>
+              <div className="bg-muted border border-border p-3 flex flex-col gap-2">
+                <div className="text-sm font-semibold text-foreground">{t('vertex_import.result_title')}</div>
+                <div className="flex flex-col gap-1.5">
                   {vertexState.result.projectId && (
-                    <div className={styles.keyValueItem}>
-                      <span className={styles.keyValueKey}>{t('vertex_import.result_project')}</span>
-                      <span className={styles.keyValueValue}>{vertexState.result.projectId}</span>
+                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
+                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_project')}</span>
+                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.projectId}</span>
                     </div>
                   )}
                   {vertexState.result.email && (
-                    <div className={styles.keyValueItem}>
-                      <span className={styles.keyValueKey}>{t('vertex_import.result_email')}</span>
-                      <span className={styles.keyValueValue}>{vertexState.result.email}</span>
+                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
+                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_email')}</span>
+                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.email}</span>
                     </div>
                   )}
                   {vertexState.result.location && (
-                    <div className={styles.keyValueItem}>
-                      <span className={styles.keyValueKey}>{t('vertex_import.result_location')}</span>
-                      <span className={styles.keyValueValue}>{vertexState.result.location}</span>
+                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
+                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_location')}</span>
+                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.location}</span>
                     </div>
                   )}
                   {vertexState.result.authFile && (
-                    <div className={styles.keyValueItem}>
-                      <span className={styles.keyValueKey}>{t('vertex_import.result_file')}</span>
-                      <span className={styles.keyValueValue}>{vertexState.result.authFile}</span>
+                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
+                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_file')}</span>
+                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.authFile}</span>
                     </div>
                   )}
                 </div>

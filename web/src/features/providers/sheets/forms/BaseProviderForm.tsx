@@ -8,8 +8,8 @@ import {
   IconPlus,
   IconX,
 } from '@/components/ui/icons';
-import { Collapsible } from '@/components/ui/LegacyCollapsible';
-import { Select } from '@/components/ui/LegacySelect';
+import { DetailsCollapsible as Collapsible } from '@/components/ui/DetailsCollapsible';
+import { FormSelect as Select } from '@/components/ui/FormSelect';
 import { hasDisableAllModelsRule } from '@/components/providers/utils';
 import type {
   GeminiKeyConfig,
@@ -32,7 +32,6 @@ import {
 } from './useConnectivityTest';
 import { useModelDiscovery } from './useModelDiscovery';
 import { ModelDiscoveryPanel } from './ModelDiscoveryPanel';
-import styles from './sharedForm.module.scss';
 
 export interface BaseProviderFormHandle {
   submit: () => Promise<void>;
@@ -170,21 +169,21 @@ function buildInitialForm(
 function ConnectivityStatusIcon({ state }: { state: ConnectivityState }) {
   if (state === 'loading') {
     return (
-      <span className={`${styles.statusIcon} ${styles.statusIconLoading}`}>
+      <span className="inline-flex items-center justify-center w-[14px] h-[14px] text-muted-foreground animate-spin">
         <IconLoader2 size={14} />
       </span>
     );
   }
   if (state === 'success') {
     return (
-      <span className={`${styles.statusIcon} ${styles.statusIconSuccess}`}>
+      <span className="inline-flex items-center justify-center w-[14px] h-[14px] text-emerald-600 dark:text-emerald-400">
         <IconCheckCircle2 size={14} />
       </span>
     );
   }
   if (state === 'error') {
     return (
-      <span className={`${styles.statusIcon} ${styles.statusIconError}`}>
+      <span className="inline-flex items-center justify-center w-[14px] h-[14px] text-destructive">
         <IconAlertTriangle size={14} />
       </span>
     );
@@ -430,18 +429,25 @@ export function BaseProviderForm({
     [form.apiKeyEntries]
   );
 
+  const inputCls = "w-full h-9 px-3 py-2 border border-border bg-background text-foreground text-[13px] font-[inherit] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)] disabled:opacity-60 disabled:cursor-not-allowed";
+  const textareaCls = "w-full px-3 py-2 border border-border bg-background text-foreground text-[13px] font-mono leading-[1.5] box-border resize-y min-h-[80px] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)] disabled:opacity-60 disabled:cursor-not-allowed";
+  const removeBtnCls = "inline-flex items-center gap-1 px-2 py-1 border border-transparent bg-transparent text-destructive cursor-pointer text-[12px] hover:bg-[var(--destructive-10)] disabled:opacity-50 disabled:cursor-not-allowed";
+  const addBtnCls = "inline-flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-border bg-background text-muted-foreground cursor-pointer text-[12px] font-medium self-start hover:border-primary hover:text-primary";
+  const connectivityBtnCls = "inline-flex items-center gap-1.5 h-7 px-3 border border-border bg-background text-foreground text-[12px] font-medium cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
+  const connectivityBtnGhostCls = "inline-flex items-center gap-1.5 h-6 px-2 border border-transparent bg-transparent text-muted-foreground text-[11px] font-medium cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
+
   return (
-    <form id={formId} className={styles.form} onSubmit={handleSubmit} noValidate>
-      {/* 基础字段 */}
-      <div className={styles.section}>
+    <form id={formId} className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+      {/* Base fields */}
+      <div className="flex flex-col gap-3">
         {descriptor.supportsName ? (
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${fid}-name`}>
+          <div className="grid gap-1.5">
+            <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-name`}>
               {t('providersPage.form.name')}
             </label>
             <input
               id={`${fid}-name`}
-              className={styles.input}
+              className={inputCls}
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
               disabled={mutating}
@@ -450,13 +456,13 @@ export function BaseProviderForm({
         ) : null}
 
         {descriptor.supportsApiKey ? (
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${fid}-apiKey`}>
+          <div className="grid gap-1.5">
+            <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-apiKey`}>
               {t('providersPage.form.apiKey')}
             </label>
             <input
               id={`${fid}-apiKey`}
-              className={styles.input}
+              className={inputCls}
               type="password"
               value={form.apiKey}
               onChange={(e) => updateField('apiKey', e.target.value)}
@@ -471,11 +477,11 @@ export function BaseProviderForm({
         ) : null}
 
         {descriptor.supportsBaseUrl ? (
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${fid}-baseUrl`}>
+          <div className="grid gap-1.5">
+            <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-baseUrl`}>
               {t('providersPage.form.baseUrl')}
               {descriptor.baseUrlRequired ? (
-                <span className={styles.labelHint}>
+                <span className="text-[11px] text-muted-foreground font-normal">
                   {' '}
                   · {t('providersPage.form.baseUrlRequiredHint')}
                 </span>
@@ -483,7 +489,7 @@ export function BaseProviderForm({
             </label>
             <input
               id={`${fid}-baseUrl`}
-              className={styles.input}
+              className={inputCls}
               value={form.baseUrl}
               onChange={(e) => updateField('baseUrl', e.target.value)}
               placeholder="https://api.example.com"
@@ -493,13 +499,13 @@ export function BaseProviderForm({
         ) : null}
 
         {descriptor.supportsProxyUrl ? (
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${fid}-proxy`}>
+          <div className="grid gap-1.5">
+            <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-proxy`}>
               {t('providersPage.form.proxyUrl')}
             </label>
             <input
               id={`${fid}-proxy`}
-              className={styles.input}
+              className={inputCls}
               value={form.proxyUrl}
               onChange={(e) => updateField('proxyUrl', e.target.value)}
               placeholder="http://127.0.0.1:7890"
@@ -509,28 +515,28 @@ export function BaseProviderForm({
         ) : null}
 
         {descriptor.supportsPrefix ? (
-          <div className={styles.fieldRow}>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor={`${fid}-prefix`}>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-prefix`}>
                 {t('providersPage.form.prefix')}
               </label>
               <input
                 id={`${fid}-prefix`}
-                className={styles.input}
+                className={inputCls}
                 value={form.prefix}
                 onChange={(e) => updateField('prefix', e.target.value)}
                 disabled={mutating}
               />
             </div>
             {descriptor.supportsPriority ? (
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor={`${fid}-prio`}>
+              <div className="grid gap-1.5">
+                <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-prio`}>
                   {t('providersPage.form.priority')}
                 </label>
                 <input
                   id={`${fid}-prio`}
                   type="number"
-                  className={styles.input}
+                  className={inputCls}
                   value={form.priority ?? ''}
                   onChange={(e) =>
                     updateField(
@@ -546,11 +552,11 @@ export function BaseProviderForm({
         ) : null}
 
         {descriptor.supportsTestModel ? (
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${fid}-testModel`}>
+          <div className="grid gap-1.5">
+            <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-testModel`}>
               {t('providersPage.form.testModel')}
               {brand === 'claude' ? (
-                <span className={styles.labelHint}>
+                <span className="text-[11px] text-muted-foreground font-normal">
                   {' '}
                   · {t('providersPage.form.testModelClaudeHint')}
                 </span>
@@ -565,15 +571,15 @@ export function BaseProviderForm({
               ariaLabel={t('providersPage.form.testModel')}
             />
             {brand === 'claude' ? (
-              <div className={styles.connectivityRow}>
+              <div className="flex items-center gap-2 mt-1">
                 <button
                   type="button"
-                  className={styles.connectivityBtn}
+                  className={connectivityBtnCls}
                   disabled={mutating || connectivity.isTestingAny}
                   onClick={() => void connectivity.runClaude()}
                 >
                   {connectivity.claudeStatus.state === 'loading' ? (
-                    <span className={`${styles.statusIcon} ${styles.statusIconLoading}`}>
+                    <span className="inline-flex items-center justify-center w-[14px] h-[14px] animate-spin text-muted-foreground">
                       <IconLoader2 size={14} />
                     </span>
                   ) : null}
@@ -581,14 +587,14 @@ export function BaseProviderForm({
                 </button>
                 <ConnectivityStatusIcon state={connectivity.claudeStatus.state} />
                 {connectivity.claudeStatus.state === 'success' ? (
-                  <span className={styles.connectivityHintSuccess}>
+                  <span className="text-[11px] text-primary">
                     {t('providersPage.connectivity.success')}
                   </span>
                 ) : null}
               </div>
             ) : null}
             {brand === 'claude' && connectivity.claudeStatus.state === 'error' ? (
-              <div className={styles.connectivityError}>
+              <div className="border border-[var(--destructive-30)] bg-[var(--destructive-10)] text-destructive px-[10px] py-2 text-[11px] leading-[1.4] break-words">
                 {connectivity.claudeStatus.message}
               </div>
             ) : null}
@@ -596,54 +602,54 @@ export function BaseProviderForm({
         ) : null}
 
         {descriptor.supportsWebsockets ? (
-          <label className={styles.checkboxRow}>
+          <label className="flex items-start gap-[10px] cursor-pointer select-none">
             <input
               type="checkbox"
-              className={styles.checkboxBox}
+              className="mt-0.5 w-4 h-4 border border-border bg-background cursor-pointer appearance-none relative checked:bg-primary checked:border-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
               checked={form.websockets ?? false}
               disabled={mutating}
               onChange={(e) => updateField('websockets', e.target.checked)}
             />
-            <span className={styles.checkboxText}>
+            <span className="flex flex-col gap-0.5 text-[13px] text-foreground">
               <span>{t('providersPage.form.websockets')}</span>
             </span>
           </label>
         ) : null}
 
         {descriptor.supportsDisabled ? (
-          <label className={styles.checkboxRow}>
+          <label className="flex items-start gap-[10px] cursor-pointer select-none">
             <input
               type="checkbox"
-              className={styles.checkboxBox}
+              className="mt-0.5 w-4 h-4 border border-border bg-background cursor-pointer appearance-none relative checked:bg-primary checked:border-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
               checked={form.disabled}
               disabled={mutating}
               onChange={(e) => updateField('disabled', e.target.checked)}
             />
-            <span className={styles.checkboxText}>
+            <span className="flex flex-col gap-0.5 text-[13px] text-foreground">
               <span>{t('providersPage.form.disabled')}</span>
-              <small>{t('providersPage.form.disabledHint')}</small>
+              <small className="text-muted-foreground text-[11px]">{t('providersPage.form.disabledHint')}</small>
             </span>
           </label>
         ) : null}
       </div>
 
-      {/* 高级折叠区 */}
+      {/* Advanced collapsible sections */}
       {descriptor.supportsApiKeyEntries && form.apiKeyEntries ? (
         <Collapsible
           label={t('providersPage.form.apiKeyEntriesSection')}
           hint={`${apiKeyEntries.filter((e) => e.apiKey.trim()).length}`}
           defaultOpen
         >
-          <div className={styles.entriesList}>
-            <div className={styles.entriesToolbar}>
+          <div className="flex flex-col gap-[10px]">
+            <div className="flex items-center justify-end gap-2 mb-0.5">
               <button
                 type="button"
-                className={styles.connectivityBtn}
+                className={connectivityBtnCls}
                 disabled={mutating || connectivity.isTestingAny}
                 onClick={() => void connectivity.runOpenAIAllKeys()}
               >
                 {connectivity.isTestingAny ? (
-                  <span className={`${styles.statusIcon} ${styles.statusIconLoading}`}>
+                  <span className="inline-flex items-center justify-center w-[14px] h-[14px] animate-spin text-muted-foreground">
                     <IconLoader2 size={14} />
                   </span>
                 ) : null}
@@ -656,21 +662,21 @@ export function BaseProviderForm({
                 message: '',
               };
               return (
-                <div key={idx} className={styles.entryCard}>
-                  <div className={styles.entryCardHeader}>
+                <div key={idx} className="border border-border p-3 flex flex-col gap-[10px] bg-muted">
+                  <div className="flex items-center justify-between text-[12px] font-medium text-muted-foreground">
                     <span>
                       {t('providersPage.form.apiKeyEntry', { index: idx + 1 })}
                     </span>
-                    <div className={styles.entryCardHeaderRight}>
+                    <div className="flex items-center gap-1.5">
                       <ConnectivityStatusIcon state={status.state} />
                       <button
                         type="button"
-                        className={styles.connectivityBtnGhost}
+                        className={connectivityBtnGhostCls}
                         disabled={mutating || status.state === 'loading'}
                         onClick={() => void connectivity.runOpenAIKey(idx)}
                       >
                         {status.state === 'loading' ? (
-                          <span className={`${styles.statusIcon} ${styles.statusIconLoading}`}>
+                          <span className="inline-flex items-center justify-center w-[14px] h-[14px] animate-spin text-muted-foreground">
                             <IconLoader2 size={14} />
                           </span>
                         ) : null}
@@ -678,7 +684,7 @@ export function BaseProviderForm({
                       </button>
                       <button
                         type="button"
-                        className={styles.removeBtn}
+                        className={removeBtnCls}
                         disabled={mutating || apiKeyEntries.length <= 1}
                         onClick={() =>
                           updateField(
@@ -691,12 +697,12 @@ export function BaseProviderForm({
                       </button>
                     </div>
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.label}>
+                  <div className="grid gap-1.5">
+                    <label className="text-[12px] font-medium text-foreground">
                       {t('providersPage.form.apiKey')}
                     </label>
                     <input
-                      className={styles.input}
+                      className={inputCls}
                       type="password"
                       value={entry.apiKey}
                       onChange={(e) =>
@@ -711,12 +717,12 @@ export function BaseProviderForm({
                       placeholder={t('providersPage.form.apiKeyCreatePlaceholder')}
                     />
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.label}>
+                  <div className="grid gap-1.5">
+                    <label className="text-[12px] font-medium text-foreground">
                       {t('providersPage.form.proxyUrl')}
                     </label>
                     <input
-                      className={styles.input}
+                      className={inputCls}
                       value={entry.proxyUrl}
                       onChange={(e) =>
                         updateField(
@@ -730,16 +736,16 @@ export function BaseProviderForm({
                       placeholder="http://127.0.0.1:7890"
                     />
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.label}>
+                  <div className="grid gap-1.5">
+                    <label className="text-[12px] font-medium text-foreground">
                       {t('providersPage.form.headers')}
-                      <span className={styles.labelHint}>
+                      <span className="text-[11px] text-muted-foreground font-normal">
                         {' '}
                         · {t('providersPage.form.headersHint')}
                       </span>
                     </label>
                     <textarea
-                      className={styles.textarea}
+                      className={textareaCls}
                       value={entry.headersText}
                       rows={3}
                       onChange={(e) =>
@@ -755,7 +761,7 @@ export function BaseProviderForm({
                     />
                   </div>
                   {status.state === 'error' ? (
-                    <div className={styles.connectivityError}>
+                    <div className="border border-[var(--destructive-30)] bg-[var(--destructive-10)] text-destructive px-[10px] py-2 text-[11px] leading-[1.4] break-words">
                       {status.message}
                     </div>
                   ) : null}
@@ -764,7 +770,7 @@ export function BaseProviderForm({
             })}
             <button
               type="button"
-              className={styles.addBtn}
+              className={addBtnCls}
               disabled={mutating}
               onClick={() =>
                 updateField('apiKeyEntries', [...apiKeyEntries, emptyApiKeyEntry()])
@@ -779,14 +785,14 @@ export function BaseProviderForm({
 
       {descriptor.supportsHeaders ? (
         <Collapsible label={t('providersPage.form.headersSection')}>
-          <div className={styles.entriesList}>
+          <div className="flex flex-col gap-[10px]">
             {headersList.map((entry, idx) => (
               <div
                 key={idx}
                 style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}
               >
                 <input
-                  className={styles.input}
+                  className={inputCls}
                   placeholder="X-Custom-Header"
                   value={entry.key}
                   onChange={(e) =>
@@ -800,7 +806,7 @@ export function BaseProviderForm({
                   disabled={mutating}
                 />
                 <input
-                  className={styles.input}
+                  className={inputCls}
                   placeholder="value"
                   value={entry.value}
                   onChange={(e) =>
@@ -815,7 +821,7 @@ export function BaseProviderForm({
                 />
                 <button
                   type="button"
-                  className={styles.removeBtn}
+                  className={removeBtnCls}
                   disabled={mutating || headersList.length <= 1}
                   onClick={() =>
                     updateField(
@@ -830,7 +836,7 @@ export function BaseProviderForm({
             ))}
             <button
               type="button"
-              className={styles.addBtn}
+              className={addBtnCls}
               disabled={mutating}
               onClick={() => updateField('headers', [...headersList, emptyHeader()])}
             >
@@ -843,12 +849,12 @@ export function BaseProviderForm({
 
       {descriptor.supportsModels ? (
         <Collapsible label={t('providersPage.form.modelsSection')}>
-          <div className={styles.entriesList}>
+          <div className="flex flex-col gap-[10px]">
             {discovery.available ? (
-              <div className={styles.entriesToolbar}>
+              <div className="flex items-center justify-end gap-2 mb-0.5">
                 <button
                   type="button"
-                  className={styles.connectivityBtn}
+                  className={connectivityBtnCls}
                   onClick={openDiscovery}
                   disabled={mutating}
                 >
@@ -878,7 +884,7 @@ export function BaseProviderForm({
                 style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}
               >
                 <input
-                  className={styles.input}
+                  className={inputCls}
                   placeholder="model-name"
                   value={entry.name}
                   onChange={(e) =>
@@ -892,7 +898,7 @@ export function BaseProviderForm({
                   disabled={mutating}
                 />
                 <input
-                  className={styles.input}
+                  className={inputCls}
                   placeholder="alias (optional)"
                   value={entry.alias ?? ''}
                   onChange={(e) =>
@@ -907,7 +913,7 @@ export function BaseProviderForm({
                 />
                 <button
                   type="button"
-                  className={styles.removeBtn}
+                  className={removeBtnCls}
                   disabled={mutating || modelsList.length <= 1}
                   onClick={() =>
                     updateField(
@@ -922,7 +928,7 @@ export function BaseProviderForm({
             ))}
             <button
               type="button"
-              className={styles.addBtn}
+              className={addBtnCls}
               disabled={mutating}
               onClick={() => updateField('models', [...modelsList, emptyModel()])}
             >
@@ -935,12 +941,12 @@ export function BaseProviderForm({
 
       {descriptor.supportsExcludedModels ? (
         <Collapsible label={t('providersPage.form.excludedSection')}>
-          <div className={styles.field}>
-            <span className={styles.labelHint}>
+          <div className="grid gap-1.5">
+            <span className="text-[11px] text-muted-foreground">
               {t('providersPage.form.excludedHint')}
             </span>
             <textarea
-              className={styles.textarea}
+              className={textareaCls}
               rows={4}
               value={form.excludedModelsText}
               onChange={(e) => updateField('excludedModelsText', e.target.value)}
@@ -953,37 +959,37 @@ export function BaseProviderForm({
 
       {descriptor.supportsCloak && form.cloak ? (
         <Collapsible label={t('providersPage.form.cloakSection')}>
-          <div className={styles.section}>
-            <div className={styles.field}>
-              <label className={styles.label}>
+          <div className="flex flex-col gap-3">
+            <div className="grid gap-1.5">
+              <label className="text-[12px] font-medium text-foreground">
                 {t('providersPage.form.cloakMode')}
               </label>
               <input
-                className={styles.input}
+                className={inputCls}
                 value={form.cloak.mode}
                 onChange={(e) => updateCloak('mode', e.target.value)}
                 placeholder="auto / always / never"
                 disabled={mutating}
               />
             </div>
-            <label className={styles.checkboxRow}>
+            <label className="flex items-start gap-[10px] cursor-pointer select-none">
               <input
                 type="checkbox"
-                className={styles.checkboxBox}
+                className="mt-0.5 w-4 h-4 border border-border bg-background cursor-pointer appearance-none relative checked:bg-primary checked:border-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
                 checked={form.cloak.strictMode}
                 disabled={mutating}
                 onChange={(e) => updateCloak('strictMode', e.target.checked)}
               />
-              <span className={styles.checkboxText}>
+              <span className="flex flex-col gap-0.5 text-[13px] text-foreground">
                 <span>{t('providersPage.form.cloakStrict')}</span>
               </span>
             </label>
-            <div className={styles.field}>
-              <label className={styles.label}>
+            <div className="grid gap-1.5">
+              <label className="text-[12px] font-medium text-foreground">
                 {t('providersPage.form.cloakSensitiveWords')}
               </label>
               <textarea
-                className={styles.textarea}
+                className={textareaCls}
                 rows={3}
                 value={form.cloak.sensitiveWordsText}
                 onChange={(e) =>
@@ -996,7 +1002,7 @@ export function BaseProviderForm({
         </Collapsible>
       ) : null}
 
-      {error ? <div className={styles.errorBox}>{error}</div> : null}
+      {error ? <div className="border border-[var(--destructive-30)] bg-[var(--destructive-10)] text-destructive px-3 py-[10px] text-[12px] leading-[1.5]">{error}</div> : null}
     </form>
   );
 }

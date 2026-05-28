@@ -1,12 +1,11 @@
 import type { KeyboardEvent } from 'react';
 import type { TFunction } from 'i18next';
-import { Modal } from '@/components/ui/LegacyModal';
-import { Input } from '@/components/ui/LegacyInput';
+import { Modal } from '@/components/ui/Modal';
+import { FormInput as Input } from '@/components/ui/FormInput';
 import { Button } from '@/components/ui/Button';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconTrash2 } from '@/components/ui/icons';
 import type { AliasNode, SourceNode } from './ModelMappingDiagramTypes';
-import styles from './ModelMappingDiagram.module.scss';
 
 interface RenameAliasModalProps {
   open: boolean;
@@ -141,22 +140,22 @@ export function SettingsAliasModal({
         (() => {
           const node = aliasNodes.find((n) => n.alias === alias);
           if (!node || node.sources.length === 0) {
-            return <div className={styles.settingsEmpty}>{t('oauth_model_alias.diagram_settings_empty')}</div>;
+            return <div className="text-muted-foreground/60 text-[13px] text-center py-4">{t('oauth_model_alias.diagram_settings_empty')}</div>;
           }
           return (
-            <div className={styles.settingsList}>
+            <div className="flex flex-col gap-2">
               {node.sources.map((source) => {
                 const entry = source.aliases.find((item) => item.alias === alias);
                 const forkEnabled = entry?.fork === true;
                 return (
-                  <div key={source.id} className={styles.settingsRow}>
-                    <div className={styles.settingsNames}>
-                      <span className={styles.settingsSource}>{source.name}</span>
-                      <span className={styles.settingsArrow}>→</span>
-                      <span className={styles.settingsAlias}>{alias}</span>
+                  <div key={source.id} className="grid [grid-template-columns:minmax(200px,1fr)_auto] gap-3 items-center py-2 px-3 border border-border bg-muted max-md:[grid-template-columns:1fr] max-md:items-start">
+                    <div className="flex items-center gap-1 text-[13px] text-foreground min-w-0">
+                      <span className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[220px]">{source.name}</span>
+                      <span className="text-muted-foreground/60">→</span>
+                      <span className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[220px]">{alias}</span>
                     </div>
-                    <div className={styles.settingsActions}>
-                      <span className={styles.settingsLabel}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] text-muted-foreground">
                         {t('oauth_model_alias.alias_fork_label')}
                       </span>
                       <ToggleSwitch
@@ -166,7 +165,7 @@ export function SettingsAliasModal({
                       />
                       <button
                         type="button"
-                        className={styles.settingsDelete}
+                        className="border-0 bg-transparent text-destructive p-[6px] cursor-pointer hover:bg-destructive/10"
                         onClick={() => onUnlink(source.provider, source.name, alias)}
                         aria-label={t('oauth_model_alias.diagram_delete_link', {
                           provider: source.provider,
@@ -222,18 +221,18 @@ export function SettingsSourceModal({
     >
       {source ? (
         source.aliases.length === 0 ? (
-          <div className={styles.settingsEmpty}>{t('oauth_model_alias.diagram_settings_empty')}</div>
+          <div className="text-muted-foreground/60 text-[13px] text-center py-4">{t('oauth_model_alias.diagram_settings_empty')}</div>
         ) : (
-          <div className={styles.settingsList}>
+          <div className="flex flex-col gap-2">
             {source.aliases.map((entry) => (
-              <div key={`${source.id}-${entry.alias}`} className={styles.settingsRow}>
-                <div className={styles.settingsNames}>
-                  <span className={styles.settingsSource}>{source.name}</span>
-                  <span className={styles.settingsArrow}>→</span>
-                  <span className={styles.settingsAlias}>{entry.alias}</span>
+              <div key={`${source.id}-${entry.alias}`} className="grid [grid-template-columns:minmax(200px,1fr)_auto] gap-3 items-center py-2 px-3 border border-border bg-muted max-md:[grid-template-columns:1fr] max-md:items-start">
+                <div className="flex items-center gap-1 text-[13px] text-foreground min-w-0">
+                  <span className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[220px]">{source.name}</span>
+                  <span className="text-muted-foreground/60">→</span>
+                  <span className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[220px]">{entry.alias}</span>
                 </div>
-                <div className={styles.settingsActions}>
-                  <span className={styles.settingsLabel}>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-muted-foreground">
                     {t('oauth_model_alias.alias_fork_label')}
                   </span>
                   <ToggleSwitch
@@ -243,7 +242,7 @@ export function SettingsSourceModal({
                   />
                   <button
                     type="button"
-                    className={styles.settingsDelete}
+                    className="border-0 bg-transparent text-destructive p-[6px] cursor-pointer hover:bg-destructive/10"
                     onClick={() => onUnlink(source.provider, source.name, entry.alias)}
                     aria-label={t('oauth_model_alias.diagram_delete_link', {
                       provider: source.provider,

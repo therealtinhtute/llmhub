@@ -2,14 +2,14 @@ import type { InputHTMLAttributes, ReactNode } from 'react';
 import { Input as ShadcnInput } from './Input';
 import { cn } from '@/lib/utils';
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+interface FormInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   hint?: string;
   error?: string;
   rightElement?: ReactNode;
 }
 
-function Input({ label, hint, error, rightElement, className, id, ...rest }: InputProps) {
+function FormInput({ label, hint, error, rightElement, className, id, ...rest }: FormInputProps) {
   return (
     <div className="flex flex-col gap-1">
       {label ? (
@@ -20,7 +20,7 @@ function Input({ label, hint, error, rightElement, className, id, ...rest }: Inp
       <div className={cn('relative', rightElement && 'flex items-center')}>
         <ShadcnInput
           id={id}
-          className={cn(error && 'border-destructive', className)}
+          className={cn(error && 'border-destructive', rightElement && 'pr-9', className)}
           aria-invalid={error ? true : undefined}
           {...rest}
         />
@@ -34,4 +34,4 @@ function Input({ label, hint, error, rightElement, className, id, ...rest }: Inp
   );
 }
 
-export { Input };
+export { FormInput };

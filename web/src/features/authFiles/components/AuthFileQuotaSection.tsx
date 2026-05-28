@@ -19,7 +19,31 @@ import {
   type QuotaProviderType,
 } from '@/features/authFiles/constants';
 import { QuotaProgressBar } from '@/features/authFiles/components/QuotaProgressBar';
-import styles from '@/pages/AuthFilesPage.module.scss';
+
+// Tailwind class equivalents for quota rendering classes,
+// passed to renderQuotaItems as the helpers.styles object.
+const quotaStyleMap = {
+  quotaMessage: 'text-[12px] text-muted-foreground/60 text-center py-2',
+  quotaMessageAction: 'w-full border-none bg-transparent cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline text-[12px] text-muted-foreground/60 text-center py-2',
+  quotaError: 'text-[12px] text-destructive bg-destructive/[.08] border border-destructive py-1 px-2',
+  quotaWarning: 'text-[12px] text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border border-amber-400/30 py-1 px-2',
+  quotaRow: 'flex flex-col gap-1',
+  quotaRowHeader: 'flex items-center justify-between gap-2 min-w-0',
+  quotaModel: 'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0',
+  quotaBar: 'h-2 bg-secondary overflow-hidden',
+  quotaBarFill: 'h-full transition-[width] duration-200 ease-out',
+  quotaBarFillHigh: 'bg-success',
+  quotaBarFillMedium: 'bg-[var(--quota-medium-color,#e0aa14)]',
+  quotaBarFillLow: 'bg-destructive',
+  quotaMeta: 'flex items-center gap-2 text-[12px] text-muted-foreground whitespace-nowrap',
+  quotaPercent: 'font-semibold text-foreground',
+  quotaReset: 'text-muted-foreground/60',
+  quotaAmount: 'text-muted-foreground',
+  codexPlan: 'flex items-center gap-[6px] text-[12px] text-muted-foreground',
+  codexPlanLabel: 'text-muted-foreground/60',
+  codexPlanValue: 'font-semibold text-foreground capitalize',
+  premiumPlanValue: 'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-[rgba(217,165,22,0.15)] border border-[rgba(217,165,22,0.3)] text-[#e0aa14] capitalize',
+};
 
 type QuotaState = { status?: string; error?: string; errorStatus?: number } | undefined;
 
@@ -114,28 +138,28 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
   );
 
   return (
-    <div className={styles.quotaSection}>
+    <div className="flex flex-col gap-2 pt-2 mt-[2px] border-t border-dashed border-border/80">
       {quotaStatus === 'loading' ? (
-        <div className={styles.quotaMessage}>{t(`${config.i18nPrefix}.loading`)}</div>
+        <div className={quotaStyleMap.quotaMessage}>{t(`${config.i18nPrefix}.loading`)}</div>
       ) : quotaStatus === 'idle' ? (
         <button
           type="button"
-          className={`${styles.quotaMessage} ${styles.quotaMessageAction}`}
+          className={quotaStyleMap.quotaMessageAction}
           onClick={() => void refreshQuotaForFile()}
           disabled={!canRefreshQuota}
         >
           {t(`${config.i18nPrefix}.idle`)}
         </button>
       ) : quotaStatus === 'error' ? (
-        <div className={styles.quotaError}>
+        <div className={quotaStyleMap.quotaError}>
           {t(`${config.i18nPrefix}.load_failed`, {
             message: quotaErrorMessage,
           })}
         </div>
       ) : quota ? (
-        (config.renderQuotaItems(quota, t, { styles, QuotaProgressBar }) as ReactNode)
+        (config.renderQuotaItems(quota, t, { styles: quotaStyleMap, QuotaProgressBar }) as ReactNode)
       ) : (
-        <div className={styles.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
+        <div className={quotaStyleMap.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
       )}
     </div>
   );

@@ -17,7 +17,7 @@ import {
   XAI_CONFIG,
 } from '@/components/quota';
 import type { AuthFileItem } from '@/types';
-import styles from './QuotaPage.module.scss';
+import { quotaStyles as styles } from '@/components/quota/quotaStyles';
 
 export function QuotaPage() {
   const { t } = useTranslation();

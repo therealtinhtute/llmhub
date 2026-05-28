@@ -1,10 +1,9 @@
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/LegacyModal';
-import { Select } from '@/components/ui/LegacySelect';
+import { Modal } from '@/components/ui/Modal';
+import { FormSelect as Select } from '@/components/ui/FormSelect';
 import { toast } from 'sonner';
-import styles from './VisualConfigEditor.module.scss';
 import { copyToClipboard } from '@/utils/clipboard';
 import type {
   PayloadFilterRule,
@@ -71,7 +70,7 @@ function ExpandableInput({
 
   if (collapsed) {
     return (
-      <div className={styles.expandableInputWrapper}>
+      <div className="relative flex items-start min-w-0 flex-1">
         <input
           className={`input ${className ?? ''}`}
           placeholder={placeholder}
@@ -83,7 +82,7 @@ function ExpandableInput({
         {value.length > EXPAND_THRESHOLD && (
           <button
             type="button"
-            className={styles.expandableToggle}
+            className="absolute right-[7px] top-1/2 z-[1] -translate-y-1/2 p-[2px] border-0 bg-none text-muted-foreground text-[10px] leading-none cursor-pointer opacity-[0.58] hover:opacity-100 disabled:cursor-default disabled:opacity-[0.35] bg-transparent appearance-none"
             disabled={disabled}
             onClick={() => {
               setCollapsed(false);
@@ -102,10 +101,10 @@ function ExpandableInput({
   }
 
   return (
-    <div className={`${styles.expandableInputWrapper} ${styles.expandableInputExpanded}`}>
+    <div className="relative flex items-start min-w-0 flex-1">
       <textarea
         ref={textareaRef}
-        className={`input ${styles.expandableTextarea} ${className ?? ''}`}
+        className={`input resize-none min-h-[60px] overflow-hidden leading-[1.5] pr-8 ${className ?? ''}`}
         placeholder={placeholder}
         aria-label={ariaLabel}
         value={value}
@@ -115,7 +114,7 @@ function ExpandableInput({
       />
       <button
         type="button"
-        className={styles.expandableToggle}
+        className="absolute right-3 top-[9px] z-[1] p-[2px] border-0 bg-transparent text-muted-foreground text-[10px] leading-none cursor-pointer opacity-[0.58] hover:opacity-100 disabled:cursor-default disabled:opacity-[0.35] appearance-none"
         disabled={disabled}
         onClick={() => setCollapsed(true)}
         title={t('common.collapse')}
@@ -275,8 +274,8 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
   };
 
   return (
-    <div className="form-group" style={{ marginBottom: 0 }}>
-      <div className={styles.blockHeaderRow}>
+    <div className="flex flex-col gap-[7px] mb-0">
+      <div className="flex items-center justify-between gap-[10px] flex-wrap">
         <label style={{ margin: 0 }}>{t('config_management.visual.api_keys.label')}</label>
         <Button size="sm" onClick={openAddModal} disabled={disabled}>
           {t('config_management.visual.api_keys.add')}
@@ -284,19 +283,19 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
       </div>
 
       {apiKeys.length === 0 ? (
-        <div className={styles.emptyState}>{t('config_management.visual.api_keys.empty')}</div>
+        <div className="border border-dashed border-border p-4 text-muted-foreground text-center bg-transparent">{t('config_management.visual.api_keys.empty')}</div>
       ) : (
-        <div className="item-list" style={{ marginTop: 4 }}>
+        <div className="flex flex-col gap-2 mt-2">
           {apiKeys.map((key, index) => (
-            <div key={renderApiKeyIds[index] ?? `${key}-${index}`} className="item-row">
-              <div className="item-meta">
-                <div className="pill">#{index + 1}</div>
-                <div className="item-title">
+            <div key={renderApiKeyIds[index] ?? `${key}-${index}`} className="flex items-center justify-between gap-2 p-3 border-b border-border last:border-b-0 bg-transparent">
+              <div className="flex flex-col gap-1 min-w-0 flex-1">
+                <div className="inline-flex items-center px-2 py-[2px] text-[0.6875rem] font-semibold border border-border bg-transparent text-muted-foreground leading-[1.5] rounded-sm">#{index + 1}</div>
+                <div className="text-sm font-medium text-foreground">
                   {t('config_management.visual.api_keys.input_label')}
                 </div>
-                <div className="item-subtitle">{maskApiKey(String(key || ''))}</div>
+                <div className="text-xs text-muted-foreground">{maskApiKey(String(key || ''))}</div>
               </div>
-              <div className="item-actions">
+              <div className="flex items-center flex-wrap gap-1.5 shrink-0">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -327,7 +326,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
         </div>
       )}
 
-      <div className="hint">{t('config_management.visual.api_keys.hint')}</div>
+      <div className="text-muted-foreground text-[12px] leading-[1.55]">{t('config_management.visual.api_keys.hint')}</div>
 
       <Modal
         open={modalOpen}
@@ -350,14 +349,14 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
           </>
         }
       >
-        <div className="form-group">
-          <label htmlFor={apiKeyInputId}>
+        <div className="flex flex-col gap-[7px] mb-0">
+          <label htmlFor={apiKeyInputId} className="text-muted-foreground text-[12px] font-bold tracking-[0.02em]">
             {t('config_management.visual.api_keys.input_label')}
           </label>
-          <div className={styles.apiKeyModalInputRow}>
+          <div className="flex gap-2 items-center max-[900px]:flex-col max-[900px]:items-stretch [&_input]:flex-1">
             <input
               id={apiKeyInputId}
-              className="input"
+              className="min-h-[42px] bg-muted border border-border shadow-none focus:bg-background focus:border-foreground focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--foreground)_12%,transparent)] w-full px-3 py-2 text-sm"
               placeholder={t('config_management.visual.api_keys.input_placeholder')}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -375,11 +374,11 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
               {t('config_management.visual.api_keys.generate')}
             </Button>
           </div>
-          <div id={apiKeyHintId} className="hint">
+          <div id={apiKeyHintId} className="text-muted-foreground text-[12px] leading-[1.55]">
             {t('config_management.visual.api_keys.input_hint')}
           </div>
           {formError && (
-            <div id={apiKeyErrorId} className="error-box">
+            <div id={apiKeyErrorId} className="p-[10px_14px] mb-0 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">
               {formError}
             </div>
           )}
@@ -426,9 +425,9 @@ const StringListEditor = memo(function StringListEditor({
   };
 
   return (
-    <div className={styles.stringList}>
+    <div className="flex flex-col gap-2">
       {items.map((item, index) => (
-        <div key={renderItemIds[index] ?? `item-${index}`} className={styles.stringListRow}>
+        <div key={renderItemIds[index] ?? `item-${index}`} className="flex items-center gap-2 flex-wrap max-md:items-stretch">
           <ExpandableInput
             placeholder={placeholder}
             ariaLabel={inputAriaLabel ?? placeholder}
@@ -441,7 +440,7 @@ const StringListEditor = memo(function StringListEditor({
           </Button>
         </div>
       ))}
-      <div className={styles.actionRow}>
+      <div className="flex justify-end max-md:justify-stretch">
         <Button variant="secondary" size="sm" onClick={addItem} disabled={disabled}>
           {t('config_management.visual.common.add')}
         </Button>
@@ -698,7 +697,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
     if (condition.valueType === 'json') {
       return (
         <textarea
-          className={`input ${styles.payloadJsonInput}`}
+          className="input min-h-[112px] resize-y font-mono"
           placeholder={getValuePlaceholder(condition.valueType)}
           aria-label={t('config_management.visual.payload_rules.condition_value')}
           value={condition.value}
@@ -733,7 +732,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
     if (rawJsonValues) {
       return (
         <textarea
-          className={`input ${styles.payloadJsonInput}`}
+          className="input min-h-[112px] resize-y font-mono"
           placeholder={t('config_management.visual.payload_rules.value_raw_json')}
           aria-label={t('config_management.visual.payload_rules.param_value')}
           value={param.value}
@@ -765,7 +764,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
     if (param.valueType === 'json') {
       return (
         <textarea
-          className={`input ${styles.payloadJsonInput}`}
+          className="input min-h-[112px] resize-y font-mono"
           placeholder={getValuePlaceholder(param.valueType)}
           aria-label={t('config_management.visual.payload_rules.param_value')}
           value={param.value}
@@ -787,11 +786,11 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
   };
 
   return (
-    <div className={styles.blockStack}>
+    <div className="flex flex-col gap-[10px]">
       {rules.map((rule, ruleIndex) => (
-        <div key={rule.id} className={styles.ruleCard}>
-          <div className={styles.ruleCardHeader}>
-            <div className={styles.ruleCardTitle}>
+        <div key={rule.id} className="flex flex-col gap-3 p-3 border border-border bg-[color-mix(in_srgb,hsl(var(--muted))_64%,transparent)]">
+          <div className="flex items-center justify-between gap-[10px] flex-wrap max-md:items-stretch">
+            <div className="text-foreground text-[14px] font-bold leading-tight">
               {t('config_management.visual.payload_rules.rule')} {ruleIndex + 1}
             </div>
             <Button
@@ -804,8 +803,8 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
             </Button>
           </div>
 
-          <div className={styles.blockStack}>
-            <div className={styles.blockLabel}>
+          <div className="flex flex-col gap-[10px]">
+            <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
               {t('config_management.visual.payload_rules.models')}
             </div>
             {(rule.models.length ? rule.models : []).map((model, modelIndex) => {
@@ -813,14 +812,13 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
               const advancedExpanded = modelAdvancedOverrides[model.id] ?? hasAdvancedSettings;
 
               return (
-                <div key={model.id} className={styles.payloadModelGroup}>
+                <div key={model.id} className="flex flex-col gap-2">
                   <div
-                    className={[
-                      styles.payloadRuleModelRow,
-                      protocolFirst ? styles.payloadRuleModelRowProtocolFirst : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
+                    className={`grid items-center gap-2 max-[900px]:grid-cols-[minmax(0,1fr)] ${
+                      protocolFirst
+                        ? 'grid-cols-[160px_1fr_auto_auto]'
+                        : 'grid-cols-[1fr_160px_auto_auto]'
+                    }`}
                   >
                     {protocolFirst ? (
                       <>
@@ -872,7 +870,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                     <Button
                       variant="secondary"
                       size="sm"
-                      className={styles.payloadRowActionButton}
+                      className="flex-none max-[900px]:w-full"
                       onClick={() => toggleModelAdvanced(model.id, hasAdvancedSettings)}
                       disabled={disabled}
                     >
@@ -883,7 +881,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={styles.payloadRowActionButton}
+                      className="flex-none max-[900px]:w-full"
                       onClick={() => removeModel(ruleIndex, modelIndex)}
                       disabled={disabled}
                     >
@@ -892,10 +890,10 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                   </div>
 
                   {advancedExpanded ? (
-                    <div className={styles.payloadModelAdvanced}>
-                      <div className={styles.payloadAdvancedGrid}>
-                        <div className={styles.fieldShell}>
-                          <label className={styles.fieldLabel}>
+                    <div className="flex flex-col gap-3 ml-[10px] pl-3 border-l-2 border-border">
+                      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-[10px] max-[900px]:grid-cols-[minmax(0,1fr)]">
+                        <div className="flex flex-col gap-[7px] min-w-0">
+                          <label className="text-muted-foreground text-[12px] font-bold tracking-[0.02em]">
                             {t('config_management.visual.payload_rules.from_protocol')}
                           </label>
                           <Select
@@ -913,12 +911,12 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                         </div>
                       </div>
 
-                      <div className={styles.blockStack}>
-                        <div className={styles.blockLabel}>
+                      <div className="flex flex-col gap-[10px]">
+                        <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
                           {t('config_management.visual.payload_rules.headers')}
                         </div>
                         {(model.headers ?? []).map((header, headerIndex) => (
-                          <div key={header.id} className={styles.payloadHeaderRow}>
+                          <div key={header.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center max-[900px]:grid-cols-[minmax(0,1fr)]">
                             <ExpandableInput
                               placeholder={t('config_management.visual.payload_rules.header_name')}
                               ariaLabel={t('config_management.visual.payload_rules.header_name')}
@@ -944,7 +942,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                             <Button
                               variant="ghost"
                               size="sm"
-                              className={styles.payloadRowActionButton}
+                              className="flex-none max-[900px]:w-full"
                               onClick={() => removeHeader(ruleIndex, modelIndex, headerIndex)}
                               disabled={disabled}
                             >
@@ -952,7 +950,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                             </Button>
                           </div>
                         ))}
-                        <div className={styles.actionRow}>
+                        <div className="flex justify-end max-md:justify-stretch">
                           <Button
                             variant="secondary"
                             size="sm"
@@ -965,8 +963,8 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                       </div>
 
                       {(['match', 'notMatch'] as const).map((conditionKey) => (
-                        <div key={conditionKey} className={styles.blockStack}>
-                          <div className={styles.blockLabel}>
+                        <div key={conditionKey} className="flex flex-col gap-[10px]">
+                          <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
                             {t(`config_management.visual.payload_rules.${conditionKey}`)}
                           </div>
                           {(model[conditionKey] ?? []).map((condition, conditionIndex) => {
@@ -976,8 +974,8 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                             );
 
                             return (
-                              <div key={condition.id} className={styles.payloadRuleParamGroup}>
-                                <div className={styles.payloadRuleParamRow}>
+                              <div key={condition.id} className="flex flex-col gap-1.5">
+                                <div className="grid grid-cols-[1fr_140px_1fr_auto] gap-2 items-start max-[900px]:grid-cols-[minmax(0,1fr)]">
                                   <ExpandableInput
                                     placeholder={t(
                                       'config_management.visual.payload_rules.condition_path'
@@ -1033,7 +1031,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className={styles.payloadRowActionButton}
+                                    className="flex-none max-[900px]:w-full"
                                     onClick={() =>
                                       removeCondition(
                                         ruleIndex,
@@ -1048,14 +1046,14 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                                   </Button>
                                 </div>
                                 {conditionError ? (
-                                  <div className={`error-box ${styles.payloadParamError}`}>
+                                  <div className="p-[10px_14px] mb-0 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">
                                     {conditionError}
                                   </div>
                                 ) : null}
                               </div>
                             );
                           })}
-                          <div className={styles.actionRow}>
+                          <div className="flex justify-end max-md:justify-stretch">
                             <Button
                               variant="secondary"
                               size="sm"
@@ -1068,9 +1066,9 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                         </div>
                       ))}
 
-                      <div className={styles.payloadAdvancedGrid}>
-                        <div className={styles.blockStack}>
-                          <div className={styles.blockLabel}>
+                      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-[10px] max-[900px]:grid-cols-[minmax(0,1fr)]">
+                        <div className="flex flex-col gap-[10px]">
+                          <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
                             {t('config_management.visual.payload_rules.exist')}
                           </div>
                           <StringListEditor
@@ -1083,8 +1081,8 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                             onChange={(exist) => updateModel(ruleIndex, modelIndex, { exist })}
                           />
                         </div>
-                        <div className={styles.blockStack}>
-                          <div className={styles.blockLabel}>
+                        <div className="flex flex-col gap-[10px]">
+                          <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
                             {t('config_management.visual.payload_rules.notExist')}
                           </div>
                           <StringListEditor
@@ -1105,7 +1103,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                 </div>
               );
             })}
-            <div className={styles.actionRow}>
+            <div className="flex justify-end max-md:justify-stretch">
               <Button
                 variant="secondary"
                 size="sm"
@@ -1117,16 +1115,16 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
             </div>
           </div>
 
-          <div className={styles.blockStack}>
-            <div className={styles.blockLabel}>
+          <div className="flex flex-col gap-[10px]">
+            <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
               {t('config_management.visual.payload_rules.params')}
             </div>
             {(rule.params.length ? rule.params : []).map((param, paramIndex) => {
               const paramError = getParamErrorMessage(param);
 
               return (
-                <div key={param.id} className={styles.payloadRuleParamGroup}>
-                  <div className={styles.payloadRuleParamRow}>
+                <div key={param.id} className="flex flex-col gap-1.5">
+                  <div className="grid grid-cols-[1fr_140px_1fr_auto] gap-2 items-start max-[900px]:grid-cols-[minmax(0,1fr)]">
                     <ExpandableInput
                       placeholder={t('config_management.visual.payload_rules.json_path')}
                       ariaLabel={t('config_management.visual.payload_rules.json_path')}
@@ -1159,7 +1157,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={styles.payloadRowActionButton}
+                      className="flex-none max-[900px]:w-full"
                       onClick={() => removeParam(ruleIndex, paramIndex)}
                       disabled={disabled}
                     >
@@ -1167,12 +1165,12 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
                     </Button>
                   </div>
                   {paramError && (
-                    <div className={`error-box ${styles.payloadParamError}`}>{paramError}</div>
+                    <div className="p-[10px_14px] mb-0 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{paramError}</div>
                   )}
                 </div>
               );
             })}
-            <div className={styles.actionRow}>
+            <div className="flex justify-end max-md:justify-stretch">
               <Button
                 variant="secondary"
                 size="sm"
@@ -1187,12 +1185,12 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
       ))}
 
       {rules.length === 0 && (
-        <div className={styles.emptyState}>
+        <div className="border border-dashed border-border p-4 text-muted-foreground text-center bg-transparent">
           {t('config_management.visual.payload_rules.no_rules')}
         </div>
       )}
 
-      <div className={styles.actionRow}>
+      <div className="flex justify-end max-md:justify-stretch">
         <Button variant="secondary" size="sm" onClick={addRule} disabled={disabled}>
           {t('config_management.visual.payload_rules.add_rule')}
         </Button>
@@ -1243,11 +1241,11 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
   };
 
   return (
-    <div className={styles.blockStack}>
+    <div className="flex flex-col gap-[10px]">
       {rules.map((rule, ruleIndex) => (
-        <div key={rule.id} className={styles.ruleCard}>
-          <div className={styles.ruleCardHeader}>
-            <div className={styles.ruleCardTitle}>
+        <div key={rule.id} className="flex flex-col gap-3 p-3 border border-border bg-[color-mix(in_srgb,hsl(var(--muted))_64%,transparent)]">
+          <div className="flex items-center justify-between gap-[10px] flex-wrap max-md:items-stretch">
+            <div className="text-foreground text-[14px] font-bold leading-tight">
               {t('config_management.visual.payload_rules.rule')} {ruleIndex + 1}
             </div>
             <Button
@@ -1260,12 +1258,12 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
             </Button>
           </div>
 
-          <div className={styles.blockStack}>
-            <div className={styles.blockLabel}>
+          <div className="flex flex-col gap-[10px]">
+            <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
               {t('config_management.visual.payload_rules.models')}
             </div>
             {rule.models.map((model, modelIndex) => (
-              <div key={model.id} className={styles.payloadFilterModelRow}>
+              <div key={model.id} className="grid grid-cols-[1fr_160px_auto] gap-2 items-center max-[900px]:grid-cols-[minmax(0,1fr)]">
                 <ExpandableInput
                   placeholder={t('config_management.visual.payload_rules.model_name')}
                   ariaLabel={t('config_management.visual.payload_rules.model_name')}
@@ -1287,7 +1285,7 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={styles.payloadRowActionButton}
+                  className="flex-none max-[900px]:w-full"
                   onClick={() => removeModel(ruleIndex, modelIndex)}
                   disabled={disabled}
                 >
@@ -1295,7 +1293,7 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
                 </Button>
               </div>
             ))}
-            <div className={styles.actionRow}>
+            <div className="flex justify-end max-md:justify-stretch">
               <Button
                 variant="secondary"
                 size="sm"
@@ -1307,8 +1305,8 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
             </div>
           </div>
 
-          <div className={styles.blockStack}>
-            <div className={styles.blockLabel}>
+          <div className="flex flex-col gap-[10px]">
+            <div className="text-muted-foreground text-[12px] font-bold leading-[1.4]">
               {t('config_management.visual.payload_rules.remove_params')}
             </div>
             <StringListEditor
@@ -1323,12 +1321,12 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
       ))}
 
       {rules.length === 0 && (
-        <div className={styles.emptyState}>
+        <div className="border border-dashed border-border p-4 text-muted-foreground text-center bg-transparent">
           {t('config_management.visual.payload_rules.no_rules')}
         </div>
       )}
 
-      <div className={styles.actionRow}>
+      <div className="flex justify-end max-md:justify-stretch">
         <Button variant="secondary" size="sm" onClick={addRule} disabled={disabled}>
           {t('config_management.visual.payload_rules.add_rule')}
         </Button>

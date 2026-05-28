@@ -16,13 +16,13 @@ import type { AnimationPlaybackControlsWithThen } from 'motion-dom';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/LegacyInput';
-import { Select } from '@/components/ui/LegacySelect';
+import { FormInput as Input } from '@/components/ui/FormInput';
+import { FormSelect as Select } from '@/components/ui/FormSelect';
 import { IconFilterAll, IconSearch } from '@/components/ui/icons';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { copyToClipboard } from '@/utils/clipboard';
 import {
   MAX_CARD_PAGE_SIZE,
@@ -59,7 +59,6 @@ import {
 } from '@/features/authFiles/uiState';
 import { toast } from 'sonner';
 import { useAuthStore, useThemeStore } from '@/stores';
-import styles from './AuthFilesPage.module.scss';
 
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
 const easePower2In = (progress: number) => progress ** 3;
@@ -583,14 +582,14 @@ export function AuthFilesPage() {
   );
 
   const renderFilterTags = () => (
-    <div className={styles.filterRail}>
-      <div className={styles.filterTags}>
+    <div className="flex flex-col gap-[10px] p-3 border border-border/60 bg-muted/60">
+      <div className="flex flex-row flex-wrap gap-2">
         {existingTypes.map((type) => {
           const isActive = normalizedFilter === type;
           const iconSrc = getAuthFileIcon(type, resolvedTheme);
           const color =
             type === 'all'
-              ? { bg: 'var(--bg-tertiary)', text: 'var(--text-primary)' }
+              ? { bg: 'hsl(var(--secondary))', text: 'hsl(var(--foreground))' }
               : getTypeColor(type, resolvedTheme);
           const buttonStyle = {
             '--filter-color': color.text,
@@ -601,32 +600,32 @@ export function AuthFilesPage() {
           return (
             <button
               key={type}
-              className={`${styles.filterTag} ${isActive ? styles.filterTagActive : ''}`}
+              className={`inline-flex items-center gap-2 py-[7px] pr-3 pl-2 text-[13px] font-semibold leading-[1.2] border border-border/60 bg-muted/70 text-muted-foreground cursor-pointer whitespace-nowrap transition-colors ${isActive ? 'border-[color-mix(in_srgb,var(--filter-color)_50%,hsl(var(--border)))] bg-[color-mix(in_srgb,var(--filter-surface)_22%,hsl(var(--muted)))] text-foreground' : ''}`}
               style={buttonStyle}
               onClick={() => {
                 setFilter(type);
                 setPage(1);
               }}
             >
-              <span className={styles.filterTagLabel}>
+              <span className="inline-flex items-center gap-[10px] min-w-0">
                 {type === 'all' ? (
-                  <span className={`${styles.filterTagIconWrap} ${styles.filterAllIconWrap}`}>
-                    <IconFilterAll className={styles.filterAllIcon} size={16} />
+                  <span className="relative w-6 h-6 shrink-0 inline-flex items-center justify-content-center border border-primary/20 bg-[linear-gradient(145deg,color-mix(in_srgb,hsl(var(--muted))_94%,hsl(var(--primary))_8%),color-mix(in_srgb,hsl(var(--background))_92%,hsl(var(--primary))_5%))]">
+                    <IconFilterAll className="relative z-[1] block text-primary/70" size={16} />
                   </span>
                 ) : (
-                  <span className={styles.filterTagIconWrap}>
+                  <span className="w-6 h-6 shrink-0 inline-flex items-center justify-center border border-border/50 bg-secondary/60">
                     {iconSrc ? (
-                      <img src={iconSrc} alt="" className={styles.filterTagIcon} />
+                      <img src={iconSrc} alt="" className="w-4 h-4 shrink-0 object-contain" />
                     ) : (
-                      <span className={styles.filterTagIconFallback}>
+                      <span className="text-[var(--filter-color)] text-[14px] font-bold leading-none">
                         {getTypeLabel(t, type).slice(0, 1).toUpperCase()}
                       </span>
                     )}
                   </span>
                 )}
-                <span className={styles.filterTagText}>{getTypeLabel(t, type)}</span>
+                <span className="min-w-0 text-inherit overflow-hidden text-ellipsis whitespace-nowrap">{getTypeLabel(t, type)}</span>
               </span>
-              <span className={styles.filterTagCount}>{typeCounts[type] ?? 0}</span>
+              <span className={`inline-grid place-items-center min-w-[20px] h-5 px-[6px] bg-[color-mix(in_srgb,var(--filter-color)_12%,transparent)] text-muted-foreground/60 text-[11px] font-bold tabular-nums shrink-0 leading-none text-center ${isActive ? 'bg-[color-mix(in_srgb,var(--filter-color)_22%,transparent)] text-[var(--filter-color)]' : ''}`}>{typeCounts[type] ?? 0}</span>
             </button>
           );
         })}
@@ -635,9 +634,9 @@ export function AuthFilesPage() {
   );
 
   const titleNode = (
-    <div className={styles.titleWrapper}>
+    <div className="flex items-center gap-2 leading-6">
       <span>{t('auth_files.title_section')}</span>
-      {files.length > 0 && <span className={styles.countBadge}>{files.length}</span>}
+      {files.length > 0 && <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 text-[13px] font-semibold text-primary bg-primary/10 box-border">{files.length}</span>}
     </div>
   );
 
@@ -658,16 +657,16 @@ export function AuthFilesPage() {
   })();
 
   return (
-    <div className={styles.container}>
-      <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>{t('auth_files.title')}</h1>
-        <p className={styles.description}>{t('auth_files.description')}</p>
+    <div className="flex flex-col gap-4 pb-[calc(var(--auth-files-action-bar-height,0px)+16px+env(safe-area-inset-bottom))]">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-[28px] font-bold text-foreground m-0">{t('auth_files.title')}</h1>
+        <p className="text-[14px] text-muted-foreground m-0">{t('auth_files.description')}</p>
       </div>
 
       <Card
         title={titleNode}
         extra={
-          <div className={styles.headerActions}>
+          <div className="flex gap-2 flex-wrap items-center min-w-0 max-w-full max-md:w-full">
             <Button variant="secondary" size="sm" onClick={handleHeaderRefresh} disabled={loading}>
               {t('common.refresh')}
             </Button>
@@ -708,31 +707,31 @@ export function AuthFilesPage() {
           </div>
         }
       >
-        {error && <div className={styles.errorBox}>{error}</div>}
+        {error && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{error}</div>}
 
-        <div className={styles.filterSection}>
+        <div className="flex flex-col gap-3 mb-4">
           {renderFilterTags()}
 
-          <div className={styles.filterContent}>
-            <div className={styles.filterControlsPanel}>
-              <div className={styles.filterControls}>
-                <div className={`${styles.filterItem} ${styles.filterSearchItem}`}>
-                  <label>{t('auth_files.search_label')}</label>
+          <div className="flex flex-col gap-3 min-w-0">
+            <div className="relative overflow-hidden p-4 border border-border/60 bg-[linear-gradient(135deg,color-mix(in_srgb,hsl(var(--primary))_8%,transparent),transparent_46%),color-mix(in_srgb,hsl(var(--muted))_56%,transparent)] max-md:p-3">
+              <div className="grid gap-3 items-end [grid-template-columns:minmax(260px,1fr)_minmax(108px,0.35fr)_minmax(148px,0.45fr)] max-md:[grid-template-columns:1fr]">
+                <div className="flex flex-col gap-[6px] min-w-0">
+                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.search_label')}</label>
                   <Input
-                    className={styles.searchInput}
+                    className="pr-10"
                     value={search}
                     onChange={(e) => {
                       setSearch(e.target.value);
                       setPage(1);
                     }}
                     placeholder={t('auth_files.search_placeholder')}
-                    rightElement={<IconSearch className={styles.searchIcon} size={18} />}
+                    rightElement={<IconSearch className="block text-muted-foreground/60 pointer-events-none" size={18} />}
                   />
                 </div>
-                <div className={styles.filterItem}>
-                  <label>{t('auth_files.page_size_label')}</label>
+                <div className="flex flex-col gap-[6px] min-w-0">
+                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.page_size_label')}</label>
                   <input
-                    className={styles.pageSizeSelect}
+                    className="w-full px-3 py-2 border border-border/70 bg-muted text-foreground text-[14px] cursor-text h-[42px] box-border focus:outline-none focus:border-primary focus:shadow-[0_0_0_2px_hsl(var(--primary)/0.12)]"
                     type="number"
                     min={MIN_CARD_PAGE_SIZE}
                     max={MAX_CARD_PAGE_SIZE}
@@ -747,10 +746,10 @@ export function AuthFilesPage() {
                     }}
                   />
                 </div>
-                <div className={styles.filterItem}>
-                  <label>{t('auth_files.sort_label')}</label>
+                <div className="flex flex-col gap-[6px] min-w-0">
+                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.sort_label')}</label>
                   <Select
-                    className={styles.sortSelect}
+                    className="w-full min-w-0"
                     value={sortMode}
                     options={sortOptions}
                     onChange={handleSortModeChange}
@@ -758,10 +757,10 @@ export function AuthFilesPage() {
                     fullWidth
                   />
                 </div>
-                <div className={`${styles.filterItem} ${styles.filterToggleItem}`}>
-                  <label>{t('auth_files.display_options_label')}</label>
-                  <div className={styles.filterToggleGroup}>
-                    <div className={styles.filterToggleCard}>
+                <div className="flex flex-col gap-[6px] min-w-0 [grid-column:1_/_-1]">
+                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.display_options_label')}</label>
+                  <div className="grid [grid-template-columns:repeat(3,minmax(0,1fr))] gap-2 min-h-[42px] max-md:[grid-template-columns:1fr]">
+                    <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
                       <ToggleSwitch
                         checked={problemOnly}
                         onChange={(value) => {
@@ -770,13 +769,13 @@ export function AuthFilesPage() {
                         }}
                         ariaLabel={t('auth_files.problem_filter_only')}
                         label={
-                          <span className={styles.filterToggleLabel}>
+                          <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
                             {t('auth_files.problem_filter_only')}
                           </span>
                         }
                       />
                     </div>
-                    <div className={styles.filterToggleCard}>
+                    <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
                       <ToggleSwitch
                         checked={disabledOnly}
                         onChange={(value) => {
@@ -785,19 +784,19 @@ export function AuthFilesPage() {
                         }}
                         ariaLabel={t('auth_files.disabled_filter_only')}
                         label={
-                          <span className={styles.filterToggleLabel}>
+                          <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
                             {t('auth_files.disabled_filter_only')}
                           </span>
                         }
                       />
                     </div>
-                    <div className={styles.filterToggleCard}>
+                    <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
                       <ToggleSwitch
                         checked={compactMode}
                         onChange={(value) => setCompactMode(value)}
                         ariaLabel={t('auth_files.compact_mode_label')}
                         label={
-                          <span className={styles.filterToggleLabel}>
+                          <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
                             {t('auth_files.compact_mode_label')}
                           </span>
                         }
@@ -809,7 +808,7 @@ export function AuthFilesPage() {
             </div>
 
             {loading ? (
-              <div className={styles.hint}>{t('common.loading')}</div>
+              <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('common.loading')}</div>
             ) : pageItems.length === 0 ? (
               <EmptyState
                 title={t('auth_files.search_empty_title')}
@@ -817,7 +816,7 @@ export function AuthFilesPage() {
               />
             ) : (
               <div
-                className={`${styles.fileGrid} ${quotaFilterType ? styles.fileGridQuotaManaged : ''} ${compactMode ? styles.fileGridCompact : ''}`}
+                className={`grid gap-3 ${quotaFilterType ? '[grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))]' : compactMode ? '[grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]' : '[grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]'}`}
               >
                 {pageItems.map((file) => (
                   <AuthFileCard
@@ -843,7 +842,7 @@ export function AuthFilesPage() {
             )}
 
             {!loading && sorted.length > pageSize && (
-              <div className={styles.pagination}>
+              <div className="flex justify-center items-center gap-4 flex-wrap mt-4 pt-3 border-t border-border">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -852,7 +851,7 @@ export function AuthFilesPage() {
                 >
                   {t('auth_files.pagination_prev')}
                 </Button>
-                <div className={styles.pageInfo}>
+                <div className="text-[13px] text-muted-foreground px-4 py-1 bg-muted">
                   {t('auth_files.pagination_info', {
                     current: currentPage,
                     total: totalPages,
@@ -924,10 +923,13 @@ export function AuthFilesPage() {
 
       {batchActionBarVisible && typeof document !== 'undefined'
         ? createPortal(
-            <div className={styles.batchActionContainer} ref={floatingBatchActionsRef}>
-              <div className={styles.batchActionBar}>
-                <div className={styles.batchActionLeft}>
-                  <span className={styles.batchSelectionText}>
+            <div
+              className="fixed left-[var(--content-center-x,50%)] bottom-[calc(16px+env(safe-area-inset-bottom))] [transform:translateX(-50%)] z-50 w-[min(960px,calc(100vw-24px))] max-w-[calc(100vw-24px)] box-border will-change-transform max-md:w-[calc(100vw-16px)] max-md:max-w-[calc(100vw-16px)] max-md:bottom-[calc(12px+env(safe-area-inset-bottom))]"
+              ref={floatingBatchActionsRef}
+            >
+              <div className="flex items-center justify-between gap-2 p-[10px_12px] border border-border/70 bg-background/84 backdrop-blur-[12px] shadow-lg max-md:flex-col max-md:items-stretch">
+                <div className="flex items-center gap-1 flex-wrap max-md:justify-center">
+                  <span className="text-[13px] font-semibold text-foreground mr-[2px]">
                     {t('auth_files.batch_selected', { count: selectionCount })}
                   </span>
                   <Button
@@ -958,7 +960,7 @@ export function AuthFilesPage() {
                     {t('auth_files.batch_deselect')}
                   </Button>
                 </div>
-                <div className={styles.batchActionRight}>
+                <div className="flex items-center gap-1 flex-wrap justify-end max-md:justify-center">
                   <Button
                     variant="secondary"
                     size="sm"

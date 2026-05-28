@@ -53,17 +53,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
-  css: {
-    modules: {
-      localsConvention: 'camelCase',
-      generateScopedName: '[name]__[local]___[hash:base64:5]'
-    },
-    preprocessorOptions: {
-      scss: {
-        additionalData: `@use "@/styles/variables.scss" as *;`
-      }
-    }
-  },
   build: {
     target: 'es2020',
     outDir: 'dist',

@@ -3,10 +3,10 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { LoadingSpinner } from '@/components/ui/LegacyLoadingSpinner';
-import { SelectionCheckbox } from '@/components/ui/LegacySelectionCheckbox';
-import { AutocompleteInput } from '@/components/ui/LegacyAutocompleteInput';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { AutocompleteInput } from '@/components/ui/AutocompleteInput';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { IconInfo } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
@@ -14,7 +14,6 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/stores';
 import { authFilesApi } from '@/services/api';
 import type { AuthFileItem, OAuthModelAliasEntry } from '@/types';
-import styles from './AuthFilesOAuthExcludedEditPage.module.scss';
 
 type AuthFileModelItem = { id: string; display_name?: string; type?: string; owned_by?: string };
 
@@ -303,7 +302,7 @@ export function AuthFilesOAuthExcludedEditPage() {
       onBack={handleBack}
       backLabel={t('common.back')}
       backAriaLabel={t('common.back')}
-      contentClassName={styles.pageContent}
+      contentClassName="w-full max-w-[1000px] mx-auto px-4 pb-12 max-md:px-4"
       rightAction={
         <Button size="sm" onClick={handleSave} loading={saving} disabled={!canSave}>
           {t('oauth_excluded.save')}
@@ -321,22 +320,22 @@ export function AuthFilesOAuthExcludedEditPage() {
         </Card>
       ) : (
         <>
-          <Card className={styles.settingsCard}>
-            <div className={styles.settingsHeader}>
-              <div className={styles.settingsHeaderTitle}>
+          <Card className="p-0 overflow-visible">
+            <div className="flex flex-col gap-1 px-4 py-3 border-b border-border max-md:px-4">
+              <div className="inline-flex items-center gap-1 font-bold text-foreground">
                 <IconInfo size={16} />
                 <span>{t('oauth_excluded.title')}</span>
               </div>
-              <div className={styles.settingsHeaderHint}>{t('oauth_excluded.description')}</div>
+              <div className="text-[13px] text-muted-foreground">{t('oauth_excluded.description')}</div>
             </div>
 
-            <div className={styles.settingsSection}>
-              <div className={styles.settingsRow}>
-                <div className={styles.settingsInfo}>
-                  <div className={styles.settingsLabel}>{t('oauth_excluded.provider_label')}</div>
-                  <div className={styles.settingsDesc}>{t('oauth_excluded.provider_hint')}</div>
+            <div className="flex flex-col gap-2 px-4 py-3 pb-4 max-md:px-4">
+              <div className="flex items-start justify-between gap-4 max-md:flex-col max-md:items-stretch max-md:gap-2">
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <div className="text-[14px] font-semibold text-foreground">{t('oauth_excluded.provider_label')}</div>
+                  <div className="text-[13px] text-muted-foreground">{t('oauth_excluded.provider_hint')}</div>
                 </div>
-                <div className={styles.settingsControl}>
+                <div className="shrink-0 w-[min(360px,45%)] min-w-[220px] max-md:w-full max-md:min-w-0">
                   <AutocompleteInput
                     id="oauth-excluded-provider"
                     placeholder={t('oauth_excluded.provider_placeholder')}
@@ -350,14 +349,14 @@ export function AuthFilesOAuthExcludedEditPage() {
               </div>
 
               {providerOptions.length > 0 && (
-                <div className={styles.tagList}>
+                <div className="flex flex-wrap gap-1">
                   {providerOptions.map((option) => {
                     const isActive = normalizeProviderKey(provider) === option.toLowerCase();
                     return (
                       <button
                         key={option}
                         type="button"
-                        className={`${styles.tag} ${isActive ? styles.tagActive : ''}`}
+                        className={`inline-flex items-center px-[10px] py-1 border text-[12px] cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-primary border-primary text-white hover:bg-primary hover:border-primary hover:text-white' : 'border-border bg-muted text-muted-foreground hover:border-primary hover:text-foreground hover:bg-secondary'}`}
                         onClick={() => updateProvider(option)}
                         disabled={disableControls || saving}
                       >
@@ -370,11 +369,11 @@ export function AuthFilesOAuthExcludedEditPage() {
             </div>
           </Card>
 
-          <Card className={styles.settingsCard}>
-            <div className={styles.settingsHeader}>
-              <div className={styles.settingsHeaderTitle}>{t('oauth_excluded.models_label')}</div>
+          <Card className="p-0 overflow-visible">
+            <div className="flex flex-col gap-1 px-4 py-3 border-b border-border max-md:px-4">
+              <div className="inline-flex items-center gap-1 font-bold text-foreground">{t('oauth_excluded.models_label')}</div>
               {resolvedProviderKey && (
-                <div className={styles.modelsHint}>
+                <div className="flex items-center gap-1 text-[13px] text-muted-foreground">
                   {modelsLoading ? (
                     <>
                       <LoadingSpinner size={14} />
@@ -392,12 +391,12 @@ export function AuthFilesOAuthExcludedEditPage() {
             </div>
 
             {modelsLoading ? (
-              <div className={styles.loadingModels}>
+              <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
                 <LoadingSpinner size={16} />
                 <span>{t('common.loading')}</span>
               </div>
             ) : modelsList.length > 0 ? (
-              <div className={styles.modelList}>
+              <div className="max-h-[520px] overflow-auto px-4 py-3 pb-4 max-md:px-4">
                 {modelsList.map((model) => {
                   const checked = selectedModels.has(model.id);
                   return (
@@ -406,13 +405,13 @@ export function AuthFilesOAuthExcludedEditPage() {
                       checked={checked}
                       disabled={disableControls || saving}
                       onChange={(value) => toggleModel(model.id, value)}
-                      className={styles.modelItem}
-                      labelClassName={styles.modelText}
+                      className="w-full items-start py-[10px] border-b border-border last:border-b-0 hover:bg-accent transition-colors"
+                      labelClassName="flex flex-col gap-[2px] min-w-0 flex-1"
                       label={
                         <>
-                          <span className={styles.modelId}>{model.id}</span>
+                          <span className="text-[13px] font-semibold text-foreground break-all">{model.id}</span>
                           {model.display_name && model.display_name !== model.id && (
-                            <span className={styles.modelDisplayName}>{model.display_name}</span>
+                            <span className="text-[12px] text-muted-foreground break-all">{model.display_name}</span>
                           )}
                         </>
                       }
@@ -421,13 +420,13 @@ export function AuthFilesOAuthExcludedEditPage() {
                 })}
               </div>
             ) : resolvedProviderKey ? (
-              <div className={styles.emptyModels}>
+              <div className="px-4 py-6 text-muted-foreground text-[13px] text-center max-md:px-4">
                 {modelsError === 'unsupported'
                   ? t('oauth_excluded.models_unsupported')
                   : t('oauth_excluded.no_models_available')}
               </div>
             ) : (
-              <div className={styles.emptyModels}>{t('oauth_excluded.provider_required')}</div>
+              <div className="px-4 py-6 text-muted-foreground text-[13px] text-center max-md:px-4">{t('oauth_excluded.provider_required')}</div>
             )}
           </Card>
         </>

@@ -7,7 +7,6 @@ import {
   PageTransitionLayerContext,
   type LayerStatus,
 } from './PageTransitionLayer';
-import './PageTransition.scss';
 
 interface PageTransitionProps {
   render: (location: Location) => ReactNode;
@@ -407,7 +406,7 @@ export function PageTransition({
   }, [isAnimating, resolveScrollContainer]);
 
   return (
-    <div className={`page-transition${isAnimating ? ' page-transition--animating' : ''}`}>
+    <div className={`relative flex-[1_1_auto] flex flex-col min-h-0 overflow-hidden`}>
       {(() => {
         const currentIndex = layers.findIndex((layer) => layer.status === 'current');
         const resolvedCurrentIndex = currentIndex === -1 ? layers.length - 1 : currentIndex;
@@ -419,23 +418,44 @@ export function PageTransition({
 
         return layers.map((layer, index) => {
           const shouldKeepStacked = layer.status === 'stacked' && index === keepStackedIndex;
+          const isExit = layer.status === 'exiting';
+          const isStacked = layer.status === 'stacked';
+          const isCurrent = layer.status === 'current';
+
+          // Build layer className based on status
+          let layerClassName: string;
+          if (isExit) {
+            // exit layer: absolute, fills container, no pointer events, will-change
+            layerClassName =
+              'flex flex-col gap-4 min-h-0 flex-1 [backface-visibility:hidden] [transform:translateZ(0)] absolute inset-0 overflow-hidden pointer-events-none [will-change:transform,opacity]';
+          } else if (isStacked && shouldKeepStacked) {
+            // stacked-keep: visible but invisible, absolute, no pointer events
+            layerClassName =
+              'flex flex-col gap-4 min-h-0 flex-1 bg-muted [backface-visibility:hidden] [transform:translateZ(0)] absolute inset-0 overflow-hidden pointer-events-none opacity-0 [will-change:transform,opacity]';
+          } else if (isStacked) {
+            // stacked: hidden
+            layerClassName =
+              'hidden flex-col gap-4 min-h-0 flex-1 bg-muted [backface-visibility:hidden] [transform:translateZ(0)]';
+          } else {
+            // current layer
+            layerClassName = [
+              'flex flex-col gap-4 min-h-0 flex-1 bg-muted [backface-visibility:hidden] [transform:translateZ(0)]',
+              isAnimating ? '[will-change:transform,opacity] relative' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+          }
+
           return (
             <div
               key={layer.key}
-              className={[
-                'page-transition__layer',
-                layer.status === 'exiting' ? 'page-transition__layer--exit' : '',
-                layer.status === 'stacked' ? 'page-transition__layer--stacked' : '',
-                shouldKeepStacked ? 'page-transition__layer--stacked-keep' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              aria-hidden={layer.status !== 'current'}
-              inert={layer.status !== 'current'}
+              className={layerClassName}
+              aria-hidden={!isCurrent}
+              inert={!isCurrent}
               ref={
-                layer.status === 'exiting'
+                isExit
                   ? exitingLayerRef
-                  : layer.status === 'current'
+                  : isCurrent
                     ? currentLayerRef
                     : undefined
               }

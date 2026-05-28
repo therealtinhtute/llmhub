@@ -7,7 +7,8 @@ import type { ReactElement, ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import type { AuthFileItem, ResolvedTheme, ThemeColors } from '@/types';
 import { TYPE_COLORS } from '@/utils/quota';
-import styles from '@/pages/QuotaPage.module.scss';
+import { quotaStyles as styles } from './quotaStyles';
+import type { QuotaStyleMap } from './quotaStyles';
 
 type QuotaStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -52,7 +53,7 @@ export function QuotaProgressBar({
 }
 
 export interface QuotaRenderHelpers {
-  styles: typeof styles;
+  styles: QuotaStyleMap;
   QuotaProgressBar: (props: QuotaProgressBarProps) => ReactElement;
 }
 

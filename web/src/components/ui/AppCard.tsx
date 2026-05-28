@@ -8,18 +8,18 @@ import {
 } from './Card';
 import { cn } from '@/lib/utils';
 
-interface LegacyCardProps {
+interface AppCardProps {
   title?: ReactNode;
   extra?: ReactNode;
   className?: string;
 }
 
-export function LegacyCard({
+export function AppCard({
   title,
   extra,
   children,
   className,
-}: PropsWithChildren<LegacyCardProps>) {
+}: PropsWithChildren<AppCardProps>) {
   return (
     <Card className={cn(className)}>
       {(title || extra) && (

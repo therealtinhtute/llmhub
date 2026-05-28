@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useImperativeHandle, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LegacySheet as Sheet } from '@/components/ui/LegacySheet';
+import { AppSheet as Sheet } from '@/components/ui/AppSheet';
 import { IconLoader2, IconPencil } from '@/components/ui/icons';
 import type { ProviderRecentUsageMap } from '@/components/providers/utils';
 import { useNotificationStore } from '@/stores';
@@ -14,7 +14,6 @@ import type { UseProviderWorkbenchResult } from '../useProviderWorkbench';
 import { AmpcodeForm } from './forms/AmpcodeForm';
 import { BaseProviderForm } from './forms/BaseProviderForm';
 import { ResourceDetailView } from './ResourceDetailView';
-import styles from './forms/sharedForm.module.scss';
 
 type SheetMode = 'detail' | 'create' | 'edit';
 
@@ -183,20 +182,24 @@ export function ProviderSheet({
     );
   };
 
+  const footerBtnBase = "inline-flex items-center gap-1.5 h-8 px-[14px] text-[13px] font-medium cursor-pointer border transition-colors disabled:opacity-60 disabled:cursor-not-allowed";
+  const footerBtnGhost = `${footerBtnBase} bg-transparent border-transparent text-foreground hover:bg-secondary`;
+  const footerBtnPrimary = `${footerBtnBase} bg-primary border-transparent text-primary-foreground hover:bg-[var(--primary-hover)]`;
+
   const footer =
     state.mode === 'detail' ? (
       state.resource && !state.resource.flags.isPlaceholder ? (
         <>
           <button
             type="button"
-            className={`${styles.footerBtn} ${styles.footerBtnGhost}`}
+            className={footerBtnGhost}
             onClick={onClose}
           >
             {t('providersPage.actions.cancel')}
           </button>
           <button
             type="button"
-            className={`${styles.footerBtn} ${styles.footerBtnPrimary}`}
+            className={footerBtnPrimary}
             onClick={onSwitchToEdit}
           >
             <IconPencil size={14} />
@@ -206,7 +209,7 @@ export function ProviderSheet({
       ) : (
         <button
           type="button"
-          className={`${styles.footerBtn} ${styles.footerBtnPrimary}`}
+          className={footerBtnPrimary}
           onClick={onClose}
         >
           {t('providersPage.actions.cancel')}
@@ -216,7 +219,7 @@ export function ProviderSheet({
       <>
         <button
           type="button"
-          className={`${styles.footerBtn} ${styles.footerBtnGhost}`}
+          className={footerBtnGhost}
           onClick={handleCancelClick}
           disabled={submitting}
         >
@@ -225,7 +228,7 @@ export function ProviderSheet({
         <button
           type="submit"
           form={formId}
-          className={`${styles.footerBtn} ${styles.footerBtnPrimary}`}
+          className={footerBtnPrimary}
           disabled={submitting}
         >
           {submitting ? (

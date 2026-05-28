@@ -4,9 +4,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { toast } from 'sonner';
 import { useQuotaStore, useThemeStore } from '@/stores';
@@ -18,7 +18,7 @@ import { useQuotaLoader } from './useQuotaLoader';
 import type { QuotaConfig } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
 import { IconRefreshCw } from '@/components/ui/icons';
-import styles from '@/pages/QuotaPage.module.scss';
+import { quotaStyles as styles } from './quotaStyles';
 
 type QuotaUpdater<T> = T | ((prev: T) => T);
 

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { Skeleton } from '@/components/ui/LegacySkeleton';
+import { AppSkeleton as Skeleton } from '@/components/ui/AppSkeleton';
 import { toast } from 'sonner';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import { useProviderRecentRequests } from '@/components/providers/hooks/useProviderRecentRequests';
@@ -19,7 +19,6 @@ import type {
 import { ProviderSheet, type ProviderSheetHandle } from './sheets/ProviderSheet';
 import { useProviderWorkbench } from './useProviderWorkbench';
 import type { ProviderBrand, ProviderResource } from './types';
-import styles from './ProvidersWorkbenchPage.module.scss';
 
 type SheetMode = 'detail' | 'create' | 'edit';
 
@@ -319,9 +318,9 @@ export function ProvidersWorkbenchPage() {
   // 加载状态
   if (!workbench.snapshot && workbench.isPending) {
     return (
-      <div className={styles.page}>
+      <div className="flex flex-col gap-5 w-full p-6 box-border max-md:p-4 max-md:gap-4">
         <Skeleton height={120} />
-        <div className={styles.layout}>
+        <div className="grid gap-4 grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)]">
           <Skeleton height={420} />
           <Skeleton height={420} />
         </div>
@@ -331,7 +330,7 @@ export function ProvidersWorkbenchPage() {
 
   if (!activeGroup) {
     return (
-      <div className={styles.page}>
+      <div className="flex flex-col gap-5 w-full p-6 box-border max-md:p-4 max-md:gap-4">
         <ProviderHeaderCard
           totalActive={0}
           totalResources={0}
@@ -349,7 +348,7 @@ export function ProvidersWorkbenchPage() {
   const ampcodeBrandActive = activeBrand === 'ampcode';
 
   return (
-    <div className={styles.page}>
+    <div className="flex flex-col gap-5 w-full p-6 box-border max-md:p-4 max-md:gap-4">
       <ProviderHeaderCard
         totalActive={totalActive}
         totalResources={totalResources}
@@ -367,7 +366,7 @@ export function ProvidersWorkbenchPage() {
         onNew={openCreate}
       />
 
-      <div className={styles.layout}>
+      <div className="grid gap-4 grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)]">
         <ProviderCategoryList
           groups={groups}
           activeBrand={activeGroup.id}

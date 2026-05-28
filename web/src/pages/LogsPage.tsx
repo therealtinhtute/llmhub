@@ -1,12 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LegacyCard as Card } from '@/components/ui/LegacyCard';
+import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/LegacyEmptyState';
-import { Input } from '@/components/ui/LegacyInput';
-import { Modal } from '@/components/ui/LegacyModal';
-import { ToggleSwitch } from '@/components/ui/LegacyToggleSwitch';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { FormInput as Input } from '@/components/ui/FormInput';
+import { Modal } from '@/components/ui/Modal';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -38,7 +38,6 @@ import {
 import { parseLogLine } from './hooks/logParsing';
 import { useLogFilters } from './hooks/useLogFilters';
 import { isNearBottom, useLogScroller } from './hooks/useLogScroller';
-import styles from './LogsPage.module.scss';
 
 interface ErrorLogItem {
   name: string;
@@ -156,7 +155,7 @@ export function LogsPage() {
           const buffer = dropCount > 0 ? combined.slice(dropCount) : combined;
           let visibleFrom = Math.max(prev.visibleFrom - dropCount, 0);
 
-          // 若用户停留在底部（跟随最新日志），则保持“渲染窗口”大小不变，避免无限增长
+          // 若用户停留在底部（跟随最新日志），则保持"渲染窗口"大小不变，避免无限增长
           if (stickToBottom) {
             visibleFrom = Math.max(buffer.length - prevRenderedCount, 0);
           }
@@ -449,43 +448,68 @@ export function LogsPage() {
   }, []);
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.pageTitle}>{t('logs.title')}</h1>
+    // container: width 100%, flex col, flex-1, min-h-0; mobile: min-h-auto overflow-visible
+    <div className="w-full flex-1 flex flex-col min-h-0 max-md:min-h-auto max-md:overflow-visible">
+      {/* pageTitle */}
+      <h1 className="text-[28px] font-bold text-foreground m-0 mb-4 max-[820px]:text-2xl max-[820px]:mb-3 max-[600px]:text-xl max-[600px]:mb-2">
+        {t('logs.title')}
+      </h1>
 
-      <div className={styles.tabBar}>
+      {/* tabBar */}
+      <div className="flex gap-1 mb-4 border-b border-border max-[820px]:mb-3 max-[600px]:mb-2">
         <button
           type="button"
-          className={`${styles.tabItem} ${activeTab === 'logs' ? styles.tabActive : ''}`}
+          className={[
+            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer transition-colors duration-150',
+            'border-b-2 -mb-px focus:outline-none focus-visible:outline-none',
+            activeTab === 'logs'
+              ? 'text-primary border-b-primary'
+              : 'text-muted-foreground border-b-transparent hover:text-foreground',
+            'max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]',
+            'max-[820px]:px-4 max-[820px]:py-[10px]',
+          ].join(' ')}
           onClick={() => setActiveTab('logs')}
         >
           {t('logs.log_content')}
         </button>
         <button
           type="button"
-          className={`${styles.tabItem} ${activeTab === 'errors' ? styles.tabActive : ''}`}
+          className={[
+            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer transition-colors duration-150',
+            'border-b-2 -mb-px focus:outline-none focus-visible:outline-none',
+            activeTab === 'errors'
+              ? 'text-primary border-b-primary'
+              : 'text-muted-foreground border-b-transparent hover:text-foreground',
+            'max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]',
+            'max-[820px]:px-4 max-[820px]:py-[10px]',
+          ].join(' ')}
           onClick={() => setActiveTab('errors')}
         >
           {t('logs.error_logs_modal_title')}
         </button>
       </div>
 
-      <div className={styles.content}>
+      {/* content: flex col, flex-1, min-h-0, gap-4; mobile: gap-3 min-h-auto */}
+      <div className="flex flex-col gap-4 flex-1 min-h-0 max-md:gap-3 max-md:min-h-auto max-[820px]:gap-3 max-[600px]:gap-2">
         {activeTab === 'logs' && (
-          <Card className={styles.logCard}>
-            {error && <div className="error-box">{error}</div>}
+          // logCard: flex col, flex-1, min-h-0, overflow-hidden; mobile: flex-none min-h-auto overflow-visible
+          <Card className="flex flex-col flex-1 min-h-0 overflow-hidden max-md:flex-none max-md:min-h-auto max-md:overflow-visible max-[820px]:p-3 max-[600px]:p-2">
+            {error && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{error}</div>}
 
-            <div className={styles.filters}>
-              <div className={styles.searchWrapper}>
+            {/* filters: flex wrap, items-center, gap-3, mb-3; mobile: gap-2 mb-2 */}
+            <div className="flex items-center gap-3 flex-wrap mb-3 max-md:gap-2 max-md:mb-2 max-[600px]:gap-2 max-[600px]:mb-2">
+              {/* searchWrapper: flex-1, min-w-[220px], max-w-[420px] */}
+              <div className="flex-1 min-w-[220px] max-w-[420px]">
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={t('logs.search_placeholder')}
-                  className={styles.searchInput}
+                  className="pr-11!"
                   rightElement={
                     searchQuery ? (
                       <button
                         type="button"
-                        className={styles.searchClear}
+                        className="appearance-none border-0 inline-flex items-center justify-center w-7 h-7 rounded-full text-muted-foreground hover:bg-muted cursor-pointer bg-transparent p-0"
                         onClick={() => setSearchQuery('')}
                         title="Clear"
                         aria-label="Clear"
@@ -493,18 +517,19 @@ export function LogsPage() {
                         <IconX size={16} />
                       </button>
                     ) : (
-                      <IconSearch size={16} className={styles.searchIcon} />
+                      <IconSearch size={16} className="[color:var(--text-tertiary)] pointer-events-none" />
                     )
                   }
                 />
               </div>
 
-              <div className={styles.filterPanelHeader}>
+              {/* filterPanelHeader: flex items-center, flex-[1_1_100%]; mobile: w-full */}
+              <div className="flex items-center flex-[1_1_100%] max-md:w-full">
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className={styles.filterPanelToggle}
+                  className="whitespace-nowrap max-md:w-full"
                   onClick={() => setStructuredFiltersExpanded((prev) => !prev)}
                   aria-expanded={structuredFiltersExpanded}
                   aria-controls={structuredFiltersPanelId}
@@ -514,11 +539,13 @@ export function LogsPage() {
                       : t('logs.filter_panel_expand')
                   }
                 >
-                  <span className={styles.filterPanelButtonContent}>
+                  {/* filterPanelButtonContent */}
+                  <span className="inline-flex items-center gap-[6px] max-md:w-full max-md:justify-between max-md:flex-wrap">
                     <IconSlidersHorizontal size={16} />
                     <span>{t('logs.filter_panel_title')}</span>
                     {structuredFilterCount > 0 && (
-                      <span className={styles.filterPanelCount}>
+                      // filterPanelCount: badge with primary color
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/12 text-primary text-[12px] leading-[1.2]">
                         {t('logs.filter_panel_active_count', { count: structuredFilterCount })}
                       </span>
                     )}
@@ -532,10 +559,17 @@ export function LogsPage() {
               </div>
 
               {structuredFiltersExpanded && (
-                <div id={structuredFiltersPanelId} className={styles.structuredFilters}>
-                  <div className={styles.filterChipGroup}>
-                    <span className={styles.filterChipLabel}>{t('logs.filter_method')}</span>
-                    <div className={styles.filterChipList}>
+                // structuredFilters: flex col, gap-2, flex-[1_1_100%], p-2 px-[10px], bg-muted, border, rounded
+                <div
+                  id={structuredFiltersPanelId}
+                  className="flex flex-col gap-2 flex-[1_1_100%] py-2 px-[10px] bg-muted border border-border"
+                >
+                  {/* filterChipGroup: flex, items-start, gap-2, flex-wrap */}
+                  <div className="flex items-start gap-2 flex-wrap max-md:flex-col max-md:gap-[6px]">
+                    <span className="text-[12px] text-muted-foreground font-bold leading-7 min-w-[68px] max-md:min-w-0 max-md:leading-[1.2]">
+                      {t('logs.filter_method')}
+                    </span>
+                    <div className="flex items-center gap-[6px] flex-wrap flex-1">
                       {HTTP_METHODS.map((method) => {
                         const active = filters.methodFilters.includes(method);
                         const count = filters.methodCounts[method] ?? 0;
@@ -543,7 +577,14 @@ export function LogsPage() {
                           <button
                             key={method}
                             type="button"
-                            className={`${styles.filterChip} ${active ? styles.filterChipActive : ''}`}
+                            className={[
+                              'appearance-none inline-flex items-center gap-1 px-[10px] py-1 border text-[12px] leading-[1.3] cursor-pointer',
+                              'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-150',
+                              'disabled:opacity-55 disabled:cursor-not-allowed',
+                              active
+                                ? 'text-primary border-primary/45 bg-primary/14'
+                                : 'border-border bg-background text-muted-foreground hover:enabled:text-foreground hover:enabled:border-primary',
+                            ].join(' ')}
                             onClick={() => filters.toggleMethodFilter(method)}
                             disabled={count === 0 && !active}
                             aria-pressed={active}
@@ -555,9 +596,11 @@ export function LogsPage() {
                     </div>
                   </div>
 
-                  <div className={styles.filterChipGroup}>
-                    <span className={styles.filterChipLabel}>{t('logs.filter_status')}</span>
-                    <div className={styles.filterChipList}>
+                  <div className="flex items-start gap-2 flex-wrap max-md:flex-col max-md:gap-[6px]">
+                    <span className="text-[12px] text-muted-foreground font-bold leading-7 min-w-[68px] max-md:min-w-0 max-md:leading-[1.2]">
+                      {t('logs.filter_status')}
+                    </span>
+                    <div className="flex items-center gap-[6px] flex-wrap flex-1">
                       {STATUS_GROUPS.map((statusGroup) => {
                         const active = filters.statusFilters.includes(statusGroup);
                         const count = filters.statusCounts[statusGroup] ?? 0;
@@ -565,7 +608,14 @@ export function LogsPage() {
                           <button
                             key={statusGroup}
                             type="button"
-                            className={`${styles.filterChip} ${active ? styles.filterChipActive : ''}`}
+                            className={[
+                              'appearance-none inline-flex items-center gap-1 px-[10px] py-1 border text-[12px] leading-[1.3] cursor-pointer',
+                              'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-150',
+                              'disabled:opacity-55 disabled:cursor-not-allowed',
+                              active
+                                ? 'text-primary border-primary/45 bg-primary/14'
+                                : 'border-border bg-background text-muted-foreground hover:enabled:text-foreground hover:enabled:border-primary',
+                            ].join(' ')}
                             onClick={() => filters.toggleStatusFilter(statusGroup)}
                             disabled={count === 0 && !active}
                             aria-pressed={active}
@@ -577,11 +627,15 @@ export function LogsPage() {
                     </div>
                   </div>
 
-                  <div className={styles.filterChipGroup}>
-                    <span className={styles.filterChipLabel}>{t('logs.filter_path')}</span>
-                    <div className={styles.filterChipList}>
+                  <div className="flex items-start gap-2 flex-wrap max-md:flex-col max-md:gap-[6px]">
+                    <span className="text-[12px] text-muted-foreground font-bold leading-7 min-w-[68px] max-md:min-w-0 max-md:leading-[1.2]">
+                      {t('logs.filter_path')}
+                    </span>
+                    <div className="flex items-center gap-[6px] flex-wrap flex-1">
                       {filters.pathOptions.length === 0 ? (
-                        <span className={styles.filterChipHint}>{t('logs.filter_path_empty')}</span>
+                        <span className="text-[12px] [color:var(--text-tertiary)]">
+                          {t('logs.filter_path_empty')}
+                        </span>
                       ) : (
                         filters.pathOptions.map(({ path, count }) => {
                           const active = filters.pathFilters.includes(path);
@@ -589,7 +643,13 @@ export function LogsPage() {
                             <button
                               key={path}
                               type="button"
-                              className={`${styles.filterChip} ${active ? styles.filterChipActive : ''}`}
+                              className={[
+                                'appearance-none inline-flex items-center gap-1 px-[10px] py-1 border text-[12px] leading-[1.3] cursor-pointer',
+                                'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-150',
+                                active
+                                  ? 'text-primary border-primary/45 bg-primary/14'
+                                  : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary',
+                              ].join(' ')}
                               onClick={() => filters.togglePathFilter(path)}
                               aria-pressed={active}
                               title={path}
@@ -617,7 +677,7 @@ export function LogsPage() {
                 checked={hideManagementLogs}
                 onChange={setHideManagementLogs}
                 label={
-                  <span className={styles.switchLabel}>
+                  <span className="inline-flex items-center gap-[6px] [&_svg]:shrink-0">
                     <IconEyeOff size={16} />
                     {t('logs.hide_management_logs', { prefix: MANAGEMENT_API_PREFIX })}
                   </span>
@@ -629,7 +689,7 @@ export function LogsPage() {
                 onChange={setShowRawLogs}
                 label={
                   <span
-                    className={styles.switchLabel}
+                    className="inline-flex items-center gap-[6px] [&_svg]:shrink-0"
                     title={t('logs.show_raw_logs_hint', {
                       defaultValue: 'Show original log text for easier multi-line copy',
                     })}
@@ -640,15 +700,16 @@ export function LogsPage() {
                 }
               />
 
-              <div className={styles.toolbar}>
+              {/* toolbar: flex items-center, gap-2, flex-wrap, ml-auto; mobile: ml-0 w-full items-start */}
+              <div className="flex items-center gap-2 flex-wrap ml-auto max-md:ml-0 max-md:w-full max-md:items-start">
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => loadLogs(false)}
                   disabled={disableControls || loading}
-                  className={styles.actionButton}
+                  className="whitespace-nowrap"
                 >
-                  <span className={styles.buttonContent}>
+                  <span className="inline-flex items-center gap-[6px] [&_svg]:shrink-0">
                     <IconRefreshCw size={16} />
                     {t('logs.refresh_button')}
                   </span>
@@ -658,7 +719,7 @@ export function LogsPage() {
                   onChange={(value) => setAutoRefresh(value)}
                   disabled={disableControls}
                   label={
-                    <span className={styles.switchLabel}>
+                    <span className="inline-flex items-center gap-[6px] [&_svg]:shrink-0">
                       <IconTimer size={16} />
                       {t('logs.auto_refresh')}
                     </span>
@@ -669,9 +730,9 @@ export function LogsPage() {
                   size="sm"
                   onClick={downloadLogs}
                   disabled={logState.buffer.length === 0}
-                  className={styles.actionButton}
+                  className="whitespace-nowrap"
                 >
-                  <span className={styles.buttonContent}>
+                  <span className="inline-flex items-center gap-[6px] [&_svg]:shrink-0">
                     <IconDownload size={16} />
                     {t('logs.download_button')}
                   </span>
@@ -681,9 +742,9 @@ export function LogsPage() {
                   size="sm"
                   onClick={clearLogs}
                   disabled={disableControls}
-                  className={styles.actionButton}
+                  className="whitespace-nowrap"
                 >
-                  <span className={styles.buttonContent}>
+                  <span className="inline-flex items-center gap-[6px] [&_svg]:shrink-0">
                     <IconTrash2 size={16} />
                     {t('logs.clear_button')}
                   </span>
@@ -692,46 +753,75 @@ export function LogsPage() {
             </div>
 
             {loading ? (
-              <div className="hint">{t('logs.loading')}</div>
+              <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('logs.loading')}</div>
             ) : logState.buffer.length > 0 && filteredLines.length > 0 ? (
+              // logPanel: scroll container — preserving all scroll/overflow/height behavior
+              // flex-[1_1_auto], min-h-[280px], max-h-[calc(100vh-320px)], overflow-auto, resize-y
+              // mobile: flex-none, min-h-[360px], h-[420px], max-h-[480px]
               <div
                 ref={scroller.logViewerRef}
-                className={styles.logPanel}
+                className={[
+                  'bg-muted border border-border',
+                  'flex-[1_1_auto] min-h-[280px] max-h-[calc(100vh-320px)] h-auto overflow-auto resize-y relative',
+                  '[webkit-overflow-scrolling:touch] touch-pan-y overscroll-contain',
+                  'max-md:flex-none max-md:min-h-[360px] max-md:h-[420px] max-md:max-h-[480px]',
+                  'max-[960px]:min-[769px]:min-h-[160px] max-[960px]:min-[769px]:max-h-[calc(100vh-300px)]',
+                ].join(' ')}
                 onScroll={scroller.handleLogScroll}
               >
                 {scroller.canLoadMore && (
-                  <div className={styles.loadMoreBanner}>
-                    <span>{t('logs.load_more_hint')}</span>
-                    <div className={styles.loadMoreStats}>
+                  // loadMoreBanner: sticky top, z-1, flex between, gap-2, p-2 px-3, border-b, bg-background
+                  <div className="sticky top-0 z-[1] flex items-center justify-between gap-2 py-2 px-3 border-b border-border bg-background text-muted-foreground text-[12px] max-md:flex-col max-md:items-start max-md:justify-start max-md:gap-1 max-[600px]:py-[6px] max-[600px]:px-[10px]">
+                    <span className="max-md:w-full">{t('logs.load_more_hint')}</span>
+                    {/* loadMoreStats: flex items-center gap-3; mobile: w-full flex-wrap gap-2 */}
+                    <div className="flex items-center gap-3 max-md:w-full max-md:flex-wrap max-md:gap-2">
                       <span>
                         {t('logs.loaded_lines', { count: filteredLines.length })}
                       </span>
                       {removedCount > 0 && (
-                        <span className={styles.loadMoreCount}>
+                        <span className="[color:var(--text-tertiary)] whitespace-nowrap">
                           {t('logs.filtered_lines', { count: removedCount })}
                         </span>
                       )}
-                      <span className={styles.loadMoreCount}>
+                      <span className="[color:var(--text-tertiary)] whitespace-nowrap">
                         {t('logs.hidden_lines', { count: logState.visibleFrom })}
                       </span>
                     </div>
                   </div>
                 )}
                 {showRawLogs ? (
-                  <pre className={styles.rawLog} spellCheck={false}>
+                  // rawLog: pre, font-mono, text-foreground, selectable
+                  <pre
+                    className="m-0 py-[10px] px-3 cursor-text select-text whitespace-pre text-foreground font-mono text-[12.5px] leading-[1.45] max-[960px]:py-2 max-[960px]:px-[10px] max-[960px]:text-[12px] max-md:py-2 max-md:px-[10px] max-md:text-[11.5px]"
+                    spellCheck={false}
+                  >
                     {rawVisibleText}
                   </pre>
                 ) : (
-                  <div className={styles.logList}>
+                  // logList: flex col
+                  <div className="flex flex-col">
                     {parsedVisibleLines.map((line, index) => {
-                      const rowClassNames = [styles.logRow];
-                      if (line.level === 'warn') rowClassNames.push(styles.rowWarn);
+                      const rowClasses = [
+                        // logRow base: grid [170px 1fr], gap-3, p-[10px_12px], border-b, border-l-[3px], cursor-copy, font-mono
+                        'grid grid-cols-[170px_1fr] gap-3 py-[10px] px-3 border-b border-border',
+                        'border-l-[3px] border-l-transparent cursor-copy',
+                        'font-mono text-[12.5px] leading-[1.45] text-foreground',
+                        'hover:bg-primary/[0.06]',
+                        // tablet
+                        'max-[960px]:grid-cols-[140px_1fr] max-[960px]:gap-2 max-[960px]:py-2 max-[960px]:px-[10px] max-[960px]:text-[12px]',
+                        // mobile
+                        'max-md:grid-cols-1 max-md:gap-1 max-md:py-2 max-md:px-[10px] max-md:text-[11.5px]',
+                        // viewport-height compact
+                        'max-[820px]:py-2 max-[820px]:px-[10px] max-[820px]:text-[12px]',
+                        'max-[600px]:py-[6px] max-[600px]:px-2 max-[600px]:text-[11px] max-[600px]:grid-cols-[130px_1fr] max-[600px]:gap-1',
+                      ];
+                      if (line.level === 'warn') rowClasses.push('border-l-warning');
                       if (line.level === 'error' || line.level === 'fatal')
-                        rowClassNames.push(styles.rowError);
+                        rowClasses.push('border-l-destructive');
                       return (
                         <div
                           key={`${logState.visibleFrom + index}-${line.raw}`}
-                          className={rowClassNames.join(' ')}
+                          className={rowClasses.join(' ')}
                           onDoubleClick={() => {
                             void copyLogLine(line.raw);
                           }}
@@ -744,19 +834,30 @@ export function LogsPage() {
                             defaultValue: 'Double-click to copy',
                           })}
                         >
-                          <div className={styles.timestamp}>{line.timestamp || ''}</div>
-                          <div className={styles.rowMain}>
+                          {/* timestamp: text-tertiary, whitespace-nowrap, pt-0.5; mobile: whitespace-normal */}
+                          <div className="[color:var(--text-tertiary)] whitespace-nowrap pt-0.5 max-md:whitespace-normal">
+                            {line.timestamp || ''}
+                          </div>
+                          {/* rowMain: flex wrap, items-baseline, gap-[6px], min-w-0 */}
+                          <div className="flex flex-wrap items-baseline gap-[6px] min-w-0">
                             {line.level && (
                               <span
                                 className={[
-                                  styles.badge,
-                                  line.level === 'info' ? styles.levelInfo : '',
-                                  line.level === 'warn' ? styles.levelWarn : '',
-                                  line.level === 'error' || line.level === 'fatal'
-                                    ? styles.levelError
+                                  // badge base: inline-flex, items-center, px-2 py-0.5, rounded-full, text-[12px], font-extrabold, border
+                                  'inline-flex items-center px-2 py-0.5 text-[12px] font-extrabold border whitespace-nowrap',
+                                  'bg-background text-muted-foreground border-border',
+                                  line.level === 'info'
+                                    ? 'text-primary bg-primary/12 border-primary/25'
                                     : '',
-                                  line.level === 'debug' ? styles.levelDebug : '',
-                                  line.level === 'trace' ? styles.levelTrace : '',
+                                  line.level === 'warn'
+                                    ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30'
+                                    : '',
+                                  line.level === 'error' || line.level === 'fatal'
+                                    ? 'text-destructive bg-destructive/12 border-destructive/25'
+                                    : '',
+                                  line.level === 'debug' || line.level === 'trace'
+                                    ? 'text-muted-foreground bg-gray-500/12 border-gray-500/25'
+                                    : '',
                                 ]
                                   .filter(Boolean)
                                   .join(' ')}
@@ -766,14 +867,17 @@ export function LogsPage() {
                             )}
 
                             {line.source && (
-                              <span className={styles.source} title={line.source}>
+                              <span
+                                className="text-muted-foreground max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap max-md:max-w-full"
+                                title={line.source}
+                              >
                                 {line.source}
                               </span>
                             )}
 
                             {line.requestId && (
                               <span
-                                className={[styles.badge, styles.requestIdBadge].join(' ')}
+                                className="inline-flex items-center px-2 py-0.5 text-[11px] font-extrabold border whitespace-nowrap font-mono text-[#0891b2] bg-[rgba(8,145,178,0.1)] border-[rgba(8,145,178,0.25)]"
                                 title={line.requestId}
                               >
                                 {line.requestId}
@@ -783,37 +887,51 @@ export function LogsPage() {
                             {typeof line.statusCode === 'number' && (
                               <span
                                 className={[
-                                  styles.badge,
-                                  styles.statusBadge,
+                                  'inline-flex items-center px-2 py-0.5 text-[12px] font-extrabold border whitespace-nowrap [font-variant-numeric:tabular-nums]',
                                   line.statusCode >= 200 && line.statusCode < 300
-                                    ? styles.statusSuccess
+                                    ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40'
                                     : line.statusCode >= 300 && line.statusCode < 400
-                                      ? styles.statusInfo
+                                      ? 'text-primary bg-primary/12 border-primary/25'
                                       : line.statusCode >= 400 && line.statusCode < 500
-                                        ? styles.statusWarn
-                                        : styles.statusError,
+                                        ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30'
+                                        : 'text-destructive bg-destructive/10 border-destructive/30',
                                 ].join(' ')}
                               >
                                 {line.statusCode}
                               </span>
                             )}
 
-                            {line.latency && <span className={styles.pill}>{line.latency}</span>}
-                            {line.ip && <span className={styles.pill}>{line.ip}</span>}
+                            {line.latency && (
+                              <span className="inline-flex items-center px-2 py-0.5 text-[12px] font-semibold border border-border bg-background text-muted-foreground whitespace-nowrap">
+                                {line.latency}
+                              </span>
+                            )}
+                            {line.ip && (
+                              <span className="inline-flex items-center px-2 py-0.5 text-[12px] font-semibold border border-border bg-background text-muted-foreground whitespace-nowrap">
+                                {line.ip}
+                              </span>
+                            )}
 
                             {line.method && (
-                              <span className={[styles.badge, styles.methodBadge].join(' ')}>
+                              <span className="inline-flex items-center px-2 py-0.5 text-[12px] font-extrabold border whitespace-nowrap text-foreground bg-primary/[0.08] border-primary/22">
                                 {line.method}
                               </span>
                             )}
 
                             {line.path && (
-                              <span className={styles.path} title={line.path}>
+                              <span
+                                className="text-foreground font-bold max-w-[520px] overflow-hidden text-ellipsis whitespace-nowrap max-md:max-w-full max-md:basis-full"
+                                title={line.path}
+                              >
                                 {line.path}
                               </span>
                             )}
 
-                            {line.message && <span className={styles.message}>{line.message}</span>}
+                            {line.message && (
+                              <span className="text-muted-foreground break-words max-md:basis-full">
+                                {line.message}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -847,33 +965,34 @@ export function LogsPage() {
             }
           >
             <div className="stack">
-              <div className="hint">{t('logs.error_logs_description')}</div>
+              <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('logs.error_logs_description')}</div>
 
               {requestLogEnabled && (
                 <div>
-                  <div className="status-badge warning">{t('logs.error_logs_request_log_enabled')}</div>
+                  <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30 leading-[1.5]">{t('logs.error_logs_request_log_enabled')}</div>
                 </div>
               )}
 
-              {errorLogsError && <div className="error-box">{errorLogsError}</div>}
+              {errorLogsError && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{errorLogsError}</div>}
 
-              <div className={styles.errorPanel}>
+              {/* errorPanel: h-[480px], overflow-auto; compact viewport: h-[360px]/h-[280px] */}
+              <div className="h-[480px] overflow-auto [webkit-overflow-scrolling:touch] overscroll-contain max-[820px]:h-[360px] max-[600px]:h-[280px]">
                 {loadingErrors ? (
-                  <div className="hint">{t('common.loading')}</div>
+                  <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('common.loading')}</div>
                 ) : errorLogs.length === 0 ? (
-                  <div className="hint">{t('logs.error_logs_empty')}</div>
+                  <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('logs.error_logs_empty')}</div>
                 ) : (
-                  <div className="item-list">
+                  <div className="flex flex-col">
                     {errorLogs.map((item) => (
-                      <div key={item.name} className="item-row">
-                        <div className="item-meta">
-                          <div className="item-title">{item.name}</div>
-                          <div className="item-subtitle">
+                      <div key={item.name} className="flex items-center justify-between gap-2 py-2.5 border-b border-border last:border-b-0">
+                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                          <div className="text-sm font-medium text-foreground">{item.name}</div>
+                          <div className="text-xs text-muted-foreground">
                             {item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}{' '}
                             {item.modified ? formatUnixTimestamp(item.modified) : ''}
                           </div>
                         </div>
-                        <div className="item-actions">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <Button
                             variant="secondary"
                             size="sm"

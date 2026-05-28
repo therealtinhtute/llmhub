@@ -4,7 +4,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from './select';
+} from './Select';
 import { cn } from '@/lib/utils';
 
 export interface SelectOption {

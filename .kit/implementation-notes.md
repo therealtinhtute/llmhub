@@ -90,3 +90,36 @@ Started: 2026-05-28
 - Kept `showConfirmation()` + `ConfirmationModal` + `useNotificationStore` confirmation state as-is.
 - **Why**: `showConfirmation` is a complex pattern (Zustand state → global modal with async onConfirm/onCancel callbacks). Migrating to AlertDialog API would require changing 8+ call sites' control flow. Deferred to Phase 4.
 - **Tradeoff**: `useNotificationStore` still exists but only for confirmation state. `NotificationContainer` replaced by Sonner `<Toaster />`.
+
+---
+
+Phase: layout-shell
+Started: 2026-05-28
+
+## T1 — Theme class strategy: `.dark` class not `data-theme`
+- CONTEXT.md stated `data-theme` attribute; PLAN.md step 4 explicitly said to use `.dark` class.
+- Followed PLAN (more specific, aligns with `index.css` already using `.dark` selector from Phase 1).
+- `useThemeStore.applyTheme` now toggles `document.documentElement.classList` instead of `setAttribute`.
+
+## T1 — resolvedTheme kept in useThemeStore
+- Phase 4-scope pages (SystemPage, OAuthPage, AuthFilesPage, ConfigPage, QuotaSection, ModelMappingDiagram) read `state.resolvedTheme` from the store.
+- Kept `resolvedTheme` as a direct alias for `theme` (they're identical now that auto/white are removed).
+- **Why**: Touching those files is out of scope for Phase 3. No functional difference since `Theme` is now `'light' | 'dark'` = `ResolvedTheme`.
+
+## T2 — Lowercase/uppercase button.tsx + input.tsx conflict
+- shadcn sidebar install created `button.tsx` and `input.tsx` (lowercase) despite customized `Button.tsx` and `Input.tsx` (uppercase) already existing.
+- Deleted lowercase duplicates and updated `sidebar.tsx` imports to uppercase.
+- **Why**: TypeScript TS1149 casing conflict on Linux case-sensitive filesystem. Customized uppercase versions are the correct canonical files.
+
+## T2 — LegacySelect.tsx casing pre-existing bug
+- `LegacySelect.tsx` imported from `'./select'` (lowercase) but only `Select.tsx` (uppercase) exists.
+- Fixed inline (out of strict Phase 2 scope, but required for type-check to pass).
+
+## T2 — shadcn Sidebar internal Math.random lint error
+- `sidebar.tsx` `SidebarMenuSkeleton` uses `Math.random()` in `useMemo` — triggers `react-hooks/purity` lint rule.
+- Suppressed with `// eslint-disable-next-line` on the specific line. Shadcn-generated code, not changed further.
+
+## T2 — MainLayout content padding: removed 70px top offset
+- Original `.main-content` had `padding-top: 70px` to clear a `position: fixed` header.
+- New layout: header is part of normal flow inside SidebarInset (not fixed), so 70px top offset no longer needed.
+- Replaced with `pt-6` (24px). Pages use their own SCSS modules for internal padding — not affected.

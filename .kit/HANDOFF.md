@@ -1,140 +1,112 @@
 ---
-session-date: 2026-05-27
+session-date: 2026-05-28
 branch: master
-status: in-progress
+status: phase-complete-uncommitted
 continuity-mode: full-harness
-active-phase: tailwind-foundation
-last-updated: 2026-05-27 23:45
+active-phase: layout-shell
+last-updated: 2026-05-28 08:43
 ---
 
 # Session Handoff — master
 
 ## Current State
 
-**Branch**: `master` — diverged from `origin/master` (4 modified, 5 untracked phase dirs)  
-**Working Tree**: 4 modified tracked files, 7 untracked (5 phase dirs + design-token.json + skills-lock.json)  
-**Continuity Mode**: full-harness  
-**Active Phase**: `tailwind-foundation` (NOT STARTED — planning only this session)  
-**Latest Cook Run**: none  
-**Latest Check Verdict**: none  
+**Branch**: `master` — ahead of `origin/master` by 0 commits (Phase 3 NOT yet committed)
+**Working Tree**: 7 modified tracked files, 4 untracked new files
+**Active Phase**: `layout-shell` — **COMPLETE, gate APPROVED, uncommitted**
+**Latest Cook Run**: `.kit/runs/work/20260528-0826-layout-shell.md`
+**Latest Check Verdict**: `.kit/reports/check/20260528-0843-layout-shell.md` → **APPROVED** (0 errors, 0 blockers)
 
-**No code written this session. This is a pure planning session.**
+## What Was Built This Session
 
-## What We're Building
+Phase 3 of LLMHub Web UI rebuild (Tailwind v4 + shadcn migration).
 
-Phase 2 LLMHub Web UI rebuild. The management panel (`web/`) uses hand-rolled UI components styled with SCSS Modules (~9.8k lines across 20 files + 7 global SCSS files). This phase replaces the entire styling layer with Tailwind CSS v4 + shadcn/ui, applies the AI Engineering from Scratch design token visual language, and simplifies theming from 4 variants to 2 (light + dark).
+### Completed This Session ✓
+
+**Phase 3: layout-shell** — full execution + gate
+
+- **T1**: `Theme` type → `'light' | 'dark'`; `useThemeStore` simplified to use `.dark` class on `<html>` (not `data-theme`); `resolvedTheme` kept as alias for page consumers (Phase 4 scope)
+- **T2**: shadcn Sidebar installed (`sidebar.tsx`, `use-mobile.ts`); `MainLayout.tsx` fully rewritten — `SidebarProvider` + `Sidebar` + `SidebarInset`, `DropdownMenu` for language/theme pickers, `THEME_CARDS` → 2 entries, all nav groups preserved, `getRouteOrder` + `getTransitionVariant` exact copies, `isItemActive()` computed from `useLocation`
+- **T3**: Both ResizeObservers preserved — `--header-height` (on `<header>`) and `--content-center-x` (on scroll container)
+- **T4**: Gate clean — `tsc --noEmit` 0 errors, `eslint` 0 errors 3 warnings (all pre-existing react-refresh), `vite build` 2,241 kB single HTML
+- **Autofix in gate**: nested `<main>` inside `SidebarInset` → changed to `<div>` (HTML validity)
+
+### Pre-existing Bugs Fixed (in scope)
+- `LegacySelect.tsx`: import `'./select'` → `'./Select'` (case sensitivity, blocked type-check)
+- `sidebar.tsx`: `Math.random()` lint error suppressed with `// eslint-disable-next-line`
+- Lowercase `button.tsx` + `input.tsx` (created by shadcn install) deleted — conflicted with customized uppercase versions; `sidebar.tsx` imports updated to uppercase
 
 ## Working Tree — Uncommitted
 
 | File / Dir | Status | Notes |
 |-----------|--------|-------|
-| `.kit/planning/IDEA.md` | modified | Overwritten with Phase 2 IDEA |
-| `.kit/planning/ROADMAP.md` | modified | Overwritten with Phase 2 roadmap (5 phases) |
-| `.kit/planning/SPEC.md` | modified | Overwritten with Phase 2 SPEC (46 requirements) |
-| `.kit/workflow-state.yml` | modified | Points to tailwind-foundation |
-| `.kit/planning/phases/tailwind-foundation/` | untracked | CONTEXT.md + PLAN.md |
-| `.kit/planning/phases/shadcn-primitives/` | untracked | CONTEXT.md + PLAN.md |
-| `.kit/planning/phases/layout-shell/` | untracked | CONTEXT.md + PLAN.md |
-| `.kit/planning/phases/page-rebuild/` | untracked | CONTEXT.md + PLAN.md |
-| `.kit/planning/phases/cleanup-verify/` | untracked | CONTEXT.md + PLAN.md |
-| `design-token.json` | untracked | Design token source from aiengineeringfromscratch.com |
-| `skills-lock.json` | untracked | Skills config (non-critical) |
+| `web/src/components/layout/MainLayout.tsx` | modified | Full rewrite — Phase 3 core |
+| `web/src/stores/useThemeStore.ts` | modified | Simplified to light/dark, `.dark` class |
+| `web/src/types/common.ts` | modified | Theme type narrowed |
+| `web/src/components/ui/LegacySelect.tsx` | modified | Import casing fix |
+| `web/src/index.css` | modified | Sidebar CSS vars `@theme inline` block |
+| `.kit/workflow-state.yml` | modified | Phase pointer → layout-shell |
+| `.kit/implementation-notes.md` | modified | Phase 3 notes appended |
+| `web/src/components/ui/sidebar.tsx` | untracked | New shadcn Sidebar component |
+| `web/src/hooks/use-mobile.ts` | untracked | Required by sidebar |
+| `.kit/runs/work/20260528-0826-layout-shell.md` | untracked | Phase 3 run artifact |
+| `.kit/reports/check/20260528-0843-layout-shell.md` | untracked | Phase 3 gate report |
 
 ## Continuity Anchors
 
-**Latest Cook Run**: none  
-**Latest Check Verdict**: none  
-**Spec**: `.kit/planning/SPEC.md` — Phase 2, approved by user, locked  
-**Roadmap**: `.kit/planning/ROADMAP.md` — 5 phases, sequential  
-**Entry Phase**: `tailwind-foundation` — ready to execute, 0 blockers  
+**SPEC**: `.kit/planning/SPEC.md` — Phase 2 Web UI rebuild, 46 requirements, approved + locked
+**Roadmap**: `.kit/planning/ROADMAP.md` — 5 phases sequential:
+1. ✅ `tailwind-foundation` — committed (b7d3ac6)
+2. ✅ `shadcn-primitives` — committed (f7a8caf)
+3. ✅ `layout-shell` — **complete, gate APPROVED, NOT committed**
+4. 🔜 `page-rebuild` — next
+5. ⬜ `cleanup-verify` — blocked on Phase 4
 
-## Progress This Session ✓
+**Entry Phase**: `tailwind-foundation`
 
-### Completed ✓
-- **Brainstorm** — full scope analysis of current `web/` stack (45k lines, 16 hand-rolled components, 9.8k SCSS lines)
-- **Stack audit** — catalogued all pages (10 routes), components (ui/common/layout/feature), SCSS files (20 modules + 7 globals), stores (7), themes (4)
-- **Read design-token.json** — extracted visual language: VT323 + Source Serif 4 + JetBrains Mono fonts, #3553ff blueprint blue accent, 0 border radius, hard shadows
-- **Scope decisions locked** (via AskUserQuestion):
-  - Full Tailwind v4 + shadcn big-bang (not hybrid)
-  - Full design token rebrand (not keep-current-theme)
-  - Simplify to light + dark only (drop white + auto)
-  - Big-bang rewrite (not incremental)
-  - Google Fonts CDN (not inline subsets)
-  - Keep motion library
-  - Migrate to Sonner toast
-  - Adopt shadcn Sidebar
-- **SPEC.md written** — 46 requirements, design token mapping table, validation expectations, key decisions, boundaries, deferred ideas
-- **SPEC approved** by user
-- **ROADMAP.md written** — 5 phases: tailwind-foundation → shadcn-primitives → layout-shell → page-rebuild → cleanup-verify
-- **All 10 phase artifacts written**:
-  - 5 × `-CONTEXT.md` (scope boundaries, blast radius, locked decisions, escalation conditions)
-  - 5 × `-PLAN.md` (waves, tasks with steps, verification commands, stop conditions)
-- **workflow-state.yml updated** — points to tailwind-foundation as entry + current phase
+## Key Decisions Made This Session
 
-### Not Started (all code work)
-- Phase 1: tailwind-foundation (install Tailwind v4 + shadcn, map design tokens, add fonts)
-- Phase 2: shadcn-primitives (16 component replacements + Sonner migration)
-- Phase 3: layout-shell (shadcn Sidebar, theme simplification)
-- Phase 4: page-rebuild (11 pages, all sub-components)
-- Phase 5: cleanup-verify (delete all SCSS, full verification suite)
+1. **`.dark` class not `data-theme`** — PLAN.md took precedence over CONTEXT.md; aligns with index.css from Phase 1. `applyTheme` now uses `classList.add/remove('dark')`.
+2. **`resolvedTheme` kept as alias** — Phase 4-scope pages read `state.resolvedTheme`; kept as `Theme` alias to avoid out-of-scope changes. No functional difference since `Theme = ResolvedTheme = 'light' | 'dark'`.
+3. **Lowercase button.tsx/input.tsx deleted** — shadcn sidebar install creates lowercase files; these conflict with customized uppercase versions on Linux. `sidebar.tsx` imports updated to uppercase.
+4. **SidebarProvider scoped to MainLayout** — not at App.tsx root; unauthenticated routes don't need sidebar context.
+5. **Inner `<main>` → `<div>`** — SidebarInset is already `<main>`; nested `<main>` invalid HTML; fixed in gate review.
 
-## Key Decisions (this session)
+## Deferred to Phase 4 (page-rebuild)
 
-1. **Big-bang not incremental** — user chose full rewrite; no hybrid SCSS + Tailwind period allowed
-2. **Tailwind v4 CSS-first** — `@theme` in CSS, no `tailwind.config.js` needed
-3. **shadcn Sidebar replaces MainLayout** — gets collapsible + mobile sheet + keyboard shortcuts for free
-4. **Sonner replaces hand-rolled notifications** — `useNotificationStore` deleted, `NotificationContainer` deleted
-5. **Dark theme uses `.dark` class** (not `data-theme="dark"`) — matches shadcn/Tailwind convention
-6. **`auto` theme deferred** — can be re-added later as system-preference detection
-7. **ProvidersWorkbenchPage + AuthFilesPage** flagged as highest-risk pages (most SCSS, most complex)
-8. **CodeMirror styling** — wrap with Tailwind container classes; don't touch CodeMirror's internal CSS
+- **14 `Legacy*.tsx` wrappers** — thin compat shims deferring direct consumer migration; remove when rebuilding each page
+- **`ConfirmationModal` + `showConfirmation`** — kept as-is; complex async pattern, 8+ call sites
+- **`useNotificationStore.ts`** dead code (only holds confirmation state now) — delete in Phase 5
+- **`NotificationContainer.tsx`** unreferenced — delete in Phase 5
+- **NavLink `active` class on `/` route** — NavLink without `end` will mark all routes active; harmless now (no SCSS selectors match bare `active` on `<a>`); clean up in Phase 4 page-by-page
+
+## localStorage Migration Note
+
+Users with stored `'auto'` or `'white'` theme (key: `'cli-proxy-theme'`) will silently fall to light theme after this update. Acceptable per spec. No migration guard needed unless UX requirement changes.
 
 ## Blockers
 
-None. Planning is complete. No code blockers identified.
-
-## Technical Context
-
-**Current stack (what's being replaced)**:
-- `web/src/styles/` — 7 global SCSS files (`variables.scss`, `themes.scss`, `reset.scss`, `layout.scss`, `global.scss`, `components.scss`, `mixins.scss`)
-- `web/src/**/*.module.scss` — 20 SCSS module files, ~9.8k lines total
-- `web/src/components/ui/` — 16 hand-rolled components
-- `web/src/stores/useNotificationStore.ts` — replaced by Sonner
-- `web/src/components/common/NotificationContainer.tsx` — replaced by Sonner `<Toaster />`
-
-**What stays unchanged**:
-- All Zustand stores except `useThemeStore` (light/dark only) and `useNotificationStore` (deleted)
-- All API layer / typed callers (`services/api/`)
-- Router, routes, i18n keys, locale files
-- motion/framer-motion (page transitions)
-- CodeMirror (YAML editor)
-- vite-plugin-singlefile (single-file build constraint)
-
-**Highest-risk files**:
-- `web/src/pages/AuthFilesPage.module.scss` — 2045 lines (largest SCSS module)
-- `web/src/features/providers/sheets/forms/sharedForm.module.scss` — 690 lines
-- `web/src/pages/LogsPage.module.scss` — 724 lines
-- `web/src/pages/QuotaPage.module.scss` — 717 lines
-- `web/src/features/providers/ProvidersWorkbenchPage.tsx` — most complex page
+None. Phase 3 gate APPROVED. Ready to commit and start Phase 4.
 
 ## Next Steps
 
-1. **→ START HERE: Commit planning artifacts first** — `git add .kit/ design-token.json && git commit -m "chore(kit): Phase 2 planning — shadcn + design token rebuild spec and full plan"`
-2. **Run `/work`** — starts `tailwind-foundation` phase: install Tailwind v4, run `bunx shadcn@latest init`, write `@theme` block in `index.css`, add Google Fonts, verify `bun run build` produces single HTML
-3. **Key first commands** (in `web/`):
-   - `bun add -D tailwindcss @tailwindcss/vite`
-   - `bunx shadcn@latest init`
-   - Verify: `bun run build` exits 0 + `grep '\-\-background' dist/index.html` returns matches
-4. **After tailwind-foundation**: Run `/work` again for `shadcn-primitives` phase
-5. **Gate after all phases**: Run `/check` before final commit
+→ **START HERE**: Commit Phase 3 — run `/git cm` to stage and commit all Phase 3 changes. Suggested message: `feat(web): Phase 3 — shadcn Sidebar, theme simplification, MainLayout rebuild`
 
-## Notes
+2. **Start Phase 4** — run `/work` which will auto-detect `page-rebuild` as the next phase. Phase 4 is the largest phase: 11 pages + feature sub-components, all SCSS module imports replaced with Tailwind.
+3. **Phase 4 highest-risk files** (start here within Phase 4):
+   - `web/src/pages/ProvidersWorkbenchPage.tsx` — most complex, highest SCSS volume
+   - `web/src/pages/AuthFilesPage.tsx` — largest SCSS module (2045 lines)
+   - `web/src/pages/LogsPage.tsx` — scroll-locked auto-scroll behavior depends on specific CSS
+4. **After Phase 4 gate passes** — run `/work` for Phase 5 (`cleanup-verify`): delete all 27 SCSS files, remove `sass` dep, final verification suite
+5. **Final Go binary check** — `make build` must succeed after Phase 5
 
-- `design-token.json` in repo root is the design source — keep it committed
-- Phase 1 (rebrand) artifacts in `.kit/planning/phases/module-rebrand|embed-panel|doc-cleanup` are from old work — still there, not deleted
-- Server background process from prior session (port 8317) may still be alive — kill if needed
-- `skills-lock.json` at repo root is untracked — not related to this work
+## Technical Context
+
+**Stack**: React 19 + Vite + Bun + Tailwind v4 + shadcn/ui. Single-file output via `vite-plugin-singlefile`.
+**Build command**: `cd web && bun run build` (runs `tsc && vite build`)
+**Type-check**: `cd web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json`
+**Note**: `node_modules` may be absent — run `bun install` from `web/` first if type-check fails with "Cannot find module"
 
 ---
 
-*Generated by /handoff on 2026-05-27 23:45*
+*Generated by /handoff on 2026-05-28 08:43*

@@ -1,10 +1,10 @@
-current_phase: shadcn-primitives
+current_phase: layout-shell
 entry_phase: tailwind-foundation
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: .kit/planning/phases/shadcn-primitives/shadcn-primitives-CONTEXT.md
-active_plan: .kit/planning/phases/shadcn-primitives/shadcn-primitives-PLAN.md
-latest_cook_run: .kit/runs/work/20260528-0020-shadcn-primitives.md
-latest_check_report: .kit/reports/check/20260528-0300-shadcn-primitives.md
+active_context: .kit/planning/phases/layout-shell/layout-shell-CONTEXT.md
+active_plan: .kit/planning/phases/layout-shell/layout-shell-PLAN.md
+latest_cook_run: .kit/runs/work/20260528-0826-layout-shell.md
+latest_check_report: .kit/reports/check/20260528-0843-layout-shell.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-28 03:00
+last_updated: 2026-05-28 08:50

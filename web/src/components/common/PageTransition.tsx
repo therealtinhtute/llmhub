@@ -431,15 +431,15 @@ export function PageTransition({
           } else if (isStacked && shouldKeepStacked) {
             // stacked-keep: visible but invisible, absolute, no pointer events
             layerClassName =
-              'flex flex-col gap-4 min-h-0 flex-1 bg-muted [backface-visibility:hidden] [transform:translateZ(0)] absolute inset-0 overflow-hidden pointer-events-none opacity-0 [will-change:transform,opacity]';
+              'flex flex-col gap-4 min-h-0 flex-1 [backface-visibility:hidden] [transform:translateZ(0)] absolute inset-0 overflow-hidden pointer-events-none opacity-0 [will-change:transform,opacity]';
           } else if (isStacked) {
             // stacked: hidden
             layerClassName =
-              'hidden flex-col gap-4 min-h-0 flex-1 bg-muted [backface-visibility:hidden] [transform:translateZ(0)]';
+              'hidden flex-col gap-4 min-h-0 flex-1 [backface-visibility:hidden] [transform:translateZ(0)]';
           } else {
             // current layer
             layerClassName = [
-              'flex flex-col gap-4 min-h-0 flex-1 bg-muted [backface-visibility:hidden] [transform:translateZ(0)]',
+              'flex flex-col gap-4 min-h-0 flex-1 [backface-visibility:hidden] [transform:translateZ(0)]',
               isAnimating ? '[will-change:transform,opacity] relative' : '',
             ]
               .filter(Boolean)

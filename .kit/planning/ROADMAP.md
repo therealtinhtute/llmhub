@@ -1,125 +1,76 @@
-# ROADMAP: LLMHub Phase 2 — Web UI Rebuild with shadcn + Design Tokens
+# ROADMAP: Design System Migration — Supermemory Console Aesthetic
 
 ## Planning Basis
 - source spec: `.kit/planning/SPEC.md`
 - planning mode: `full`
-- entry phase: `tailwind-foundation`
-- execution mode: sequential (each phase depends on prior)
+- entry phase: `token-foundation`
+- execution mode: sequential phases, parallel waves within each
 
----
-
-## Phase 1: tailwind-foundation
-**Goal:** Install Tailwind CSS v4 + shadcn/ui into the Vite build pipeline. Map design tokens to CSS custom properties. Set up light/dark theming. Add Google Fonts. Verify single-file build still works.
+## Phase 1: token-foundation
+**Goal:** Replace all CSS design tokens, font stacks, shadow scale, radius, and dependencies so the visual foundation matches supermemory console. No component code changes yet.
 
 **Deliverables:**
-- Tailwind CSS v4 installed and configured in Vite
-- shadcn/ui initialized with `components.json`
-- `src/index.css` with `@theme` block mapping all design tokens (colors, typography, spacing, shadows, radius)
-- Light + dark theme CSS custom properties
-- Google Fonts CDN links in `index.html`
-- `bun run build` produces single HTML with Tailwind CSS inlined
+- `index.css` rewritten: oklch color tokens, Space Grotesk/Mono/Inter font stacks, 0.75rem radius, subtle shadow scale, `@layer base` body rule, `tw-animate-css` import
+- `index.html` Google Fonts links swapped (VT323/Source Serif 4/JetBrains Mono → Space Grotesk/Space Mono/Inter)
+- `components.json` base color changed to zinc
+- `tw-animate-css` package installed
+- Custom `@keyframes` reviewed and kept/removed based on usage
 
 **Dependencies:**
 - None (entry phase)
 
 **Risks / Watch-fors:**
-- Tailwind v4 uses CSS-first config (`@theme` in CSS, no `tailwind.config.js`) — different from v3 docs
-- `vite-plugin-singlefile` must inline Tailwind's generated CSS; verify early
-- shadcn CLI `init` may scaffold files that conflict with existing `src/` structure
+- `shadow-[var(--shadow-hard)]` in Card.tsx will break visually — consumers fixed in Phase 3
+- `font-display` and `font-body` references in TSX won't resolve — consumers fixed in Phase 3
+- Old `--text-primary`, `--glass-*` etc. aliases still referenced — kept temporarily, cleaned in Phase 4
 
----
-
-## Phase 2: shadcn-primitives
-**Goal:** Install all needed shadcn components via CLI. Customize each component to match design tokens (0 radius, hard shadows, blueprint blue). Replace all 16 hand-rolled UI primitives with shadcn equivalents. Migrate notifications to Sonner.
+## Phase 2: legacy-removal
+**Goal:** Delete all 13 Legacy* wrapper components and migrate their 71 consumer files to shadcn/ui primitives directly.
 
 **Deliverables:**
-- 16 shadcn components installed and customized: Button, Card, Input, Select, Dialog, AlertDialog, Sheet, Table, Skeleton, Collapsible, Switch, Empty, Combobox, Spinner, Checkbox, Sonner
-- All hand-rolled `components/ui/` files replaced
-- `useNotificationStore` replaced with Sonner toast calls
-- `NotificationContainer` component removed
-- All existing imports updated to new components
+- 13 Legacy* files deleted from `src/components/ui/`
+- 71 consumer files migrated to shadcn primitives
+- Small `EmptyState` utility component created (replaces LegacyEmptyState, 8 consumers)
+- Combobox pattern for autocomplete (replaces LegacyAutocompleteInput, 2 consumers)
 
 **Dependencies:**
-- Phase 1 complete (Tailwind + shadcn initialized, design tokens mapped)
+- Phase 1 complete (tokens in place so migrated components render correctly)
 
 **Risks / Watch-fors:**
-- shadcn `Select` uses Radix, which has different API than current custom Select — consumer components need prop changes
-- `Modal` → `Dialog` migration: current modal uses motion animations — need to verify Dialog plays well with motion or use Dialog's built-in animations
-- Sonner migration touches every component that calls `showNotification()` — search and replace carefully
-- `AutocompleteInput` → `Combobox` may have different selection/filtering behavior
+- LegacyInput adds label/hint/error props — ensure consistent pattern when migrating to raw Input + Label
+- LegacyToggleSwitch has 9 consumers — largest blast radius
+- LegacyAutocompleteInput has custom filtering — preserve in combobox migration
 
----
-
-## Phase 3: layout-shell
-**Goal:** Replace the custom `MainLayout` sidebar with shadcn Sidebar. Rebuild the app shell (header, sidebar, content area) with Tailwind utilities. Simplify theme picker to light/dark only. Update `useThemeStore`.
+## Phase 3: style-alignment
+**Goal:** Update all component TSX to use new design system classes. Remove retro-specific styling (rounded-none, shadow-hard, font-display/font-body). Migrate global utility class consumers to inline Tailwind.
 
 **Deliverables:**
-- shadcn `Sidebar` component installed and wired as the main navigation
-- `MainLayout.tsx` rebuilt with Tailwind classes (no SCSS)
-- Theme picker shows only light/dark options
-- `useThemeStore` updated: only `light` | `dark` types
-- `THEME_CARDS` array reduced to 2 entries
-- Mobile sidebar (sheet mode) working
-- Sidebar collapse/expand working
+- All `rounded-none` in shadcn UI components updated to use default radius
+- `shadow-[var(--shadow-hard)]` in Card.tsx → `shadow-sm`
+- Global utility class consumers (`.status-badge`, `.error-box`, `.item-list`, `.form-group`, `.pill`, `.hint`) migrated to Tailwind utilities
+- SCSS compatibility alias consumers (`--glass-*`, `--text-*`, `--bg-*`, `--*-badge-*`, `--amber-*`, etc.) migrated to semantic Tailwind classes
+- Custom scrollbar utility class added
 
 **Dependencies:**
-- Phase 2 complete (shadcn Button, Sheet, and other primitives available)
+- Phase 2 complete (legacy components gone, no conflicting wrapper styles)
 
 **Risks / Watch-fors:**
-- shadcn Sidebar has its own state management (SidebarProvider) — must coexist with existing Zustand stores
-- Current sidebar uses `sidebarCollapsed` state with ResizeObserver for `--content-center-x` — need to verify shadcn Sidebar exposes similar hooks
-- `PageTransition` component depends on content ref from MainLayout — ensure ref forwarding works with new layout
-- Navigation group labels and icons need remapping to shadcn Sidebar's `SidebarGroup` / `SidebarMenuItem` structure
+- VisualConfigEditor.tsx has heavy use of global utility classes via parent selector overrides — complex migration
+- ProviderStatusBar.tsx, AuthFilesPage.tsx, and quotaStyles.ts reference SCSS aliases extensively
+- Some `rounded-none` in shadcn primitives (Button, Dialog, etc.) are intentional for the old design — remove all
 
----
-
-## Phase 4: page-rebuild
-**Goal:** Rebuild all 11 page/feature components with Tailwind utilities and shadcn components. Remove all SCSS module imports. Preserve all business logic, API calls, and i18n keys.
+## Phase 4: cleanup-verify
+**Goal:** Delete all dead CSS (compatibility aliases, global utility classes, App.css). Run full verification suite.
 
 **Deliverables:**
-- All 11 pages rebuilt: LoginPage, DashboardPage, ProvidersWorkbenchPage, AuthFilesPage, AuthFilesOAuthExcludedEditPage, AuthFilesOAuthModelAliasEditPage, OAuthPage, QuotaPage, ConfigPage, LogsPage, SystemPage
-- All provider feature sub-components rebuilt (ProviderSheet, ProviderHeaderCard, ProviderResourceTable, ProviderCategoryList, ProviderResourcePanel, ProviderStatusBar, OpenAIBrandToolbar)
-- Config components rebuilt (ConfigSection, ConfigSourceEditor, VisualConfigEditor, DiffModal)
-- ModelMappingDiagram components rebuilt
-- QuotaCard/QuotaSection rebuilt
-- SecondaryScreenShell rebuilt
-- CodeMirror integration preserved (restyled with Tailwind)
-- Zero SCSS module imports remaining in any TSX file
+- SCSS compatibility aliases deleted from index.css (lines 230-273)
+- Global utility classes deleted from index.css (lines 275-422)
+- `App.css` deleted (Vite scaffold leftover, unused)
+- All verification checks pass (build, type-check, grep for legacy references, functional test)
 
 **Dependencies:**
-- Phase 3 complete (layout shell provides the app frame)
+- Phase 3 complete (all consumers migrated before deletion)
 
 **Risks / Watch-fors:**
-- ProvidersWorkbenchPage is the most complex page (~2k SCSS lines) — highest risk of regression
-- AuthFilesPage has the largest SCSS module (2045 lines) — many edge-case styles
-- ConfigPage CodeMirror styling: CodeMirror has its own CSS that may conflict with Tailwind's reset
-- LogsPage has scroll-locked auto-scroll behavior that depends on specific CSS
-- ModelMappingDiagram has complex CSS grid/flex layouts
-
----
-
-## Phase 5: cleanup-verify
-**Goal:** Delete all SCSS files and sass dependency. Remove SCSS config from Vite. Run full verification suite: build, type-check, visual check, responsive check, i18n, theme toggle, animations, Go build.
-
-**Deliverables:**
-- All 20 `.module.scss` files deleted
-- All 7 global SCSS files deleted
-- `sass` removed from `package.json` devDependencies
-- SCSS preprocessor config removed from `vite.config.ts`
-- `bun run build` succeeds (single HTML)
-- `bun run type-check` passes
-- All 10 routes render in both themes
-- Mobile responsive on all pages
-- i18n works for all 4 locales
-- Page transitions work
-- CodeMirror works
-- `make build` (Go binary) succeeds
-
-**Dependencies:**
-- Phase 4 complete (all pages rebuilt, no SCSS imports remain)
-
-**Risks / Watch-fors:**
-- Hidden SCSS imports that weren't caught during page rebuild
-- Global CSS classes from `components.scss` used by components not in the explicit rebuild list
-- CodeMirror CSS may have been loaded via SCSS — verify it has standalone CSS loading
-- `PageTransition.scss` and `SplashScreen.scss` are non-module SCSS files — need Tailwind equivalents
+- Must grep for every global class name before deletion to confirm zero consumers remain
+- `status-bar-tooltip` CSS may still be needed — verify before removing

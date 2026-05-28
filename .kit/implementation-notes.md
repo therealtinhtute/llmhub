@@ -120,6 +120,64 @@ Started: 2026-05-28
 - Suppressed with `// eslint-disable-next-line` on the specific line. Shadcn-generated code, not changed further.
 
 ## T2 — MainLayout content padding: removed 70px top offset
+
+---
+
+Phase: page-rebuild
+Started: 2026-05-28
+
+## QuotaPage — quotaStyles.ts intermediate object
+- Created `src/components/quota/quotaStyles.ts` exporting a plain TS object with Tailwind class strings instead of inlining all classes directly in JSX.
+- **Why**: quota sub-components (`QuotaCard`, `QuotaSection`, `quotaConfigs`) share a styles map passed as a `helpers.styles` argument through the render chain. Inlining would have required changing the `renderQuotaItems` API surface — out of scope.
+- **Tradeoff**: One extra file; file name is clear and easily removable in future.
+
+## DashboardPage — 6 extra keyframes to index.css
+- Dashboard SCSS module defined 6 animation keyframes (`orbFloat`, `watermarkEnter`, `heroEnter`, `fadeSlideUp`, `cardEnter`, `dotPulse`).
+- Moved to `index.css` alongside the Phase 3 keyframes. These are now global.
+
+## ProviderStatusBar — styles-prop API removed
+- `ProviderStatusBar` previously accepted a `styles: Record<string, string>` prop so callers could inject CSS module class names.
+- Migrated to hardcoded Tailwind classes inline. Kept `styles?` in the props interface (accepted but unused) to avoid cascading API change. Callers (`AuthFileCard`, `ProviderResourceTable`) updated to not pass it.
+- **Why**: `providerStatusBar.module.scss` was the last SCSS module import remaining after Wave 3. Fixing the component's own styles was in scope (allowed surfaces: `components/providers/`).
+
+## ConfigPage — CodeMirror scoping via Tailwind deep selectors
+- CodeMirror container styled with `[&_.cm-editor]:`, `[&_.cm-scroller]:`, `[&_.cm-gutters]:` arbitrary Tailwind variants to replicate `:global(.cm-*)` rules from SCSS.
+- CodeMirror imports, extensions, and themes were not touched.
+
+## LogsPage — scroll container scroll behavior preserved
+- `logPanel` scroll container translated to `flex-[1_1_auto] min-h-[280px] max-h-[calc(100vh-320px)] overflow-auto resize-y` with WebKit touch-scroll properties and viewport-height breakpoints.
+- Preserves the scroll-locked auto-scroll behavior from the original SCSS.
+
+## PageTransition — SCSS import removed, motion library untouched
+
+---
+
+Phase: cleanup-verify
+Started: 2026-05-28
+
+## SCSS file count deviation: 24 module files vs plan's 20
+- Plan estimated 20 `.module.scss` files; actual count was 24.
+- Extra 4: `providerStatusBar.module.scss`, `ProviderResourcePanel.module.scss`, `ProviderCategoryList.module.scss`, `sharedForm.module.scss` — all in `features/providers/`.
+- No blocker — all were orphaned (no imports in TSX after Phase 4 migration).
+
+## Vite css.modules block removed (scope expansion)
+- Plan said to remove `css.preprocessorOptions.scss`. Also removed `css.modules` (localsConvention + generateScopedName).
+- **Why**: With all `.module.scss` files deleted, the modules config is dead code. Keeping it adds noise with no benefit.
+- **Tradeoff**: If future `.module.css` files are added, the CSS Modules config would need to be re-added. Acceptable.
+
+## Compatibility CSS variables added to index.css
+- Phase 4 subagents preserved old CSS variable references (e.g. `var(--text-primary)`, `var(--bg-secondary)`, `var(--glass-bg)`) in inline styles and Tailwind arbitrary values.
+- With `themes.scss` and `variables.scss` deleted, these variables became undefined.
+- Added a compatibility block in `index.css` mapping old variable names to new Tailwind token values.
+- **Why**: Fixing 20+ inline references across the codebase in Phase 5 scope would risk regressions. A CSS variable alias block is safer and immediately verifiable.
+
+## Global utility classes migrated to index.css
+- `components.scss` provided `.status-badge`, `.error-box`, `.hint`, `.item-list`, `.item-row`, `.item-meta`, `.item-actions`, `.item-title`, `.item-subtitle`, `.main-content`, `.request-log-modal`, `.form-group`, `.input`, `.pill`.
+- Phase 4 subagents correctly left these as plain string classNames (not replaced with Tailwind), expecting Phase 5 to handle them.
+- Added as regular CSS in `index.css` using design token CSS variables.
+- **Why**: Migrating each usage inline in Phase 5 would touch 30+ places; global CSS is semantically correct since these are shared UI primitives.
+- `PageTransition.scss` was providing container CSS (`position: relative`, `overflow: hidden`, `flex` layout). Converted to Tailwind inline.
+- Motion `AnimatePresence` logic and all `initial/animate/exit` props unchanged.
 - Original `.main-content` had `padding-top: 70px` to clear a `position: fixed` header.
 - New layout: header is part of normal flow inside SidebarInset (not fixed), so 70px top offset no longer needed.
 - Replaced with `pt-6` (24px). Pages use their own SCSS modules for internal padding — not affected.

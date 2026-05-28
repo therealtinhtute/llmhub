@@ -1,112 +1,116 @@
 ---
 session-date: 2026-05-28
 branch: master
-status: phase-complete-uncommitted
+status: all-phases-plus-polish-uncommitted
 continuity-mode: full-harness
-active-phase: layout-shell
-last-updated: 2026-05-28 08:43
+active-phase: complete
+last-updated: 2026-05-28
 ---
 
 # Session Handoff — master
 
 ## Current State
 
-**Branch**: `master` — ahead of `origin/master` by 0 commits (Phase 3 NOT yet committed)
-**Working Tree**: 7 modified tracked files, 4 untracked new files
-**Active Phase**: `layout-shell` — **COMPLETE, gate APPROVED, uncommitted**
-**Latest Cook Run**: `.kit/runs/work/20260528-0826-layout-shell.md`
-**Latest Check Verdict**: `.kit/reports/check/20260528-0843-layout-shell.md` → **APPROVED** (0 errors, 0 blockers)
-
-## What Was Built This Session
-
-Phase 3 of LLMHub Web UI rebuild (Tailwind v4 + shadcn migration).
-
-### Completed This Session ✓
-
-**Phase 3: layout-shell** — full execution + gate
-
-- **T1**: `Theme` type → `'light' | 'dark'`; `useThemeStore` simplified to use `.dark` class on `<html>` (not `data-theme`); `resolvedTheme` kept as alias for page consumers (Phase 4 scope)
-- **T2**: shadcn Sidebar installed (`sidebar.tsx`, `use-mobile.ts`); `MainLayout.tsx` fully rewritten — `SidebarProvider` + `Sidebar` + `SidebarInset`, `DropdownMenu` for language/theme pickers, `THEME_CARDS` → 2 entries, all nav groups preserved, `getRouteOrder` + `getTransitionVariant` exact copies, `isItemActive()` computed from `useLocation`
-- **T3**: Both ResizeObservers preserved — `--header-height` (on `<header>`) and `--content-center-x` (on scroll container)
-- **T4**: Gate clean — `tsc --noEmit` 0 errors, `eslint` 0 errors 3 warnings (all pre-existing react-refresh), `vite build` 2,241 kB single HTML
-- **Autofix in gate**: nested `<main>` inside `SidebarInset` → changed to `<div>` (HTML validity)
-
-### Pre-existing Bugs Fixed (in scope)
-- `LegacySelect.tsx`: import `'./select'` → `'./Select'` (case sensitivity, blocked type-check)
-- `sidebar.tsx`: `Math.random()` lint error suppressed with `// eslint-disable-next-line`
-- Lowercase `button.tsx` + `input.tsx` (created by shadcn install) deleted — conflicted with customized uppercase versions; `sidebar.tsx` imports updated to uppercase
-
-## Working Tree — Uncommitted
-
-| File / Dir | Status | Notes |
-|-----------|--------|-------|
-| `web/src/components/layout/MainLayout.tsx` | modified | Full rewrite — Phase 3 core |
-| `web/src/stores/useThemeStore.ts` | modified | Simplified to light/dark, `.dark` class |
-| `web/src/types/common.ts` | modified | Theme type narrowed |
-| `web/src/components/ui/LegacySelect.tsx` | modified | Import casing fix |
-| `web/src/index.css` | modified | Sidebar CSS vars `@theme inline` block |
-| `.kit/workflow-state.yml` | modified | Phase pointer → layout-shell |
-| `.kit/implementation-notes.md` | modified | Phase 3 notes appended |
-| `web/src/components/ui/sidebar.tsx` | untracked | New shadcn Sidebar component |
-| `web/src/hooks/use-mobile.ts` | untracked | Required by sidebar |
-| `.kit/runs/work/20260528-0826-layout-shell.md` | untracked | Phase 3 run artifact |
-| `.kit/reports/check/20260528-0843-layout-shell.md` | untracked | Phase 3 gate report |
-
-## Continuity Anchors
-
-**SPEC**: `.kit/planning/SPEC.md` — Phase 2 Web UI rebuild, 46 requirements, approved + locked
-**Roadmap**: `.kit/planning/ROADMAP.md` — 5 phases sequential:
-1. ✅ `tailwind-foundation` — committed (b7d3ac6)
-2. ✅ `shadcn-primitives` — committed (f7a8caf)
-3. ✅ `layout-shell` — **complete, gate APPROVED, NOT committed**
-4. 🔜 `page-rebuild` — next
-5. ⬜ `cleanup-verify` — blocked on Phase 4
-
-**Entry Phase**: `tailwind-foundation`
-
-## Key Decisions Made This Session
-
-1. **`.dark` class not `data-theme`** — PLAN.md took precedence over CONTEXT.md; aligns with index.css from Phase 1. `applyTheme` now uses `classList.add/remove('dark')`.
-2. **`resolvedTheme` kept as alias** — Phase 4-scope pages read `state.resolvedTheme`; kept as `Theme` alias to avoid out-of-scope changes. No functional difference since `Theme = ResolvedTheme = 'light' | 'dark'`.
-3. **Lowercase button.tsx/input.tsx deleted** — shadcn sidebar install creates lowercase files; these conflict with customized uppercase versions on Linux. `sidebar.tsx` imports updated to uppercase.
-4. **SidebarProvider scoped to MainLayout** — not at App.tsx root; unauthenticated routes don't need sidebar context.
-5. **Inner `<main>` → `<div>`** — SidebarInset is already `<main>`; nested `<main>` invalid HTML; fixed in gate review.
-
-## Deferred to Phase 4 (page-rebuild)
-
-- **14 `Legacy*.tsx` wrappers** — thin compat shims deferring direct consumer migration; remove when rebuilding each page
-- **`ConfirmationModal` + `showConfirmation`** — kept as-is; complex async pattern, 8+ call sites
-- **`useNotificationStore.ts`** dead code (only holds confirmation state now) — delete in Phase 5
-- **`NotificationContainer.tsx`** unreferenced — delete in Phase 5
-- **NavLink `active` class on `/` route** — NavLink without `end` will mark all routes active; harmless now (no SCSS selectors match bare `active` on `<a>`); clean up in Phase 4 page-by-page
-
-## localStorage Migration Note
-
-Users with stored `'auto'` or `'white'` theme (key: `'cli-proxy-theme'`) will silently fall to light theme after this update. Acceptable per spec. No migration guard needed unless UX requirement changes.
-
-## Blockers
-
-None. Phase 3 gate APPROVED. Ready to commit and start Phase 4.
-
-## Next Steps
-
-→ **START HERE**: Commit Phase 3 — run `/git cm` to stage and commit all Phase 3 changes. Suggested message: `feat(web): Phase 3 — shadcn Sidebar, theme simplification, MainLayout rebuild`
-
-2. **Start Phase 4** — run `/work` which will auto-detect `page-rebuild` as the next phase. Phase 4 is the largest phase: 11 pages + feature sub-components, all SCSS module imports replaced with Tailwind.
-3. **Phase 4 highest-risk files** (start here within Phase 4):
-   - `web/src/pages/ProvidersWorkbenchPage.tsx` — most complex, highest SCSS volume
-   - `web/src/pages/AuthFilesPage.tsx` — largest SCSS module (2045 lines)
-   - `web/src/pages/LogsPage.tsx` — scroll-locked auto-scroll behavior depends on specific CSS
-4. **After Phase 4 gate passes** — run `/work` for Phase 5 (`cleanup-verify`): delete all 27 SCSS files, remove `sass` dep, final verification suite
-5. **Final Go binary check** — `make build` must succeed after Phase 5
-
-## Technical Context
-
-**Stack**: React 19 + Vite + Bun + Tailwind v4 + shadcn/ui. Single-file output via `vite-plugin-singlefile`.
-**Build command**: `cd web && bun run build` (runs `tsc && vite build`)
-**Type-check**: `cd web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json`
-**Note**: `node_modules` may be absent — run `bun install` from `web/` first if type-check fails with "Cannot find module"
+**Branch**: `master` — 1 commit ahead of `origin/master` (`bbb1662` Phase 3)
+**Working Tree**: ~118 files changed — **ALL UNCOMMITTED**
+**Gate**: `tsc --noEmit` → exit 0 ✅ (verified multiple times this session)
+**Latest Check**: `.kit/reports/check/20260528-1125-design-system-migration.md` → APPROVED (all 4 phases)
 
 ---
 
-*Generated by /handoff on 2026-05-28 08:43*
+## What Was Done This Session
+
+### 4 Phases already complete (from prior session, carried forward uncommitted)
+All 4 supermemory design-system migration phases done: token-foundation, legacy-removal, style-alignment, cleanup-verify. See `.kit/reports/check/20260528-1125-design-system-migration.md` for full gate evidence.
+
+### Code Review Fixes (this session — `/code-review high --fix`)
+6 confirmed bugs found and fixed:
+
+| File | Fix |
+|------|-----|
+| `web/src/components/config/VisualConfigEditor.tsx` | Two `<input className="input">` → `<BaseInput>` (class didn't exist) |
+| `web/src/components/config/DiffModal.tsx:222` | Dead `[&_.modal-body]:*` → `[&>[data-slot=dialog-header]]:*` selectors |
+| `web/src/index.css` | Added `--primary-hover` + `--primary-active` (4 files referenced undefined vars) |
+| `web/src/components/ui/FormInput.tsx:23` | Added `pr-9` when `rightElement` present (password field overlap) |
+| `web/src/components/common/SplashScreen.tsx:29` | `duration-400` → `duration-[400ms]` (invalid Tailwind v4 token) |
+| `web/src/components/common/PageTransition.tsx:430` | Removed `bg-muted` from exit layer (broke iOS depth animation) |
+
+Skipped (too large): `QuotaSection.tsx:353` hand-rolled modal — needs shadcn Dialog refactor.
+
+### Sidebar Polish (this session — `/code-review` + reference image)
+Aligned sidebar to supermemory-style design:
+
+| File | Change |
+|------|--------|
+| `web/src/components/layout/MainLayout.tsx` | Removed `<SidebarSeparator>` between groups |
+| `web/src/components/ui/sidebar.tsx` | `SidebarGroupLabel`: uppercase + tracking-wider + h-6; active state: `bg-sidebar-primary/12 text-sidebar-primary` |
+| `web/src/index.css` | `--sidebar-accent` updated to subtle blue-gray for hover |
+
+### Color Token Fix (this session — `/hunt`)
+Root cause confirmed: `--sidebar: oklch(0.9378 0.0296 262.5)` rendered `#e0ebff` (distinctly blue). Fixed:
+
+| Token | Before | After (hex) |
+|-------|--------|-------------|
+| `--sidebar` | `#e0ebff` 🔵 | `#f2f4f6` ✅ |
+| `--sidebar-accent` | `#dce4f0` (darker than sidebar!) | `#e9ecf1` ✅ |
+| `--sidebar-border` | `#e9e9ec` | `#e4e6ea` |
+
+---
+
+## Blockers
+
+None. TypeScript clean, build clean.
+
+**Known unresolved** (not blocking commit):
+- `QuotaSection.tsx:353` hand-rolled modal overlay — no focus trap, no portal, no dialog role. Needs refactor to shadcn Dialog. Deferred.
+- Dark mode sidebar not visually verified (class-based toggle; tokens confirmed correct in code).
+
+---
+
+## Next Steps
+
+→ **START HERE**: Commit all uncommitted changes.
+
+```bash
+cd /home/tinhpt/Lab/llmhub
+git add web/ .kit/
+git commit -m "feat(web): Phase 4 + polish — SCSS cleanup, code-review fixes, sidebar design alignment"
+```
+
+Suggested split commit approach for cleaner history:
+1. `git add web/` → commit as `feat(web): Phase 4 + design-system polish`
+2. `git add .kit/` → commit as `chore(kit): update handoff and workflow state`
+
+Then push: `git push origin master`
+
+**After commit:**
+- Build the binary: `make build` (embeds updated web panel)
+- Optional: `QuotaSection.tsx:353` modal accessibility refactor
+- Optional: verify dark mode sidebar visually via browser DevTools `.dark` class toggle
+
+---
+
+## Files Modified This Session (beyond Phase 4)
+
+```
+web/src/index.css                          — --primary-hover/active, sidebar tokens fixed
+web/src/components/common/SplashScreen.tsx — duration-[400ms]
+web/src/components/common/PageTransition.tsx — bg-muted removed from exit layer
+web/src/components/config/DiffModal.tsx    — dead .modal-body selectors fixed
+web/src/components/config/VisualConfigEditor.tsx — BaseInput import, 2x raw input fixed
+web/src/components/ui/FormInput.tsx        — pr-9 for rightElement
+web/src/components/ui/sidebar.tsx          — active state, label uppercase/tracking
+web/src/components/layout/MainLayout.tsx   — SidebarSeparator removed
+```
+
+---
+
+## Harness State
+
+```
+continuity_mode:    full-harness
+active_phase:       complete (all 4 done)
+latest_cook_run:    .kit/runs/work/20260528-1046-all-phases.md
+latest_check:       .kit/reports/check/20260528-1125-design-system-migration.md → APPROVED
+spec:               .kit/planning/SPEC.md
+```

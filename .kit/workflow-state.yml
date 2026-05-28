@@ -1,12 +1,12 @@
 current_phase: complete
 entry_phase: token-foundation
-phases_done: token-foundation, legacy-removal, style-alignment, cleanup-verify
+phases_done: token-foundation, dark-mode-removal, component-adoption, verification
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: .kit/planning/phases/cleanup-verify/cleanup-verify-CONTEXT.md
-active_plan: .kit/planning/phases/cleanup-verify/cleanup-verify-PLAN.md
-latest_cook_run: .kit/runs/work/20260528-1046-all-phases.md
-latest_check_report: .kit/reports/check/20260528-1125-design-system-migration.md
+active_context: none
+active_plan: none
+latest_cook_run: none
+latest_check_report: .kit/reports/check/20260528-token-foundation.md
 handoff: .kit/HANDOFF.md
 last_updated: 2026-05-28
-# All 4 phases complete + code-review fixes + sidebar polish + color token fix. tsc clean. Uncommitted. Next: commit.
+# All 4 phases complete. 29 files changed, uncommitted. Next: git commit.

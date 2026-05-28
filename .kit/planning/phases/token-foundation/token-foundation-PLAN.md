@@ -7,137 +7,140 @@ Execution Owner: work
 Updated At: 2026-05-28
 
 ## Goal
-Replace all CSS design tokens and dependencies to match supermemory console. CSS-only changes — no component TSX modifications.
+Rewrite `web/src/index.css` with the complete new design token system from `design-token-new.json`. All colors in oklch. Dual-map shadcn standard variables to new semantic names. Rewrite `@theme` block.
 
 ## Inputs
-- `web/src/index.css` (current token definitions)
-- `web/index.html` (Google Fonts links)
-- `web/components.json` (shadcn config)
-- `web/package.json` (dependencies)
-- Supermemory oklch values (captured in SPEC.md "Design Token Mapping")
+- `design-token-new.json` — all token values
+- `web/src/index.css` — current file to rewrite
+- `.kit/planning/SPEC.md` — requirements R1-R11
 
 ## Wave 1
-### T1 — Install tw-animate-css
+### T1 — Rewrite `:root` core color tokens + accent system
 - type: implementation
 - inputs:
-  - `web/package.json`
+  - `design-token-new.json` colors, cssCustomProperties sections
+  - Current `:root` block in `web/src/index.css`
 - touches:
-  - `web/package.json`, `web/bun.lock`
+  - `web/src/index.css` `:root` block
 - avoid:
-  - any TSX files
+  - `.dark` block (Phase 2)
+  - Component files
+  - `@theme` block (T3)
 - steps:
-  1. Run `cd web && bun add tw-animate-css`
+  1. Convert all hex colors from design-token-new.json to oklch values
+  2. Replace existing `:root` color tokens with new warm palette oklch values
+  3. Add dual mapping: shadcn standard names (`--background`, `--foreground`, `--card`, `--popover`, `--primary`, `--secondary`, `--muted`, `--accent`, `--destructive`, `--border`, `--input`, `--ring` + foreground variants) point to new warm values
+  4. Add new semantic background tokens: `--bg-primary`, `--bg-secondary`, `--bg-muted`, `--bg-elevated`, `--bg-overlay`
+  5. Add new semantic text tokens: `--text-strong`, `--text-primary`, `--text-secondary`, `--text-muted`, `--text-inverse`
+  6. Add new border tokens: `--border-muted`, `--border-accent`
+  7. Add accent system: `--accent`, `--accent-foreground`, `--accent-start`, `--accent-mid`, `--accent-end`, `--accent-gradient`, `--accent-hover`, `--accent-muted`
+  8. Map `--primary` → `--accent` value, `--primary-hover` → `--accent-hover`, add `--primary-active`
+  9. Add status colors in oklch: `--success`, `--success-muted`, `--error`, `--error-muted`, `--warning`, `--warning-muted`, `--info`, `--info-muted`, `--dreaming`, `--dreaming-muted`, `--danger`
+  10. Map `--destructive` → `--danger` oklch value
 - expected outputs:
-  - `tw-animate-css` in dependencies
+  - `:root` block with ~50 color/accent/status custom properties in oklch
 - verification:
-  - `grep tw-animate-css web/package.json` returns a match
+  - `grep -c "^  --" web/src/index.css` shows increased property count
+  - `grep "oklch" web/src/index.css | head -20` confirms oklch format
 - stop if:
-  - package not found or incompatible with Tailwind v4
+  - oklch conversion produces unexpected values (check a few key conversions manually)
 - escalate to:
-  - plan phase
+  - user clarification if hex → oklch mapping is ambiguous
 
-### T2 — Update Google Fonts in index.html
+### T2 — Add typography, spacing, dimension, layout, radius, shadow, graph, and safe-area tokens
 - type: implementation
 - inputs:
-  - `web/index.html`
+  - `design-token-new.json` cssCustomProperties section
+  - T1 output (`:root` with color tokens)
 - touches:
-  - `web/index.html`
+  - `web/src/index.css` `:root` block (appending after color tokens)
 - avoid:
-  - any other HTML content
+  - Modifying color tokens from T1
+  - `.dark` block
+  - `@theme` block
+  - Component files
 - steps:
-  1. Read `web/index.html`
-  2. Replace Google Fonts links: remove VT323, Source Serif 4, JetBrains Mono; add Space Grotesk (400;500;600;700), Space Mono (400;700), Inter (400;500;600;700)
+  1. Add typography scale tokens: `--text-xs` through `--text-3xl`, `--font-normal/medium/semibold/bold`, `--leading-tight/normal/relaxed`
+  2. Add font aliases: `--font-brand`, `--font-display` → Space Grotesk stack; `--f-serif` → Georgia stack
+  3. Add spacing scale: `--space-1` through `--space-16`
+  4. Add component dimension tokens: `--height-xs/sm/md/lg`, `--icon-xs/sm/md/lg`
+  5. Add layout tokens: `--sidebar-width`, `--sidebar-collapsed-width`, `--container-narrow/medium/wide/xwide`, `--page-header-py/px`, `--page-title-size/weight/mt`, `--input-text-size`, `--body-text-size`, `--caption-text-size`, `--label-text-size`
+  6. Replace radius tokens: `--radius-sm: 3px`, `--radius-md: 4px`, `--radius-lg: 6px`, `--radius-xl: 16px`, `--radius-full: 9999px`, `--border-width: 1px`. Update `--radius` base to `0.375rem` (6px, so `--radius-lg` = `var(--radius)`)
+  7. Replace shadow scale: `--shadow-sm`, `--shadow-md`, `--shadow-lg` (3 levels). Remove `--shadow-2xs`, `--shadow-xs`, `--shadow-xl`, `--shadow-2xl`
+  8. Add graph tokens in oklch: `--graph-bg`, `--graph-doc-fill/stroke/inner`, `--graph-mem-fill/fill-hover/stroke`, `--graph-accent`, `--graph-text-primary/secondary/muted`, `--graph-edge-derives/updates/extends`, `--graph-mem-border-forgotten/expiring/recent`, `--graph-glow`, `--graph-icon`, `--graph-popover-bg/border/text-primary/text-secondary/text-muted`, `--graph-control-bg/border`
+  9. Add safe area insets: `--safe-top/bottom/left/right`
+  10. Keep existing sidebar tokens (`--sidebar`, `--sidebar-foreground`, etc.) updated with new warm palette values
+  11. Keep existing chart tokens (`--chart-1` through `--chart-5`) — update values if needed to match warm palette
 - expected outputs:
-  - `index.html` with updated font links
+  - `:root` block with ~90+ total custom properties
 - verification:
-  - `grep "Space+Grotesk" web/index.html` returns a match
-  - `grep "VT323" web/index.html` returns no match
+  - `grep -c "^  --" web/src/index.css` shows ~90+ properties
+  - `grep "graph" web/src/index.css | wc -l` shows ~20+ graph tokens
 - stop if:
-  - index.html has no existing Google Fonts links
+  - Token naming collides with existing Tailwind utilities
 - escalate to:
-  - user clarification
-
-### T3 — Update components.json base color
-- type: implementation
-- inputs:
-  - `web/components.json`
-- touches:
-  - `web/components.json`
-- avoid:
-  - aliases, style, icon config
-- steps:
-  1. Read `web/components.json`
-  2. Change `"baseColor": "neutral"` to `"baseColor": "zinc"`
-- expected outputs:
-  - components.json with zinc base color
-- verification:
-  - `grep '"baseColor": "zinc"' web/components.json` returns a match
-- stop if:
-  - baseColor field not found
-- escalate to:
-  - user clarification
+  - plan phase if naming collision found
 
 ## Wave 2
-### T4 — Rewrite index.css token section
+### T3 — Rewrite `@theme` block to expose new tokens to Tailwind
 - type: implementation
 - inputs:
-  - `web/src/index.css`
-  - Supermemory oklch values from SPEC.md
+  - T1 + T2 output (complete `:root` block)
+  - Current `@theme` block in `web/src/index.css`
 - touches:
-  - `web/src/index.css` (lines 1-143: imports, @theme, :root, .dark)
+  - `web/src/index.css` `@theme` block(s)
 - avoid:
-  - `@keyframes` section (lines 145-195) — keep all, they have TSX consumers
-  - `status-bar-tooltip` CSS (lines 197-217) — keep
-  - `@theme inline` sidebar block (lines 219-228) — keep
-  - SCSS compatibility aliases (lines 230-273) — keep for now
-  - Global utility classes (lines 275-422) — keep for now
+  - `:root` block (already written)
+  - `.dark` block
+  - Component files
 - steps:
-  1. Read `web/src/index.css`
-  2. Add `@import "tw-animate-css";` after `@import "tailwindcss";`
-  3. Update `@custom-variant dark` to `(&:where(.dark, .dark *))`
-  4. Rewrite `@theme` block with supermemory font stacks and color mappings
-  5. Rewrite `:root` with supermemory oklch light values, new radius, shadow scale, spacing, tracking
-  6. Rewrite `.dark` with supermemory oklch dark values
-  7. Add `@layer base` block with global border/outline and body styles
-  8. Add iOS input zoom prevention media query
+  1. Keep existing shadcn color mappings: `--color-background`, `--color-foreground`, `--color-card`, `--color-primary`, etc. → `var(--background)`, etc.
+  2. Add new semantic color mappings: `--color-bg-primary: var(--bg-primary)`, `--color-bg-secondary`, `--color-bg-muted`, `--color-bg-elevated`
+  3. Add text color mappings: `--color-text-strong`, `--color-text-primary`, `--color-text-secondary`, `--color-text-muted`
+  4. Add accent color mappings: `--color-accent: var(--accent)`, `--color-accent-hover`, `--color-accent-muted`
+  5. Add status color mappings: `--color-success`, `--color-error`, `--color-warning`, `--color-info`, `--color-dreaming`, `--color-danger`
+  6. Update font stacks: keep `--font-sans`, `--font-mono`; add `--font-serif` if not present
+  7. Update radius: `--radius-sm: 3px`, `--radius-md: 4px`, `--radius-lg: 6px`, `--radius-xl: 16px`
+  8. Keep sidebar and chart color mappings
+  9. Remove any stale theme entries that no longer exist in `:root`
 - expected outputs:
-  - index.css with oklch tokens, Space Grotesk fonts, 0.75rem radius, subtle shadows
+  - `@theme` block with all new color tokens exposed as Tailwind utilities
+  - Tailwind classes like `bg-bg-primary`, `text-text-secondary`, `text-success` become available
 - verification:
-  - `grep "oklch" web/src/index.css | wc -l` returns 40+ matches
-  - `grep "Space Grotesk" web/src/index.css` returns a match
-  - `grep "0.75rem" web/src/index.css` returns a match
-  - `grep "shadow-hard" web/src/index.css` returns no match
-  - `grep "VT323\|Source Serif\|JetBrains" web/src/index.css` returns no match
+  - `cd web && bun run build` succeeds (proves Tailwind processes the theme correctly)
 - stop if:
-  - index.css structure differs significantly from expected
+  - Build fails due to `@theme` block syntax
+  - Tailwind utility naming collision
 - escalate to:
-  - user clarification
+  - user clarification if Tailwind v4 rejects token patterns
 
 ## Wave 3
-### T5 — Build verification
+### T4 — Build verification
 - type: test
 - inputs:
-  - all changes from Wave 1-2
+  - T1-T3 complete `web/src/index.css`
 - touches:
-  - none (read-only)
+  - None (read-only)
 - avoid:
-  - any file modifications
+  - File modifications
 - steps:
-  1. Run `cd web && bun run build`
-  2. Verify single HTML output exists
-  3. Check build output contains oklch values
+  1. Run `cd web && bun run build` — must succeed
+  2. Verify output is a single HTML file in `dist/`
+  3. Count custom properties: `grep -c "^  --" web/src/index.css` — expect ~90+
+  4. Verify oklch format: `grep -c "oklch" web/src/index.css` — expect many
+  5. Verify no hex colors in `:root` (except shadow values which use hex alpha shorthand): `grep "^  --.*#[0-9a-fA-F]" web/src/index.css` — only shadow values allowed
 - expected outputs:
-  - Successful build, single dist/index.html
+  - Build succeeds
+  - Token count verified
 - verification:
-  - `bun run build` exits 0
-  - `ls web/dist/index.html` exists
-  - `grep "oklch" web/dist/index.html` returns matches
+  - All checks above pass
 - stop if:
-  - Build fails — likely CSS syntax error
+  - Build fails
 - escalate to:
-  - plan phase
+  - plan phase token-foundation if build errors need token restructuring
 
 ## Risks / Watch-fors
-- Removing `--shadow-hard` will break Card.tsx shadow — expected, fixed in Phase 3
-- `--font-display` and `--font-body` removal means those Tailwind classes won't resolve — fixed in Phase 3
-- SCSS compat aliases may reference removed vars — kept for now, checked in Phase 3-4
+- Tailwind v4's `@theme` has specific rules about what can go inside — test build early
+- `--text-xs` etc. may collide with Tailwind's built-in font-size utilities — if so, prefix with `--ds-text-xs` instead
+- Shadow hex alpha shorthand (`#0000000d`) is fine in shadow values — don't over-convert to oklch
+- Existing animations, scrollbar styles, tooltip pseudo-elements must be preserved exactly

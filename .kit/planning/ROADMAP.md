@@ -1,76 +1,87 @@
-# ROADMAP: Design System Migration — Supermemory Console Aesthetic
+# ROADMAP: Design Token v2 — Warm Palette + Extended Semantic System
 
 ## Planning Basis
 - source spec: `.kit/planning/SPEC.md`
 - planning mode: `full`
 - entry phase: `token-foundation`
-- execution mode: sequential phases, parallel waves within each
+- execution mode: sequential, 4 phases
+
+---
 
 ## Phase 1: token-foundation
-**Goal:** Replace all CSS design tokens, font stacks, shadow scale, radius, and dependencies so the visual foundation matches supermemory console. No component code changes yet.
+**Goal:** Rewrite `index.css` with the complete new token system — warm cream/beige oklch palette, extended semantic variables (~90 properties), rewritten `@theme` block. This is the single-file foundation that everything else builds on.
 
 **Deliverables:**
-- `index.css` rewritten: oklch color tokens, Space Grotesk/Mono/Inter font stacks, 0.75rem radius, subtle shadow scale, `@layer base` body rule, `tw-animate-css` import
-- `index.html` Google Fonts links swapped (VT323/Source Serif 4/JetBrains Mono → Space Grotesk/Space Mono/Inter)
-- `components.json` base color changed to zinc
-- `tw-animate-css` package installed
-- Custom `@keyframes` reviewed and kept/removed based on usage
+- New `:root` block with all color, accent, status, typography, spacing, dimension, layout, radius, shadow, graph, and safe-area tokens in oklch
+- Dual mapping: shadcn standard names (`--background`, `--primary`, etc.) AND new semantic names (`--bg-primary`, `--accent`, etc.)
+- Rewritten `@theme` block exposing all new tokens to Tailwind
+- Simplified radius (direct values) and shadow (3-level) scales
+- Updated `--font-brand`, `--font-display`, `--f-serif` aliases
 
 **Dependencies:**
-- None (entry phase)
+- `design-token-new.json` as source of truth
+- Hex-to-oklch conversion for all values
 
 **Risks / Watch-fors:**
-- `shadow-[var(--shadow-hard)]` in Card.tsx will break visually — consumers fixed in Phase 3
-- `font-display` and `font-body` references in TSX won't resolve — consumers fixed in Phase 3
-- Old `--text-primary`, `--glass-*` etc. aliases still referenced — kept temporarily, cleaned in Phase 4
+- Tailwind v4 `@theme` block may not support all custom property patterns — validate with `bun run build`
+- oklch conversion accuracy — verify visual match against hex originals
+- Naming collisions between new `--text-*` tokens and Tailwind's built-in `--text-*` utilities
 
-## Phase 2: legacy-removal
-**Goal:** Delete all 13 Legacy* wrapper components and migrate their 71 consumer files to shadcn/ui primitives directly.
+---
+
+## Phase 2: dark-mode-removal
+**Goal:** Strip all dark mode artifacts: `.dark` CSS block, `@custom-variant dark`, `dark:` utility classes from all components, theme store simplification.
 
 **Deliverables:**
-- 13 Legacy* files deleted from `src/components/ui/`
-- 71 consumer files migrated to shadcn primitives
-- Small `EmptyState` utility component created (replaces LegacyEmptyState, 8 consumers)
-- Combobox pattern for autocomplete (replaces LegacyAutocompleteInput, 2 consumers)
+- No `.dark {}` block in `index.css`
+- No `@custom-variant dark` directive
+- No `dark:` prefixed classes in any component/page/feature file
+- Simplified `useThemeStore.ts` (always light)
+- Theme toggle removed from UI
 
 **Dependencies:**
-- Phase 1 complete (tokens in place so migrated components render correctly)
+- Phase 1 complete (new tokens in place so light theme renders correctly)
 
 **Risks / Watch-fors:**
-- LegacyInput adds label/hint/error props — ensure consistent pattern when migrating to raw Input + Label
-- LegacyToggleSwitch has 9 consumers — largest blast radius
-- LegacyAutocompleteInput has custom filtering — preserve in combobox migration
+- 31 files reference "dark" in some form — distinguish `dark:` utility classes from string content
+- Theme store consumers may break if store API changes
 
-## Phase 3: style-alignment
-**Goal:** Update all component TSX to use new design system classes. Remove retro-specific styling (rounded-none, shadow-hard, font-display/font-body). Migrate global utility class consumers to inline Tailwind.
+---
+
+## Phase 3: component-adoption
+**Goal:** Update components with hardcoded colors to use new semantic tokens. Update layout components to use layout/dimension tokens.
 
 **Deliverables:**
-- All `rounded-none` in shadcn UI components updated to use default radius
-- `shadow-[var(--shadow-hard)]` in Card.tsx → `shadow-sm`
-- Global utility class consumers (`.status-badge`, `.error-box`, `.item-list`, `.form-group`, `.pill`, `.hint`) migrated to Tailwind utilities
-- SCSS compatibility alias consumers (`--glass-*`, `--text-*`, `--bg-*`, `--*-badge-*`, `--amber-*`, etc.) migrated to semantic Tailwind classes
-- Custom scrollbar utility class added
+- `DiffModal.tsx` using `--success`, `--error`, `--accent` tokens
+- `quotaStyles.ts` using semantic tokens
+- `ModelMappingDiagram.tsx` using graph tokens
+- `sidebar.tsx` using `--sidebar-width`, `--sidebar-collapsed-width`
+- Page headers using `--page-header-*`, `--page-title-*` tokens
+- Form components using `--input-text-size`, `--height-md`, `--label-text-size`
 
 **Dependencies:**
-- Phase 2 complete (legacy components gone, no conflicting wrapper styles)
+- Phase 1 complete (tokens defined)
+- Phase 2 complete (no dark: classes interfering)
 
 **Risks / Watch-fors:**
-- VisualConfigEditor.tsx has heavy use of global utility classes via parent selector overrides — complex migration
-- ProviderStatusBar.tsx, AuthFilesPage.tsx, and quotaStyles.ts reference SCSS aliases extensively
-- Some `rounded-none` in shadcn primitives (Button, Dialog, etc.) are intentional for the old design — remove all
+- DiffModal has complex color-mix expressions — careful replacement needed
+- quotaStyles uses elaborate gradient strings — replacement must preserve visual intent
 
-## Phase 4: cleanup-verify
-**Goal:** Delete all dead CSS (compatibility aliases, global utility classes, App.css). Run full verification suite.
+---
+
+## Phase 4: verification
+**Goal:** Full build validation, visual regression check, cleanup proof, Go binary build.
 
 **Deliverables:**
-- SCSS compatibility aliases deleted from index.css (lines 230-273)
-- Global utility classes deleted from index.css (lines 275-422)
-- `App.css` deleted (Vite scaffold leftover, unused)
-- All verification checks pass (build, type-check, grep for legacy references, functional test)
+- `bun run build` passes
+- `make build` passes
+- Grep proofs: no `.dark` blocks, no `dark:` classes, no stale token names
+- Token count proof: ~90+ custom properties in index.css
+- Visual confirmation of warm cream palette across all routes
 
 **Dependencies:**
-- Phase 3 complete (all consumers migrated before deletion)
+- Phases 1-3 complete
 
 **Risks / Watch-fors:**
-- Must grep for every global class name before deletion to confirm zero consumers remain
-- `status-bar-tooltip` CSS may still be needed — verify before removing
+- Single-file build plugin may interact poorly with new CSS variable count
+- Go embed step may cache stale assets

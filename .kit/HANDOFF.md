@@ -1,116 +1,81 @@
----
-session-date: 2026-05-28
-branch: master
-status: all-phases-plus-polish-uncommitted
-continuity-mode: full-harness
-active-phase: complete
-last-updated: 2026-05-28
----
+# HANDOFF — Design Token v2 Migration
 
-# Session Handoff — master
-
-## Current State
-
-**Branch**: `master` — 1 commit ahead of `origin/master` (`bbb1662` Phase 3)
-**Working Tree**: ~118 files changed — **ALL UNCOMMITTED**
-**Gate**: `tsc --noEmit` → exit 0 ✅ (verified multiple times this session)
-**Latest Check**: `.kit/reports/check/20260528-1125-design-system-migration.md` → APPROVED (all 4 phases)
+Date: 2026-05-28
+Branch: master (no upstream divergence — 1 commit ahead of origin, all migration work uncommitted)
+Continuity mode: harness
+Active phase: ALL COMPLETE — ready to commit
 
 ---
 
-## What Was Done This Session
+## Completed This Session
 
-### 4 Phases already complete (from prior session, carried forward uncommitted)
-All 4 supermemory design-system migration phases done: token-foundation, legacy-removal, style-alignment, cleanup-verify. See `.kit/reports/check/20260528-1125-design-system-migration.md` for full gate evidence.
+All 4 phases executed and verified:
 
-### Code Review Fixes (this session — `/code-review high --fix`)
-6 confirmed bugs found and fixed:
+**Phase 1 — token-foundation** ✅
+- Rewrote `web/src/index.css` from 282 lines → ~420 lines
+- Added 209 CSS custom properties in oklch format
+- Warm cream palette (#faf9f4 base) replacing cool blue-purple
+- Extended token system: semantic backgrounds, text hierarchy, status colors, graph tokens, spacing/typography/dimension/layout scales
+- Dual mapping: shadcn standard vars (`--background`, `--primary`) + new semantic vars (`--bg-primary`, `--accent`)
+- `@theme` block rewritten with 17 extended color mappings
+- Shadow simplified to 3 levels, radius to direct px values
 
-| File | Fix |
-|------|-----|
-| `web/src/components/config/VisualConfigEditor.tsx` | Two `<input className="input">` → `<BaseInput>` (class didn't exist) |
-| `web/src/components/config/DiffModal.tsx:222` | Dead `[&_.modal-body]:*` → `[&>[data-slot=dialog-header]]:*` selectors |
-| `web/src/index.css` | Added `--primary-hover` + `--primary-active` (4 files referenced undefined vars) |
-| `web/src/components/ui/FormInput.tsx:23` | Added `pr-9` when `rightElement` present (password field overlap) |
-| `web/src/components/common/SplashScreen.tsx:29` | `duration-400` → `duration-[400ms]` (invalid Tailwind v4 token) |
-| `web/src/components/common/PageTransition.tsx:430` | Removed `bg-muted` from exit layer (broke iOS depth animation) |
+**Phase 2 — dark-mode-removal** ✅
+- `.dark {}` block deleted from index.css
+- `@custom-variant dark` removed
+- `dark:` utility classes removed from 21 component/page/feature files
+- `useThemeStore.ts` simplified — always resolves to light
+- `authFiles/constants.ts` + `quota/constants.ts`: dark color map entries removed, type updated
+- `QuotaCard.tsx`: simplified `resolvedTheme` branch removed
+- 3 remaining `dark:` references are icon type defs `{ light: string; dark: string }` — intentional, not CSS
 
-Skipped (too large): `QuotaSection.tsx:353` hand-rolled modal — needs shadcn Dialog refactor.
+**Phase 3 — component-adoption** ✅
+- `DiffModal.tsx`: 25 hardcoded hex (#3fb950, #f85149, #388bfd) → `var(--success)`, `var(--error)`, `var(--accent)`
+- `sidebar.tsx`: SIDEBAR_WIDTH `16rem` → `260px`, SIDEBAR_WIDTH_ICON `3rem` → `60px`
+- `quotaStyles.ts`: kept decorative gold badge gradient as-is
+- `ModelMappingDiagram.tsx`: kept decorative category color array as-is
 
-### Sidebar Polish (this session — `/code-review` + reference image)
-Aligned sidebar to supermemory-style design:
+**Phase 4 — verification** ✅
+- `bun run build` PASS (dist/index.html 2,143 kB)
+- `tsc --noEmit` PASS (zero errors)
+- `make build` PASS (Go binary compiled with embedded frontend)
+- `grep -c "^\.dark" index.css` → 0
+- `grep -c "@custom-variant dark" index.css` → 0
+- Agent-browser visual inspection: warm cream bg, blue accent, no regressions
 
-| File | Change |
-|------|--------|
-| `web/src/components/layout/MainLayout.tsx` | Removed `<SidebarSeparator>` between groups |
-| `web/src/components/ui/sidebar.tsx` | `SidebarGroupLabel`: uppercase + tracking-wider + h-6; active state: `bg-sidebar-primary/12 text-sidebar-primary` |
-| `web/src/index.css` | `--sidebar-accent` updated to subtle blue-gray for hover |
+---
 
-### Color Token Fix (this session — `/hunt`)
-Root cause confirmed: `--sidebar: oklch(0.9378 0.0296 262.5)` rendered `#e0ebff` (distinctly blue). Fixed:
+## State
 
-| Token | Before | After (hex) |
-|-------|--------|-------------|
-| `--sidebar` | `#e0ebff` 🔵 | `#f2f4f6` ✅ |
-| `--sidebar-accent` | `#dce4f0` (darker than sidebar!) | `#e9ecf1` ✅ |
-| `--sidebar-border` | `#e9e9ec` | `#e4e6ea` |
+All 4 phases complete. **29 files changed, 286 insertions, 216 deletions.** Nothing committed yet.
 
 ---
 
 ## Blockers
 
-None. TypeScript clean, build clean.
-
-**Known unresolved** (not blocking commit):
-- `QuotaSection.tsx:353` hand-rolled modal overlay — no focus trap, no portal, no dialog role. Needs refactor to shadcn Dialog. Deferred.
-- Dark mode sidebar not visually verified (class-based toggle; tokens confirmed correct in code).
+None.
 
 ---
 
 ## Next Steps
 
-→ **START HERE**: Commit all uncommitted changes.
-
-```bash
+→ **START HERE**: Commit all migration changes as a single conventional commit:
+```
 cd /home/tinhpt/Lab/llmhub
-git add web/ .kit/
-git commit -m "feat(web): Phase 4 + polish — SCSS cleanup, code-review fixes, sidebar design alignment"
+git add web/src/ 
+git commit -m "feat(web): Design Token v2 — warm palette, extended semantic system, dark mode removal"
 ```
 
-Suggested split commit approach for cleaner history:
-1. `git add web/` → commit as `feat(web): Phase 4 + design-system polish`
-2. `git add .kit/` → commit as `chore(kit): update handoff and workflow state`
-
-Then push: `git push origin master`
-
-**After commit:**
-- Build the binary: `make build` (embeds updated web panel)
-- Optional: `QuotaSection.tsx:353` modal accessibility refactor
-- Optional: verify dark mode sidebar visually via browser DevTools `.dark` class toggle
+2. Optionally push to origin/master
+3. Optionally update design-token-new.json reference or document the migration in CLAUDE.md
 
 ---
 
-## Files Modified This Session (beyond Phase 4)
+## Key Decisions Made
 
-```
-web/src/index.css                          — --primary-hover/active, sidebar tokens fixed
-web/src/components/common/SplashScreen.tsx — duration-[400ms]
-web/src/components/common/PageTransition.tsx — bg-muted removed from exit layer
-web/src/components/config/DiffModal.tsx    — dead .modal-body selectors fixed
-web/src/components/config/VisualConfigEditor.tsx — BaseInput import, 2x raw input fixed
-web/src/components/ui/FormInput.tsx        — pr-9 for rightElement
-web/src/components/ui/sidebar.tsx          — active state, label uppercase/tracking
-web/src/components/layout/MainLayout.tsx   — SidebarSeparator removed
-```
-
----
-
-## Harness State
-
-```
-continuity_mode:    full-harness
-active_phase:       complete (all 4 done)
-latest_cook_run:    .kit/runs/work/20260528-1046-all-phases.md
-latest_check:       .kit/reports/check/20260528-1125-design-system-migration.md → APPROVED
-spec:               .kit/planning/SPEC.md
-```
+- **oklch format** for all color values (not hex)
+- **Dual variable mapping**: shadcn vars preserved + new semantic vars added (no shadcn breakage)
+- **Light-only**: dark mode fully removed (no dark token definition exists yet)
+- **Decorative colors kept as-is**: quotaStyles gold badge, ModelMappingDiagram category colors — not tokenized
+- **Sidebar width**: `260px` / `60px` from design tokens (was `16rem` / `3rem`)
+- **3 files with intentional `dark:` icon refs**: OAuthPage, SystemPage, authFiles/constants — these are image variant types, not CSS

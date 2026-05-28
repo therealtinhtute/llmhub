@@ -1,25 +1,23 @@
-# CLI Proxy API Management Center
+# LLMHub Management Panel
 
-A single-file Web UI (React + TypeScript) for operating and troubleshooting the **CLI Proxy API** via its **Management API** (config, credentials, and logs).
+A single-file Web UI (React + TypeScript) for operating and troubleshooting **LLMHub** via its **Management API** (config, credentials, and logs).
 
 [中文文档](README_CN.md)
 
-**Main Project**: https://github.com/router-for-me/CLIProxyAPI  
-**Example URL**: https://remote.router-for.me/  
-**Minimum Required Version**: ≥ 7.1.0 (recommended latest)
+**Main Project**: https://github.com/therealtinhtute/llmhub
 
 Since version 6.0.19, the Web UI ships with the main program; access it via `/management.html` on the API port once the service is running.
 
-## What this is (and isn’t)
+## What this is (and isn't)
 
-- This repository is the Web UI only. It talks to the CLI Proxy API **Management API** (`/v0/management`) to read/update config, upload credentials, and view logs.
+- This repository is the Web UI only. It talks to the LLMHub **Management API** (`/v0/management`) to read/update config, upload credentials, and view logs.
 - It is **not** a proxy and does not forward traffic.
 
 ## Quick start
 
-### Option A: Use the Web UI bundled in CLI Proxy API (recommended)
+### Option A: Use the Web UI bundled in LLMHub (recommended)
 
-1. Start your CLI Proxy API service.
+1. Start your LLMHub service.
 2. Open: `http://<host>:<api_port>/management.html`
 3. Enter your **management key** and connect.
 
@@ -32,7 +30,7 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Open `http://localhost:5173`, then connect to your CLI Proxy API backend instance.
+Open `http://localhost:5173`, then connect to your LLMHub backend instance.
 
 ### Option C: Build a single HTML file
 
@@ -42,7 +40,7 @@ bun run build
 ```
 
 - Output: `dist/index.html` (all assets are inlined).
-- For CLI Proxy API bundling, the release workflow renames it to `management.html`.
+- For LLMHub bundling, the release workflow renames it to `management.html`.
 - To preview locally: `bun run preview`
 
 Tip: opening `dist/index.html` via `file://` may be blocked by browser CORS; serving it (preview/static server) is more reliable.
@@ -69,7 +67,7 @@ This is different from the proxy `api-keys` you manage inside the UI (those are 
 ### Remote management
 
 If you connect from a non-localhost browser, the server must allow remote management (e.g. `allow-remote-management: true`).  
-Check the CLI Proxy API server documentation/config comments for the full authentication rules, server-side limits, and edge cases.
+Check the LLMHub server documentation/config comments for the full authentication rules, server-side limits, and edge cases.
 
 ## What you can manage (mapped to the UI pages)
 
@@ -127,10 +125,10 @@ The UI language is automatically detected from browser settings and can be manua
 
 ## Troubleshooting
 
-- **Can’t connect / 401**: confirm the API address and management key; remote access may require enabling remote management in the server config.
+- **Can't connect / 401**: confirm the API address and management key; remote access may require enabling remote management in the server config.
 - **Repeated auth failures**: the server may temporarily block remote IPs.
-- **Logs page missing**: enable “Logging to file” in Basic Settings; the navigation item is shown only when file logging is enabled.
-- **Some features show “unsupported”**: the backend may be too old or the endpoint is disabled/absent (common for model lists per auth file, excluded models, logs).
+- **Logs page missing**: enable "Logging to file" in Basic Settings; the navigation item is shown only when file logging is enabled.
+- **Some features show "unsupported"**: the backend may be too old or the endpoint is disabled/absent (common for model lists per auth file, excluded models, logs).
 - **OpenAI provider test fails**: the test runs in the browser and depends on network/CORS of the provider endpoint; a failure here does not always mean the server cannot reach it.
 
 ## Development

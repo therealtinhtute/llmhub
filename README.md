@@ -26,31 +26,28 @@ So you can use local or multi-account CLI access with OpenAI(include Responses)/
 - OpenAI Codex multi-account load balancing
 - Grok Build multi-account load balancing
 - OpenAI-compatible upstream providers via config (e.g., OpenRouter)
-- Reusable Go SDK for embedding the proxy (see `docs/sdk-usage.md`)
+- Reusable Go SDK for embedding the proxy
 
 ## Getting Started
 
-Documentation is being migrated. See `config.example.yaml` for configuration reference.
+```bash
+# Install (requires Go 1.21+)
+go install github.com/therealtinhtute/llmhub/cmd/server@latest
 
-## Management API
+# Or build from source
+make build
+```
 
-see [MANAGEMENT_API.md](MANAGEMENT_API.md)
+1. Copy `config.example.yaml` → `config.yaml` and edit providers/accounts.
+2. Run: `./llmhub` (or `make dev` in dev mode)
+3. Point your AI coding tool at `http://localhost:PORT/v1`
+4. Management panel: `http://localhost:PORT/management.html`
 
-## Usage Statistics
+See `config.example.yaml` for the full configuration reference.
 
-Since v6.10.0, LLMHub no longer ships built-in usage statistics. If you need usage statistics, use:
+## Management Panel
 
-### [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper)
-
-Standalone persistence and visualization service for LLMHub, with periodic data sync, SQLite storage, aggregate APIs, and a built-in dashboard for usage and statistics.
-
-### [LLMHub Usage Dashboard](https://github.com/zhanglunet/cliproxyapi-usage-dashboard)
-
-Local-first usage and quota dashboard for LLMHub. It collects per-request token usage from the Redis-compatible usage queue into SQLite, visualizes daily and recent-window usage by account and model, and shows Codex 5h/7d quota remaining in a local web UI.
-
-### [CPA-Manager](https://github.com/seakee/CPA-Manager)
-
-Full LLMHub management center with request-level monitoring and cost estimates. CPA-Manager tracks collected requests by account, model, channel, latency, status, and token usage; estimates cost with editable model prices and one-click LiteLLM price sync; persists events in SQLite; and provides Codex account-pool operations with batch inspection, quota detection, unhealthy account discovery, cleanup suggestions, and one-click execution for day-to-day multi-account maintenance.
+The management panel is served at `http://localhost:PORT/management.html` once the service is running. It provides visual config editing, OAuth flows, auth file management, quota tracking, and log tailing.
 
 ## Amp CLI Support
 
@@ -70,14 +67,6 @@ When you need the request/response shape of a specific backend family, use the p
 
 These routes help you select the protocol surface, but they do not by themselves guarantee a unique inference executor when the same client-visible model name is reused across multiple backends. Inference routing is still resolved from the request model/alias. For strict backend pinning, use unique aliases, prefixes, or otherwise avoid overlapping client-visible model names.
 
-## SDK Docs
-
-- Usage: [docs/sdk-usage.md](docs/sdk-usage.md)
-- Advanced (executors & translators): [docs/sdk-advanced.md](docs/sdk-advanced.md)
-- Access: [docs/sdk-access.md](docs/sdk-access.md)
-- Watcher: [docs/sdk-watcher.md](docs/sdk-watcher.md)
-- Custom Provider Example: `examples/custom-provider`
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -87,113 +76,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## Community Projects
-
-Projects built on LLMHub:
-
-### [vibeproxy](https://github.com/automazeio/vibeproxy)
-
-Native macOS menu bar app to use your Claude Code & ChatGPT subscriptions with AI coding tools - no API keys needed
-
-### [Subtitle Translator](https://github.com/VjayC/SRT-Subtitle-Translator-Validator)
-
-A cross-platform desktop and web app to translate and validate SRT subtitles using your existing LLM subscriptions (Gemini, ChatGPT, Claude, etc.) via LLMHub - no API keys needed.
-
-### [CCS (Claude Code Switch)](https://github.com/kaitranntt/ccs)
-
-CLI wrapper for instant switching between multiple Claude accounts and alternative models (Gemini, Codex, Antigravity) via LLMHub OAuth - no API keys needed
-
-### [Quotio](https://github.com/nguyenphutrong/quotio)
-
-Native macOS menu bar app that unifies Claude, Gemini, OpenAI, and Antigravity subscriptions with real-time quota tracking and smart auto-failover for AI coding tools like Claude Code, OpenCode, and Droid - no API keys needed.
-
-### [CodMate](https://github.com/loocor/CodMate)
-
-Native macOS SwiftUI app for managing CLI AI sessions (Codex, Claude Code, Gemini CLI) with unified provider management, Git review, project organization, global search, and terminal integration. Integrates LLMHub to provide OAuth authentication for Codex, Claude, Gemini, and Antigravity, with built-in and third-party provider rerouting through a single proxy endpoint - no API keys needed for OAuth providers.
-
-### [ProxyPilot](https://github.com/Finesssee/ProxyPilot)
-
-Windows-native LLMHub fork with TUI, system tray, and multi-provider OAuth for AI coding tools - no API keys needed.
-
-### [Claude Proxy VSCode](https://github.com/uzhao/claude-proxy-vscode)
-
-VSCode extension for quick switching between Claude Code models, featuring integrated LLMHub as its backend with automatic background lifecycle management.
-
-### [ZeroLimit](https://github.com/0xtbug/zero-limit)
-
-Windows desktop app built with Tauri + React for monitoring AI coding assistant quotas via LLMHub. Track usage across Gemini, Claude, OpenAI Codex, and Antigravity accounts with real-time dashboard, system tray integration, and one-click proxy control - no API keys needed.
-
-### [CPA-XXX Panel](https://github.com/ferretgeek/CPA-X)
-
-A lightweight web admin panel for LLMHub with health checks, resource monitoring, real-time logs, auto-update, request statistics and pricing display. Supports one-click installation and systemd service.
-
-### [CLIProxyAPI Tray](https://github.com/kitephp/CLIProxyAPI_Tray)
-
-A Windows tray application implemented using PowerShell scripts, without relying on any third-party libraries. The main features include: automatic creation of shortcuts, silent running, password management, channel switching (Main / Plus), and automatic downloading and updating.
-
-### [霖君](https://github.com/wangdabaoqq/LinJun)
-
-霖君 is a cross-platform desktop application for managing AI programming assistants, supporting macOS, Windows, and Linux systems. Unified management of Claude Code, Gemini CLI, OpenAI Codex, and other AI coding tools, with local proxy for multi-account quota tracking and one-click configuration.
-
-### [CLIProxyAPI Dashboard](https://github.com/itsmylife44/cliproxyapi-dashboard)
-
-A modern web-based management dashboard for LLMHub built with Next.js, React, and PostgreSQL. Features real-time log streaming, structured configuration editing, API key management, OAuth provider integration for Claude/Gemini/Codex, usage analytics, container management, and config sync with OpenCode via companion plugin - no manual YAML editing needed.
-
-### [All API Hub](https://github.com/qixing-jk/all-api-hub)
-
-Browser extension for one-stop management of New API-compatible relay site accounts, featuring balance and usage dashboards, auto check-in, one-click key export to common apps, in-page API availability testing, and channel/model sync and redirection. It integrates with LLMHub through the Management API for one-click provider import and config sync.
-
-### [Shadow AI](https://github.com/HEUDavid/shadow-ai)
-
-Shadow AI is an AI assistant tool designed specifically for restricted environments. It provides a stealthy operation
-mode without windows or traces, and enables cross-device AI Q&A interaction and control via the local area network (
-LAN). Essentially, it is an automated collaboration layer of "screen/audio capture + AI inference + low-friction delivery",
-helping users to immersively use AI assistants across applications on controlled devices or in restricted environments.
-
-### [ProxyPal](https://github.com/buddingnewinsights/proxypal)
-
-Cross-platform desktop app (macOS, Windows, Linux) wrapping LLMHub with a native GUI. Connects Claude, ChatGPT, Gemini, GitHub Copilot, and custom OpenAI-compatible endpoints with usage analytics, request monitoring, and auto-configuration for popular coding tools - no API keys needed.
-
-### [CLIProxyAPI Quota Inspector](https://github.com/AllenReder/CLIProxyAPI-Quota-Inspector)
-
-Ready-to-use cross-platform quota inspector for LLMHub, supporting per-account codex 5h/7d quota windows, plan-based sorting, status coloring, and multi-account summary analytics.
-
-### [CodexCliPlus](https://github.com/C4AL/CodexCliPlus)
-
-Windows-focused, local-first desktop management platform for Codex CLI built on LLMHub, focused on simplifying local setup, account and runtime management, and providing a more complete Codex CLI experience for local users.
-
-### [CLIProxy Pool Watch](https://github.com/murasame612/CLIProxyPoolWidget)
-
-Native macOS SwiftUI app for monitoring ChatGPT/Codex account quotas in LLMHub pools. Displays account availability, Plus-base capacity, 5-hour and weekly quota bars, plan weights, and restore forecasts through the Management API.
-
-> [!NOTE]  
-> If you developed a project based on LLMHub, please open a PR to add it to this list.
-
-## More choices
-
-Those projects are ports of LLMHub or inspired by it:
-
-### [9Router](https://github.com/decolua/9router)
-
-A Next.js implementation inspired by LLMHub, easy to install and use, built from scratch with format translation (OpenAI/Claude/Gemini/Ollama), combo system with auto-fallback, multi-account management with exponential backoff, a Next.js web dashboard, and support for CLI tools (Cursor, Claude Code, Cline, RooCode) - no API keys needed.
-
-### [OmniRoute](https://github.com/diegosouzapw/OmniRoute)
-
-Never stop coding. Smart routing to FREE & low-cost AI models with automatic fallback.
-
-OmniRoute is an AI gateway for multi-provider LLMs: an OpenAI-compatible endpoint with smart routing, load balancing, retries, and fallbacks. Add policies, rate limits, caching, and observability for reliable, cost-aware inference.
-
-### [Playful Proxy API Panel (PPAP)](https://github.com/daishuge/playful-proxy-api-panel)
-
-A public LLMHub-compatible fork and bundled management panel. It keeps upstream-style usage while restoring built-in usage statistics, adding cache hit rate, first-byte latency, TPS tracking, and Docker-oriented self-hosted installation docs.
-
-### [Codex Switch](https://github.com/9ycrooked/CodexSwitch)
-
-This is a tool built with Tauri 2 + Vue 3 for managing multiple OpenAI Codex desktop accounts. Switch between saved ChatGPT/Codex certification profiles, check 5-hour and weekly quota usage in real time, verify token health, view active account details, and import or save auth.json files without manual copying.
-
-> [!NOTE]  
-> If you have developed a port of LLMHub or a project inspired by it, please open a PR to add it to this list.
 
 ## License
 

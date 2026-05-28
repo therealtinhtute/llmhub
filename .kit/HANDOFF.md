@@ -1,53 +1,41 @@
-# HANDOFF — Design Token v2 Migration
+# HANDOFF — Static UI + CSS Token Redesign
 
-Date: 2026-05-28
-Branch: master (no upstream divergence — 1 commit ahead of origin, all migration work uncommitted)
-Continuity mode: harness
-Active phase: ALL COMPLETE — ready to commit
+Date: 2026-05-28  
+Branch: `master` — clean, synced with origin/master (HEAD: `752c68d`)  
+Continuity mode: harness  
+Active phase: none (all planned phases complete; post-phase work committed)
 
 ---
 
 ## Completed This Session
 
-All 4 phases executed and verified:
+### Post-phase: Remove all motion + glow (7 commits, all pushed)
+- Stripped every `transition-*`, `duration-*`, `ease-*`, `animate-in/out`, `@keyframes`, `animation:` style prop, `[animation:...]` class, `focus:shadow-[0_0_0_*]` glow ring, `focus-visible:ring-[3px]`, and `hover:-translate-y-*` lift pattern across **46 files**
+- Removed dead `tw-animate-css` dep from `package.json` + lockfile
+- **Kept**: `animate-spin` (loading spinners), `animate-pulse` (skeleton loaders), `group-hover:scale-y-[1.8]` on ProviderStatusBar (interactive hover, intentional)
+- `DetailsCollapsible` chevron: `group-open:rotate-180` kept (static state, snaps instantly)
+- `Switch` thumb: `translate-x-[calc(100%-2px)]` kept (positioning, not animation)
+- Dialogs/sheets/tooltips/dropdowns: appear/disappear instantly now (no fade/slide)
 
-**Phase 1 — token-foundation** ✅
-- Rewrote `web/src/index.css` from 282 lines → ~420 lines
-- Added 209 CSS custom properties in oklch format
-- Warm cream palette (#faf9f4 base) replacing cool blue-purple
-- Extended token system: semantic backgrounds, text hierarchy, status colors, graph tokens, spacing/typography/dimension/layout scales
-- Dual mapping: shadcn standard vars (`--background`, `--primary`) + new semantic vars (`--bg-primary`, `--accent`)
-- `@theme` block rewritten with 17 extended color mappings
-- Shadow simplified to 3 levels, radius to direct px values
+### CSS token redesign (`index.css`, pushed as `752c68d`)
+User replaced the Phase 1 warm-cream extended token system with a new shadcn-standard token set:
+- **Dark mode re-added**: `@custom-variant dark` + `.dark {}` block (reverses Phase 2 removal)
+- New primary: `oklch(0.52 0.105 223.128)` — muted teal-blue (was bright blue `0.568 0.222 261`)
+- New accent: `oklch(0.609 0.126 221.723)` — similar direction
+- Simplified structure: no `@theme` block, no semantic extended vars (`--bg-primary`, `--text-strong`, etc.)
+- Shadow vars re-added (`--shadow-sm` through `--shadow-2xl`)
+- Font stacks changed (system-ui stack, not Space Grotesk/Space Mono)
 
-**Phase 2 — dark-mode-removal** ✅
-- `.dark {}` block deleted from index.css
-- `@custom-variant dark` removed
-- `dark:` utility classes removed from 21 component/page/feature files
-- `useThemeStore.ts` simplified — always resolves to light
-- `authFiles/constants.ts` + `quota/constants.ts`: dark color map entries removed, type updated
-- `QuotaCard.tsx`: simplified `resolvedTheme` branch removed
-- 3 remaining `dark:` references are icon type defs `{ light: string; dark: string }` — intentional, not CSS
-
-**Phase 3 — component-adoption** ✅
-- `DiffModal.tsx`: 25 hardcoded hex (#3fb950, #f85149, #388bfd) → `var(--success)`, `var(--error)`, `var(--accent)`
-- `sidebar.tsx`: SIDEBAR_WIDTH `16rem` → `260px`, SIDEBAR_WIDTH_ICON `3rem` → `60px`
-- `quotaStyles.ts`: kept decorative gold badge gradient as-is
-- `ModelMappingDiagram.tsx`: kept decorative category color array as-is
-
-**Phase 4 — verification** ✅
-- `bun run build` PASS (dist/index.html 2,143 kB)
-- `tsc --noEmit` PASS (zero errors)
-- `make build` PASS (Go binary compiled with embedded frontend)
-- `grep -c "^\.dark" index.css` → 0
-- `grep -c "@custom-variant dark" index.css` → 0
-- Agent-browser visual inspection: warm cream bg, blue accent, no regressions
+### Component fixes (pushed as `1df59bf`)
+- `PageTransition.tsx`: `bg-muted` intentionally removed from all 3 layer classNames (user decision)
+- `AuthFileCard.tsx`: Prettier reformat + removed stale `bg-muted` from disabled state
 
 ---
 
 ## State
 
-All 4 phases complete. **29 files changed, 286 insertions, 216 deletions.** Nothing committed yet.
+Working tree: **CLEAN** — nothing uncommitted, nothing staged.  
+All changes pushed to `origin/master`.
 
 ---
 
@@ -57,25 +45,32 @@ None.
 
 ---
 
-## Next Steps
+## Advisory (non-blocking, from `/check` report)
 
-→ **START HERE**: Commit all migration changes as a single conventional commit:
-```
-cd /home/tinhpt/Lab/llmhub
-git add web/src/ 
-git commit -m "feat(web): Design Token v2 — warm palette, extended semantic system, dark mode removal"
-```
-
-2. Optionally push to origin/master
-3. Optionally update design-token-new.json reference or document the migration in CLAUDE.md
+- **Focus rings removed**: Sheet/Dialog close buttons now have no visible keyboard focus indicator (`focus:ring-*` stripped). Only border-color changes on focus remain. Worth a pass if a11y is a priority.
+- **Dark mode tokens exist but no dark UI verification done**: `@custom-variant dark` was added but no visual QA of dark mode was performed this session.
+- **Extended semantic tokens gone**: `--bg-primary`, `--bg-secondary`, `--text-strong`, `--text-secondary`, etc. no longer defined. Any component using `var(--bg-primary)` or `var(--text-strong)` will silently fall back to browser defaults. Run `grep -r "var(--bg-primary)\|var(--text-strong)\|var(--text-muted)\|var(--bg-muted)\|var(--accent-hover)" web/src/` to audit.
 
 ---
 
-## Key Decisions Made
+## Next Steps
 
-- **oklch format** for all color values (not hex)
-- **Dual variable mapping**: shadcn vars preserved + new semantic vars added (no shadcn breakage)
-- **Light-only**: dark mode fully removed (no dark token definition exists yet)
-- **Decorative colors kept as-is**: quotaStyles gold badge, ModelMappingDiagram category colors — not tokenized
-- **Sidebar width**: `260px` / `60px` from design tokens (was `16rem` / `3rem`)
-- **3 files with intentional `dark:` icon refs**: OAuthPage, SystemPage, authFiles/constants — these are image variant types, not CSS
+→ **START HERE**: Audit for broken extended token references:
+```bash
+grep -rn "var(--bg-primary)\|var(--text-strong)\|var(--text-secondary)\|var(--text-muted)\|var(--bg-muted)\|var(--bg-elevated)\|var(--accent-hover)\|var(--accent-muted)\|var(--primary-hover)\|var(--primary-active)" web/src/
+```
+Fix any hits — these tokens no longer exist in the new `index.css`.
+
+2. Visual QA of the new token palette (run `make dev`, check Dashboard, Providers, AuthFiles pages in both light and dark mode)
+3. If dark mode toggle is needed, wire `.dark` class to `useThemeStore` (currently always resolves light)
+4. Optional: restore `bg-background` or `bg-sidebar` on PageTransition layers if page backgrounds look wrong during navigation
+
+---
+
+## Key Decisions Made This Session
+
+- **All motion stripped** except functional loaders (`animate-spin`, `animate-pulse`) — user's explicit request
+- **`bg-muted` removed from PageTransition layers** — user intentionally reverted the check-phase restoration
+- **`--graph-glow` CSS var kept** — color token for graph edges, not a motion effect
+- **CSS redesign direction**: user moved from extended warm-palette token system → clean shadcn-standard tokens with dark mode support
+- **`tw-animate-css` removed** — no longer imported, dropped from package.json

@@ -1,4 +1,4 @@
-current_phase: complete
+current_phase: none
 entry_phase: token-foundation
 phases_done: token-foundation, dark-mode-removal, component-adoption, verification
 spec: .kit/planning/SPEC.md
@@ -6,7 +6,8 @@ roadmap: .kit/planning/ROADMAP.md
 active_context: none
 active_plan: none
 latest_cook_run: none
-latest_check_report: .kit/reports/check/20260528-token-foundation.md
+latest_check_report: .kit/reports/check/20260528-remove-animations.md
 handoff: .kit/HANDOFF.md
 last_updated: 2026-05-28
-# All 4 phases complete. 29 files changed, uncommitted. Next: git commit.
+# Post-phase: all motion/glow stripped (46 files), CSS tokens redesigned with dark mode.
+# Working tree clean. Next: audit var(--bg-primary) etc. broken token refs in web/src/.

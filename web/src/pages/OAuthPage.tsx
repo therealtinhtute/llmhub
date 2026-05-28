@@ -455,7 +455,7 @@ export function OAuthPage() {
               : t(getAuthKey(provider.id, 'oauth_button'));
           const statusBadgeClassName = [
             'inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border border-border text-muted-foreground bg-muted leading-[1.5] rounded-sm',
-            state.status === 'success' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40' : '',
+            state.status === 'success' ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40' : '',
             state.status === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : ''
           ]
             .filter(Boolean)
@@ -555,7 +555,7 @@ export function OAuthPage() {
                         </Button>
                       </div>
                       {state.callbackStatus === 'success' && state.status === 'waiting' && (
-                        <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40 leading-[1.5]">
+                        <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-emerald-700 bg-emerald-100 border-emerald-400/40 leading-[1.5]">
                           {t('auth_login.oauth_callback_status_success')}
                         </div>
                       )}

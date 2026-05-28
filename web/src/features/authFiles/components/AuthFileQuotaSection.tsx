@@ -26,7 +26,7 @@ const quotaStyleMap = {
   quotaMessage: 'text-[12px] text-muted-foreground/60 text-center py-2',
   quotaMessageAction: 'w-full border-none bg-transparent cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline text-[12px] text-muted-foreground/60 text-center py-2',
   quotaError: 'text-[12px] text-destructive bg-destructive/[.08] border border-destructive py-1 px-2',
-  quotaWarning: 'text-[12px] text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border border-amber-400/30 py-1 px-2',
+  quotaWarning: 'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 py-1 px-2',
   quotaRow: 'flex flex-col gap-1',
   quotaRowHeader: 'flex items-center justify-between gap-2 min-w-0',
   quotaModel: 'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0',

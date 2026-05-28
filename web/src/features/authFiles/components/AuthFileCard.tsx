@@ -141,8 +141,8 @@ export function AuthFileCard(props: AuthFileCardProps) {
     : file.disabled
       ? 'text-muted-foreground bg-secondary/85 border border-border'
       : hasStatusWarning
-        ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border border-amber-400/30'
-        : 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border border-emerald-400/40';
+        ? 'text-amber-700 bg-amber-100 border border-amber-400/30'
+        : 'text-emerald-700 bg-emerald-100 border border-emerald-400/40';
 
   return (
     <div
@@ -227,7 +227,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
           </div>
 
           {rawStatusMessage && hasStatusWarning && (
-            <div className={`flex items-start gap-[6px] text-[11px] text-amber-700 dark:text-amber-400 bg-amber-100/60 dark:bg-amber-900/60 border border-amber-400/30 p-[8px_10px] break-words ${compact ? 'text-[11px] p-[6px_8px]' : ''}`} title={rawStatusMessage}>
+            <div className={`flex items-start gap-[6px] text-[11px] text-amber-700 bg-amber-100/60 border border-amber-400/30 p-[8px_10px] break-words ${compact ? 'text-[11px] p-[6px_8px]' : ''}`} title={rawStatusMessage}>
               <IconInfo className="shrink-0 mt-[1px]" size={14} />
               <span>{rawStatusMessage}</span>
             </div>
@@ -235,7 +235,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
           <div className={`flex flex-col p-[0_2px] ${compact ? 'gap-[6px]' : 'gap-2'}`}>
             <div className={`flex items-center flex-wrap ${compact ? 'gap-[6px]' : 'gap-2'}`}>
-              <div className={`inline-flex items-baseline gap-[5px] min-w-0 bg-emerald-100/50 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 ${compact ? 'py-[3px] px-2' : 'py-1 px-[10px]'}`}>
+              <div className={`inline-flex items-baseline gap-[5px] min-w-0 bg-emerald-100/50 text-emerald-700 ${compact ? 'py-[3px] px-2' : 'py-1 px-[10px]'}`}>
                 <span className={`font-semibold leading-none ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{t('stats.success')}</span>
                 <span className={`font-bold leading-none tabular-nums ${compact ? 'text-[12px]' : 'text-[13px]'}`}>{fileStats.success}</span>
               </div>

@@ -137,7 +137,7 @@ export const SecondaryScreenShell = forwardRef<HTMLDivElement, SecondaryScreenSh
                 }}
               >
                 <div
-                  className="pointer-events-auto inline-flex items-center gap-2 px-3 py-[10px] rounded-full border border-border/50 bg-background/80 backdrop-blur-md shadow-[0_4px_24px_rgba(0,0,0,0.08)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.4)] max-[1200px]:px-[10px] max-[1200px]:py-2"
+                  className="pointer-events-auto inline-flex items-center gap-2 px-3 py-[10px] rounded-full border border-border/50 bg-background/80 backdrop-blur-md shadow-[0_4px_24px_rgba(0,0,0,0.08)] max-[1200px]:px-[10px] max-[1200px]:py-2"
                   ref={floatingActionRef}
                 >
                   {floatingAction}

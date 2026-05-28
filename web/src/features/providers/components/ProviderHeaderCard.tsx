@@ -85,7 +85,7 @@ export function ProviderHeaderCard({
           {t('providersPage.header.updatedAt', { time: updatedAtLabel })}
         </span>
         {issueCount > 0 ? (
-          <span className="inline-flex items-center gap-1.5 py-1 px-[10px] border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 dark:text-amber-400 text-[12px] font-medium">
+          <span className="inline-flex items-center gap-1.5 py-1 px-[10px] border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 text-[12px] font-medium">
             {t('providersPage.header.issueCount', { count: issueCount })}
           </span>
         ) : null}

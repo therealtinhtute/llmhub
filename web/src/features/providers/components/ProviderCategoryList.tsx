@@ -95,14 +95,14 @@ export function ProviderCategoryList({
               {group.issue ? (
                 <IconAlertTriangle
                   size={16}
-                  className="text-amber-700 dark:text-amber-400 shrink-0"
+                  className="text-amber-700 shrink-0"
                 />
               ) : (
                 <span
                   className={[
                     'inline-flex items-center justify-center min-w-6 px-2 py-0.5 text-[11px] font-medium border flex-shrink-0',
                     group.id !== 'ampcode' && total === 0
-                      ? 'bg-[rgba(245,158,11,0.10)] border-[rgba(245,158,11,0.30)] text-amber-700 dark:text-amber-400'
+                      ? 'bg-[rgba(245,158,11,0.10)] border-[rgba(245,158,11,0.30)] text-amber-700'
                       : 'bg-background border-border text-muted-foreground',
                   ].join(' ')}
                 >

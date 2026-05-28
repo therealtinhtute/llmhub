@@ -73,7 +73,7 @@ interface QuotaCardProps<TState extends QuotaStatusState> {
 export function QuotaCard<TState extends QuotaStatusState>({
   item,
   quota,
-  resolvedTheme,
+  resolvedTheme: _resolvedTheme,
   i18nPrefix,
   cardIdleMessageKey,
   cardClassName,
@@ -86,8 +86,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
 
   const displayType = item.type || item.provider || defaultType;
   const typeColorSet = TYPE_COLORS[displayType] || TYPE_COLORS.unknown;
-  const typeColor: ThemeColors =
-    resolvedTheme === 'dark' && typeColorSet.dark ? typeColorSet.dark : typeColorSet.light;
+  const typeColor: ThemeColors = typeColorSet.light;
 
   const quotaStatus = quota?.status ?? 'idle';
   const quotaErrorMessage = resolveQuotaErrorMessage(

@@ -133,7 +133,7 @@ export function ProviderResourceTable({
   const renderStatus = (r: ProviderResource) => {
     if (r.brand === 'ampcode' && r.flags.isPlaceholder) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 dark:text-amber-400 text-[11px] font-medium whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 text-[11px] font-medium whitespace-nowrap">
           <IconAlertTriangle size={12} />
           {t('providersPage.status.notConfigured')}
         </span>
@@ -141,14 +141,14 @@ export function ProviderResourceTable({
     }
     if (r.disabled) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 dark:text-amber-400 text-[11px] font-medium whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 text-[11px] font-medium whitespace-nowrap">
           <IconAlertTriangle size={12} />
           {t('providersPage.status.disabled')}
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-emerald-400/40 bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium whitespace-nowrap">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-emerald-400/40 bg-emerald-100 text-emerald-700 text-[11px] font-medium whitespace-nowrap">
         <IconCheckCircle2 size={12} />
         {t('providersPage.status.active')}
       </span>
@@ -247,7 +247,7 @@ export function ProviderResourceTable({
                         const stats = resolveTotalStats(resource, usageByProvider);
                         return (
                           <div className="flex flex-wrap gap-1.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold leading-[1.4] border whitespace-nowrap tabular-nums bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-400/40">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold leading-[1.4] border whitespace-nowrap tabular-nums bg-emerald-100 text-emerald-700 border-emerald-400/40">
                               {t('stats.success')}: {stats.success}
                             </span>
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold leading-[1.4] border whitespace-nowrap tabular-nums bg-destructive/10 text-destructive border-destructive/30">

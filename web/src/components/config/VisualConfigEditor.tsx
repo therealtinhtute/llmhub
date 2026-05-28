@@ -416,7 +416,7 @@ export function VisualConfigEditor({
                 </span>
                 {section.errorCount > 0 ? (
                   <span
-                    className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-amber-100 dark:bg-amber-900 border border-amber-400/30 text-amber-700 dark:text-amber-400 text-[11px] font-bold flex-none"
+                    className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-amber-100 border border-amber-400/30 text-amber-700 text-[11px] font-bold flex-none"
                     aria-hidden="true"
                   >
                     {section.errorCount}
@@ -442,7 +442,7 @@ export function VisualConfigEditor({
               {activeSection?.title}
             </span>
             {hasValidationIssues ? (
-              <span className="inline-flex items-center min-h-[28px] px-[9px] border border-amber-400/30 bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-400 text-[12px] font-bold leading-tight">
+              <span className="inline-flex items-center min-h-[28px] px-[9px] border border-amber-400/30 bg-amber-100 text-amber-700 text-[12px] font-bold leading-tight">
                 {t('config_management.visual.validation.validation_blocked')}
               </span>
             ) : null}
@@ -480,7 +480,7 @@ export function VisualConfigEditor({
                   </span>
                   {section.errorCount > 0 ? (
                     <span
-                      className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 bg-amber-100 dark:bg-amber-900 border border-amber-400/30 text-amber-700 dark:text-amber-400 text-[11px] font-bold"
+                      className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 bg-amber-100 border border-amber-400/30 text-amber-700 text-[11px] font-bold"
                       aria-hidden="true"
                     >
                       {section.errorCount}

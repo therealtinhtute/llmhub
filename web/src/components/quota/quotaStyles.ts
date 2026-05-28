@@ -66,7 +66,7 @@ export const quotaStyles = {
   quotaError:
     'text-[12px] text-destructive bg-destructive/8 border border-destructive px-2 py-1',
   quotaWarning:
-    'text-[12px] text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border border-amber-400/30 px-2 py-1',
+    'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 px-2 py-1',
 
   // Codex plan row
   codexPlan: 'flex items-center gap-1.5 text-[12px] text-muted-foreground',

@@ -850,7 +850,7 @@ export function LogsPage() {
                                     ? 'text-primary bg-primary/12 border-primary/25'
                                     : '',
                                   line.level === 'warn'
-                                    ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30'
+                                    ? 'text-amber-700 bg-amber-100 border-amber-400/30'
                                     : '',
                                   line.level === 'error' || line.level === 'fatal'
                                     ? 'text-destructive bg-destructive/12 border-destructive/25'
@@ -889,11 +889,11 @@ export function LogsPage() {
                                 className={[
                                   'inline-flex items-center px-2 py-0.5 text-[12px] font-extrabold border whitespace-nowrap [font-variant-numeric:tabular-nums]',
                                   line.statusCode >= 200 && line.statusCode < 300
-                                    ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40'
+                                    ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40'
                                     : line.statusCode >= 300 && line.statusCode < 400
                                       ? 'text-primary bg-primary/12 border-primary/25'
                                       : line.statusCode >= 400 && line.statusCode < 500
-                                        ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30'
+                                        ? 'text-amber-700 bg-amber-100 border-amber-400/30'
                                         : 'text-destructive bg-destructive/10 border-destructive/30',
                                 ].join(' ')}
                               >
@@ -969,7 +969,7 @@ export function LogsPage() {
 
               {requestLogEnabled && (
                 <div>
-                  <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30 leading-[1.5]">{t('logs.error_logs_request_log_enabled')}</div>
+                  <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 bg-amber-100 border-amber-400/30 leading-[1.5]">{t('logs.error_logs_request_log_enabled')}</div>
                 </div>
               )}
 

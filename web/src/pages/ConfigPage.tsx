@@ -434,11 +434,11 @@ export function ConfigPage() {
 
   const getStatusClass = () => {
     if (error || hasVisualModeError || hasVisualValidationErrors)
-      return 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30';
+      return 'text-amber-700 bg-amber-100 border-amber-400/30';
     if (isDirty)
-      return 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30';
+      return 'text-amber-700 bg-amber-100 border-amber-400/30';
     if (!loading && !saving)
-      return 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/10 dark:bg-emerald-900/10 border-emerald-500/34';
+      return 'text-emerald-700 bg-emerald-100/10 border-emerald-500/34';
     return '';
   };
 

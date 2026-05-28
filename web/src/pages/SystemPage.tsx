@@ -470,7 +470,7 @@ export function SystemPage() {
         >
           <p className="text-sm text-muted-foreground mb-3">{t('system_info.models_desc')}</p>
           {modelStatus && (
-            <div className={`inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border leading-[1.5] rounded-sm ${modelStatus.type === 'success' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900 border-emerald-400/40' : modelStatus.type === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : modelStatus.type === 'warning' ? 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30' : 'border-border text-muted-foreground bg-muted'}`}>{modelStatus.message}</div>
+            <div className={`inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border leading-[1.5] rounded-sm ${modelStatus.type === 'success' ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40' : modelStatus.type === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : modelStatus.type === 'warning' ? 'text-amber-700 bg-amber-100 border-amber-400/30' : 'border-border text-muted-foreground bg-muted'}`}>{modelStatus.message}</div>
           )}
           {modelsError && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{modelsError}</div>}
           {modelsLoading ? (
@@ -541,7 +541,7 @@ export function SystemPage() {
         }
       >
         <div className="request-log-modal">
-          <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 border-amber-400/30 leading-[1.5]">{t('basic_settings.request_log_warning')}</div>
+          <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 bg-amber-100 border-amber-400/30 leading-[1.5]">{t('basic_settings.request_log_warning')}</div>
           <ToggleSwitch
             label={t('basic_settings.request_log_enable')}
             labelPosition="left"

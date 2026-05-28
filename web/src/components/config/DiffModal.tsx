@@ -191,7 +191,7 @@ function StatBar({ additions, deletions }: { additions: number; deletions: numbe
       {Array.from({ length: STAT_BLOCKS }, (_, i) => (
         <span
           key={i}
-          className={`w-2 h-2 rounded-[2px] ${i < addBlocks ? 'bg-[#3fb950]' : 'bg-[#f85149]'}`}
+          className={`w-2 h-2 rounded-[2px] ${i < addBlocks ? 'bg-[var(--success)]' : 'bg-[var(--error)]'}`}
         />
       ))}
     </span>
@@ -250,8 +250,8 @@ export function DiffModal({
               </svg>
               <span className="text-[13px] max-md:text-[12px] font-semibold font-mono text-foreground">config.yaml</span>
               <span className="ml-auto flex items-center gap-2 text-[12px] max-md:text-[11px] font-bold font-mono">
-                <span className="text-[#3fb950]">+{diff.additions}</span>
-                <span className="text-[#f85149]">-{diff.deletions}</span>
+                <span className="text-[var(--success)]">+{diff.additions}</span>
+                <span className="text-[var(--error)]">-{diff.deletions}</span>
                 <StatBar additions={diff.additions} deletions={diff.deletions} />
               </span>
             </div>
@@ -261,10 +261,10 @@ export function DiffModal({
               {diff.hunks.map((hunk, hunkIdx) => (
                 <div key={hunkIdx} className="[&+&]:border-t [&+&]:border-border">
                   {/* Hunk header */}
-                  <div className="flex items-center bg-[color-mix(in_srgb,#388bfd_8%,hsl(var(--background)))] border-b border-[color-mix(in_srgb,#388bfd_12%,hsl(var(--border)))] text-[color-mix(in_srgb,#388bfd_75%,hsl(var(--muted-foreground)))] min-h-[20px]">
-                    <span className="w-[50px] max-md:w-9 flex-shrink-0 flex items-center justify-center self-stretch border-r border-[color-mix(in_srgb,#388bfd_12%,hsl(var(--border)))]">
+                  <div className="flex items-center bg-[color-mix(in_srgb,var(--accent)_8%,hsl(var(--background)))] border-b border-[color-mix(in_srgb,var(--accent)_12%,hsl(var(--border)))] text-[color-mix(in_srgb,var(--accent)_75%,hsl(var(--muted-foreground)))] min-h-[20px]">
+                    <span className="w-[50px] max-md:w-9 flex-shrink-0 flex items-center justify-center self-stretch border-r border-[color-mix(in_srgb,var(--accent)_12%,hsl(var(--border)))]">
                       <svg
-                        className="text-[color-mix(in_srgb,#388bfd_70%,hsl(var(--muted-foreground)))] opacity-70"
+                        className="text-[color-mix(in_srgb,var(--accent)_70%,hsl(var(--muted-foreground)))] opacity-70"
                         viewBox="0 0 16 16"
                         width="12"
                         height="12"
@@ -275,7 +275,7 @@ export function DiffModal({
                         />
                       </svg>
                     </span>
-                    <span className="w-[50px] max-md:w-9 flex-shrink-0 border-r border-[color-mix(in_srgb,#388bfd_12%,hsl(var(--border)))]" />
+                    <span className="w-[50px] max-md:w-9 flex-shrink-0 border-r border-[color-mix(in_srgb,var(--accent)_12%,hsl(var(--border)))]" />
                     <span className="py-1 pl-[28px] max-md:pl-5 pr-2 text-[12px] whitespace-nowrap">
                       @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
                     </span>
@@ -285,19 +285,19 @@ export function DiffModal({
                     const isAddition = line.type === 'addition';
                     const isDeletion = line.type === 'deletion';
                     const lineRowClass = isAddition
-                      ? 'flex min-h-[20px] bg-[color-mix(in_srgb,#3fb950_8%,hsl(var(--background)))]'
+                      ? 'flex min-h-[20px] bg-[color-mix(in_srgb,var(--success)_8%,hsl(var(--background)))]'
                       : isDeletion
-                        ? 'flex min-h-[20px] bg-[color-mix(in_srgb,#f85149_8%,hsl(var(--background)))]'
+                        ? 'flex min-h-[20px] bg-[color-mix(in_srgb,var(--error)_8%,hsl(var(--background)))]'
                         : 'flex min-h-[20px] bg-background';
                     const gutterClass = isAddition
-                      ? 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-[color-mix(in_srgb,#3fb950_60%,hsl(var(--muted-foreground)))] select-none tabular-nums border-r border-[color-mix(in_srgb,#3fb950_18%,hsl(var(--border)))] box-border bg-[color-mix(in_srgb,#3fb950_12%,hsl(var(--background)))]'
+                      ? 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-[color-mix(in_srgb,var(--success)_60%,hsl(var(--muted-foreground)))] select-none tabular-nums border-r border-[color-mix(in_srgb,var(--success)_18%,hsl(var(--border)))] box-border bg-[color-mix(in_srgb,var(--success)_12%,hsl(var(--background)))]'
                       : isDeletion
-                        ? 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-[color-mix(in_srgb,#f85149_60%,hsl(var(--muted-foreground)))] select-none tabular-nums border-r border-[color-mix(in_srgb,#f85149_18%,hsl(var(--border)))] box-border bg-[color-mix(in_srgb,#f85149_12%,hsl(var(--background)))]'
+                        ? 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-[color-mix(in_srgb,var(--error)_60%,hsl(var(--muted-foreground)))] select-none tabular-nums border-r border-[color-mix(in_srgb,var(--error)_18%,hsl(var(--border)))] box-border bg-[color-mix(in_srgb,var(--error)_12%,hsl(var(--background)))]'
                         : 'w-[50px] max-md:w-9 flex-shrink-0 px-2 text-right text-muted-foreground/60 select-none tabular-nums border-r border-border/60 box-border';
                     const prefixClass = isAddition
-                      ? 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-[#3fb950] max-md:text-[11px]'
+                      ? 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-[var(--success)] max-md:text-[11px]'
                       : isDeletion
-                        ? 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-[#f85149] max-md:text-[11px]'
+                        ? 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-[var(--error)] max-md:text-[11px]'
                         : 'w-5 max-md:w-4 flex-shrink-0 text-center select-none font-bold text-muted-foreground/60 max-md:text-[11px]';
 
                     return (

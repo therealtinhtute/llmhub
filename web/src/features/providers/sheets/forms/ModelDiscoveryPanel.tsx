@@ -77,8 +77,8 @@ export function ModelDiscoveryPanel({
     setSelected(new Set());
   };
 
-  const connectivityBtnCls = "inline-flex items-center gap-1.5 h-7 px-3 border border-border bg-background text-foreground text-[12px] font-medium cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
-  const connectivityBtnGhostCls = "inline-flex items-center gap-1.5 h-6 px-2 border border-transparent bg-transparent text-muted-foreground text-[11px] font-medium cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
+  const connectivityBtnCls = "inline-flex items-center gap-1.5 h-7 px-3 border border-border bg-background text-foreground text-[12px] font-medium cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed";
+  const connectivityBtnGhostCls = "inline-flex items-center gap-1.5 h-6 px-2 border border-transparent bg-transparent text-muted-foreground text-[11px] font-medium cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed";
 
   return (
     <div className="flex flex-col gap-[10px] p-3 border border-border bg-muted">
@@ -89,7 +89,7 @@ export function ModelDiscoveryPanel({
           </span>
           <input
             type="search"
-            className="w-full h-8 py-1.5 px-[10px] pl-[30px] border border-border bg-background text-foreground text-[12px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)]"
+            className="w-full h-8 py-1.5 px-[10px] pl-[30px] border border-border bg-background text-foreground text-[12px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('providersPage.discovery.searchPlaceholder')}
@@ -196,7 +196,7 @@ export function ModelDiscoveryPanel({
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 h-[30px] px-[14px] border border-transparent bg-primary text-primary-foreground text-[12px] font-medium cursor-pointer hover:bg-[var(--primary-hover)] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1.5 h-[30px] px-[14px] border border-transparent bg-primary text-primary-foreground text-[12px] font-medium cursor-pointer hover:bg-[var(--primary-hover)] disabled:opacity-60 disabled:cursor-not-allowed"
           onClick={handleApply}
           disabled={mutating || selected.size === 0}
         >

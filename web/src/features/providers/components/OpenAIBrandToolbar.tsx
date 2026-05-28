@@ -91,7 +91,7 @@ export function OpenAIBrandToolbar({
         />
         <button
           type="button"
-          className="inline-flex items-center justify-center w-7 h-7 border border-border bg-background text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground transition-colors"
+          className="inline-flex items-center justify-center w-7 h-7 border border-border bg-background text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground"
           onClick={() => onSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
           aria-label={
             sortDir === 'asc'
@@ -115,7 +115,7 @@ export function OpenAIBrandToolbar({
       <div className="relative" ref={containerRef}>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 h-7 px-[10px] border border-border bg-background text-foreground text-[12px] cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1.5 h-7 px-[10px] border border-border bg-background text-foreground text-[12px] cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed"
           onClick={() => setFilterOpen((v) => !v)}
           disabled={availableModels.length === 0}
         >

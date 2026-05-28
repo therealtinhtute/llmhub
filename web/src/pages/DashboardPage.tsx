@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  IconKey,
-  IconBot,
-  IconFileText,
-  IconSatellite
-} from '@/components/ui/icons';
+import { IconKey, IconBot, IconFileText, IconSatellite } from '@/components/ui/icons';
 import { useAuthStore, useConfigStore, useModelsStore } from '@/stores';
 import { apiKeysApi, providersApi, authFilesApi } from '@/services/api';
 
@@ -53,14 +48,14 @@ export function DashboardPage() {
     authFiles: number | null;
   }>({
     apiKeys: null,
-    authFiles: null
+    authFiles: null,
   });
 
   const [providerStats, setProviderStats] = useState<ProviderStats>({
     gemini: null,
     codex: null,
     claude: null,
-    openai: null
+    openai: null,
   });
 
   const [loading, setLoading] = useState(true);
@@ -150,25 +145,26 @@ export function DashboardPage() {
     const fetchStats = async () => {
       setLoading(true);
       try {
-        const [keysRes, filesRes, geminiRes, codexRes, claudeRes, openaiRes] = await Promise.allSettled([
-          apiKeysApi.list(),
-          authFilesApi.list(),
-          providersApi.getGeminiKeys(),
-          providersApi.getCodexConfigs(),
-          providersApi.getClaudeConfigs(),
-          providersApi.getOpenAIProviders()
-        ]);
+        const [keysRes, filesRes, geminiRes, codexRes, claudeRes, openaiRes] =
+          await Promise.allSettled([
+            apiKeysApi.list(),
+            authFilesApi.list(),
+            providersApi.getGeminiKeys(),
+            providersApi.getCodexConfigs(),
+            providersApi.getClaudeConfigs(),
+            providersApi.getOpenAIProviders(),
+          ]);
 
         setStats({
           apiKeys: keysRes.status === 'fulfilled' ? keysRes.value.length : null,
-          authFiles: filesRes.status === 'fulfilled' ? filesRes.value.files.length : null
+          authFiles: filesRes.status === 'fulfilled' ? filesRes.value.files.length : null,
         });
 
         setProviderStats({
           gemini: geminiRes.status === 'fulfilled' ? geminiRes.value.length : null,
           codex: codexRes.status === 'fulfilled' ? codexRes.value.length : null,
           claude: claudeRes.status === 'fulfilled' ? claudeRes.value.length : null,
-          openai: openaiRes.status === 'fulfilled' ? openaiRes.value.length : null
+          openai: openaiRes.status === 'fulfilled' ? openaiRes.value.length : null,
         });
       } finally {
         setLoading(false);
@@ -208,7 +204,7 @@ export function DashboardPage() {
       icon: <IconKey size={24} />,
       path: '/config',
       loading: loading && stats.apiKeys === null,
-      sublabel: t('nav.config_management')
+      sublabel: t('nav.config_management'),
     },
     {
       label: t('nav.ai_providers'),
@@ -221,9 +217,9 @@ export function DashboardPage() {
             gemini: providerStats.gemini ?? '-',
             codex: providerStats.codex ?? '-',
             claude: providerStats.claude ?? '-',
-            openai: providerStats.openai ?? '-'
+            openai: providerStats.openai ?? '-',
           })
-        : undefined
+        : undefined,
     },
     {
       label: t('nav.auth_files'),
@@ -231,7 +227,7 @@ export function DashboardPage() {
       icon: <IconFileText size={24} />,
       path: '/auth-files',
       loading: loading && stats.authFiles === null,
-      sublabel: t('dashboard.oauth_credentials')
+      sublabel: t('dashboard.oauth_credentials'),
     },
     {
       label: t('dashboard.available_models'),
@@ -239,8 +235,8 @@ export function DashboardPage() {
       icon: <IconSatellite size={24} />,
       path: '/system',
       loading: modelsLoading,
-      sublabel: t('dashboard.available_models_desc')
-    }
+      sublabel: t('dashboard.available_models_desc'),
+    },
   ];
 
   const routingStrategyRaw = config?.routingStrategy?.trim() || '';
@@ -267,12 +263,12 @@ export function DashboardPage() {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
   });
 
   const formattedTime = currentTime.toLocaleTimeString(i18n.language, {
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 
   return (
@@ -285,16 +281,16 @@ export function DashboardPage() {
         <div
           className="absolute w-[420px] h-[420px] rounded-full top-[-140px] right-[-80px]"
           style={{
-            background: 'radial-gradient(circle, color-mix(in srgb, var(--primary) 6%, transparent), transparent 70%)',
-            animation: 'orbFloat 22s ease-in-out infinite alternate'
-          }}
+            background:
+              'radial-gradient(circle, color-mix(in srgb, var(--primary) 6%, transparent), transparent 70%)',
+            }}
         />
         <div
           className="absolute w-[320px] h-[320px] rounded-full bottom-[18%] left-[-100px]"
           style={{
-            background: 'radial-gradient(circle, color-mix(in srgb, var(--success) 4%, transparent), transparent 70%)',
-            animation: 'orbFloat 28s ease-in-out infinite alternate-reverse'
-          }}
+            background:
+              'radial-gradient(circle, color-mix(in srgb, var(--success) 4%, transparent), transparent 70%)',
+            }}
         />
       </div>
 
@@ -302,43 +298,36 @@ export function DashboardPage() {
       <section
         className="relative z-[1] flex items-end justify-between gap-6 px-8 py-12 overflow-hidden max-md:flex-col max-md:items-start max-md:px-6 max-md:py-8"
         style={{
-          background: 'linear-gradient(135deg, color-mix(in srgb, var(--background) 92%, transparent), color-mix(in srgb, var(--muted) 80%, transparent))',
+          background:
+            'linear-gradient(135deg, color-mix(in srgb, var(--background) 92%, transparent), color-mix(in srgb, var(--muted) 80%, transparent))',
           border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
-          animation: 'heroEnter 0.6s ease-out both'
         }}
       >
         <span
           className="absolute top-1/2 left-8 -translate-y-1/2 text-[104px] font-black leading-none uppercase text-foreground opacity-[0.04] whitespace-nowrap pointer-events-none select-none max-md:text-[58px] max-md:left-6"
-          style={{ animation: 'watermarkEnter 0.8s ease-out 0.1s both' }}
           aria-hidden="true"
         >
           OVERVIEW
         </span>
         <div
           className="relative z-[1] flex flex-col gap-1"
-          style={{ animation: 'fadeSlideUp 0.5s ease-out 0.1s both' }}
         >
-          <span className="text-[13px] font-semibold uppercase text-primary">
-            {t(greetingKey)}
-          </span>
+          <span className="text-[13px] font-semibold uppercase text-primary">{t(greetingKey)}</span>
           <h1
             className="m-0 text-[44px] font-extrabold leading-[1.1] text-foreground max-md:text-[34px]"
-            style={{ animation: 'fadeSlideUp 0.5s ease-out 0.2s both' }}
           >
             {t('dashboard.welcome_back')}
           </h1>
           <p
             className="mt-1 text-[15px] text-muted-foreground leading-[1.5]"
-            style={{ animation: 'fadeSlideUp 0.5s ease-out 0.3s both' }}
           >
             {t(caringKey)}
           </p>
         </div>
         <div
           className="relative z-[1] flex flex-col items-end gap-2 shrink-0 max-md:items-start max-md:flex-row max-md:flex-wrap max-md:gap-2"
-          style={{ animation: 'fadeSlideUp 0.5s ease-out 0.35s both' }}
         >
           <div className="flex flex-col items-end gap-[2px] max-md:items-start">
             <span className="text-[22px] font-bold text-foreground tabular-nums leading-[1.2]">
@@ -352,7 +341,7 @@ export function DashboardPage() {
               background: 'color-mix(in srgb, var(--muted) 80%, transparent)',
               border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
               backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)'
+              WebkitBackdropFilter: 'blur(8px)',
             }}
           >
             <span
@@ -362,13 +351,8 @@ export function DashboardPage() {
                   ? 'bg-success [box-shadow:0_0_6px_color-mix(in_srgb,var(--success)_50%,transparent)]'
                   : connectionStatus === 'connecting'
                     ? 'bg-warning'
-                    : 'bg-destructive'
+                    : 'bg-destructive',
               ].join(' ')}
-              style={
-                connectionStatus === 'connecting'
-                  ? { animation: 'dotPulse 1s ease-in-out infinite' }
-                  : undefined
-              }
             />
             <span className="font-semibold text-foreground">
               {serverVersion
@@ -401,9 +385,8 @@ export function DashboardPage() {
               key={stat.path}
               to={stat.path}
               className={[
-                'flex flex-col gap-4 p-6 text-decoration-none transition-all duration-150',
-                'hover:-translate-y-[2px]',
-                index === 0 ? 'row-span-2 justify-center max-[900px]:row-auto' : ''
+                'flex flex-col gap-4 p-6 text-decoration-none',
+                index === 0 ? 'row-span-2 justify-center max-[900px]:row-auto' : '',
               ].join(' ')}
               style={{
                 background:
@@ -415,14 +398,12 @@ export function DashboardPage() {
                 WebkitBackdropFilter: 'blur(12px)',
                 boxShadow: '0 18px 42px rgb(0 0 0 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.03)',
                 textDecoration: 'none',
-                animationDelay: `${index * 80}ms`,
-                animation: 'cardEnter 0.4s ease-out both'
               }}
             >
               <div
-                className="flex items-center justify-center w-11 h-11 text-primary transition-colors duration-150"
+                className="flex items-center justify-center w-11 h-11 text-primary"
                 style={{
-                  background: 'color-mix(in srgb, var(--primary) 10%, var(--muted))'
+                  background: 'color-mix(in srgb, var(--primary) 10%, var(--muted))',
                 }}
               >
                 {stat.icon}
@@ -431,7 +412,7 @@ export function DashboardPage() {
                 <span
                   className={[
                     'font-extrabold text-foreground tabular-nums leading-[1.2]',
-                    index === 0 ? 'text-[44px] max-[900px]:text-[32px]' : 'text-[28px]'
+                    index === 0 ? 'text-[44px] max-[900px]:text-[32px]' : 'text-[28px]',
                   ].join(' ')}
                 >
                   {stat.loading ? '...' : stat.value}
@@ -452,51 +433,54 @@ export function DashboardPage() {
       {config && (
         <section
           className="relative z-[1] flex flex-col gap-4"
-          style={{ animation: 'cardEnter 0.4s ease-out 0.5s both' }}
         >
           <h2 className="text-[12px] font-bold uppercase text-muted-foreground m-0 mb-3">
             {t('dashboard.current_config')}
           </h2>
           <div className="flex flex-wrap gap-2">
             <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px] transition-colors duration-150"
+              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
               style={{
                 background: 'color-mix(in srgb, var(--background) 68%, transparent)',
                 border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
                 backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)'
+                WebkitBackdropFilter: 'blur(10px)',
               }}
             >
               <span className="text-muted-foreground whitespace-nowrap">
                 {t('basic_settings.debug_enable')}
               </span>
-              <span className={`font-semibold ${config.debug ? 'text-success' : 'text-muted-foreground'}`}>
+              <span
+                className={`font-semibold ${config.debug ? 'text-success' : 'text-muted-foreground'}`}
+              >
                 {config.debug ? t('common.yes') : t('common.no')}
               </span>
             </div>
             <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px] transition-colors duration-150"
+              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
               style={{
                 background: 'color-mix(in srgb, var(--background) 68%, transparent)',
                 border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
                 backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)'
+                WebkitBackdropFilter: 'blur(10px)',
               }}
             >
               <span className="text-muted-foreground whitespace-nowrap">
                 {t('basic_settings.logging_to_file_enable')}
               </span>
-              <span className={`font-semibold ${config.loggingToFile ? 'text-success' : 'text-muted-foreground'}`}>
+              <span
+                className={`font-semibold ${config.loggingToFile ? 'text-success' : 'text-muted-foreground'}`}
+              >
                 {config.loggingToFile ? t('common.yes') : t('common.no')}
               </span>
             </div>
             <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px] transition-colors duration-150"
+              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
               style={{
                 background: 'color-mix(in srgb, var(--background) 68%, transparent)',
                 border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
                 backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)'
+                WebkitBackdropFilter: 'blur(10px)',
               }}
             >
               <span className="text-muted-foreground whitespace-nowrap">
@@ -505,28 +489,30 @@ export function DashboardPage() {
               <span className="font-semibold text-foreground">{config.requestRetry ?? 0}</span>
             </div>
             <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px] transition-colors duration-150"
+              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
               style={{
                 background: 'color-mix(in srgb, var(--background) 68%, transparent)',
                 border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
                 backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)'
+                WebkitBackdropFilter: 'blur(10px)',
               }}
             >
               <span className="text-muted-foreground whitespace-nowrap">
                 {t('basic_settings.ws_auth_enable')}
               </span>
-              <span className={`font-semibold ${config.wsAuth ? 'text-success' : 'text-muted-foreground'}`}>
+              <span
+                className={`font-semibold ${config.wsAuth ? 'text-success' : 'text-muted-foreground'}`}
+              >
                 {config.wsAuth ? t('common.yes') : t('common.no')}
               </span>
             </div>
             <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px] transition-colors duration-150"
+              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
               style={{
                 background: 'color-mix(in srgb, var(--background) 68%, transparent)',
                 border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
                 backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)'
+                WebkitBackdropFilter: 'blur(10px)',
               }}
             >
               <span className="text-muted-foreground whitespace-nowrap">
@@ -540,12 +526,12 @@ export function DashboardPage() {
             </div>
             {config.proxyUrl && (
               <div
-                className="inline-flex items-center gap-2 px-[14px] py-[6px] text-[13px] transition-colors duration-150 basis-full"
+                className="inline-flex items-center gap-2 px-[14px] py-[6px] text-[13px] basis-full"
                 style={{
                   background: 'color-mix(in srgb, var(--background) 68%, transparent)',
                   border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
                   backdropFilter: 'blur(10px)',
-                  WebkitBackdropFilter: 'blur(10px)'
+                  WebkitBackdropFilter: 'blur(10px)',
                 }}
               >
                 <span className="text-muted-foreground whitespace-nowrap">
@@ -557,7 +543,10 @@ export function DashboardPage() {
               </div>
             )}
           </div>
-          <Link to="/config" className="inline-flex items-center text-[13px] text-primary no-underline mt-1 hover:underline transition-colors duration-150">
+          <Link
+            to="/config"
+            className="inline-flex items-center text-[13px] text-primary no-underline mt-1 hover:underline"
+          >
             {t('dashboard.edit_settings')} →
           </Link>
         </section>

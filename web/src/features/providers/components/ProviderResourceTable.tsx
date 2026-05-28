@@ -286,7 +286,7 @@ export function ProviderResourceTable({
                   ) : null}
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
+                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
                     aria-label={t('providersPage.actions.view')}
                     title={t('providersPage.actions.view')}
                     onClick={(e) => {
@@ -298,7 +298,7 @@ export function ProviderResourceTable({
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
+                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-muted-foreground cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
                     aria-label={t('providersPage.actions.edit')}
                     title={t('providersPage.actions.edit')}
                     disabled={disableMutations}
@@ -312,7 +312,7 @@ export function ProviderResourceTable({
                   {isAmpcode ? (
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
+                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
                       aria-label={t('providersPage.actions.clear')}
                       title={t('providersPage.actions.clear')}
                       disabled={disableMutations || resource.flags.isPlaceholder}
@@ -326,7 +326,7 @@ export function ProviderResourceTable({
                   ) : (
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1 transition-colors"
+                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
                       aria-label={t('providersPage.actions.delete')}
                       title={t('providersPage.actions.delete')}
                       disabled={disableMutations}

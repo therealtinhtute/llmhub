@@ -45,8 +45,8 @@ export function DiagramContextMenu({
 
   const { type, data } = contextMenu;
 
-  const menuItemCls = 'px-3 py-2 text-[13px] text-foreground cursor-pointer transition-colors duration-100 flex items-center gap-2 hover:bg-muted';
-  const menuItemDangerCls = 'px-3 py-2 text-[13px] text-destructive cursor-pointer transition-colors duration-100 flex items-center gap-2 hover:bg-destructive/10';
+  const menuItemCls = 'px-3 py-2 text-[13px] text-foreground cursor-pointer flex items-center gap-2 hover:bg-muted';
+  const menuItemDangerCls = 'px-3 py-2 text-[13px] text-destructive cursor-pointer flex items-center gap-2 hover:bg-destructive/10';
 
   const renderBackground = () => (
     <div className={menuItemCls} onClick={onAddAlias}>

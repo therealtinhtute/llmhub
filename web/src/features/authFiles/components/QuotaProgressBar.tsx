@@ -19,7 +19,7 @@ export function QuotaProgressBar({ percent, highThreshold, mediumThreshold }: Qu
 
   return (
     <div className="h-2 bg-secondary overflow-hidden">
-      <div className={`h-full transition-[width] duration-200 ease-out ${fillColor}`} style={{ width: `${widthPercent}%` }} />
+      <div className={`h-full ${fillColor}`} style={{ width: `${widthPercent}%` }} />
     </div>
   );
 }

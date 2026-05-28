@@ -50,7 +50,7 @@ export function ProviderColumn({
                 if (el) providerRefs.current?.set(provider, el);
                 else providerRefs.current?.delete(provider);
               }}
-              className="bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative transition-all duration-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:-translate-y-px hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)] hover:z-10 border-l-[3px] pl-2 gap-2 cursor-pointer"
+              className="bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:z-10 border-l-[3px] pl-2 gap-2 cursor-pointer"
               style={{ borderLeftColor: getProviderColor(provider) }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -60,7 +60,7 @@ export function ProviderColumn({
             >
               <button
                 type="button"
-                className="shrink-0 w-6 h-6 flex items-center justify-center border-none bg-muted cursor-pointer text-muted-foreground transition-[background-color,color] duration-150 hover:bg-border hover:text-foreground"
+                className="shrink-0 w-6 h-6 flex items-center justify-center border-none bg-muted cursor-pointer text-muted-foreground hover:bg-border hover:text-foreground"
                 onClick={() => onToggleCollapse(provider)}
                 aria-label={collapsed ? expandLabel : collapseLabel}
                 title={collapsed ? expandLabel : collapseLabel}
@@ -139,7 +139,7 @@ export function SourceColumn({
               if (el) sourceRefs.current?.set(source.id, el);
               else sourceRefs.current?.delete(source.id);
             }}
-            className={`bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative transition-all duration-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:-translate-y-px hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)] hover:z-10 cursor-grab active:cursor-grabbing ${draggedSource?.id === source.id ? 'opacity-50 border-dashed' : ''} ${dropTargetSource === source.id ? 'bg-muted border-primary border-[2px]' : ''} ${selectedSourceId === source.id ? 'border-primary bg-muted shadow-[0_0_0_2px_hsl(var(--primary)/0.18)]' : ''}`}
+            className={`bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:z-10 cursor-grab active:cursor-grabbing ${draggedSource?.id === source.id ? 'opacity-50 border-dashed' : ''} ${dropTargetSource === source.id ? 'bg-muted border-primary border-[2px]' : ''} ${selectedSourceId === source.id ? 'border-primary bg-muted' : ''}`}
             onClick={() => onSelectSource?.(source)}
             draggable={draggable}
             onDragStart={(e) => onDragStart(e, source)}
@@ -221,7 +221,7 @@ export function AliasColumn({
             if (el) aliasRefs.current?.set(node.id, el);
             else aliasRefs.current?.delete(node.id);
           }}
-          className={`bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative transition-all duration-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:-translate-y-px hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)] hover:z-10 cursor-grab active:cursor-grabbing ${dropTargetAlias === node.alias ? 'bg-muted border-primary border-[2px]' : ''} ${draggedAlias === node.alias ? 'opacity-50 border-dashed' : ''} ${selectedAlias === node.alias ? 'border-primary bg-muted shadow-[0_0_0_2px_hsl(var(--primary)/0.18)]' : ''}`}
+          className={`bg-background border border-border p-[10px_14px] text-[13px] text-foreground flex items-center justify-between w-full max-w-[280px] relative shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:border-primary hover:z-10 cursor-grab active:cursor-grabbing ${dropTargetAlias === node.alias ? 'bg-muted border-primary border-[2px]' : ''} ${draggedAlias === node.alias ? 'opacity-50 border-dashed' : ''} ${selectedAlias === node.alias ? 'border-primary bg-muted' : ''}`}
           onClick={() => onSelectAlias?.(node.alias)}
           draggable={draggable}
           onDragStart={(e) => onDragStart(e, node.alias)}

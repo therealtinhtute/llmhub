@@ -356,7 +356,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
           <div className="flex gap-2 items-center max-[900px]:flex-col max-[900px]:items-stretch [&_input]:flex-1">
             <input
               id={apiKeyInputId}
-              className="min-h-[42px] bg-muted border border-border shadow-none focus:bg-background focus:border-foreground focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--foreground)_12%,transparent)] w-full px-3 py-2 text-sm"
+              className="min-h-[42px] bg-muted border border-border shadow-none focus:bg-background focus:border-foreground w-full px-3 py-2 text-sm"
               placeholder={t('config_management.visual.api_keys.input_placeholder')}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}

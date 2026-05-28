@@ -356,7 +356,7 @@ export function AuthFilesOAuthExcludedEditPage() {
                       <button
                         key={option}
                         type="button"
-                        className={`inline-flex items-center px-[10px] py-1 border text-[12px] cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-primary border-primary text-white hover:bg-primary hover:border-primary hover:text-white' : 'border-border bg-muted text-muted-foreground hover:border-primary hover:text-foreground hover:bg-secondary'}`}
+                        className={`inline-flex items-center px-[10px] py-1 border text-[12px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-primary border-primary text-white hover:bg-primary hover:border-primary hover:text-white' : 'border-border bg-muted text-muted-foreground hover:border-primary hover:text-foreground hover:bg-secondary'}`}
                         onClick={() => updateProvider(option)}
                         disabled={disableControls || saving}
                       >
@@ -405,7 +405,7 @@ export function AuthFilesOAuthExcludedEditPage() {
                       checked={checked}
                       disabled={disableControls || saving}
                       onChange={(value) => toggleModel(model.id, value)}
-                      className="w-full items-start py-[10px] border-b border-border last:border-b-0 hover:bg-accent transition-colors"
+                      className="w-full items-start py-[10px] border-b border-border last:border-b-0 hover:bg-accent"
                       labelClassName="flex flex-col gap-[2px] min-w-0 flex-1"
                       label={
                         <>

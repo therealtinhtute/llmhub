@@ -96,7 +96,7 @@ export function ProviderResourcePanel({
               </span>
               <input
                 type="search"
-                className="w-full h-9 pl-9 pr-3 border border-border bg-background text-foreground text-[13px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)]"
+                className="w-full h-9 pl-9 pr-3 border border-border bg-background text-foreground text-[13px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary"
                 value={filter}
                 onChange={(event) => onFilterChange(event.target.value)}
                 placeholder={t('providersPage.table.filterPlaceholder')}

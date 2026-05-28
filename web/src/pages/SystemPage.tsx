@@ -355,7 +355,7 @@ export function SystemPage() {
           <div className="grid grid-cols-2 gap-3 max-[900px]:grid-cols-1">
             <button
               type="button"
-              className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left cursor-pointer transition-transform hover:-translate-y-px hover:border-primary active:translate-y-0"
+              className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left cursor-pointer"
               onClick={handleInfoVersionTap}
             >
               <div className="flex items-start justify-between gap-2 min-h-[40px]">
@@ -403,7 +403,7 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-all hover:bg-accent hover:border-primary hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit hover:bg-accent hover:border-primary"
             >
               <div className={linkIconClass('github')}>
                 <IconGithub size={22} />
@@ -421,7 +421,7 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-all hover:bg-accent hover:border-primary hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit hover:bg-accent hover:border-primary"
             >
               <div className={linkIconClass('github')}>
                 <IconCode size={22} />
@@ -439,7 +439,7 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-all hover:bg-accent hover:border-primary hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit hover:bg-accent hover:border-primary"
             >
               <div className={linkIconClass('docs')}>
                 <IconBookOpen size={22} />

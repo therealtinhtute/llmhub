@@ -600,7 +600,7 @@ export function AuthFilesPage() {
           return (
             <button
               key={type}
-              className={`inline-flex items-center gap-2 py-[7px] pr-3 pl-2 text-[13px] font-semibold leading-[1.2] border border-border/60 bg-muted/70 text-muted-foreground cursor-pointer whitespace-nowrap transition-colors ${isActive ? 'border-[color-mix(in_srgb,var(--filter-color)_50%,hsl(var(--border)))] bg-[color-mix(in_srgb,var(--filter-surface)_22%,hsl(var(--muted)))] text-foreground' : ''}`}
+              className={`inline-flex items-center gap-2 py-[7px] pr-3 pl-2 text-[13px] font-semibold leading-[1.2] border border-border/60 bg-muted/70 text-muted-foreground cursor-pointer whitespace-nowrap ${isActive ? 'border-[color-mix(in_srgb,var(--filter-color)_50%,hsl(var(--border)))] bg-[color-mix(in_srgb,var(--filter-surface)_22%,hsl(var(--muted)))] text-foreground' : ''}`}
               style={buttonStyle}
               onClick={() => {
                 setFilter(type);
@@ -731,7 +731,7 @@ export function AuthFilesPage() {
                 <div className="flex flex-col gap-[6px] min-w-0">
                   <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.page_size_label')}</label>
                   <input
-                    className="w-full px-3 py-2 border border-border/70 bg-muted text-foreground text-[14px] cursor-text h-[42px] box-border focus:outline-none focus:border-primary focus:shadow-[0_0_0_2px_hsl(var(--primary)/0.12)]"
+                    className="w-full px-3 py-2 border border-border/70 bg-muted text-foreground text-[14px] cursor-text h-[42px] box-border focus:outline-none focus:border-primary"
                     type="number"
                     min={MIN_CARD_PAGE_SIZE}
                     max={MAX_CARD_PAGE_SIZE}

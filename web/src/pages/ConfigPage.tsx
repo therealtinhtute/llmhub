@@ -490,7 +490,7 @@ export function ConfigPage() {
         </div>
         <button
           type="button"
-          className="relative flex items-center justify-center w-[38px] h-[38px] text-foreground cursor-pointer transition-colors hover:not-disabled:bg-foreground hover:not-disabled:text-background disabled:opacity-45 disabled:cursor-not-allowed bg-transparent border-0 p-0 m-0 appearance-none"
+          className="relative flex items-center justify-center w-[38px] h-[38px] text-foreground cursor-pointer hover:not-disabled:bg-foreground hover:not-disabled:text-background disabled:opacity-45 disabled:cursor-not-allowed bg-transparent border-0 p-0 m-0 appearance-none"
           onClick={handleReload}
           disabled={loading || saving}
           title={t('config_management.reload')}
@@ -500,7 +500,7 @@ export function ConfigPage() {
         </button>
         <button
           type="button"
-          className="relative flex items-center justify-center w-[38px] h-[38px] text-foreground cursor-pointer transition-colors hover:not-disabled:bg-foreground hover:not-disabled:text-background disabled:opacity-45 disabled:cursor-not-allowed bg-transparent border-0 p-0 m-0 appearance-none"
+          className="relative flex items-center justify-center w-[38px] h-[38px] text-foreground cursor-pointer hover:not-disabled:bg-foreground hover:not-disabled:text-background disabled:opacity-45 disabled:cursor-not-allowed bg-transparent border-0 p-0 m-0 appearance-none"
           onClick={handleSave}
           disabled={
             disableControls ||
@@ -517,7 +517,7 @@ export function ConfigPage() {
           <IconCheck size={16} />
           {isDirty && (
             <span
-              className="absolute top-2 right-2 w-[7px] h-[7px] rounded-full bg-amber-400 shadow-[0_0_0_2px_hsl(var(--background))]"
+              className="absolute top-2 right-2 w-[7px] h-[7px] rounded-full bg-amber-400"
               aria-hidden="true"
             />
           )}
@@ -536,7 +536,7 @@ export function ConfigPage() {
           <div className="grid grid-cols-2 gap-[2px] p-[2px] border border-border bg-[color-mix(in_srgb,hsl(var(--background))_72%,transparent)]">
             <button
               type="button"
-              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap transition-colors disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
+              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
                 activeTab === 'visual'
                   ? 'text-background bg-foreground border-foreground'
                   : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-foreground/[0.05]'
@@ -548,7 +548,7 @@ export function ConfigPage() {
             </button>
             <button
               type="button"
-              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap transition-colors disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
+              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
                 activeTab === 'source'
                   ? 'text-background bg-foreground border-foreground'
                   : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-foreground/[0.05]'
@@ -605,7 +605,7 @@ export function ConfigPage() {
                         )}
                         <button
                           type="button"
-                          className="inline-flex items-center justify-center w-[30px] h-[30px] border border-foreground bg-foreground text-background transition-colors hover:not-disabled:bg-[var(--primary-hover)] hover:not-disabled:border-[var(--primary-hover)] disabled:opacity-45 disabled:cursor-not-allowed p-0 m-0 appearance-none cursor-pointer"
+                          className="inline-flex items-center justify-center w-[30px] h-[30px] border border-foreground bg-foreground text-background hover:not-disabled:bg-[var(--primary-hover)] hover:not-disabled:border-[var(--primary-hover)] disabled:opacity-45 disabled:cursor-not-allowed p-0 m-0 appearance-none cursor-pointer"
                           onClick={() => executeSearch('next')}
                           disabled={!searchQuery || disableControls || loading}
                           title={t('config_management.search_button', { defaultValue: '搜索' })}

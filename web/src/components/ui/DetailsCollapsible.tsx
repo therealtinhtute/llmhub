@@ -31,7 +31,7 @@ function DetailsCollapsible({
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium select-none [&::-webkit-details-marker]:hidden">
         <ChevronDown
-          className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-180"
+          className="size-4 shrink-0 group-open:rotate-180"
           aria-hidden="true"
         />
         <span className="flex-1">{label}</span>

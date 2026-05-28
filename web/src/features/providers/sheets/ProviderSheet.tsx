@@ -182,7 +182,7 @@ export function ProviderSheet({
     );
   };
 
-  const footerBtnBase = "inline-flex items-center gap-1.5 h-8 px-[14px] text-[13px] font-medium cursor-pointer border transition-colors disabled:opacity-60 disabled:cursor-not-allowed";
+  const footerBtnBase = "inline-flex items-center gap-1.5 h-8 px-[14px] text-[13px] font-medium cursor-pointer border disabled:opacity-60 disabled:cursor-not-allowed";
   const footerBtnGhost = `${footerBtnBase} bg-transparent border-transparent text-foreground hover:bg-secondary`;
   const footerBtnPrimary = `${footerBtnBase} bg-primary border-transparent text-primary-foreground hover:bg-[var(--primary-hover)]`;
 

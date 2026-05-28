@@ -394,7 +394,7 @@ export function VisualConfigEditor({
           <button
             key={section.id}
             type="button"
-            className={`flex items-center gap-[10px] w-full min-h-[48px] px-[11px] py-[9px] border text-left transition-colors bg-transparent appearance-none cursor-pointer ${
+            className={`flex items-center gap-[10px] w-full min-h-[48px] px-[11px] py-[9px] border text-left bg-transparent appearance-none cursor-pointer ${
               activeSectionId === section.id
                 ? 'border-foreground bg-[color-mix(in_srgb,hsl(var(--foreground))_6%,transparent)]'
                 : 'border-border hover:bg-[color-mix(in_srgb,hsl(var(--foreground))_5%,transparent)]'

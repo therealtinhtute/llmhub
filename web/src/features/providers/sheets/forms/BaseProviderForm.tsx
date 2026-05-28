@@ -429,12 +429,12 @@ export function BaseProviderForm({
     [form.apiKeyEntries]
   );
 
-  const inputCls = "w-full h-9 px-3 py-2 border border-border bg-background text-foreground text-[13px] font-[inherit] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)] disabled:opacity-60 disabled:cursor-not-allowed";
-  const textareaCls = "w-full px-3 py-2 border border-border bg-background text-foreground text-[13px] font-mono leading-[1.5] box-border resize-y min-h-[80px] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--primary-10)] disabled:opacity-60 disabled:cursor-not-allowed";
+  const inputCls = "w-full h-9 px-3 py-2 border border-border bg-background text-foreground text-[13px] font-[inherit] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary disabled:opacity-60 disabled:cursor-not-allowed";
+  const textareaCls = "w-full px-3 py-2 border border-border bg-background text-foreground text-[13px] font-mono leading-[1.5] box-border resize-y min-h-[80px] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary disabled:opacity-60 disabled:cursor-not-allowed";
   const removeBtnCls = "inline-flex items-center gap-1 px-2 py-1 border border-transparent bg-transparent text-destructive cursor-pointer text-[12px] hover:bg-[var(--destructive-10)] disabled:opacity-50 disabled:cursor-not-allowed";
   const addBtnCls = "inline-flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-border bg-background text-muted-foreground cursor-pointer text-[12px] font-medium self-start hover:border-primary hover:text-primary";
-  const connectivityBtnCls = "inline-flex items-center gap-1.5 h-7 px-3 border border-border bg-background text-foreground text-[12px] font-medium cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
-  const connectivityBtnGhostCls = "inline-flex items-center gap-1.5 h-6 px-2 border border-transparent bg-transparent text-muted-foreground text-[11px] font-medium cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed transition-colors";
+  const connectivityBtnCls = "inline-flex items-center gap-1.5 h-7 px-3 border border-border bg-background text-foreground text-[12px] font-medium cursor-pointer hover:border-primary hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed";
+  const connectivityBtnGhostCls = "inline-flex items-center gap-1.5 h-6 px-2 border border-transparent bg-transparent text-muted-foreground text-[11px] font-medium cursor-pointer hover:bg-secondary hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed";
 
   return (
     <form id={formId} className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>

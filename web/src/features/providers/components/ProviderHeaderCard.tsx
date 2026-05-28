@@ -41,7 +41,7 @@ export function ProviderHeaderCard({
         <div className="flex flex-wrap gap-2 items-center lg:justify-end">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium cursor-pointer border border-border bg-background text-foreground hover:bg-secondary hover:border-border/80 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 transition-colors"
+            className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium cursor-pointer border border-border bg-background text-foreground hover:bg-secondary hover:border-border/80 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
             onClick={onRefresh}
             disabled={isFetching}
             aria-label={
@@ -61,7 +61,7 @@ export function ProviderHeaderCard({
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium cursor-pointer border border-transparent bg-primary text-primary-foreground hover:bg-[var(--primary-hover)] active:bg-[var(--primary-active)] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 transition-colors"
+            className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium cursor-pointer border border-transparent bg-primary text-primary-foreground hover:bg-[var(--primary-hover)] active:bg-[var(--primary-active)] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
             onClick={onNew}
             disabled={isNewDisabled}
           >

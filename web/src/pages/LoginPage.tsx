@@ -20,9 +20,9 @@ import type { ApiError } from '@/types';
 type RedirectState = { from?: { pathname?: string } };
 
 const BRAND_WORDS = [
-  { word: 'CLI', style: { '--target-opacity': '0.95', animationDelay: '0.1s' } as React.CSSProperties },
-  { word: 'PROXY', style: { '--target-opacity': '0.70', animationDelay: '0.35s' } as React.CSSProperties },
-  { word: 'API', style: { '--target-opacity': '0.45', animationDelay: '0.6s' } as React.CSSProperties },
+  { word: 'CLI', style: { '--target-opacity': '0.95' } as React.CSSProperties },
+  { word: 'PROXY', style: { '--target-opacity': '0.70' } as React.CSSProperties },
+  { word: 'API', style: { '--target-opacity': '0.45' } as React.CSSProperties },
 ];
 
 function getLocalizedErrorMessage(error: unknown, t: (key: string) => string): string {
@@ -208,7 +208,7 @@ export function LoginPage() {
           {BRAND_WORDS.map(({ word, style }) => (
             <span
               key={word}
-              className="text-[14vw] font-black text-white/90 tracking-tight leading-[0.85] uppercase text-right opacity-0 [animation:brandFadeIn_0.8s_ease-out_forwards]"
+              className="text-[14vw] font-black text-white/90 tracking-tight leading-[0.85] uppercase text-right opacity-0"
               style={style}
             >
               {word}
@@ -221,12 +221,12 @@ export function LoginPage() {
       <div className="flex-1 flex flex-col justify-center items-center p-8 bg-background relative max-md:p-6 max-md:min-h-screen">
         {showSplash ? (
           /* 启动动画 */
-          <div className="flex flex-col items-center gap-4 [animation:splashEnter_0.6s_ease-out]">
-            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className="h-20 w-auto shadow-lg [animation:splashLogoPulse_1.5s_ease-in-out_infinite]" />
+          <div className="flex flex-col items-center gap-4">
+            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className="h-20 w-auto shadow-lg" />
             <h1 className="text-[28px] font-extrabold text-foreground m-0 tracking-tight">{t('splash.title')}</h1>
             <p className="text-base font-medium text-muted-foreground m-0 -mt-2">{t('splash.subtitle')}</p>
             <div className="w-[120px] h-[3px] bg-border overflow-hidden mt-4">
-              <div className="w-full h-full bg-primary [animation:splashLoading_1.2s_ease-in-out_infinite]" />
+              <div className="w-full h-full bg-primary" />
             </div>
           </div>
         ) : (

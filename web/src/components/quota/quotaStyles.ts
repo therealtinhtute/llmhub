@@ -50,7 +50,7 @@ export const quotaStyles = {
   quotaModel:
     'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0 max-md:whitespace-normal',
   quotaBar: 'h-2 bg-secondary rounded-full overflow-hidden',
-  quotaBarFill: 'h-full transition-[width] duration-200 ease-in-out',
+  quotaBarFill: 'h-full',
   quotaBarFillHigh: 'bg-success',
   quotaBarFillMedium: 'bg-[var(--quota-medium-color,#e0aa14)]',
   quotaBarFillLow: 'bg-destructive',
@@ -91,7 +91,7 @@ export const quotaStyles = {
 
   // File card
   fileCard:
-    'bg-background border border-border p-3 flex flex-col gap-2 transition-[transform,box-shadow,border-color] duration-150 hover:-translate-y-0.5 hover:shadow-md hover:border-blue-500/20',
+    'bg-background border border-border p-3 flex flex-col gap-2',
   cardHeader: 'flex items-center gap-2 min-h-7',
   typeBadge: 'px-2.5 py-1 rounded-xl text-[12px] font-semibold whitespace-nowrap shrink-0',
   fileName: 'text-sm font-semibold text-foreground break-all leading-[1.4]',

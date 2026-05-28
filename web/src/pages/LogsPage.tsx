@@ -460,7 +460,7 @@ export function LogsPage() {
         <button
           type="button"
           className={[
-            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer transition-colors duration-150',
+            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer',
             'border-b-2 -mb-px focus:outline-none focus-visible:outline-none',
             activeTab === 'logs'
               ? 'text-primary border-b-primary'
@@ -475,7 +475,7 @@ export function LogsPage() {
         <button
           type="button"
           className={[
-            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer transition-colors duration-150',
+            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer',
             'border-b-2 -mb-px focus:outline-none focus-visible:outline-none',
             activeTab === 'errors'
               ? 'text-primary border-b-primary'
@@ -579,7 +579,7 @@ export function LogsPage() {
                             type="button"
                             className={[
                               'appearance-none inline-flex items-center gap-1 px-[10px] py-1 border text-[12px] leading-[1.3] cursor-pointer',
-                              'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-150',
+                              'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis',
                               'disabled:opacity-55 disabled:cursor-not-allowed',
                               active
                                 ? 'text-primary border-primary/45 bg-primary/14'
@@ -610,7 +610,7 @@ export function LogsPage() {
                             type="button"
                             className={[
                               'appearance-none inline-flex items-center gap-1 px-[10px] py-1 border text-[12px] leading-[1.3] cursor-pointer',
-                              'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-150',
+                              'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis',
                               'disabled:opacity-55 disabled:cursor-not-allowed',
                               active
                                 ? 'text-primary border-primary/45 bg-primary/14'
@@ -645,7 +645,7 @@ export function LogsPage() {
                               type="button"
                               className={[
                                 'appearance-none inline-flex items-center gap-1 px-[10px] py-1 border text-[12px] leading-[1.3] cursor-pointer',
-                                'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-150',
+                                'max-w-[280px] whitespace-nowrap overflow-hidden text-ellipsis',
                                 active
                                   ? 'text-primary border-primary/45 bg-primary/14'
                                   : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary',

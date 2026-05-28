@@ -50,7 +50,7 @@ export function ProviderCategoryList({
               key={group.id}
               type="button"
               className={[
-                'flex items-center justify-between gap-3 px-3 py-[10px] border text-left w-full cursor-pointer min-w-0 transition-colors',
+                'flex items-center justify-between gap-3 px-3 py-[10px] border text-left w-full cursor-pointer min-w-0',
                 active
                   ? 'border-[var(--primary-30)] bg-[var(--primary-10)] text-primary'
                   : 'border-transparent bg-transparent text-foreground hover:bg-[color-mix(in_srgb,var(--accent-bg)_50%,transparent)] hover:border-border',

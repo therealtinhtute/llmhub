@@ -452,13 +452,7 @@ export function PageTransition({
               className={layerClassName}
               aria-hidden={!isCurrent}
               inert={!isCurrent}
-              ref={
-                isExit
-                  ? exitingLayerRef
-                  : isCurrent
-                    ? currentLayerRef
-                    : undefined
-              }
+              ref={isExit ? exitingLayerRef : isCurrent ? currentLayerRef : undefined}
             >
               <PageTransitionLayerContext.Provider
                 value={{

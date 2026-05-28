@@ -26,17 +26,17 @@ export function SplashScreen({ onFinish, fadeOut = false }: SplashScreenProps) {
   return (
     <div
       className={[
-        'fixed inset-0 z-[9999] flex items-center justify-center bg-background transition-opacity duration-[400ms] ease-out',
+        'fixed inset-0 z-[9999] flex items-center justify-center bg-background',
         fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100',
       ]
         .filter(Boolean)
         .join(' ')}
     >
-      <div className="flex flex-col items-center gap-3 [animation:splashEnter_0.6s_ease-out]">
+      <div className="flex flex-col items-center gap-3">
         <img
           src={INLINE_LOGO_JPEG}
           alt="CPAMC"
-          className="h-20 w-auto shadow-lg [animation:splashLogoPulse_1.5s_ease-in-out_infinite]"
+          className="h-20 w-auto shadow-lg"
         />
         <h1 className="text-[28px] font-extrabold text-foreground m-0 tracking-[-0.5px]">
           {t('splash.title')}
@@ -45,7 +45,7 @@ export function SplashScreen({ onFinish, fadeOut = false }: SplashScreenProps) {
           {t('splash.subtitle')}
         </p>
         <div className="w-[120px] h-[3px] bg-border rounded-full overflow-hidden mt-3">
-          <div className="w-full h-full bg-primary rounded-full [animation:splashLoading_1.2s_ease-in-out_infinite] [transform-origin:left]" />
+          <div className="w-full h-full bg-primary rounded-full" />
         </div>
       </div>
     </div>

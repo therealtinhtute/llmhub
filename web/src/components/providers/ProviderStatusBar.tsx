@@ -121,7 +121,7 @@ export function ProviderStatusBar({ statusData }: ProviderStatusBarProps) {
               onPointerDown={(e) => handlePointerDown(e, idx)}
             >
               <div
-                className={`w-full h-1.5 transition-[transform,opacity] duration-150 ease-in-out group-hover:scale-y-[1.8] group-hover:opacity-90${isActive ? ' scale-y-[1.8] opacity-90' : ''}${isIdle ? ' bg-border' : ''}`}
+                className={`w-full h-1.5 group-hover:scale-y-[1.8] group-hover:opacity-90${isActive ? ' scale-y-[1.8] opacity-90' : ''}${isIdle ? ' bg-border' : ''}`}
                 style={blockStyle}
               />
               {isActive && renderTooltip(detail, idx)}

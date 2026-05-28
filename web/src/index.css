@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 
 @theme {
   /* Font stacks */
@@ -315,57 +314,6 @@
   border-radius: 3px;
 }
 
-@keyframes orbFloat {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(30px, -20px) scale(1.1); }
-}
-
-@keyframes watermarkEnter {
-  from { opacity: 0; transform: translateY(-50%) translateX(-20px); }
-  to { opacity: 0.04; transform: translateY(-50%) translateX(0); }
-}
-
-@keyframes heroEnter {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes fadeSlideUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes cardEnter {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes dotPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-@keyframes brandFadeIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: var(--target-opacity, 0.9); transform: translateY(0); }
-}
-
-@keyframes splashEnter {
-  from { opacity: 0; transform: scale(0.9) translateY(20px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-@keyframes splashLogoPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-}
-
-@keyframes splashLoading {
-  0%   { transform: scaleX(0); transform-origin: left; }
-  50%  { transform: scaleX(1); transform-origin: left; }
-  50.01% { transform-origin: right; }
-  100% { transform: scaleX(0); transform-origin: right; }
-}
 
 .status-bar-tooltip::after {
   content: '';

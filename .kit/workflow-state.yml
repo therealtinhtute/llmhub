@@ -1,10 +1,10 @@
-current_phase: none
-entry_phase: release-pipeline
+current_phase: phase-2-kill-animations
+entry_phase: phase-1-config-tabs
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: none
-active_plan: none
-latest_cook_run: .kit/runs/work/20260529-0000-release-pipeline.md
-latest_check_report: .kit/reports/check/20260529-0647-release-vps-installer.md
+active_context: .kit/planning/phases/phase-2-kill-animations/phase-2-kill-animations-CONTEXT.md
+active_plan: .kit/planning/phases/phase-2-kill-animations/phase-2-kill-animations-PLAN.md
+latest_cook_run: none
+latest_check_report: .kit/reports/check/20260529-Phase1-Phase2-verify.md
 handoff: none
-last_updated: 2026-05-29 06:48
+last_updated: 2026-05-29T14:50:55Z

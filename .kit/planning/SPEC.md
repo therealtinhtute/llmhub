@@ -1,12 +1,113 @@
-# SPEC — GitHub binary release pipeline + one-line VPS installer
+# SPEC — Web UI Update: Config Tabs + Transition Animations
 
 - **Status:** Locked
 - **Input Type:** change-request
 - **Lane:** normal
-- **Risk Flags:** external-systems, cross-platform, public-contract, existing-behavior
-- **Affected Surfaces:** worker (CI), docs
+- **Risk Flags:** none
+- **Affected Surfaces:** browser
 - **Downstream:** plan
 - **Updated At:** 2026-05-29
+- **Spec locked by:** brainstorm
+
+## In Scope
+
+### Task 1 — Config Page: shadcn-style horizontal Tabs
+
+**Goal:** Replace the current 6-section sidebar navigation in `VisualConfigEditor` with a proper shadcn/Radix horizontal Tabs structure.
+
+**Current behavior:**
+- Desktop: sticky `<aside>` with a `grid-cols-[repeat(3,minmax(0,1fr))]` of bordered buttons (2 cols on ≤1200px)
+- Mobile: sticky top nav with `grid-cols-[repeat(2,minmax(0,1fr))]` horizontal scroll
+- Both use custom `<button>` + IntersectionObserver for active-section tracking
+- Section content uses horizontal scroll-snap with `ConfigSection` components
+
+**New behavior:**
+- Radix UI Tabs: `TabsRoot` → `TabsList` → `TabsTrigger` × 6 → `TabsContent` × 6
+- Desktop: single horizontal row of tabs, no 2/3-col grid, no sticky aside
+- Mobile: horizontal scrollable tabs, no separate grid layout
+- Remove IntersectionObserver scroll-spy — tabs are tab-controlled, not scroll-controlled
+- TabsContent renders all 6 sections; all sections always rendered in DOM
+- Visual | Source toggle is separate and unchanged
+
+**Files touched:**
+- `src/components/config/VisualConfigEditor.tsx`
+- `src/components/config/ConfigSection.tsx` — minor style adjustments for non-scroll-snap layout
+
+**Key Decisions:**
+- Chose **Radix Tabs** — project already uses `@radix-ui` packages (Sheet, Dialog, AlertDialog), consistent
+- Chose **horizontal TabsList** — matches task request, cleaner than current 2/3-col button grid
+- Kept **Visual | Source toggle unchanged** — confirmed in interview
+
+---
+
+### Task 2 — Page Transitions: strip animations, keep structure
+
+**Goal:** Remove all Motion-driven animation from `PageTransition`; keep layer stack management and scroll position preservation.
+
+**Current behavior:**
+- `motion` library (`animate` from `motion/mini`) animates vertical + iOS transition variants
+- Layer stack with `current` / `stacked` / `exiting` statuses
+- Scroll position preservation per route key
+- `PageTransitionLayerContext` exposes `status` / `isCurrentLayer` / `isAnimating`
+
+**New behavior:**
+- All `animate()` calls removed — instant state transitions
+- Layer stack still managed (supports future re-enabling)
+- Scroll position preservation preserved
+- `PageTransitionLayerContext.isAnimating` always `false`
+- `motion` package remains in `package.json` — used by other UI animations; removal is out of scope
+
+**Files touched:**
+- `src/components/common/PageTransition.tsx`
+
+**Key Decisions:**
+- Chose to **keep PageTransition component** — confirmed in interview
+- Chose **strip animate() calls, leave layer logic intact** — enables future opt-in transitions
+- Chose **not to remove `motion` package** — scope creep; other UI may use it
+
+---
+
+## Out of Scope
+
+- Tab content lazy rendering (only render active tab)
+- Adding transitions back via config flag
+- Removing `motion` package from `package.json`
+- Changes to Visual | Source toggle behavior
+- Any backend or API changes
+
+---
+
+## Validation Expectations
+
+### Task 1
+1. All 6 tabs (Server, Auth, System, Quota, Streaming, Payload) are visible and clickable
+2. Clicking a tab shows its content and updates the active tab indicator
+3. Mobile: tabs scroll horizontally without broken layout
+4. No IntersectionObserver scroll-spy breaking tab selection
+5. Error badges (amber count badges) migrate correctly to tab triggering
+
+### Task 2
+1. Route changes are instant (no slide/fade animation)
+2. Scroll position still preserved when navigating between pages
+3. `PageTransitionLayerContext` still provides correct `status` / `isCurrentLayer`
+4. No `motion`-related runtime errors after edit
+
+---
+
+## Key Decisions (with rejected alternatives)
+
+- **Radix Tabs over custom button grid** (chosen): replaces complex multi-column + mobile-duplicate with native tab semantics. *Rejected:* keeping dual custom nav (desktop aside + mobile grid) — duplicated state, no ARIA tab role.
+- **Strip animate() in PageTransition** (chosen): removes animation cost while preserving layer/context architecture. *Rejected:* removing entire PageTransition — lost scroll position preservation + layer context, no easy rollback.
+- **Keep motion package** (chosen): not used by PageTransition after edit, but may be used by other UI. *Rejected:* removing package — scope creep, may break other consumers.
+
+---
+
+## Deferred Ideas
+
+- Enable tab content lazy rendering (only render active tab content)
+- Re-add transitions later via a `prefers-reduced-motion` flag — architecture already supports it
+- Add tab transition animation (fade between tabs, no spatial motion)
+
 
 ## Goal
 

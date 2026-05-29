@@ -1,15 +1,13 @@
 import {
   useCallback,
-  useEffect,
   useId,
   useMemo,
-  useRef,
   useState,
   type ComponentType,
   type ReactNode,
 } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import { useTranslation } from 'react-i18next';
-import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { FormInput as Input } from '@/components/ui/FormInput';
 import { Input as BaseInput } from '@/components/ui/Input';
 import { FormSelect as Select } from '@/components/ui/FormSelect';
@@ -24,7 +22,6 @@ import {
   type IconProps,
 } from '@/components/ui/icons';
 import { ConfigSection } from '@/components/config/ConfigSection';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type {
   PayloadFilterRule,
   PayloadParamValidationErrorCode,
@@ -172,9 +169,6 @@ export function VisualConfigEditor({
   onChange,
 }: VisualConfigEditorProps) {
   const { t } = useTranslation();
-  const pageTransitionLayer = usePageTransitionLayer();
-  const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.isCurrentLayer : true;
-  const isMobile = useMediaQuery('(max-width: 768px)');
   const routingStrategyLabelId = useId();
   const routingStrategyHintId = `${routingStrategyLabelId}-hint`;
   const disableImageGenerationLabelId = useId();
@@ -186,11 +180,6 @@ export function VisualConfigEditor({
   const nonstreamKeepaliveHintId = `${nonstreamKeepaliveInputId}-hint`;
   const nonstreamKeepaliveErrorId = `${nonstreamKeepaliveInputId}-error`;
   const [activeSectionId, setActiveSectionId] = useState<VisualSectionId>('server');
-  const sectionRefs = useRef<Partial<Record<VisualSectionId, HTMLElement | null>>>({});
-  const mobileNavScrollerRef = useRef<HTMLDivElement | null>(null);
-  const mobileNavButtonRefs = useRef<Partial<Record<VisualSectionId, HTMLButtonElement | null>>>(
-    {}
-  );
 
   const isKeepaliveDisabled =
     values.streaming.keepaliveSeconds === '' || values.streaming.keepaliveSeconds === '0';
@@ -328,182 +317,69 @@ export function VisualConfigEditor({
     sections.some((section) => section.errorCount > 0) || hasPayloadValidationErrors;
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? sections[0];
 
-  useEffect(() => {
-    if (!isCurrentLayer) return undefined;
-    if (typeof IntersectionObserver === 'undefined') return undefined;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio);
-
-        if (visibleEntries.length === 0) return;
-        setActiveSectionId(visibleEntries[0].target.id as VisualSectionId);
-      },
-      {
-        rootMargin: '-18% 0px -58% 0px',
-        threshold: [0.12, 0.3, 0.55],
-      }
-    );
-
-    for (const section of sections) {
-      const element = sectionRefs.current[section.id];
-      if (element) observer.observe(element);
-    }
-
-    return () => observer.disconnect();
-  }, [isCurrentLayer, sections]);
-
-  useEffect(() => {
-    if (!isCurrentLayer || !isMobile) return;
-    const scroller = mobileNavScrollerRef.current;
-    const button = mobileNavButtonRefs.current[activeSectionId];
-    if (!scroller || !button) return;
-
-    const scrollerRect = scroller.getBoundingClientRect();
-    const buttonRect = button.getBoundingClientRect();
-    const centeredLeft =
-      scroller.scrollLeft +
-      (buttonRect.left - scrollerRect.left) -
-      (scroller.clientWidth - buttonRect.width) / 2;
-    const maxScrollLeft = Math.max(scroller.scrollWidth - scroller.clientWidth, 0);
-    const targetLeft = Math.min(Math.max(centeredLeft, 0), maxScrollLeft);
-
-    scroller.scrollTo({
-      left: targetLeft,
-      behavior: 'smooth',
-    });
-  }, [activeSectionId, isCurrentLayer, isMobile]);
-
-  const handleSectionJump = useCallback((sectionId: VisualSectionId) => {
-    setActiveSectionId(sectionId);
-    sectionRefs.current[sectionId]?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'nearest',
-      inline: 'start',
-    });
-  }, []);
-
-  const navContent = (
-    <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 min-w-0 max-[1200px]:grid-cols-[repeat(2,minmax(0,1fr))]">
-      {sections.map((section, index) => {
-        const Icon = section.icon;
-
-        return (
-          <button
-            key={section.id}
-            type="button"
-            className={`flex items-center gap-[10px] w-full min-h-[48px] px-[11px] py-[9px] border text-left bg-transparent appearance-none cursor-pointer ${
-              activeSectionId === section.id
-                ? 'border-foreground bg-[color-mix(in_srgb,hsl(var(--foreground))_6%,transparent)]'
-                : 'border-border hover:bg-[color-mix(in_srgb,hsl(var(--foreground))_5%,transparent)]'
-            }`}
-            onClick={() => handleSectionJump(section.id)}
-          >
-            <span className="min-w-[24px] pt-[2px] text-muted-foreground/60 text-[11px] font-[750] tracking-[0.08em] flex-none">
-              {String(index + 1).padStart(2, '0')}
-            </span>
-            <span className="flex flex-col min-w-0 flex-1">
-              <span className="flex items-center gap-2 min-w-0">
-                <span className="inline-flex items-center gap-[7px] min-w-0">
-                  <span className="inline-flex items-center justify-center w-4 text-muted-foreground flex-none">
-                    <Icon size={14} />
-                  </span>
-                  <span className="text-foreground text-[13px] font-bold leading-tight">
-                    {section.title}
-                  </span>
-                </span>
-                {section.errorCount > 0 ? (
-                  <span
-                    className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-amber-100 border border-amber-400/30 text-amber-700 text-[11px] font-bold flex-none"
-                    aria-hidden="true"
-                  >
-                    {section.errorCount}
-                  </span>
-                ) : null}
-              </span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-
   return (
-    <div className="flex flex-col gap-[18px]">
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-[10px] pb-[18px] max-md:pb-[14px] border-b border-border">
-        <div className="flex items-center min-w-0 max-md:items-stretch">
-          <div className="flex flex-wrap gap-1.5">
-            <span className="inline-flex items-center min-h-[28px] px-[9px] border border-border text-muted-foreground text-[12px] font-bold leading-tight">
-              {t('config_management.visual.quick_jump', { defaultValue: '快速跳转' })}
-            </span>
-            <span className="inline-flex items-center min-h-[28px] px-[9px] border border-border text-muted-foreground text-[12px] font-bold leading-tight">
-              {activeSection?.title}
-            </span>
-            {hasValidationIssues ? (
-              <span className="inline-flex items-center min-h-[28px] px-[9px] border border-amber-400/30 bg-amber-100 text-amber-700 text-[12px] font-bold leading-tight">
-                {t('config_management.visual.validation.validation_blocked')}
+    <Tabs.Root value={activeSectionId} onValueChange={(value) => setActiveSectionId(value as VisualSectionId)}>
+      <div className="flex flex-col gap-[18px]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-[10px] pb-[18px] max-md:pb-[14px] border-b border-border">
+          <div className="flex items-center min-w-0 max-md:items-stretch">
+            <div className="flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center min-h-[28px] px-[9px] border border-border text-muted-foreground text-[12px] font-bold leading-tight">
+                {t('config_management.visual.quick_jump', { defaultValue: '快速跳转' })}
               </span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-[14px] max-md:gap-3 min-w-0">
-        {isMobile ? (
-          <div className="sticky top-[calc(var(--header-height,64px)+10px)] z-[4] mb-1 bg-[color-mix(in_srgb,hsl(var(--muted))_92%,transparent)]">
-            <div
-              ref={mobileNavScrollerRef}
-              className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-1.5 overflow-visible pt-[2px] pb-2"
-              aria-label={t('config_management.visual.quick_jump', { defaultValue: '快速跳转' })}
-            >
-              {sections.map((section, index) => (
-                <button
-                  key={section.id}
-                  ref={(node) => {
-                    mobileNavButtonRefs.current[section.id] = node;
-                  }}
-                  type="button"
-                  className={`inline-flex items-center gap-[7px] min-w-0 w-full px-[10px] py-[9px] border text-left bg-background appearance-none cursor-pointer ${
-                    activeSectionId === section.id
-                      ? 'border-foreground bg-foreground/[0.06]'
-                      : 'border-border'
-                  }`}
-                  onClick={() => handleSectionJump(section.id)}
-                >
-                  <span className="text-muted-foreground/60 text-[11px] font-[750] tracking-[0.08em]">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
-                  <span className="text-foreground text-[13px] font-bold leading-tight">
-                    {section.title}
-                  </span>
-                  {section.errorCount > 0 ? (
-                    <span
-                      className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 bg-amber-100 border border-amber-400/30 text-amber-700 text-[11px] font-bold"
-                      aria-hidden="true"
-                    >
-                      {section.errorCount}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
+              <span className="inline-flex items-center min-h-[28px] px-[9px] border border-border text-muted-foreground text-[12px] font-bold leading-tight">
+                {activeSection?.title}
+              </span>
+              {hasValidationIssues ? (
+                <span className="inline-flex items-center min-h-[28px] px-[9px] border border-amber-400/30 bg-amber-100 text-amber-700 text-[12px] font-bold leading-tight">
+                  {t('config_management.visual.validation.validation_blocked')}
+                </span>
+              ) : null}
             </div>
           </div>
-        ) : null}
+        </div>
 
-        <aside className="max-md:hidden sticky top-[calc(var(--header-height,64px)+12px)] z-[5] self-stretch min-w-0">
-          <div className="pb-3 border-b border-border bg-[color-mix(in_srgb,hsl(var(--muted))_88%,transparent)]">
-            {navContent}
-          </div>
-        </aside>
+        <Tabs.List className="grid grid-cols-[repeat(3,minmax(0,1fr))] max-[1200px]:grid-cols-[repeat(2,minmax(0,1fr))] gap-2 min-w-0">
+          {sections.map((section, index) => {
+            const Icon = section.icon;
 
-        <div className="flex gap-0 w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden items-stretch pb-3 max-md:pb-[10px] [scroll-padding-left:0] [scroll-snap-type:x_mandatory] [scrollbar-gutter:stable] [scrollbar-width:thin] [&>*]:flex-none [&>*]:w-full [&>*]:max-w-full">
+            return (
+              <Tabs.Trigger
+                key={section.id}
+                value={section.id}
+                className="flex items-center gap-[10px] w-full min-h-[48px] px-[11px] py-[9px] border text-left bg-transparent appearance-none cursor-pointer data-[state=active]:border-foreground data-[state=active]:bg-[color-mix(in_srgb,hsl(var(--foreground))_6%,transparent)] data-[state=inactive]:border-border data-[state=inactive]:hover:bg-[color-mix(in_srgb,hsl(var(--foreground))_5%,transparent)]"
+              >
+                <span className="min-w-[24px] pt-[2px] text-muted-foreground/60 text-[11px] font-[750] tracking-[0.08em] flex-none">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span className="flex flex-col min-w-0 flex-1">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="inline-flex items-center gap-[7px] min-w-0">
+                      <span className="inline-flex items-center justify-center w-4 text-muted-foreground flex-none">
+                        <Icon size={14} />
+                      </span>
+                      <span className="text-foreground text-[13px] font-bold leading-tight">
+                        {section.title}
+                      </span>
+                    </span>
+                    {section.errorCount > 0 ? (
+                      <span
+                        className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-amber-100 border border-amber-400/30 text-amber-700 text-[11px] font-bold flex-none"
+                        aria-hidden="true"
+                      >
+                        {section.errorCount}
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+              </Tabs.Trigger>
+            );
+          })}
+        </Tabs.List>
+
+        <div className="flex flex-col gap-[14px] max-md:gap-3 min-w-0">
+          <Tabs.Content value="server">
           <ConfigSection
             id="server"
-            ref={(node) => {
-              sectionRefs.current.server = node;
-            }}
             indexLabel="01"
             icon={<IconSettings size={16} />}
             title={t('config_management.visual.sections.server.title')}
@@ -623,12 +499,10 @@ export function VisualConfigEditor({
               </SectionSubsection>
             </SectionStack>
           </ConfigSection>
-
+          </Tabs.Content>
+          <Tabs.Content value="auth">
           <ConfigSection
             id="auth"
-            ref={(node) => {
-              sectionRefs.current.auth = node;
-            }}
             indexLabel="02"
             icon={<IconKey size={16} />}
             title={t('config_management.visual.sections.auth.title')}
@@ -652,12 +526,10 @@ export function VisualConfigEditor({
               </div>
             </SectionStack>
           </ConfigSection>
-
+          </Tabs.Content>
+          <Tabs.Content value="system">
           <ConfigSection
             id="system"
-            ref={(node) => {
-              sectionRefs.current.system = node;
-            }}
             indexLabel="03"
             icon={<IconDiamond size={16} />}
             title={t('config_management.visual.sections.system.title')}
@@ -1025,12 +897,10 @@ export function VisualConfigEditor({
               </SectionSubsection>
             </SectionStack>
           </ConfigSection>
-
+          </Tabs.Content>
+          <Tabs.Content value="quota">
           <ConfigSection
             id="quota"
-            ref={(node) => {
-              sectionRefs.current.quota = node;
-            }}
             indexLabel="04"
             icon={<IconTimer size={16} />}
             title={t('config_management.visual.sections.quota.title')}
@@ -1059,12 +929,10 @@ export function VisualConfigEditor({
               />
             </SectionGrid>
           </ConfigSection>
-
+          </Tabs.Content>
+          <Tabs.Content value="streaming">
           <ConfigSection
             id="streaming"
-            ref={(node) => {
-              sectionRefs.current.streaming = node;
-            }}
             indexLabel="05"
             icon={<IconSatellite size={16} />}
             title={t('config_management.visual.sections.streaming.title')}
@@ -1158,12 +1026,10 @@ export function VisualConfigEditor({
               </SectionGrid>
             </SectionStack>
           </ConfigSection>
-
+          </Tabs.Content>
+          <Tabs.Content value="payload">
           <ConfigSection
             id="payload"
-            ref={(node) => {
-              sectionRefs.current.payload = node;
-            }}
             indexLabel="06"
             icon={<IconCode size={16} />}
             title={t('config_management.visual.sections.payload.title')}
@@ -1230,8 +1096,9 @@ export function VisualConfigEditor({
               </SectionSubsection>
             </SectionStack>
           </ConfigSection>
+          </Tabs.Content>
         </div>
       </div>
-    </div>
+    </Tabs.Root>
   );
 }

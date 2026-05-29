@@ -30,32 +30,43 @@ So you can use local or multi-account CLI access with OpenAI(include Responses)/
 
 ## Installation
 
-### VPS binary install
+### One-line VPS install (recommended)
 
-For production, install the latest GitHub Release binary on a Linux VPS:
+For production, install the latest GitHub Release binary and set up a systemd service on a Linux VPS with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/scripts/install.sh | sudo sh
+```
+
+This downloads the binary, creates the `llmhub` system user, seeds `/etc/llmhub/config.yaml`, and starts the service. Edit the config to add your provider accounts, then restart: `sudo systemctl restart llmhub`.
+
+Point your AI coding tool at `http://SERVER_IP:8317/v1`. The management panel is at `http://SERVER_IP:8317/management.html` (configure `remote-management.secret-key` and `remote-management.allow-remote` before exposing beyond localhost).
+
+### Manual binary install
+
+If you prefer manual installation:
 
 ```bash
 ARCH="$(uname -m)"
 case "$ARCH" in
   x86_64) ARCH="amd64" ;;
-  aarch64|arm64) ARCH="aarch64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
   *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
 TAG="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/therealtinhtute/llmhub/releases/latest)"
 TAG="${TAG##*/}"
-VERSION="${TAG#v}"
 
 curl -fL \
-  "https://github.com/therealtinhtute/llmhub/releases/download/${TAG}/llmhub_${VERSION}_linux_${ARCH}.tar.gz" \
-  -o /tmp/llmhub.tar.gz
+  "https://github.com/therealtinhtute/llmhub/releases/download/${TAG}/llmhub-linux-${ARCH}" \
+  -o llmhub
 
-tar -xzf /tmp/llmhub.tar.gz -C /tmp llmhub config.example.yaml
-sudo install -m 0755 /tmp/llmhub /usr/local/bin/llmhub
+chmod +x llmhub
+sudo install -m 0755 llmhub /usr/local/bin/llmhub
 llmhub -h
 ```
 
-You can also install from this repository with:
+You can also use:
 
 ```bash
 make install-latest
@@ -63,25 +74,28 @@ make install-latest
 
 Use `sudo make install-latest` when your user cannot write to `/usr/local/bin`.
 
-### VPS service setup
+### Manual service setup
 
-Create a dedicated user and runtime directories:
+The one-line installer does this automatically. If installing manually, create the system user and directories:
 
 ```bash
 sudo useradd --system --home /var/lib/llmhub --shell /usr/sbin/nologin llmhub
 sudo mkdir -p /etc/llmhub /var/lib/llmhub/auths /var/log/llmhub
-sudo install -m 0640 -o root -g llmhub /tmp/config.example.yaml /etc/llmhub/config.yaml
 sudo chown -R llmhub:llmhub /var/lib/llmhub /var/log/llmhub
 sudo chmod 750 /var/lib/llmhub /var/lib/llmhub/auths
 ```
 
-Edit `/etc/llmhub/config.yaml` for providers, accounts, API keys, and storage paths. For a file-store deployment, set the auth directory explicitly:
+Download and install the config:
 
-```yaml
-auth-dir: "/var/lib/llmhub/auths"
+```bash
+curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/config.example.yaml \
+  -o /tmp/config.example.yaml
+sudo install -m 0640 -o root -g llmhub /tmp/config.example.yaml /etc/llmhub/config.yaml
 ```
 
-Install a systemd unit:
+Edit `/etc/llmhub/config.yaml` to set `auth-dir: "/var/lib/llmhub/auths"` and configure providers.
+
+Install the systemd unit:
 
 ```bash
 sudo tee /etc/systemd/system/llmhub.service >/dev/null <<'EOF'
@@ -106,12 +120,9 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now llmhub
 sudo systemctl status llmhub
-journalctl -u llmhub -f
 ```
 
-Point your AI coding tool at `http://SERVER_IP:8317/v1`.
-
-The management panel is served at `http://SERVER_IP:8317/management.html`. Before exposing it beyond localhost, deliberately configure `remote-management.secret-key` and `remote-management.allow-remote` in `/etc/llmhub/config.yaml`.
+Logs: `journalctl -u llmhub -f`
 
 ### Build from source
 

@@ -90,12 +90,10 @@ download-latest:
 	@set -eu; \
 	os=$$(go env GOOS); \
 	arch=$$(go env GOARCH); \
-	case "$$arch" in arm64) asset_arch=aarch64 ;; *) asset_arch=$$arch ;; esac; \
-	case "$$os" in windows) ext=zip ;; *) ext=tar.gz ;; esac; \
+	case "$$os" in windows) exe=.exe ;; *) exe= ;; esac; \
 	latest_url=$$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$(REPO)/releases/latest"); \
 	tag=$${latest_url##*/}; \
-	version=$${tag#v}; \
-	asset="$(BINARY)_$${version}_$${os}_$${asset_arch}.$${ext}"; \
+	asset="$(BINARY)-$${os}-$${arch}$${exe}"; \
 	url="https://github.com/$(REPO)/releases/download/$${tag}/$${asset}"; \
 	mkdir -p dist/downloads; \
 	echo "Downloading $${url}"; \
@@ -106,13 +104,10 @@ install-latest:
 	@set -eu; \
 	os=$$(go env GOOS); \
 	arch=$$(go env GOARCH); \
-	case "$$arch" in arm64) asset_arch=aarch64 ;; *) asset_arch=$$arch ;; esac; \
-	case "$$os" in windows) ext=zip ;; *) ext=tar.gz ;; esac; \
 	case "$$os" in windows) exe=.exe ;; *) exe= ;; esac; \
 	latest_url=$$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$(REPO)/releases/latest"); \
 	tag=$${latest_url##*/}; \
-	version=$${tag#v}; \
-	asset="$(BINARY)_$${version}_$${os}_$${asset_arch}.$${ext}"; \
+	asset="$(BINARY)-$${os}-$${arch}$${exe}"; \
 	url="https://github.com/$(REPO)/releases/download/$${tag}/$${asset}"; \
 	archive="dist/downloads/$${asset}"; \
 	if [ ! -f "$${archive}" ]; then \
@@ -120,14 +115,9 @@ install-latest:
 		echo "Downloading $${url}"; \
 		curl -fL "$${url}" -o "$${archive}"; \
 	fi; \
-	tmpdir=$$(mktemp -d); \
-	trap 'rm -rf "$${tmpdir}"' EXIT; \
-	case "$${ext}" in \
-		zip) unzip -q "$${archive}" -d "$${tmpdir}" ;; \
-		tar.gz) tar -xzf "$${archive}" -C "$${tmpdir}" ;; \
-	esac; \
+	chmod +x "$${archive}"; \
 	install -d "$(PREFIX)"; \
-	install -m 0755 "$${tmpdir}/$(BINARY)$${exe}" "$(PREFIX)/$(BINARY)$${exe}"; \
+	install -m 0755 "$${archive}" "$(PREFIX)/$(BINARY)$${exe}"; \
 	echo "Installed $(BINARY)$${exe} to $(PREFIX)/$(BINARY)$${exe}"
 
 clean:

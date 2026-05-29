@@ -1,0 +1,10 @@
+current_phase: none
+entry_phase: release-pipeline
+spec: .kit/planning/SPEC.md
+roadmap: .kit/planning/ROADMAP.md
+active_context: none
+active_plan: none
+latest_cook_run: .kit/runs/work/20260529-0000-release-pipeline.md
+latest_check_report: .kit/reports/check/20260529-0647-release-vps-installer.md
+handoff: none
+last_updated: 2026-05-29 06:48

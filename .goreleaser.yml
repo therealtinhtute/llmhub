@@ -26,17 +26,8 @@ builds:
 archives:
   - id: "llmhub"
     formats:
-      - tar.gz
-    name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{- if eq .Arch "arm64" -}}aarch64{{- else -}}{{ .Arch }}{{- end -}}
-    format_overrides:
-      - goos: windows
-        formats:
-          - zip
-    files:
-      - LICENSE
-      - README.md
-      - config.example.yaml
+      - binary
+    name_template: 'llmhub-{{ .Os }}-{{ .Arch }}'
 
 checksum:
   name_template: 'checksums.txt'

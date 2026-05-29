@@ -28,20 +28,99 @@ So you can use local or multi-account CLI access with OpenAI(include Responses)/
 - OpenAI-compatible upstream providers via config (e.g., OpenRouter)
 - Reusable Go SDK for embedding the proxy
 
-## Getting Started
+## Installation
+
+### VPS binary install
+
+For production, install the latest GitHub Release binary on a Linux VPS:
 
 ```bash
-# Install (requires Go 1.21+)
-go install github.com/therealtinhtute/llmhub/cmd/server@latest
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="aarch64" ;;
+  *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
 
-# Or build from source
-make build
+TAG="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/therealtinhtute/llmhub/releases/latest)"
+TAG="${TAG##*/}"
+VERSION="${TAG#v}"
+
+curl -fL \
+  "https://github.com/therealtinhtute/llmhub/releases/download/${TAG}/llmhub_${VERSION}_linux_${ARCH}.tar.gz" \
+  -o /tmp/llmhub.tar.gz
+
+tar -xzf /tmp/llmhub.tar.gz -C /tmp llmhub config.example.yaml
+sudo install -m 0755 /tmp/llmhub /usr/local/bin/llmhub
+llmhub -h
 ```
 
-1. Copy `config.example.yaml` → `config.yaml` and edit providers/accounts.
-2. Run: `./llmhub` (or `make dev` in dev mode)
-3. Point your AI coding tool at `http://localhost:PORT/v1`
-4. Management panel: `http://localhost:PORT/management.html`
+You can also install from this repository with:
+
+```bash
+make install-latest
+```
+
+Use `sudo make install-latest` when your user cannot write to `/usr/local/bin`.
+
+### VPS service setup
+
+Create a dedicated user and runtime directories:
+
+```bash
+sudo useradd --system --home /var/lib/llmhub --shell /usr/sbin/nologin llmhub
+sudo mkdir -p /etc/llmhub /var/lib/llmhub/auths /var/log/llmhub
+sudo install -m 0640 -o root -g llmhub /tmp/config.example.yaml /etc/llmhub/config.yaml
+sudo chown -R llmhub:llmhub /var/lib/llmhub /var/log/llmhub
+sudo chmod 750 /var/lib/llmhub /var/lib/llmhub/auths
+```
+
+Edit `/etc/llmhub/config.yaml` for providers, accounts, API keys, and storage paths. For a file-store deployment, set the auth directory explicitly:
+
+```yaml
+auth-dir: "/var/lib/llmhub/auths"
+```
+
+Install a systemd unit:
+
+```bash
+sudo tee /etc/systemd/system/llmhub.service >/dev/null <<'EOF'
+[Unit]
+Description=LLMHub proxy server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=llmhub
+Group=llmhub
+WorkingDirectory=/etc/llmhub
+ExecStart=/usr/local/bin/llmhub -config /etc/llmhub/config.yaml
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now llmhub
+sudo systemctl status llmhub
+journalctl -u llmhub -f
+```
+
+Point your AI coding tool at `http://SERVER_IP:8317/v1`.
+
+The management panel is served at `http://SERVER_IP:8317/management.html`. Before exposing it beyond localhost, deliberately configure `remote-management.secret-key` and `remote-management.allow-remote` in `/etc/llmhub/config.yaml`.
+
+### Build from source
+
+For local development, build from source with Go 1.21+ and Bun:
+
+```bash
+make build
+./llmhub -config config.yaml
+```
 
 See `config.example.yaml` for the full configuration reference.
 

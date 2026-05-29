@@ -9,7 +9,7 @@ LDFLAGS := -s -w -X 'main.Version=$(VERSION)' -X 'main.Commit=$(COMMIT)' -X 'mai
 GORELEASER_VERSION ?= v2.16.0
 GORELEASER ?= $(shell command -v goreleaser 2>/dev/null || echo "go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)")
 
-.PHONY: help build-web embed build dev release-check release-snapshot release-preflight release download-latest install-latest clean
+.PHONY: help build-web embed build dev release-check release-snapshot release-preflight release download-latest install-latest install-local clean
 
 help:
 	@echo "Available commands:"
@@ -23,6 +23,7 @@ help:
 	@echo "  make release           Create and push TAG=... after local release preflight checks"
 	@echo "  make download-latest   Download the latest GitHub Release binary"
 	@echo "  make install-latest    Install the latest GitHub Release binary to PREFIX=$(PREFIX)"
+	@echo "  make install-local     Install a local binary with full VPS setup (systemd, config, user)"
 	@echo "  make clean             Remove build, web, and release artifacts"
 
 build-web:
@@ -119,6 +120,13 @@ install-latest:
 	install -d "$(PREFIX)"; \
 	install -m 0755 "$${archive}" "$(PREFIX)/$(BINARY)$${exe}"; \
 	echo "Installed $(BINARY)$${exe} to $(PREFIX)/$(BINARY)$${exe}"
+
+install-local:
+	@if [ -n "$(BINARY_PATH)" ]; then \
+		sudo ./scripts/install-local.sh "$(BINARY_PATH)"; \
+	else \
+		sudo ./scripts/install-local.sh; \
+	fi
 
 clean:
 	rm -rf web/dist web/node_modules internal/managementasset/static $(BINARY) dist

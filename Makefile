@@ -20,7 +20,7 @@ help:
 	@echo "  make release-check     Validate .goreleaser.yml with $(GORELEASER)"
 	@echo "  make release-snapshot  Build local GoReleaser snapshot archives"
 	@echo "  make release-preflight Verify the worktree and local release build prerequisites"
-	@echo "  make release           Create and push TAG=... to trigger the GitHub release workflow"
+	@echo "  make release           Create and push TAG=... after local release preflight checks"
 	@echo "  make download-latest   Download the latest GitHub Release binary"
 	@echo "  make install-latest    Install the latest GitHub Release binary to PREFIX=$(PREFIX)"
 	@echo "  make clean             Remove build, web, and release artifacts"
@@ -84,12 +84,7 @@ release: release-preflight
 	fi; \
 	git tag -a "$$tag" -m "$$tag"; \
 	git push origin "refs/tags/$$tag"; \
-	echo "Pushed $$tag. GitHub Actions is now responsible for publishing the release."; \
-	echo "Watch the workflow:"; \
-	echo "  gh run list --workflow release.yaml --branch $$tag --limit 1"; \
-	echo "  gh run watch \"$$(gh run list --workflow release.yaml --branch $$tag --json databaseId --jq '.[0].databaseId')\" --exit-status"; \
-	echo "Inspect the published release:"; \
-	echo "  gh release view $$tag"
+	echo "Pushed $$tag."
 
 download-latest:
 	@set -eu; \

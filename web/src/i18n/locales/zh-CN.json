@@ -837,7 +837,6 @@
     },
     "visual": {
       "notice": "可视化模式覆盖常用字段，未覆盖的配置仍需在源文件模式中查看或编辑。",
-      "quick_jump": "快速跳转",
       "sections": {
         "server": {
           "title": "服务器配置",
@@ -1061,7 +1060,8 @@
     "refresh_files": "刷新认证文件",
     "refresh_files_and_quota": "刷新认证文件&额度",
     "refresh_all_credentials": "刷新全部凭证",
-    "card_idle_hint": "请使用顶部“刷新全部凭证”按钮获取最新额度。"
+    "card_idle_hint": "请使用顶部“刷新全部凭证”按钮获取最新额度。",
+    "tab_all": "全部"
   },
   "system_info": {
     "title": "管理中心信息",

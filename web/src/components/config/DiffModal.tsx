@@ -219,17 +219,17 @@ export function DiffModal({
       title={t('config_management.diff.title')}
       onClose={onCancel}
       width="min(1200px, 90vw)"
-      className="p-0 overflow-hidden [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-6 [&>[data-slot=dialog-footer]]:px-6 [&>[data-slot=dialog-footer]]:pb-6"
+      className="p-0 overflow-hidden [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-6 [&>[data-slot=dialog-footer]]:px-0 [&>[data-slot=dialog-footer]]:pb-0"
       closeDisabled={loading}
       footer={
-        <>
-          <Button variant="secondary" onClick={onCancel} disabled={loading}>
+        <div className="flex w-full border-t border-border">
+          <Button variant="secondary" onClick={onCancel} disabled={loading} className="flex-1 rounded-none border-0 border-r border-border h-12">
             {t('common.cancel')}
           </Button>
-          <Button onClick={onConfirm} loading={loading} disabled={loading}>
+          <Button onClick={onConfirm} loading={loading} disabled={loading} className="flex-1 rounded-none border-0 h-12">
             {t('config_management.diff.confirm')}
           </Button>
-        </>
+        </div>
       }
     >
       <div className="flex flex-col h-[70vh] min-h-[420px] max-md:h-[65vh] max-md:min-h-[360px]">

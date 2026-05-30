@@ -16,6 +16,8 @@ export const quotaStyles = {
   titleWrapper: 'flex items-center gap-2 leading-6',
   countBadge:
     'inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full text-[13px] font-semibold text-primary bg-primary/10 box-border',
+  tabCountBadge:
+    'inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-[10px] font-semibold text-primary bg-primary/10 box-border',
 
   // Error box
   errorBox:
@@ -34,6 +36,8 @@ export const quotaStyles = {
     'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
   xaiGrid:
     'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+  quotaGrid:
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
 
   // View-mode toggle
   viewModeToggle:
@@ -51,9 +55,6 @@ export const quotaStyles = {
     'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0 max-md:whitespace-normal',
   quotaBar: 'h-2 bg-secondary rounded-full overflow-hidden',
   quotaBarFill: 'h-full',
-  quotaBarFillHigh: 'bg-success',
-  quotaBarFillMedium: 'bg-[var(--quota-medium-color,#e0aa14)]',
-  quotaBarFillLow: 'bg-destructive',
   quotaMeta:
     'flex items-center gap-2 text-[12px] text-muted-foreground whitespace-nowrap max-md:justify-start',
   quotaPercent: 'font-semibold text-foreground',

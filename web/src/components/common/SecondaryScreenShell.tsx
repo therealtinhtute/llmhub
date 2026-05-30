@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconChevronLeft } from '@/components/ui/icons';
-import { usePageTransitionLayer } from './PageTransitionLayer';
 
 export type SecondaryScreenShellProps = {
   title: ReactNode;
@@ -52,9 +51,7 @@ export const SecondaryScreenShell = forwardRef<HTMLDivElement, SecondaryScreenSh
       .join(' ');
     const titleTooltip = typeof title === 'string' ? title : undefined;
     const resolvedBackAriaLabel = backAriaLabel ?? backLabel;
-    const pageTransitionLayer = usePageTransitionLayer();
-    const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.isCurrentLayer : true;
-    const shouldRenderFloatingAction = Boolean(floatingAction) && isCurrentLayer;
+    const shouldRenderFloatingAction = Boolean(floatingAction);
     const floatingActionRef = useRef<HTMLDivElement | null>(null);
 
     useLayoutEffect(() => {

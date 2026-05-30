@@ -15,7 +15,6 @@ import { animate } from 'motion/mini';
 import type { AnimationPlaybackControlsWithThen } from 'motion-dom';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
 import { FormInput as Input } from '@/components/ui/FormInput';
@@ -80,8 +79,6 @@ export function AuthFilesPage() {
   const { t } = useTranslation();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
-  const pageTransitionLayer = usePageTransitionLayer();
-  const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<'all' | string>('all');
@@ -332,17 +329,16 @@ export function AuthFilesPage() {
   useHeaderRefresh(handleHeaderRefresh);
 
   useEffect(() => {
-    if (!isCurrentLayer) return;
     loadFiles();
     loadExcluded();
     loadModelAlias();
-  }, [isCurrentLayer, loadFiles, loadExcluded, loadModelAlias]);
+  }, [loadFiles, loadExcluded, loadModelAlias]);
 
   useInterval(
     () => {
       void loadFiles().catch(() => {});
     },
-    isCurrentLayer ? 240_000 : null
+    240_000
   );
 
   const existingTypes = useMemo(() => {

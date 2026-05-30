@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import type { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { parse as parseYaml, parseDocument } from 'yaml';
-import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { Button } from '@/components/ui/Button';
 import { FormInput as Input } from '@/components/ui/FormInput';
 import {
@@ -13,6 +12,7 @@ import {
   IconRefreshCw,
   IconSearch,
 } from '@/components/ui/icons';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VisualConfigEditor } from '@/components/config/VisualConfigEditor';
 import { DiffModal } from '@/components/config/DiffModal';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -46,8 +46,6 @@ function normalizeYamlForVisualDiff(yamlContent: string): string {
 
 export function ConfigPage() {
   const { t } = useTranslation();
-  const pageTransitionLayer = usePageTransitionLayer();
-  const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.isCurrentLayer : true;
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -91,7 +89,6 @@ export function ConfigPage() {
 
   const disableControls = connectionStatus !== 'connected';
   const isDirty = dirty || visualDirty;
-  const shouldRenderFloatingActions = isCurrentLayer;
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
     activeTab === 'visual' &&
@@ -157,9 +154,7 @@ export function ConfigPage() {
             : typeof refreshError === 'string'
               ? refreshError
               : '';
-        toast.error(
-          `${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`
-        );
+        toast.error(`${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`);
       }
 
       toast.success(t('config_management.save_success'));
@@ -279,14 +274,7 @@ export function ConfigPage() {
       setActiveTab(tab);
       localStorage.setItem('config-management:tab', tab);
     },
-    [
-      activeTab,
-      applyVisualChangesToYaml,
-      content,
-      loadVisualValuesFromYaml,
-      t,
-      visualDirty,
-    ]
+    [activeTab, applyVisualChangesToYaml, content, loadVisualValuesFromYaml, t, visualDirty]
   );
 
   // Search functionality
@@ -396,7 +384,7 @@ export function ConfigPage() {
 
   // Keep bottom floating actions from covering page content by syncing its height to a CSS variable.
   useLayoutEffect(() => {
-    if (typeof window === 'undefined' || !shouldRenderFloatingActions) return;
+    if (typeof window === 'undefined') return;
 
     const actionsEl = floatingActionsRef.current;
     if (!actionsEl) return;
@@ -417,7 +405,7 @@ export function ConfigPage() {
       window.removeEventListener('resize', updatePadding);
       document.documentElement.style.removeProperty('--config-action-bar-height');
     };
-  }, [shouldRenderFloatingActions]);
+  }, []);
 
   // Status text
   const getStatusText = () => {
@@ -435,10 +423,8 @@ export function ConfigPage() {
   const getStatusClass = () => {
     if (error || hasVisualModeError || hasVisualValidationErrors)
       return 'text-amber-700 bg-amber-100 border-amber-400/30';
-    if (isDirty)
-      return 'text-amber-700 bg-amber-100 border-amber-400/30';
-    if (!loading && !saving)
-      return 'text-emerald-700 bg-emerald-100/10 border-emerald-500/34';
+    if (isDirty) return 'text-amber-700 bg-amber-100 border-amber-400/30';
+    if (!loading && !saving) return 'text-emerald-700 bg-emerald-100/10 border-emerald-500/34';
     return '';
   };
 
@@ -527,44 +513,40 @@ export function ConfigPage() {
   );
 
   return (
-    <div
-      className="w-[min(100%,1480px)] min-h-full flex flex-col gap-[clamp(18px,2.4vw,28px)] mx-auto overflow-y-auto pb-[calc(var(--config-action-bar-height,0px)+16px+env(safe-area-inset-bottom)+12px)]"
-    >
+    <div className="w-[min(100%,1480px)] min-h-full flex flex-col gap-[6px] mx-auto overflow-y-auto pb-[calc(var(--config-action-bar-height,0px)+16px+env(safe-area-inset-bottom)+12px)]">
       <div className="flex items-start">
         <div className="flex flex-col gap-[10px] min-w-0 w-[min(100%,360px)]">
-          <h1 className="text-[28px] font-bold text-foreground m-0">{t('config_management.title')}</h1>
-          <div className="grid grid-cols-2 gap-[2px] p-[2px] border border-border bg-[color-mix(in_srgb,hsl(var(--background))_72%,transparent)]">
-            <button
-              type="button"
-              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
-                activeTab === 'visual'
-                  ? 'text-background bg-foreground border-foreground'
-                  : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-foreground/[0.05]'
-              }`}
-              onClick={() => handleTabChange('visual')}
-              disabled={saving || loading}
-            >
-              {t('config_management.tabs.visual', { defaultValue: '可视化编辑' })}
-            </button>
-            <button
-              type="button"
-              className={`min-h-[38px] px-3 border text-[13px] font-[650] leading-tight whitespace-nowrap disabled:opacity-[0.58] disabled:cursor-not-allowed bg-transparent p-0 m-0 appearance-none cursor-pointer ${
-                activeTab === 'source'
-                  ? 'text-background bg-foreground border-foreground'
-                  : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-foreground/[0.05]'
-              }`}
-              onClick={() => handleTabChange('source')}
-              disabled={saving || loading}
-            >
-              {t('config_management.tabs.source', { defaultValue: '源代码编辑' })}
-            </button>
-          </div>
+          <h1 className="text-[28px] font-bold text-foreground m-0">
+            {t('config_management.title')}
+          </h1>
+          <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as ConfigEditorTab)}>
+            <TabsList className="flex justify-start items-start gap-0 p-0 border-b border-border bg-transparent">
+              <TabsTrigger
+                value="visual"
+                disabled={saving || loading}
+                className="min-h-[32px] px-3 py-1 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              >
+                {t('config_management.tabs.visual', { defaultValue: '可视化编辑' })}
+              </TabsTrigger>
+              <TabsTrigger
+                value="source"
+                disabled={saving || loading}
+                className="min-h-[32px] px-3 py-1 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              >
+                {t('config_management.tabs.source', { defaultValue: '源代码编辑' })}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </div>
 
       <div className="flex flex-col gap-4 min-w-0">
         <div className="flex flex-col gap-4 min-h-0">
-          {error && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{error}</div>}
+          {error && (
+            <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">
+              {error}
+            </div>
+          )}
           {!error && visualParseError && (
             <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">
               {t('config_management.visual_mode_unavailable_detail', { message: visualParseError })}
@@ -643,7 +625,7 @@ export function ConfigPage() {
                 </div>
               </div>
 
-              <div className="w-full flex-none h-[clamp(500px,70vh,1040px)] supports-[height:100dvh]:h-[clamp(500px,70dvh,1040px)] border border-border overflow-hidden bg-background [&_.cm-editor]:h-full [&_.cm-editor]:text-[13px] [&_.cm-editor]:font-mono [&_.cm-editor]:bg-transparent [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:[-webkit-overflow-scrolling:touch] [&_.cm-scroller]:[touch-action:pan-x_pan-y] [&_.cm-scroller]:[overscroll-behavior:contain] [&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-[color-mix(in_srgb,hsl(var(--muted))_86%,transparent)] [&_.cm-lineNumbers_.cm-gutterElement]:px-2 [&_.cm-lineNumbers_.cm-gutterElement]:min-w-[40px] [&_.cm-lineNumbers_.cm-gutterElement]:text-muted-foreground [&_.cm-activeLine]:bg-foreground/[0.05] [&_.cm-activeLineGutter]:bg-foreground/[0.05] [&_.cm-selectionMatch]:bg-[rgba(224,170,20,0.24)] [&_.cm-searchMatch]:bg-[rgba(224,170,20,0.32)] [&_.cm-searchMatch]:outline [&_.cm-searchMatch]:outline-1 [&_.cm-searchMatch]:outline-[rgba(224,170,20,0.48)] [&_.cm-searchMatch-selected]:bg-[rgba(198,87,70,0.32)]">
+              <div className="w-full flex-none h-[clamp(500px,70vh,1040px)] supports-[height:100dvh]:h-[clamp(500px,70dvh,1040px)] overflow-hidden bg-background [&_.cm-editor]:h-full [&_.cm-editor]:text-[13px] [&_.cm-editor]:font-mono [&_.cm-editor]:bg-transparent [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:[-webkit-overflow-scrolling:touch] [&_.cm-scroller]:[touch-action:pan-x_pan-y] [&_.cm-scroller]:[overscroll-behavior:contain] [&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-[color-mix(in_srgb,hsl(var(--muted))_86%,transparent)] [&_.cm-lineNumbers_.cm-gutterElement]:px-2 [&_.cm-lineNumbers_.cm-gutterElement]:min-w-[40px] [&_.cm-lineNumbers_.cm-gutterElement]:text-muted-foreground [&_.cm-activeLine]:bg-foreground/[0.05] [&_.cm-activeLineGutter]:bg-foreground/[0.05] [&_.cm-selectionMatch]:bg-[rgba(224,170,20,0.24)] [&_.cm-searchMatch]:bg-[rgba(224,170,20,0.32)] [&_.cm-searchMatch]:outline [&_.cm-searchMatch]:outline-1 [&_.cm-searchMatch]:outline-[rgba(224,170,20,0.48)] [&_.cm-searchMatch-selected]:bg-[rgba(198,87,70,0.32)]">
                 <Suspense fallback={null}>
                   <LazyConfigSourceEditor
                     editorRef={editorRef}
@@ -660,9 +642,7 @@ export function ConfigPage() {
         </div>
       </div>
 
-      {shouldRenderFloatingActions && typeof document !== 'undefined'
-        ? createPortal(floatingActions, document.body)
-        : null}
+      {typeof document !== 'undefined' ? createPortal(floatingActions, document.body) : null}
       <DiffModal
         open={diffModalOpen}
         original={serverYaml}

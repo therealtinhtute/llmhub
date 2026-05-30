@@ -863,7 +863,6 @@
     },
     "visual": {
       "notice": "視覺化模式涵蓋常用欄位，未涵蓋的設定仍需在原始檔模式中查看或編輯。",
-      "quick_jump": "快速跳轉",
       "sections": {
         "server": {
           "title": "伺服器設定",
@@ -1087,7 +1086,8 @@
     "refresh_files": "重新整理驗證檔案",
     "refresh_files_and_quota": "重新整理驗證檔案&配額",
     "refresh_all_credentials": "重新整理全部憑證",
-    "card_idle_hint": "請使用頂部「重新整理全部憑證」按鈕取得最新配額。"
+    "card_idle_hint": "請使用頂部「重新整理全部憑證」按鈕取得最新配額。",
+    "tab_all": "全部"
   },
   "system_info": {
     "title": "管理中心資訊",

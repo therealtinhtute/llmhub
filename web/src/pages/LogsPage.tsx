@@ -20,6 +20,7 @@ import {
   IconTrash2,
   IconX,
 } from '@/components/ui/icons';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { toast } from 'sonner';
@@ -456,38 +457,26 @@ export function LogsPage() {
       </h1>
 
       {/* tabBar */}
-      <div className="flex gap-1 mb-4 border-b border-border max-[820px]:mb-3 max-[600px]:mb-2">
-        <button
-          type="button"
-          className={[
-            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer',
-            'border-b-2 -mb-px focus:outline-none focus-visible:outline-none',
-            activeTab === 'logs'
-              ? 'text-primary border-b-primary'
-              : 'text-muted-foreground border-b-transparent hover:text-foreground',
-            'max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]',
-            'max-[820px]:px-4 max-[820px]:py-[10px]',
-          ].join(' ')}
-          onClick={() => setActiveTab('logs')}
-        >
-          {t('logs.log_content')}
-        </button>
-        <button
-          type="button"
-          className={[
-            'appearance-none bg-transparent border-0 px-5 py-3 text-sm font-medium cursor-pointer',
-            'border-b-2 -mb-px focus:outline-none focus-visible:outline-none',
-            activeTab === 'errors'
-              ? 'text-primary border-b-primary'
-              : 'text-muted-foreground border-b-transparent hover:text-foreground',
-            'max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]',
-            'max-[820px]:px-4 max-[820px]:py-[10px]',
-          ].join(' ')}
-          onClick={() => setActiveTab('errors')}
-        >
-          {t('logs.error_logs_modal_title')}
-        </button>
-      </div>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as TabType)}
+        className="mb-4 max-[820px]:mb-3 max-[600px]:mb-2"
+      >
+        <TabsList className="flex gap-0 p-0 border-b border-border bg-transparent">
+          <TabsTrigger
+            value="logs"
+            className="text-muted-foreground px-5 py-3 text-sm font-medium border-b-2 border-transparent -mb-px data-[state=active]:border-foreground data-[state=active]:text-foreground hover:text-foreground max-[820px]:px-4 max-[820px]:py-[10px] max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]"
+          >
+            {t('logs.log_content')}
+          </TabsTrigger>
+          <TabsTrigger
+            value="errors"
+            className="text-muted-foreground px-5 py-3 text-sm font-medium border-b-2 border-transparent -mb-px data-[state=active]:border-foreground data-[state=active]:text-foreground hover:text-foreground max-[820px]:px-4 max-[820px]:py-[10px] max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]"
+          >
+            {t('logs.error_logs_modal_title')}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* content: flex col, flex-1, min-h-0, gap-4; mobile: gap-3 min-h-auto */}
       <div className="flex flex-col gap-4 flex-1 min-h-0 max-md:gap-3 max-md:min-h-auto max-[820px]:gap-3 max-[600px]:gap-2">
@@ -877,7 +866,7 @@ export function LogsPage() {
 
                             {line.requestId && (
                               <span
-                                className="inline-flex items-center px-2 py-0.5 text-[11px] font-extrabold border whitespace-nowrap font-mono text-[#0891b2] bg-[rgba(8,145,178,0.1)] border-[rgba(8,145,178,0.25)]"
+                                className="inline-flex items-center px-2 py-0.5 text-[11px] font-extrabold border whitespace-nowrap font-mono text-primary bg-primary/10 border-primary/25"
                                 title={line.requestId}
                               >
                                 {line.requestId}

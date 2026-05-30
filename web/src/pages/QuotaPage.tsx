@@ -1,13 +1,10 @@
-/**
- * Quota management page - coordinates the three quota sections.
- */
-
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useAuthStore } from '@/stores';
 import { authFilesApi, configFileApi } from '@/services/api';
 import {
+  AllQuotaSection,
   QuotaSection,
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
@@ -16,8 +13,18 @@ import {
   KIMI_CONFIG,
   XAI_CONFIG,
 } from '@/components/quota';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { AuthFileItem } from '@/types';
 import { quotaStyles as styles } from '@/components/quota/quotaStyles';
+
+const ALL_CONFIGS = [
+  CLAUDE_CONFIG,
+  ANTIGRAVITY_CONFIG,
+  CODEX_CONFIG,
+  XAI_CONFIG,
+  GEMINI_CLI_CONFIG,
+  KIMI_CONFIG,
+];
 
 export function QuotaPage() {
   const { t } = useTranslation();
@@ -26,6 +33,7 @@ export function QuotaPage() {
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('all');
 
   const disableControls = connectionStatus !== 'connected';
 
@@ -63,6 +71,26 @@ export function QuotaPage() {
     loadConfig();
   }, [loadFiles, loadConfig]);
 
+  const allCount = useMemo(
+    () =>
+      ALL_CONFIGS.reduce((acc, cfg) => {
+        files.forEach((f) => {
+          if (cfg.filterFn(f)) acc.add(f.name);
+        });
+        return acc;
+      }, new Set<string>()).size,
+    [files]
+  );
+
+  const providerTabs = useMemo(
+    () =>
+      ALL_CONFIGS.map((config) => ({
+        config,
+        count: files.filter(config.filterFn).length,
+      })).filter(({ count }) => count > 0),
+    [files]
+  );
+
   return (
     <div className={styles.container}>
       <div className={styles.pageHeader}>
@@ -72,42 +100,48 @@ export function QuotaPage() {
 
       {error && <div className={styles.errorBox}>{error}</div>}
 
-      <QuotaSection
-        config={CLAUDE_CONFIG}
-        files={files}
-        loading={loading}
-        disabled={disableControls}
-      />
-      <QuotaSection
-        config={ANTIGRAVITY_CONFIG}
-        files={files}
-        loading={loading}
-        disabled={disableControls}
-      />
-      <QuotaSection
-        config={CODEX_CONFIG}
-        files={files}
-        loading={loading}
-        disabled={disableControls}
-      />
-      <QuotaSection
-        config={XAI_CONFIG}
-        files={files}
-        loading={loading}
-        disabled={disableControls}
-      />
-      <QuotaSection
-        config={GEMINI_CLI_CONFIG}
-        files={files}
-        loading={loading}
-        disabled={disableControls}
-      />
-      <QuotaSection
-        config={KIMI_CONFIG}
-        files={files}
-        loading={loading}
-        disabled={disableControls}
-      />
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex justify-start items-start gap-0 p-0 border-b border-border bg-transparent">
+          <TabsTrigger
+            value="all"
+            className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+          >
+            {t('quota_management.tab_all')}
+            {allCount > 0 && <span className={styles.tabCountBadge}>{allCount}</span>}
+          </TabsTrigger>
+          {providerTabs.map(({ config, count }) => (
+            <TabsTrigger
+              key={config.type}
+              value={config.type}
+              className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+            >
+              {t(`${config.i18nPrefix}.title`)}
+              <span className={styles.tabCountBadge}>{count}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <TabsContent value="all">
+          <AllQuotaSection
+            configs={ALL_CONFIGS}
+            files={files}
+            loading={loading}
+            disabled={disableControls}
+          />
+        </TabsContent>
+
+        {providerTabs.map(({ config }) => (
+          <TabsContent key={config.type} value={config.type}>
+            <QuotaSection
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              config={config as any}
+              files={files}
+              loading={loading}
+              disabled={disableControls}
+            />
+          </TabsContent>
+        ))}
+      </Tabs>
     </div>
   );
 }

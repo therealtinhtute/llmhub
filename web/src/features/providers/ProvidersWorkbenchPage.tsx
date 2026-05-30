@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { AppSkeleton as Skeleton } from '@/components/ui/AppSkeleton';
 import { toast } from 'sonner';
@@ -64,9 +63,6 @@ export function ProvidersWorkbenchPage() {
   const connectionStatus = useAuthStore((s) => s.connectionStatus);
   const { showConfirmation } = useNotificationStore();
 
-  const pageTransitionLayer = usePageTransitionLayer();
-  const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
-
   const workbench = useProviderWorkbench();
   const [activeBrand, setActiveBrand] = useState<ProviderBrand>('gemini');
   const [filter, setFilter] = useState('');
@@ -95,7 +91,7 @@ export function ProvidersWorkbenchPage() {
     ]);
   }, [refreshRecentRequests, workbench]);
 
-  useHeaderRefresh(handleRefresh, isCurrentLayer);
+  useHeaderRefresh(handleRefresh);
 
   const disableMutations = connectionStatus !== 'connected' || workbench.mutating;
 

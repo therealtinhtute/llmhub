@@ -44,7 +44,7 @@ const MODEL_CATEGORY_ICONS: Record<string, string | { light: string; dark: strin
 };
 
 const linkIconClass = (type: 'github' | 'docs' | 'primary') =>
-  `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-[#10b981]' : 'bg-primary'}`;
+  `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-emerald-500' : 'bg-primary'}`;
 
 const parseVersionSegments = (version?: string | null) => {
   if (!version) return null;

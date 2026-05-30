@@ -32,9 +32,6 @@ const quotaStyleMap = {
   quotaModel: 'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0',
   quotaBar: 'h-2 bg-secondary overflow-hidden',
   quotaBarFill: 'h-full',
-  quotaBarFillHigh: 'bg-success',
-  quotaBarFillMedium: 'bg-[var(--quota-medium-color,#e0aa14)]',
-  quotaBarFillLow: 'bg-destructive',
   quotaMeta: 'flex items-center gap-2 text-[12px] text-muted-foreground whitespace-nowrap',
   quotaPercent: 'font-semibold text-foreground',
   quotaReset: 'text-muted-foreground/60',
@@ -42,7 +39,7 @@ const quotaStyleMap = {
   codexPlan: 'flex items-center gap-[6px] text-[12px] text-muted-foreground',
   codexPlanLabel: 'text-muted-foreground/60',
   codexPlanValue: 'font-semibold text-foreground capitalize',
-  premiumPlanValue: 'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-[rgba(217,165,22,0.15)] border border-[rgba(217,165,22,0.3)] text-[#e0aa14] capitalize',
+  premiumPlanValue: 'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-amber-500/15 border border-amber-500/30 text-amber-600 capitalize',
 };
 
 type QuotaState = { status?: string; error?: string; errorStatus?: number } | undefined;

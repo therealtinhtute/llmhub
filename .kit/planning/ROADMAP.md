@@ -1,46 +1,41 @@
-# ROADMAP: Web UI Update — Config Tabs + Animation Strip
+# ROADMAP: Web UI Cleanup — Config Tabs Layout Fix + PageTransition Removal
 
 ## Planning Basis
 - source spec: `.kit/planning/SPEC.md`
 - planning mode: `full`
-- recommended entry phase: `phase-1-config-tabs`
-- execution mode: sequential (independent file changes; each phase can be verified separately)
+- recommended entry phase: `config-tabs-layout`
+- execution mode: sequential (independent file surfaces; each phase verifiable separately)
 
 ## Entry Phase
-`phase-1-config-tabs`
+`config-tabs-layout`
 
-## Phase 1: phase-1-config-tabs
-**Goal:** Replace the sticky 2/3-column aside navigation in VisualConfigEditor with a Radix UI horizontal Tabs structure. All 6 sections accessible via tab triggers; no more IntersectionObserver scroll-spy.
+## Phase 1: config-tabs-layout
+**Goal:** Replace the 3-col/2-col grid TabsList with a single horizontal scrollable row and remove the redundant "快速跳转" info bar.
 
 **Deliverables:**
-- `VisualConfigEditor.tsx` refactored with Radix UI Tabs (`TabsRoot` / `TabsList` / `TabsTrigger` × 6 / `TabsContent` × 6)
-- `ConfigSection.tsx` adjusted for non-scroll-snap layout (removal of horizontal scroll-snap parent)
-- Mobile: horizontal scrollable TabsList
-- Error badge (amber count) behavior preserved on tab triggers
+- `VisualConfigEditor.tsx` with flex-row TabsList and no info bar
+- Compact tab triggers: icon + label + optional error badge (no index prefix)
 
-**Dependencies:** none — first phase, no prior work needed
+**Dependencies:** none — first phase, single file
 
 **Risks / Watch-fors:**
-- Must check whether `@radix-ui/tabs` needs to be installed (project already uses `@radix-ui` v1.4.3 — confirm tabs package is included)
-- `ConfigSection` horizontal scroll-snap removal may affect layout pacing — verify visually on both desktop and mobile
+- Tab triggers may overflow or compress too much on narrow screens — verify with browser dev tools at 320px width
+- Removing the index prefix (`01`, `02`, etc.) changes the visual identity — confirm this is acceptable during verification
 
 ---
 
-## Phase 2: phase-2-kill-animations
-**Goal:** Strip all `motion` animation calls from `PageTransition.tsx`; keep layer stack, scroll position preservation, and context providers. Page transitions become instant.
+## Phase 2: remove-page-transition
+**Goal:** Delete PageTransition component and its context entirely. Clean up MainLayout and 4 consumer pages that reference the now-always-true `isCurrentLayer` guard.
 
 **Deliverables:**
-- `PageTransition.tsx` — `animate()` calls removed, no-op animation `useLayoutEffect`; layer stack and scroll preservation intact
+- `PageTransition.tsx` deleted
+- `PageTransitionLayer.ts` deleted
+- `MainLayout.tsx` renders `<MainRoutes />` directly; `getRouteOrder` and `getTransitionVariant` removed
+- 4 consumer pages cleaned of `usePageTransitionLayer` imports and `isCurrentLayer` guards
 
-**Dependencies:** Phase 1 complete (both are independent file changes but belong to the same spec)
+**Dependencies:** none — independent of Phase 1 (no file overlap)
 
 **Risks / Watch-fors:**
-- Verify `motion` is not used elsewhere (especially `motion/mini` imports) — if used elsewhere, package stays; leave comment if uncertain
-- `PageTransitionLayerContext.isAnimating` always `false` after strip — ensure no downstream consumer depends on animation-state side effects
-
----
-
-## Phase Ordering Rationale
-- Phase 1 addresses the larger UI surface area (config page tabs) and benefits from being verified first
-- Phase 2 is a targeted surgical edit on one component — low blast radius, quick to validate
-- Independent files but share the same `SPEC.md` and can be verified separately
+- `AuthFilesPage` uses `isCurrentLayer` to gate data loading AND polling interval — removing the guard means data always loads and polls; verify no double-fetch or performance regression
+- `SecondaryScreenShell` conditionally renders floating actions — removing guard means floating actions always render; confirm no visual overlap issues
+- Ensure no other files import from `PageTransition.tsx` or `PageTransitionLayer.ts` beyond the known 6

@@ -1,10 +1,10 @@
-current_phase: phase-2-kill-animations
-entry_phase: phase-1-config-tabs
+current_phase: remove-page-transition
+entry_phase: config-tabs-layout
 spec: .kit/planning/SPEC.md
 roadmap: .kit/planning/ROADMAP.md
-active_context: .kit/planning/phases/phase-2-kill-animations/phase-2-kill-animations-CONTEXT.md
-active_plan: .kit/planning/phases/phase-2-kill-animations/phase-2-kill-animations-PLAN.md
-latest_cook_run: none
-latest_check_report: .kit/reports/check/20260529-Phase1-Phase2-verify.md
-handoff: none
-last_updated: 2026-05-29T14:50:55Z
+active_context: .kit/planning/phases/remove-page-transition/remove-page-transition-CONTEXT.md
+active_plan: .kit/planning/phases/remove-page-transition/remove-page-transition-PLAN.md
+latest_cook_run: .kit/runs/work/20260530-1210-remove-page-transition.md
+latest_check_report: .kit/reports/check/20260530-1220-web-ui-cleanup.md
+handoff: .kit/HANDOFF.md
+last_updated: 2026-05-30 (end-of-session: quota-progress-bar-multi-status + --color-success fix)

@@ -11,6 +11,8 @@ const (
 	xaiBuiltinImageModelID        = "grok-imagine-image"
 	xaiBuiltinImageQualityModelID = "grok-imagine-image-quality"
 	xaiBuiltinVideoModelID        = "grok-imagine-video"
+	kiroBuiltinAutoModelID        = "auto"
+	kiroBuiltinSonnetModelID      = "claude-sonnet-4.5"
 )
 
 // staticModelsJSON mirrors the top-level structure of models.json.
@@ -27,6 +29,7 @@ type staticModelsJSON struct {
 	Kimi        []*ModelInfo `json:"kimi"`
 	Antigravity []*ModelInfo `json:"antigravity"`
 	XAI         []*ModelInfo `json:"xai"`
+	Kiro        []*ModelInfo `json:"kiro"`
 }
 
 // GetClaudeModels returns the standard Claude model definitions.
@@ -89,6 +92,11 @@ func GetXAIModels() []*ModelInfo {
 	return WithXAIBuiltins(cloneModelInfos(getModels().XAI))
 }
 
+// GetKiroModels returns static fallback Kiro model definitions.
+func GetKiroModels() []*ModelInfo {
+	return WithKiroBuiltins(cloneModelInfos(getModels().Kiro))
+}
+
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should
 // not depend on remote models.json updates. Built-ins replace any matching IDs
 // already present in the provided slice.
@@ -100,6 +108,19 @@ func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
 // not depend on remote models.json updates.
 func WithXAIBuiltins(models []*ModelInfo) []*ModelInfo {
 	return upsertModelInfos(models, xaiBuiltinImageModelInfo(), xaiBuiltinImageQualityModelInfo(), xaiBuiltinVideoModelInfo())
+}
+
+// WithKiroBuiltins injects hard-coded Kiro fallback models so startup remote
+// model refreshes cannot erase Kiro support when the shared remote catalog has
+// not yet published a kiro section.
+func WithKiroBuiltins(models []*ModelInfo) []*ModelInfo {
+	return upsertModelInfos(models,
+		kiroBuiltinAutoModelInfo(),
+		kiroBuiltinSonnetModelInfo("claude-sonnet-4.5", "Kiro Claude Sonnet 4.5", "Claude Sonnet 4.5 through Kiro.", nil),
+		kiroBuiltinSonnetModelInfo("claude-sonnet-4.5-thinking", "Kiro Claude Sonnet 4.5 Thinking", "Claude Sonnet 4.5 through Kiro with thinking prompt injection.", []string{"low", "medium", "high"}),
+		kiroBuiltinSonnetModelInfo("claude-sonnet-4.5-agentic", "Kiro Claude Sonnet 4.5 Agentic", "Claude Sonnet 4.5 through Kiro with agentic coding prompt injection.", nil),
+		kiroBuiltinSonnetModelInfo("claude-sonnet-4.5-thinking-agentic", "Kiro Claude Sonnet 4.5 Thinking Agentic", "Claude Sonnet 4.5 through Kiro with thinking and agentic prompt injection.", []string{"low", "medium", "high"}),
+	)
 }
 
 func codexBuiltinImageModelInfo() *ModelInfo {
@@ -151,6 +172,40 @@ func xaiBuiltinVideoModelInfo() *ModelInfo {
 		Name:        xaiBuiltinVideoModelID,
 		Description: "xAI Grok video generation model.",
 	}
+}
+
+func kiroBuiltinAutoModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:                  kiroBuiltinAutoModelID,
+		Object:              "model",
+		Created:             1751328000, // 2025-07-01
+		OwnedBy:             "kiro",
+		Type:                "kiro",
+		DisplayName:         "Kiro Auto",
+		Name:                kiroBuiltinAutoModelID,
+		Description:         "Kiro server-selected model.",
+		ContextLength:       200000,
+		MaxCompletionTokens: 64000,
+	}
+}
+
+func kiroBuiltinSonnetModelInfo(id, displayName, description string, thinkingLevels []string) *ModelInfo {
+	model := &ModelInfo{
+		ID:                  id,
+		Object:              "model",
+		Created:             1759104000, // 2025-09-29
+		OwnedBy:             "kiro",
+		Type:                "kiro",
+		DisplayName:         displayName,
+		Name:                id,
+		Description:         description,
+		ContextLength:       200000,
+		MaxCompletionTokens: 64000,
+	}
+	if len(thinkingLevels) > 0 {
+		model.Thinking = &ThinkingSupport{Levels: append([]string(nil), thinkingLevels...)}
+	}
+	return model
 }
 
 func upsertModelInfos(models []*ModelInfo, extras ...*ModelInfo) []*ModelInfo {
@@ -224,6 +279,7 @@ func cloneModelInfos(models []*ModelInfo) []*ModelInfo {
 //   - kimi
 //   - antigravity
 //   - xai
+//   - kiro
 func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 	key := strings.ToLower(strings.TrimSpace(channel))
 	switch key {
@@ -245,6 +301,8 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetAntigravityModels()
 	case "xai", "x-ai", "grok":
 		return GetXAIModels()
+	case "kiro":
+		return GetKiroModels()
 	default:
 		return nil
 	}
@@ -268,6 +326,7 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.Kimi,
 		data.Antigravity,
 		data.XAI,
+		data.Kiro,
 	}
 	for _, models := range allModels {
 		for _, m := range models {

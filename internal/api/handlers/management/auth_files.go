@@ -28,6 +28,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/auth/codex"
 	geminiAuth "github.com/therealtinhtute/llmhub/internal/auth/gemini"
 	"github.com/therealtinhtute/llmhub/internal/auth/kimi"
+	kiroauth "github.com/therealtinhtute/llmhub/internal/auth/kiro"
 	xaiauth "github.com/therealtinhtute/llmhub/internal/auth/xai"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	"github.com/therealtinhtute/llmhub/internal/misc"
@@ -911,6 +912,11 @@ func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.Fil
 }
 
 func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) error {
+	normalizedData, errNormalize := h.normalizeAuthFileDataForImport(ctx, name, data)
+	if errNormalize != nil {
+		return errNormalize
+	}
+	data = normalizedData
 	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
 		auth, err := h.buildAuthFromFileData(filepath.Base(name), data)
 		if err != nil {
@@ -938,6 +944,34 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 		return err
 	}
 	return nil
+}
+
+func (h *Handler) normalizeAuthFileDataForImport(ctx context.Context, name string, data []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("invalid auth file: empty input")
+	}
+	var probe map[string]any
+	if err := json.Unmarshal(trimmed, &probe); err == nil {
+		provider, _ := probe["provider"].(string)
+		metaType, _ := probe["type"].(string)
+		if strings.EqualFold(strings.TrimSpace(provider), kiroauth.Provider) || strings.EqualFold(strings.TrimSpace(metaType), kiroauth.Provider) {
+			normalized, errNormalize := kiroauth.NormalizeImportData(ctx, trimmed, http.DefaultClient)
+			if errNormalize != nil {
+				return nil, errNormalize
+			}
+			return normalized, nil
+		}
+		return data, nil
+	}
+	if !strings.Contains(strings.ToLower(filepath.Base(name)), kiroauth.Provider) {
+		return data, nil
+	}
+	normalized, errNormalize := kiroauth.NormalizeImportData(ctx, trimmed, http.DefaultClient)
+	if errNormalize != nil {
+		return nil, errNormalize
+	}
+	return normalized, nil
 }
 
 func requestedAuthFileNamesForDelete(c *gin.Context) ([]string, error) {
@@ -1131,6 +1165,9 @@ func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Aut
 			return nil, fmt.Errorf("failed to read auth file: %w", err)
 		}
 	}
+	if normalizedData, errNormalize := h.normalizeAuthFileDataForImport(context.Background(), path, data); errNormalize == nil {
+		data = normalizedData
+	}
 	metadata := make(map[string]any)
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return nil, fmt.Errorf("invalid auth file: %w", err)
@@ -1169,6 +1206,10 @@ func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Aut
 		Metadata:   metadata,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
+	}
+	if disabled, _ := metadata["disabled"].(bool); disabled {
+		auth.Disabled = true
+		auth.Status = coreauth.StatusDisabled
 	}
 	if hasLastRefresh {
 		auth.LastRefreshedAt = lastRefresh

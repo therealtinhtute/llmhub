@@ -84,6 +84,57 @@ func TestUploadAuthFile_BatchMultipart(t *testing.T) {
 	}
 }
 
+func TestUploadAuthFile_Kiro9RouterJSONNormalizes(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	authDir := t.TempDir()
+	manager := coreauth.NewManager(nil, nil, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	body := `{
+		"provider":"kiro",
+		"authType":"oauth",
+		"accessToken":"access-1",
+		"refreshToken":"refresh-1",
+		"expiresAt":"2026-06-01T10:00:00Z",
+		"email":"user@example.com",
+		"isActive":false,
+		"providerSpecificData":{"profileArn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/ABC","authMethod":"google"}
+	}`
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v0/management/auth-files?name="+url.QueryEscape("kiro.json"), bytes.NewBufferString(body))
+	ctx.Request = req
+
+	h.UploadAuthFile(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected upload status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(authDir, "kiro.json"))
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("unmarshal normalized auth: %v", err)
+	}
+	if meta["type"] != "kiro" || meta["access_token"] != "access-1" || meta["refresh_token"] != "refresh-1" {
+		t.Fatalf("unexpected normalized metadata: %#v", meta)
+	}
+	if disabled, _ := meta["disabled"].(bool); !disabled {
+		t.Fatalf("disabled = %#v, want true", meta["disabled"])
+	}
+	registered, ok := manager.GetByID("kiro.json")
+	if !ok || registered == nil {
+		t.Fatal("expected normalized auth to be registered")
+	}
+	if registered.Provider != "kiro" || !registered.Disabled {
+		t.Fatalf("registered auth provider=%q disabled=%v, want disabled kiro", registered.Provider, registered.Disabled)
+	}
+}
+
 func TestUploadAuthFile_BatchMultipart_InvalidJSONDoesNotOverwriteExistingFile(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)

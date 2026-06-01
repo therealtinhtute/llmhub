@@ -434,6 +434,8 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
 	case "xai":
 		s.coreManager.RegisterExecutor(executor.NewXAIExecutor(s.cfg))
+	case "kiro":
+		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -590,6 +592,7 @@ func (s *Service) registerHomeExecutors() {
 	s.coreManager.RegisterExecutor(executor.NewAIStudioExecutor(s.cfg, "", s.wsGateway))
 	s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
+	s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor("openai-compatibility", s.cfg))
 }
 
@@ -783,6 +786,7 @@ func (s *Service) Run(ctx context.Context) error {
 		if errLoad := s.coreManager.Load(ctx); errLoad != nil {
 			log.Warnf("failed to load auth store: %v", errLoad)
 		}
+		s.registerLoadedCoreAuths(ctx)
 	}
 
 	if !homeEnabled {
@@ -1169,6 +1173,19 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	case "xai":
 		models = registry.GetXAIModels()
 		models = applyExcludedModels(models, excluded)
+	case "kiro":
+		models = registry.GetKiroModels()
+		if liveModels, refreshedAuth, err := s.resolveKiroModelsForAuth(a); err != nil {
+			log.Warnf("kiro models: live model load failed for %s, using static fallback: %v", a.ID, err)
+		} else if len(liveModels) > 0 {
+			models = liveModels
+			if refreshedAuth != nil && s.coreManager != nil {
+				if _, errUpdate := s.coreManager.Update(context.Background(), refreshedAuth); errUpdate != nil {
+					log.Warnf("kiro models: failed to persist refreshed auth %s: %v", refreshedAuth.ID, errUpdate)
+				}
+			}
+		}
+		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config
 		if s.cfg != nil {
@@ -1247,6 +1264,33 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	}
 
 	GlobalModelRegistry().UnregisterClient(a.ID)
+}
+
+func (s *Service) resolveKiroModelsForAuth(a *coreauth.Auth) ([]*ModelInfo, *coreauth.Auth, error) {
+	if a == nil || a.Disabled {
+		return nil, nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	return executor.NewKiroExecutor(s.cfg).ResolveModels(ctx, a)
+}
+
+func (s *Service) registerLoadedCoreAuths(ctx context.Context) {
+	if s == nil || s.coreManager == nil {
+		return
+	}
+	loaded := s.coreManager.List()
+	for _, auth := range loaded {
+		if auth == nil || auth.ID == "" {
+			continue
+		}
+		if !auth.Disabled {
+			s.ensureExecutorsForAuth(auth)
+		}
+		s.registerModelsForAuth(auth)
+		s.coreManager.ReconcileRegistryModelStates(ctx, auth.ID)
+		s.coreManager.RefreshSchedulerEntry(auth.ID)
+	}
 }
 
 // refreshModelRegistrationForAuth re-applies the latest model registration for

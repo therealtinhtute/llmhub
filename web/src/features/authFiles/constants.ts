@@ -6,6 +6,7 @@ import iconGemini from '@/assets/icons/gemini.svg';
 import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
 import iconIflow from '@/assets/icons/iflow.svg';
+import iconKiro from '@/assets/icons/kiro.svg';
 import iconKimiDark from '@/assets/icons/kimi-dark.svg';
 import iconKimiLight from '@/assets/icons/kimi-light.svg';
 import iconQwen from '@/assets/icons/qwen.svg';
@@ -85,6 +86,10 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
   iflow: {
     light: { bg: '#f5e3fc', text: '#9025c8' },
   },
+  // Kiro logo: violet #9046FF with white mascot mark
+  kiro: {
+    light: { bg: '#efe7ff', text: '#7432d6' },
+  },
   // Vertex logo: Google 蓝 #4285F4
   vertex: {
     light: { bg: '#e4edfd', text: '#2b5fbc' },
@@ -106,6 +111,7 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   'gemini-cli': iconGemini,
   xai: { light: iconGrok, dark: iconGrokDark },
   iflow: iconIflow,
+  kiro: iconKiro,
   kimi: { light: iconKimiLight, dark: iconKimiDark },
   qwen: iconQwen,
   vertex: iconVertex,

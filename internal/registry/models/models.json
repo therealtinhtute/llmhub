@@ -2347,5 +2347,81 @@
         ]
       }
     }
+  ],
+  "kiro": [
+    {
+      "id": "auto",
+      "object": "model",
+      "created": 1751328000,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Auto",
+      "name": "auto",
+      "description": "Kiro server-selected model.",
+      "context_length": 200000,
+      "max_completion_tokens": 64000
+    },
+    {
+      "id": "claude-sonnet-4.5",
+      "object": "model",
+      "created": 1759104000,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5",
+      "name": "claude-sonnet-4.5",
+      "description": "Claude Sonnet 4.5 through Kiro.",
+      "context_length": 200000,
+      "max_completion_tokens": 64000
+    },
+    {
+      "id": "claude-sonnet-4.5-thinking",
+      "object": "model",
+      "created": 1759104000,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5 Thinking",
+      "name": "claude-sonnet-4.5-thinking",
+      "description": "Claude Sonnet 4.5 through Kiro with thinking prompt injection.",
+      "context_length": 200000,
+      "max_completion_tokens": 64000,
+      "thinking": {
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    {
+      "id": "claude-sonnet-4.5-agentic",
+      "object": "model",
+      "created": 1759104000,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5 Agentic",
+      "name": "claude-sonnet-4.5-agentic",
+      "description": "Claude Sonnet 4.5 through Kiro with agentic coding prompt injection.",
+      "context_length": 200000,
+      "max_completion_tokens": 64000
+    },
+    {
+      "id": "claude-sonnet-4.5-thinking-agentic",
+      "object": "model",
+      "created": 1759104000,
+      "owned_by": "kiro",
+      "type": "kiro",
+      "display_name": "Kiro Claude Sonnet 4.5 Thinking Agentic",
+      "name": "claude-sonnet-4.5-thinking-agentic",
+      "description": "Claude Sonnet 4.5 through Kiro with thinking and agentic prompt injection.",
+      "context_length": 200000,
+      "max_completion_tokens": 64000,
+      "thinking": {
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    }
   ]
 }

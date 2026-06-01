@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	internalkiro "github.com/therealtinhtute/llmhub/internal/auth/kiro"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
@@ -193,6 +195,16 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 	if len(data) == 0 {
 		return nil, nil
 	}
+	normalized, errNormalize := normalizeKiroAuthFileData(path, data)
+	if errNormalize != nil {
+		return nil, errNormalize
+	}
+	if !bytes.Equal(bytes.TrimSpace(data), bytes.TrimSpace(normalized)) {
+		data = normalized
+		if errWrite := os.WriteFile(path, normalized, 0o600); errWrite != nil {
+			return nil, fmt.Errorf("persist normalized kiro auth: %w", errWrite)
+		}
+	}
 	metadata := make(map[string]any)
 	if err = json.Unmarshal(data, &metadata); err != nil {
 		return nil, fmt.Errorf("unmarshal auth json: %w", err)
@@ -260,6 +272,26 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 	}
 	cliproxyauth.ApplyCustomHeadersFromMetadata(auth)
 	return auth, nil
+}
+
+func normalizeKiroAuthFileData(path string, data []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return data, nil
+	}
+	var probe map[string]any
+	if err := json.Unmarshal(trimmed, &probe); err == nil {
+		provider, _ := probe["provider"].(string)
+		metaType, _ := probe["type"].(string)
+		if strings.EqualFold(strings.TrimSpace(provider), internalkiro.Provider) || strings.EqualFold(strings.TrimSpace(metaType), internalkiro.Provider) {
+			return internalkiro.NormalizeImportData(context.Background(), trimmed, http.DefaultClient)
+		}
+		return data, nil
+	}
+	if !strings.Contains(strings.ToLower(filepath.Base(path)), internalkiro.Provider) {
+		return data, nil
+	}
+	return internalkiro.NormalizeImportData(context.Background(), trimmed, http.DefaultClient)
 }
 
 func (s *FileTokenStore) idFor(path, baseDir string) string {

@@ -323,7 +323,7 @@ nonstream-keepalive-interval: 0
 
 # Global OAuth model name aliases (per channel)
 # These aliases rename model IDs for both model listing and request routing.
-# Supported channels: gemini-cli, vertex, aistudio, antigravity, claude, codex, kimi, xai.
+# Supported channels: gemini-cli, vertex, aistudio, antigravity, claude, codex, kimi, xai, kiro.
 # NOTE: Aliases do not apply to gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, vertex-api-key, or ampcode.
 # NOTE: Because aliases affect the merged /v1 model list and merged request routing, overlapping
 # client-visible names can become ambiguous across providers. /api/provider/{provider}/... helps
@@ -356,6 +356,9 @@ nonstream-keepalive-interval: 0
 #   xai:
 #     - name: "grok-4.3"
 #       alias: "grok-latest"
+#   kiro:
+#     - name: "claude-sonnet-4.5"
+#       alias: "kiro-sonnet"
 
 # OAuth provider excluded models
 # oauth-excluded-models:
@@ -378,6 +381,13 @@ nonstream-keepalive-interval: 0
 #     - "kimi-k2-thinking"
 #   xai:
 #     - "grok-3-mini"
+#   kiro:
+#     - "claude-sonnet-4.5-agentic"
+
+# Kiro auth import
+# Upload either a raw Kiro refresh token or a 9router Kiro provider connection JSON
+# through the management auth-file import surface. llmhub stores it normalized as:
+# {"type":"kiro","access_token":"...","refresh_token":"...","expired":"..."}
 
 # Optional payload configuration
 # payload:

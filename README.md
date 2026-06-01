@@ -133,7 +133,47 @@ make build
 ./llmhub -config config.yaml
 ```
 
+Use `make dev` for local file-backed development. It intentionally skips `.env`
+storage settings such as `PGSTORE_DSN`. Use `make dev-pg` when you want the dev
+server to load `.env` and run against Postgres.
+
 See `config.example.yaml` for the full configuration reference.
+
+## Postgres Runtime Storage
+
+By default, llmhub keeps using the local `config.yaml` and auth JSON files under
+`auth-dir`. Set `PGSTORE_DSN` to make Postgres the runtime source of truth for
+cliproxy config, OAuth/auth records, and the recent management usage queue.
+
+Example Supabase-style configuration:
+
+```bash
+export PGSTORE_DSN='postgres://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require'
+export PGSTORE_SCHEMA='llmhub'
+export PGSTORE_USAGE_RETENTION_SECONDS='60'
+llmhub -config /etc/llmhub/config.yaml
+```
+
+Boot behavior:
+
+- Without `PGSTORE_DSN`, local file mode is unchanged.
+- With `PGSTORE_DSN`, startup requires a working DB connection and does not
+  silently fall back to local auth files.
+- If the DB has config, llmhub loads config from Postgres.
+- If the DB has no config, llmhub imports the local `-config` path, or
+  `config.yaml`, and saves it to Postgres.
+- On that same first boot, if the auth table is empty, existing local auth JSON
+  files from the configured `auth-dir` are imported once.
+- After first import, DB rows win. Local files are not watched as the Postgres
+  runtime source.
+
+Operational notes:
+
+- Protect `PGSTORE_DSN` as a secret.
+- Use SSL for remote Postgres, for example `sslmode=require`.
+- Use a Supabase transaction/session pooler URL suitable for a long-running app.
+- Keep the usage retention short; it is a recent management queue, not a
+  long-term analytics store.
 
 ## Management Panel
 

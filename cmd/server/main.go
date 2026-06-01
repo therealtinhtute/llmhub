@@ -13,10 +13,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+	log "github.com/sirupsen/logrus"
 	configaccess "github.com/therealtinhtute/llmhub/internal/access/config_access"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/cmd"
@@ -31,8 +33,8 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/tui"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -134,26 +136,27 @@ func main() {
 	var isCloudDeploy bool
 	var configLoadedFromHome bool
 	var (
-		usePostgresStore     bool
-		pgStoreDSN           string
-		pgStoreSchema        string
-		pgStoreLocalPath     string
-		pgStoreInst          *store.PostgresStore
-		useGitStore          bool
-		gitStoreRemoteURL    string
-		gitStoreUser         string
-		gitStorePassword     string
-		gitStoreBranch       string
-		gitStoreLocalPath    string
-		gitStoreInst         *store.GitTokenStore
-		gitStoreRoot         string
-		useObjectStore       bool
-		objectStoreEndpoint  string
-		objectStoreAccess    string
-		objectStoreSecret    string
-		objectStoreBucket    string
-		objectStoreLocalPath string
-		objectStoreInst      *store.ObjectTokenStore
+		usePostgresStore      bool
+		pgStoreDSN            string
+		pgStoreSchema         string
+		pgStoreLocalPath      string
+		pgStoreUsageRetention int
+		pgStoreInst           *store.PostgresStore
+		useGitStore           bool
+		gitStoreRemoteURL     string
+		gitStoreUser          string
+		gitStorePassword      string
+		gitStoreBranch        string
+		gitStoreLocalPath     string
+		gitStoreInst          *store.GitTokenStore
+		gitStoreRoot          string
+		useObjectStore        bool
+		objectStoreEndpoint   string
+		objectStoreAccess     string
+		objectStoreSecret     string
+		objectStoreBucket     string
+		objectStoreLocalPath  string
+		objectStoreInst       *store.ObjectTokenStore
 	)
 
 	wd, err := os.Getwd()
@@ -163,9 +166,11 @@ func main() {
 	}
 
 	// Load environment variables from .env if present.
-	if errLoad := godotenv.Load(filepath.Join(wd, ".env")); errLoad != nil {
-		if !errors.Is(errLoad, os.ErrNotExist) {
-			log.WithError(errLoad).Warn("failed to load .env file")
+	if strings.TrimSpace(os.Getenv("LLMHUB_SKIP_DOTENV")) == "" {
+		if errLoad := godotenv.Load(filepath.Join(wd, ".env")); errLoad != nil {
+			if !errors.Is(errLoad, os.ErrNotExist) {
+				log.WithError(errLoad).Warn("failed to load .env file")
+			}
 		}
 	}
 
@@ -197,6 +202,11 @@ func main() {
 		}
 		if value, ok := lookupEnv("PGSTORE_LOCAL_PATH", "pgstore_local_path"); ok {
 			pgStoreLocalPath = value
+		}
+		if value, ok := lookupEnv("PGSTORE_USAGE_RETENTION_SECONDS", "pgstore_usage_retention_seconds"); ok {
+			if parsed, errParse := strconv.Atoi(value); errParse == nil {
+				pgStoreUsageRetention = parsed
+			}
 		}
 		if pgStoreLocalPath == "" {
 			if writableBase != "" {
@@ -314,19 +324,40 @@ func main() {
 			log.Errorf("failed to initialize postgres token store: %v", err)
 			return
 		}
-		examplePath := filepath.Join(wd, "config.example.yaml")
+		seedConfigPath := configPath
+		if strings.TrimSpace(seedConfigPath) == "" {
+			seedConfigPath = filepath.Join(wd, "config.yaml")
+		}
 		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		if errBootstrap := pgStoreInst.Bootstrap(ctx, examplePath); errBootstrap != nil {
+		configSnapshot, firstBoot, errBootstrap := pgStoreInst.Bootstrap(ctx, seedConfigPath, filepath.Join(wd, "config.yaml"))
+		if errBootstrap != nil {
 			cancel()
 			log.Errorf("failed to bootstrap postgres-backed config: %v", errBootstrap)
 			return
 		}
 		cancel()
 		configFilePath = pgStoreInst.ConfigPath()
-		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
+		cfg, err = config.ParseConfigBytes(configSnapshot.Content)
 		if err == nil {
+			seedAuthDir, errResolveSeedAuthDir := util.ResolveAuthDir(cfg.AuthDir)
+			if errResolveSeedAuthDir != nil {
+				log.Errorf("failed to resolve auth directory for postgres seed: %v", errResolveSeedAuthDir)
+				return
+			}
+			if firstBoot {
+				ctxSeedAuth, cancelSeedAuth := context.WithTimeout(context.Background(), 30*time.Second)
+				imported, errSeedAuth := pgStoreInst.SeedAuthFromDirectory(ctxSeedAuth, seedAuthDir)
+				cancelSeedAuth()
+				if errSeedAuth != nil {
+					log.Errorf("failed to seed postgres auth store: %v", errSeedAuth)
+					return
+				}
+				if imported > 0 {
+					log.Infof("postgres-backed token store imported %d auth file(s)", imported)
+				}
+			}
 			cfg.AuthDir = pgStoreInst.AuthDir()
-			log.Infof("postgres-backed token store enabled, workspace path: %s", pgStoreInst.WorkDir())
+			log.Infof("postgres-backed runtime store enabled, metadata path: %s", pgStoreInst.WorkDir())
 		}
 	} else if useObjectStore {
 		if objectStoreLocalPath == "" {
@@ -484,7 +515,15 @@ func main() {
 		}
 	}
 	redisqueue.SetUsageStatisticsEnabled(cfg.UsageStatisticsEnabled)
+	if usePostgresStore && pgStoreUsageRetention > 0 {
+		cfg.RedisUsageQueueRetentionSeconds = pgStoreUsageRetention
+	}
 	redisqueue.SetRetentionSeconds(cfg.RedisUsageQueueRetentionSeconds)
+	if usePostgresStore {
+		redisqueue.SetUsageStore(pgStoreInst)
+	} else {
+		redisqueue.SetUsageStore(nil)
+	}
 	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
 
 	if err = logging.ConfigureLogOutput(cfg); err != nil {
@@ -595,6 +634,45 @@ func main() {
 					password = localMgmtPassword
 				}
 
+				if usePostgresStore {
+					cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
+						builder.WithManagementConfigStore(pgStoreInst).
+							WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst))
+					})
+					client := tui.NewClient(cfg.Port, password)
+					ready := false
+					backoff := 100 * time.Millisecond
+					for i := 0; i < 30; i++ {
+						if _, errGetConfig := client.GetConfig(); errGetConfig == nil {
+							ready = true
+							break
+						}
+						time.Sleep(backoff)
+						if backoff < time.Second {
+							backoff = time.Duration(float64(backoff) * 1.5)
+						}
+					}
+
+					if !ready {
+						restoreIO()
+						cancel()
+						<-done
+						fmt.Fprintf(os.Stderr, "TUI error: embedded server is not ready\n")
+						return
+					}
+
+					if errRun := tui.Run(cfg.Port, password, hook, origStdout); errRun != nil {
+						restoreIO()
+						fmt.Fprintf(os.Stderr, "TUI error: %v\n", errRun)
+					} else {
+						restoreIO()
+					}
+
+					cancel()
+					<-done
+					return
+				}
+
 				cancel, done := cmd.StartServiceBackground(cfg, configFilePath, password)
 
 				client := tui.NewClient(cfg.Port, password)
@@ -643,7 +721,14 @@ func main() {
 			} else if cfg.Home.Enabled {
 				log.Info("Home mode: remote model updates disabled")
 			}
-			cmd.StartService(cfg, configFilePath, password)
+			if usePostgresStore {
+				cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
+					builder.WithManagementConfigStore(pgStoreInst).
+						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst))
+				})
+			} else {
+				cmd.StartService(cfg, configFilePath, password)
+			}
 		}
 	}
 }

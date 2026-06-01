@@ -1,6 +1,7 @@
 package redisqueue
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,10 +26,18 @@ type queue struct {
 	nextSubscriberID uint64
 }
 
+type UsageStore interface {
+	AppendUsage(ctx context.Context, payload []byte, requestedAt time.Time) error
+	PopUsage(ctx context.Context, count int) ([][]byte, error)
+	PruneUsage(ctx context.Context, retention time.Duration) error
+}
+
 var (
 	enabled          atomic.Bool
 	retentionSeconds atomic.Int64
 	global           queue
+	usageStoreMu     sync.RWMutex
+	usageStore       UsageStore
 )
 
 func init() {
@@ -56,12 +65,27 @@ func SetRetentionSeconds(value int) {
 	retentionSeconds.Store(normalized)
 }
 
+func SetUsageStore(store UsageStore) {
+	usageStoreMu.Lock()
+	usageStore = store
+	usageStoreMu.Unlock()
+}
+
 func Enqueue(payload []byte) {
+	EnqueueUsage(payload, time.Now())
+}
+
+func EnqueueUsage(payload []byte, requestedAt time.Time) {
 	if !Enabled() {
 		return
 	}
 	if len(payload) == 0 {
 		return
+	}
+	if store := usageStoreSnapshot(); store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = store.AppendUsage(ctx, payload, requestedAt)
 	}
 	if global.publishToSubscribers(payload) {
 		return
@@ -76,7 +100,35 @@ func PopOldest(count int) [][]byte {
 	if count <= 0 {
 		return nil
 	}
+	if store := usageStoreSnapshot(); store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		items, err := store.PopUsage(ctx, count)
+		if err == nil {
+			return items
+		}
+	}
 	return global.popOldest(count)
+}
+
+func PrunePersistentUsage() {
+	store := usageStoreSnapshot()
+	if store == nil {
+		return
+	}
+	windowSeconds := retentionSeconds.Load()
+	if windowSeconds <= 0 {
+		windowSeconds = defaultRetentionSeconds
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = store.PruneUsage(ctx, time.Duration(windowSeconds)*time.Second)
+}
+
+func usageStoreSnapshot() UsageStore {
+	usageStoreMu.RLock()
+	defer usageStoreMu.RUnlock()
+	return usageStore
 }
 
 func SubscribeUsage() (<-chan []byte, func()) {

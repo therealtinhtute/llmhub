@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy"
-	log "github.com/sirupsen/logrus"
 )
 
 // StartService builds and runs the proxy service using the exported SDK.
@@ -29,7 +29,21 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 		WithConfig(cfg).
 		WithConfigPath(configPath).
 		WithLocalManagementPassword(localPassword)
+	startServiceWithBuilder(builder, localPassword)
+}
 
+func StartServiceWithBuilder(cfg *config.Config, configPath string, localPassword string, configure func(*cliproxy.Builder)) {
+	builder := cliproxy.NewBuilder().
+		WithConfig(cfg).
+		WithConfigPath(configPath).
+		WithLocalManagementPassword(localPassword)
+	if configure != nil {
+		configure(builder)
+	}
+	startServiceWithBuilder(builder, localPassword)
+}
+
+func startServiceWithBuilder(builder *cliproxy.Builder, localPassword string) {
 	ctxSignal, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -62,7 +76,21 @@ func StartServiceBackground(cfg *config.Config, configPath string, localPassword
 		WithConfig(cfg).
 		WithConfigPath(configPath).
 		WithLocalManagementPassword(localPassword)
+	return startServiceBackgroundWithBuilder(builder)
+}
 
+func StartServiceBackgroundWithBuilder(cfg *config.Config, configPath string, localPassword string, configure func(*cliproxy.Builder)) (cancel func(), done <-chan struct{}) {
+	builder := cliproxy.NewBuilder().
+		WithConfig(cfg).
+		WithConfigPath(configPath).
+		WithLocalManagementPassword(localPassword)
+	if configure != nil {
+		configure(builder)
+	}
+	return startServiceBackgroundWithBuilder(builder)
+}
+
+func startServiceBackgroundWithBuilder(builder *cliproxy.Builder) (cancel func(), done <-chan struct{}) {
 	ctx, cancelFn := context.WithCancel(context.Background())
 	doneCh := make(chan struct{})
 

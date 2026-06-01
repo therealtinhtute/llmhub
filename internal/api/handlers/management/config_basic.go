@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -119,6 +119,25 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_yaml", "message": err.Error()})
 		return
 	}
+	if h.configStore != nil {
+		newCfg, errParse := config.ParseConfigBytes(body)
+		if errParse != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": errParse.Error()})
+			return
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, errSave := h.configStore.SaveConfig(c.Request.Context(), body); errSave != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errSave.Error()})
+			return
+		}
+		h.cfg = newCfg
+		if h.configChangeHook != nil {
+			h.configChangeHook(newCfg)
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "changed": []string{"config"}})
+		return
+	}
 	// Validate config using LoadConfigOptional with optional=false to enforce parsing
 	tmpDir := filepath.Dir(h.configFilePath)
 	tmpFile, err := os.CreateTemp(tmpDir, "config-validate-*.yaml")
@@ -165,7 +184,15 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 // GetConfigYAML returns the raw config.yaml file bytes without re-encoding.
 // It preserves comments and original formatting/styles.
 func (h *Handler) GetConfigYAML(c *gin.Context) {
-	data, err := os.ReadFile(h.configFilePath)
+	var (
+		data []byte
+		err  error
+	)
+	if h.configStore != nil {
+		data, err = h.configStore.LoadConfigBytes(c.Request.Context())
+	} else {
+		data, err = os.ReadFile(h.configFilePath)
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "config file not found"})

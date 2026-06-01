@@ -52,3 +52,9 @@ internal/managementasset/static/
 .DS_Store
 ._*
 .gocache/
+
+# Harness durable layer
+harness.db
+harness.db-wal
+harness.db-shm
+scripts/bin/harness-cli

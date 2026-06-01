@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/access"
 	managementHandlers "github.com/therealtinhtute/llmhub/internal/api/handlers/management"
 	"github.com/therealtinhtute/llmhub/internal/api/middleware"
@@ -42,23 +43,26 @@ import (
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers/openai"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
 	"gopkg.in/yaml.v3"
 )
 
 const oauthCallbackSuccessHTML = `<html><head><meta charset="utf-8"><title>Authentication successful</title><script>setTimeout(function(){window.close();},5000);</script></head><body><h1>Authentication successful!</h1><p>You can close this window.</p><p>This window will close automatically in 5 seconds.</p></body></html>`
 
+type ManagementConfigStore = managementHandlers.ManagementConfigStore
+
 type serverOptionConfig struct {
-	extraMiddleware      []gin.HandlerFunc
-	engineConfigurator   func(*gin.Engine)
-	routerConfigurator   func(*gin.Engine, *handlers.BaseAPIHandler, *config.Config)
-	requestLoggerFactory func(*config.Config, string) logging.RequestLogger
-	localPassword        string
-	keepAliveEnabled     bool
-	keepAliveTimeout     time.Duration
-	keepAliveOnTimeout   func()
-	postAuthHook         auth.PostAuthHook
+	extraMiddleware            []gin.HandlerFunc
+	engineConfigurator         func(*gin.Engine)
+	routerConfigurator         func(*gin.Engine, *handlers.BaseAPIHandler, *config.Config)
+	requestLoggerFactory       func(*config.Config, string) logging.RequestLogger
+	localPassword              string
+	keepAliveEnabled           bool
+	keepAliveTimeout           time.Duration
+	keepAliveOnTimeout         func()
+	postAuthHook               auth.PostAuthHook
+	managementConfigStore      managementHandlers.ManagementConfigStore
+	managementConfigChangeHook func(*config.Config)
 }
 
 // ServerOption customises HTTP server construction.
@@ -123,6 +127,18 @@ func WithRequestLoggerFactory(factory func(*config.Config, string) logging.Reque
 func WithPostAuthHook(hook auth.PostAuthHook) ServerOption {
 	return func(cfg *serverOptionConfig) {
 		cfg.postAuthHook = hook
+	}
+}
+
+func WithManagementConfigStore(store managementHandlers.ManagementConfigStore) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.managementConfigStore = store
+	}
+}
+
+func WithManagementConfigChangeHook(hook func(*config.Config)) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.managementConfigChangeHook = hook
 	}
 }
 
@@ -286,6 +302,12 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	s.mgmt.SetLogDirectory(logDir)
 	if optionState.postAuthHook != nil {
 		s.mgmt.SetPostAuthHook(optionState.postAuthHook)
+	}
+	if optionState.managementConfigStore != nil {
+		s.mgmt.SetConfigStore(optionState.managementConfigStore)
+	}
+	if optionState.managementConfigChangeHook != nil {
+		s.mgmt.SetConfigChangeHook(optionState.managementConfigChangeHook)
 	}
 	s.localPassword = optionState.localPassword
 

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/auth/antigravity"
 	"github.com/therealtinhtute/llmhub/internal/auth/claude"
 	"github.com/therealtinhtute/llmhub/internal/auth/codex"
@@ -34,7 +35,6 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -62,6 +62,11 @@ var (
 	errAuthFileMustBeJSON = errors.New("auth file must be .json")
 	errAuthFileNotFound   = errors.New("auth file not found")
 )
+
+type pathlessAuthStore interface {
+	PathlessAuthStore() bool
+	LoadAuthContent(ctx context.Context, id string) ([]byte, error)
+}
 
 func extractLastRefreshTimestamp(meta map[string]any) (time.Time, bool) {
 	if len(meta) == 0 {
@@ -382,7 +387,9 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 		return nil
 	}
 	path := strings.TrimSpace(authAttribute(auth, "path"))
-	if path == "" && !runtimeOnly {
+	source := strings.TrimSpace(authAttribute(auth, "source"))
+	pathless := strings.EqualFold(source, "postgres")
+	if path == "" && !runtimeOnly && !pathless {
 		return nil
 	}
 	name := strings.TrimSpace(auth.FileName)
@@ -403,6 +410,9 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 		"runtime_only":   runtimeOnly,
 		"source":         "memory",
 		"size":           int64(0),
+	}
+	if pathless {
+		entry["source"] = "postgres"
 	}
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
@@ -641,6 +651,24 @@ func (h *Handler) DownloadAuthFile(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "name must end with .json"})
 		return
 	}
+	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
+		id := name
+		if auth := h.findAuthForDelete(name); auth != nil {
+			id = auth.ID
+		}
+		data, err := store.LoadAuthContent(c.Request.Context(), id)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(404, gin.H{"error": "file not found"})
+			} else {
+				c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth: %v", err)})
+			}
+			return
+		}
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(name)))
+		c.Data(200, "application/json", data)
+		return
+	}
 	full := filepath.Join(h.cfg.AuthDir, name)
 	data, err := os.ReadFile(full)
 	if err != nil {
@@ -744,6 +772,22 @@ func (h *Handler) DeleteAuthFile(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	if all := c.Query("all"); all == "true" || all == "1" || all == "*" {
+		if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
+			deleted := 0
+			for _, auth := range h.authManager.List() {
+				if auth == nil || auth.ID == "" || isRuntimeOnlyAuth(auth) {
+					continue
+				}
+				if err := h.deleteTokenRecord(ctx, auth.ID); err != nil {
+					c.JSON(500, gin.H{"error": err.Error()})
+					return
+				}
+				h.forgetAuth(auth.ID)
+				deleted++
+			}
+			c.JSON(200, gin.H{"status": "ok", "deleted": deleted})
+			return
+		}
 		entries, err := os.ReadDir(h.cfg.AuthDir)
 		if err != nil {
 			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth dir: %v", err)})
@@ -770,7 +814,7 @@ func (h *Handler) DeleteAuthFile(c *gin.Context) {
 					return
 				}
 				deleted++
-				h.disableAuth(ctx, full)
+				h.forgetAuth(full)
 			}
 		}
 		c.JSON(200, gin.H{"status": "ok", "deleted": deleted})
@@ -867,6 +911,16 @@ func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.Fil
 }
 
 func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) error {
+	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
+		auth, err := h.buildAuthFromFileData(filepath.Base(name), data)
+		if err != nil {
+			return err
+		}
+		if err := h.upsertAuthRecord(ctx, auth); err != nil {
+			return err
+		}
+		return nil
+	}
 	dst := filepath.Join(h.cfg.AuthDir, filepath.Base(name))
 	if !filepath.IsAbs(dst) {
 		if abs, errAbs := filepath.Abs(dst); errAbs == nil {
@@ -961,6 +1015,16 @@ func (h *Handler) deleteAuthFileByName(ctx context.Context, name string) (string
 			targetPath = path
 		}
 	}
+	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
+		if targetID == "" {
+			targetID = filepath.Base(name)
+		}
+		if errDeleteRecord := h.deleteTokenRecord(ctx, targetID); errDeleteRecord != nil {
+			return filepath.Base(name), http.StatusInternalServerError, errDeleteRecord
+		}
+		h.forgetAuth(targetID)
+		return filepath.Base(name), http.StatusOK, nil
+	}
 	if !filepath.IsAbs(targetPath) {
 		if abs, errAbs := filepath.Abs(targetPath); errAbs == nil {
 			targetPath = abs
@@ -976,9 +1040,9 @@ func (h *Handler) deleteAuthFileByName(ctx context.Context, name string) (string
 		return filepath.Base(name), http.StatusInternalServerError, errDeleteRecord
 	}
 	if targetID != "" {
-		h.disableAuth(ctx, targetID)
+		h.forgetAuth(targetID)
 	} else {
-		h.disableAuth(ctx, targetPath)
+		h.forgetAuth(targetPath)
 	}
 	return filepath.Base(name), http.StatusOK, nil
 }
@@ -1082,12 +1146,18 @@ func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Aut
 	lastRefresh, hasLastRefresh := extractLastRefreshTimestamp(metadata)
 
 	authID := h.authIDForPath(path)
+	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
+		authID = filepath.Base(path)
+	}
 	if authID == "" {
 		authID = path
 	}
-	attr := map[string]string{
-		"path":   path,
-		"source": path,
+	attr := map[string]string{}
+	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
+		attr["source"] = "postgres"
+	} else {
+		attr["path"] = path
+		attr["source"] = path
 	}
 	auth := &coreauth.Auth{
 		ID:         authID,
@@ -1584,6 +1654,23 @@ func (h *Handler) disableAuth(ctx context.Context, id string) {
 		auth.StatusMessage = "removed via management API"
 		auth.UpdatedAt = time.Now()
 		_, _ = h.authManager.Update(ctx, auth)
+	}
+}
+
+func (h *Handler) forgetAuth(id string) {
+	if h == nil || h.authManager == nil {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	if h.authManager.Forget(id) {
+		return
+	}
+	authID := h.authIDForPath(id)
+	if authID != "" {
+		h.authManager.Forget(authID)
 	}
 }
 

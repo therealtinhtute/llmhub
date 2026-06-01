@@ -9,12 +9,13 @@ LDFLAGS := -s -w -X 'main.Version=$(VERSION)' -X 'main.Commit=$(COMMIT)' -X 'mai
 GORELEASER_VERSION ?= v2.16.0
 GORELEASER ?= $(shell command -v goreleaser 2>/dev/null || echo "go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)")
 
-.PHONY: help build-web embed build dev release-check release-snapshot release-preflight release download-latest install-latest install-local clean
+.PHONY: help build-web embed build dev dev-pg release-check release-snapshot release-preflight release download-latest install-latest install-local clean
 
 help:
 	@echo "Available commands:"
 	@echo "  make build             Build web assets and compile $(BINARY)"
 	@echo "  make dev               Build web assets and run the server"
+	@echo "  make dev-pg            Build web assets and run the server with .env/Postgres enabled"
 	@echo "  make build-web         Build the React management panel"
 	@echo "  make embed             Build and embed the management panel"
 	@echo "  make release-check     Validate .goreleaser.yml with $(GORELEASER)"
@@ -37,6 +38,9 @@ build: embed
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/server/
 
 dev: embed
+	LLMHUB_SKIP_DOTENV=1 PGSTORE_DSN= pgstore_dsn= PGSTORE_SCHEMA= pgstore_schema= PGSTORE_LOCAL_PATH= pgstore_local_path= PGSTORE_USAGE_RETENTION_SECONDS= pgstore_usage_retention_seconds= go run ./cmd/server/
+
+dev-pg: embed
 	go run ./cmd/server/
 
 release-check:

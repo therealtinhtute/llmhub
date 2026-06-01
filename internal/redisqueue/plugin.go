@@ -100,7 +100,8 @@ func (p *usageQueuePlugin) HandleUsage(ctx context.Context, record coreusage.Rec
 	if err != nil {
 		return
 	}
-	Enqueue(payload)
+	EnqueueUsage(payload, timestamp)
+	PrunePersistentUsage()
 }
 
 type queuedUsageDetail struct {

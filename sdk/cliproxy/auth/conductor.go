@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	internalconfig "github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/logging"
@@ -24,7 +25,6 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/util"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	coreusage "github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
-	log "github.com/sirupsen/logrus"
 )
 
 // ProviderExecutor defines the contract required by Manager to execute provider calls.
@@ -1189,6 +1189,34 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 	_ = m.persist(ctx, auth)
 	m.hook.OnAuthUpdated(ctx, auth.Clone())
 	return auth.Clone(), nil
+}
+
+// Forget removes an auth entry from the in-memory manager without persisting a
+// disabled replacement. Storage-backed delete notifications already removed the
+// source record before calling this.
+func (m *Manager) Forget(id string) bool {
+	if m == nil {
+		return false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	m.mu.Lock()
+	_, ok := m.auths[id]
+	if ok {
+		delete(m.auths, id)
+		delete(m.homeRuntimeAuths, id)
+	}
+	m.mu.Unlock()
+	if !ok {
+		return false
+	}
+	m.rebuildAPIKeyModelAliasFromRuntimeConfig()
+	if m.scheduler != nil {
+		m.scheduler.removeAuth(id)
+	}
+	return true
 }
 
 // Load resets manager state from the backing store.

@@ -49,6 +49,9 @@ type Builder struct {
 
 	// serverOptions contains additional server configuration options.
 	serverOptions []api.ServerOption
+
+	// managementConfigStore persists management config changes outside the filesystem.
+	managementConfigStore api.ManagementConfigStore
 }
 
 // Hooks allows callers to plug into service lifecycle stages.
@@ -164,6 +167,11 @@ func (b *Builder) WithPostAuthHook(hook coreauth.PostAuthHook) *Builder {
 	return b
 }
 
+func (b *Builder) WithManagementConfigStore(store api.ManagementConfigStore) *Builder {
+	b.managementConfigStore = store
+	return b
+}
+
 // Build validates inputs, applies defaults, and returns a ready-to-run service.
 func (b *Builder) Build() (*Service, error) {
 	if b.cfg == nil {
@@ -245,16 +253,17 @@ func (b *Builder) Build() (*Service, error) {
 	coreManager.SetOAuthModelAlias(b.cfg.OAuthModelAlias)
 
 	service := &Service{
-		cfg:            b.cfg,
-		configPath:     b.configPath,
-		tokenProvider:  tokenProvider,
-		apiKeyProvider: apiKeyProvider,
-		watcherFactory: watcherFactory,
-		hooks:          b.hooks,
-		authManager:    authManager,
-		accessManager:  accessManager,
-		coreManager:    coreManager,
-		serverOptions:  append([]api.ServerOption(nil), b.serverOptions...),
+		cfg:                   b.cfg,
+		configPath:            b.configPath,
+		tokenProvider:         tokenProvider,
+		apiKeyProvider:        apiKeyProvider,
+		watcherFactory:        watcherFactory,
+		hooks:                 b.hooks,
+		authManager:           authManager,
+		accessManager:         accessManager,
+		coreManager:           coreManager,
+		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
+		managementConfigStore: b.managementConfigStore,
 	}
 	return service, nil
 }

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
@@ -26,7 +27,6 @@ import (
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 	"github.com/therealtinhtute/llmhub/sdk/config"
-	log "github.com/sirupsen/logrus"
 )
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
@@ -59,6 +59,9 @@ type Service struct {
 
 	// serverOptions contains additional server configuration options.
 	serverOptions []api.ServerOption
+
+	// managementConfigStore persists management config changes outside local files.
+	managementConfigStore api.ManagementConfigStore
 
 	// server is the HTTP API server instance.
 	server *api.Server
@@ -339,14 +342,9 @@ func (s *Service) applyCoreAuthRemoval(ctx context.Context, id string) {
 	}
 	GlobalModelRegistry().UnregisterClient(id)
 	if existing, ok := s.coreManager.GetByID(id); ok && existing != nil {
-		existing.Disabled = true
-		existing.Status = coreauth.StatusDisabled
-		if _, err := s.coreManager.Update(ctx, existing); err != nil {
-			log.Errorf("failed to disable auth %s: %v", id, err)
-		}
+		s.coreManager.Forget(id)
 		if strings.EqualFold(strings.TrimSpace(existing.Provider), "codex") {
 			executor.CloseCodexWebsocketSessionsForAuthID(existing.ID, "auth_removed")
-			s.ensureExecutorsForAuth(existing)
 		}
 	}
 }
@@ -808,7 +806,16 @@ func (s *Service) Run(ctx context.Context) error {
 	// legacy clients removed; no caches to refresh
 
 	// handlers no longer depend on legacy clients; pass nil slice initially
-	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, s.serverOptions...)
+	serverOptions := append([]api.ServerOption(nil), s.serverOptions...)
+	if s.managementConfigStore != nil {
+		serverOptions = append(serverOptions,
+			api.WithManagementConfigStore(s.managementConfigStore),
+			api.WithManagementConfigChangeHook(func(newCfg *config.Config) {
+				s.applyConfigUpdate(newCfg)
+			}),
+		)
+	}
+	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, serverOptions...)
 
 	if s.authManager == nil {
 		s.authManager = newDefaultAuthManager()

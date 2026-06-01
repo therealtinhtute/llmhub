@@ -2,6 +2,8 @@ package management
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"sync"
 
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -47,3 +49,27 @@ func (s *memoryAuthStore) Delete(_ context.Context, id string) error {
 }
 
 func (s *memoryAuthStore) SetBaseDir(string) {}
+
+type pathlessMemoryAuthStore struct {
+	memoryAuthStore
+}
+
+func (s *pathlessMemoryAuthStore) PathlessAuthStore() bool { return true }
+
+func (s *pathlessMemoryAuthStore) LoadAuthContent(_ context.Context, id string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.items == nil {
+		return nil, os.ErrNotExist
+	}
+	auth := s.items[id]
+	if auth == nil {
+		return nil, os.ErrNotExist
+	}
+	raw, err := json.Marshal(auth.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}

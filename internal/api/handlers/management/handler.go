@@ -3,6 +3,7 @@
 package management
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/yaml.v3"
 )
 
 type attemptInfo struct {
@@ -46,6 +48,13 @@ type Handler struct {
 	envSecret           string
 	logDir              string
 	postAuthHook        coreauth.PostAuthHook
+	configStore         ManagementConfigStore
+	configChangeHook    func(*config.Config)
+}
+
+type ManagementConfigStore interface {
+	LoadConfigBytes(ctx context.Context) ([]byte, error)
+	SaveConfig(ctx context.Context, data []byte) (int64, error)
 }
 
 // NewHandler creates a new management handler instance.
@@ -140,6 +149,20 @@ func (h *Handler) SetLogDirectory(dir string) {
 // SetPostAuthHook registers a hook to be called after auth record creation but before persistence.
 func (h *Handler) SetPostAuthHook(hook coreauth.PostAuthHook) {
 	h.postAuthHook = hook
+}
+
+func (h *Handler) SetConfigStore(store ManagementConfigStore) {
+	if h == nil {
+		return
+	}
+	h.configStore = store
+}
+
+func (h *Handler) SetConfigChangeHook(hook func(*config.Config)) {
+	if h == nil {
+		return
+	}
+	h.configChangeHook = hook
 }
 
 // Middleware enforces access control for management endpoints.
@@ -288,10 +311,25 @@ func (h *Handler) persist(c *gin.Context) bool {
 // persistLocked saves the current in-memory config to disk.
 // It expects the caller to hold h.mu.
 func (h *Handler) persistLocked(c *gin.Context) bool {
-	// Preserve comments when writing
-	if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
-		return false
+	if h.configStore != nil {
+		data, errMarshal := yaml.Marshal(h.cfg)
+		if errMarshal != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to encode config: %v", errMarshal)})
+			return false
+		}
+		if _, errSave := h.configStore.SaveConfig(c.Request.Context(), data); errSave != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", errSave)})
+			return false
+		}
+		if h.configChangeHook != nil {
+			h.configChangeHook(h.cfg)
+		}
+	} else {
+		// Preserve comments when writing local files.
+		if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
+			return false
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	return true

@@ -35,6 +35,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/managementasset"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
+	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
@@ -63,6 +64,7 @@ type serverOptionConfig struct {
 	postAuthHook               auth.PostAuthHook
 	managementConfigStore      managementHandlers.ManagementConfigStore
 	managementConfigChangeHook func(*config.Config)
+	runtimeStoragePolicy       runtimepolicy.RuntimeStorage
 }
 
 // ServerOption customises HTTP server construction.
@@ -142,6 +144,12 @@ func WithManagementConfigChangeHook(hook func(*config.Config)) ServerOption {
 	}
 }
 
+func WithRuntimeStoragePolicy(policy runtimepolicy.RuntimeStorage) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.runtimeStoragePolicy = policy
+	}
+}
+
 // Server represents the main API server.
 // It encapsulates the Gin engine, HTTP server, handlers, and configuration.
 type Server struct {
@@ -173,6 +181,7 @@ type Server struct {
 	// requestLogger is the request logger instance for dynamic configuration updates.
 	requestLogger logging.RequestLogger
 	loggerToggle  func(bool)
+	runtimePolicy runtimepolicy.RuntimeStorage
 
 	// configFilePath is the absolute path to the YAML config file for persistence.
 	configFilePath string
@@ -249,7 +258,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	var requestLogger logging.RequestLogger
 	var toggle func(bool)
 	if !cfg.CommercialMode {
-		if optionState.requestLoggerFactory != nil {
+		if optionState.runtimeStoragePolicy.PostgresDurableMode() {
+			requestLogger = logging.NewDisabledRequestLogger()
+		} else if optionState.requestLoggerFactory != nil {
 			requestLogger = optionState.requestLoggerFactory(cfg, configFilePath)
 		}
 		if requestLogger != nil {
@@ -278,6 +289,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		accessManager:       accessManager,
 		requestLogger:       requestLogger,
 		loggerToggle:        toggle,
+		runtimePolicy:       optionState.runtimeStoragePolicy,
 		configFilePath:      configFilePath,
 		currentPath:         wd,
 		envManagementSecret: envManagementSecret,
@@ -298,8 +310,11 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	if optionState.localPassword != "" {
 		s.mgmt.SetLocalPassword(optionState.localPassword)
 	}
-	logDir := logging.ResolveLogDirectory(cfg)
-	s.mgmt.SetLogDirectory(logDir)
+	s.mgmt.SetRuntimeStoragePolicy(optionState.runtimeStoragePolicy)
+	if !optionState.runtimeStoragePolicy.PostgresDurableMode() {
+		logDir := logging.ResolveLogDirectory(cfg)
+		s.mgmt.SetLogDirectory(logDir)
+	}
 	if optionState.postAuthHook != nil {
 		s.mgmt.SetPostAuthHook(optionState.postAuthHook)
 	}
@@ -1378,7 +1393,7 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	}
 
 	if oldCfg == nil || oldCfg.LoggingToFile != cfg.LoggingToFile || oldCfg.LogsMaxTotalSizeMB != cfg.LogsMaxTotalSizeMB {
-		if err := logging.ConfigureLogOutput(cfg); err != nil {
+		if err := logging.ConfigureLogOutputWithPolicy(cfg, s.runtimePolicy); err != nil {
 			log.Errorf("failed to reconfigure log output: %v", err)
 		}
 	}

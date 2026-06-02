@@ -32,7 +32,7 @@ func (h *Handler) GetLogs(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
 		return
 	}
-	if !h.cfg.LoggingToFile {
+	if !h.fileLoggingEnabled() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "logging to file disabled"})
 		return
 	}
@@ -94,7 +94,7 @@ func (h *Handler) DeleteLogs(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
 		return
 	}
-	if !h.cfg.LoggingToFile {
+	if !h.fileLoggingEnabled() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "logging to file disabled"})
 		return
 	}
@@ -156,7 +156,7 @@ func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
 		return
 	}
-	if h.cfg.RequestLog {
+	if !h.requestErrorLogEnabled() || h.cfg.RequestLog {
 		c.JSON(http.StatusOK, gin.H{"files": []any{}})
 		return
 	}
@@ -218,6 +218,10 @@ func (h *Handler) GetRequestLogByID(c *gin.Context) {
 	}
 	if h.cfg == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
+		return
+	}
+	if !h.requestLogArchiveEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request log archives disabled"})
 		return
 	}
 
@@ -307,6 +311,10 @@ func (h *Handler) DownloadRequestErrorLog(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
 		return
 	}
+	if !h.requestErrorLogEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request error log archives disabled"})
+		return
+	}
 
 	dir := h.logDirectory()
 	if strings.TrimSpace(dir) == "" {
@@ -357,10 +365,34 @@ func (h *Handler) logDirectory() string {
 	if h == nil {
 		return ""
 	}
+	if !h.runtimeStoragePolicy.AllowsRequestErrorArchives() {
+		return ""
+	}
 	if h.logDir != "" {
 		return h.logDir
 	}
 	return logging.ResolveLogDirectory(h.cfg)
+}
+
+func (h *Handler) fileLoggingEnabled() bool {
+	if h == nil {
+		return false
+	}
+	return h.runtimeStoragePolicy.AllowsFileAppLogs(h.cfg)
+}
+
+func (h *Handler) requestLogArchiveEnabled() bool {
+	if h == nil {
+		return false
+	}
+	return h.runtimeStoragePolicy.AllowsRequestLogArchives(h.cfg)
+}
+
+func (h *Handler) requestErrorLogEnabled() bool {
+	if h == nil {
+		return false
+	}
+	return h.runtimeStoragePolicy.AllowsRequestErrorArchives()
 }
 
 func (h *Handler) collectLogFiles(dir string) ([]string, error) {

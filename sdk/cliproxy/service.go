@@ -18,6 +18,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor"
+	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/therealtinhtute/llmhub/internal/watcher"
 	"github.com/therealtinhtute/llmhub/internal/watcher/diff"
@@ -62,6 +63,8 @@ type Service struct {
 
 	// managementConfigStore persists management config changes outside local files.
 	managementConfigStore api.ManagementConfigStore
+
+	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 
 	// server is the HTTP API server instance.
 	server *api.Server
@@ -774,7 +777,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}()
 
-	if !homeEnabled {
+	if !homeEnabled && s.requiresLocalAuthDir() {
 		if errEnsureAuthDir := s.ensureAuthDir(); errEnsureAuthDir != nil {
 			return errEnsureAuthDir
 		}
@@ -811,6 +814,7 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// handlers no longer depend on legacy clients; pass nil slice initially
 	serverOptions := append([]api.ServerOption(nil), s.serverOptions...)
+	serverOptions = append(serverOptions, api.WithRuntimeStoragePolicy(s.runtimeStoragePolicy))
 	if s.managementConfigStore != nil {
 		serverOptions = append(serverOptions,
 			api.WithManagementConfigStore(s.managementConfigStore),
@@ -1052,6 +1056,13 @@ func (s *Service) ensureAuthDir() error {
 		return fmt.Errorf("cliproxy: auth path exists but is not a directory: %s", s.cfg.AuthDir)
 	}
 	return nil
+}
+
+func (s *Service) requiresLocalAuthDir() bool {
+	if s == nil {
+		return false
+	}
+	return !s.runtimeStoragePolicy.PostgresDurableMode()
 }
 
 // registerModelsForAuth (re)binds provider models in the global registry using the core auth ID as client identifier.

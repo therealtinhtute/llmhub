@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"golang.org/x/crypto/bcrypt"
@@ -36,20 +37,21 @@ const attemptMaxIdleTime = 2 * time.Hour
 
 // Handler aggregates config reference, persistence path and helpers.
 type Handler struct {
-	cfg                 *config.Config
-	configFilePath      string
-	mu                  sync.Mutex
-	attemptsMu          sync.Mutex
-	failedAttempts      map[string]*attemptInfo // keyed by client IP
-	authManager         *coreauth.Manager
-	tokenStore          coreauth.Store
-	localPassword       string
-	allowRemoteOverride bool
-	envSecret           string
-	logDir              string
-	postAuthHook        coreauth.PostAuthHook
-	configStore         ManagementConfigStore
-	configChangeHook    func(*config.Config)
+	cfg                  *config.Config
+	configFilePath       string
+	mu                   sync.Mutex
+	attemptsMu           sync.Mutex
+	failedAttempts       map[string]*attemptInfo // keyed by client IP
+	authManager          *coreauth.Manager
+	tokenStore           coreauth.Store
+	localPassword        string
+	allowRemoteOverride  bool
+	envSecret            string
+	logDir               string
+	runtimeStoragePolicy runtimepolicy.RuntimeStorage
+	postAuthHook         coreauth.PostAuthHook
+	configStore          ManagementConfigStore
+	configChangeHook     func(*config.Config)
 }
 
 type ManagementConfigStore interface {
@@ -144,6 +146,13 @@ func (h *Handler) SetLogDirectory(dir string) {
 		}
 	}
 	h.logDir = dir
+}
+
+func (h *Handler) SetRuntimeStoragePolicy(policy runtimepolicy.RuntimeStorage) {
+	if h == nil {
+		return
+	}
+	h.runtimeStoragePolicy = policy
 }
 
 // SetPostAuthHook registers a hook to be called after auth record creation but before persistence.

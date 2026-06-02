@@ -10,9 +10,10 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	"github.com/therealtinhtute/llmhub/internal/config"
-	"github.com/therealtinhtute/llmhub/internal/util"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
+	"github.com/therealtinhtute/llmhub/internal/util"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -146,10 +147,25 @@ func ResolveLogDirectory(cfg *config.Config) string {
 // When logsMaxTotalSizeMB > 0, a background cleaner removes the oldest log files in the logs directory
 // until the total size is within the limit.
 func ConfigureLogOutput(cfg *config.Config) error {
+	return ConfigureLogOutputWithPolicy(cfg, runtimepolicy.RuntimeStorage{})
+}
+
+// ConfigureLogOutputWithPolicy switches the global log destination while honoring runtime durability policy.
+func ConfigureLogOutputWithPolicy(cfg *config.Config, policy runtimepolicy.RuntimeStorage) error {
 	SetupBaseLogger()
 
 	writerMu.Lock()
 	defer writerMu.Unlock()
+
+	if policy.PostgresDurableMode() {
+		if logWriter != nil {
+			_ = logWriter.Close()
+			logWriter = nil
+		}
+		log.SetOutput(os.Stdout)
+		configureLogDirCleanerLocked("", 0, "")
+		return nil
+	}
 
 	logDir := ResolveLogDirectory(cfg)
 

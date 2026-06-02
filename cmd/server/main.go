@@ -28,6 +28,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/misc"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
+	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/store"
 	_ "github.com/therealtinhtute/llmhub/internal/translator"
 	"github.com/therealtinhtute/llmhub/internal/tui"
@@ -357,7 +358,7 @@ func main() {
 				}
 			}
 			cfg.AuthDir = pgStoreInst.AuthDir()
-			log.Infof("postgres-backed runtime store enabled, metadata path: %s", pgStoreInst.WorkDir())
+			log.Info("postgres-backed durable runtime enabled; Postgres owns config/auth/usage after bootstrap")
 		}
 	} else if useObjectStore {
 		if objectStoreLocalPath == "" {
@@ -536,13 +537,17 @@ func main() {
 		redisqueue.SetUsageStore(nil)
 	}
 	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
+	runtimeStoragePolicy := runtimepolicy.RuntimeStorage{PostgresDurable: usePostgresStore}
 
-	if err = logging.ConfigureLogOutput(cfg); err != nil {
+	if err = logging.ConfigureLogOutputWithPolicy(cfg, runtimeStoragePolicy); err != nil {
 		log.Errorf("failed to configure log output: %v", err)
 		return
 	}
 
 	log.Infof("LLMHub Version: %s, Commit: %s, BuiltAt: %s", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
+	if runtimeStoragePolicy.PostgresDurableMode() {
+		log.Info("postgres durable runtime mode active: local file-backed application logs and request archives are disabled; use stdout/stderr instead")
+	}
 
 	// Set the log level based on the configuration.
 	util.SetLogLevel(cfg)
@@ -648,7 +653,8 @@ func main() {
 				if usePostgresStore {
 					cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 						builder.WithManagementConfigStore(pgStoreInst).
-							WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst))
+							WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst)).
+							WithRuntimeStoragePolicy(runtimeStoragePolicy)
 					})
 					client := tui.NewClient(cfg.Port, password)
 					ready := false
@@ -735,7 +741,8 @@ func main() {
 			if usePostgresStore {
 				cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 					builder.WithManagementConfigStore(pgStoreInst).
-						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst))
+						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst)).
+						WithRuntimeStoragePolicy(runtimeStoragePolicy)
 				})
 			} else {
 				cmd.StartService(cfg, configFilePath, password)

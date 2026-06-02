@@ -10,6 +10,7 @@ import (
 
 	configaccess "github.com/therealtinhtute/llmhub/internal/access/config_access"
 	"github.com/therealtinhtute/llmhub/internal/api"
+	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -52,6 +53,8 @@ type Builder struct {
 
 	// managementConfigStore persists management config changes outside the filesystem.
 	managementConfigStore api.ManagementConfigStore
+
+	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 }
 
 // Hooks allows callers to plug into service lifecycle stages.
@@ -172,6 +175,11 @@ func (b *Builder) WithManagementConfigStore(store api.ManagementConfigStore) *Bu
 	return b
 }
 
+func (b *Builder) WithRuntimeStoragePolicy(policy runtimepolicy.RuntimeStorage) *Builder {
+	b.runtimeStoragePolicy = policy
+	return b
+}
+
 // Build validates inputs, applies defaults, and returns a ready-to-run service.
 func (b *Builder) Build() (*Service, error) {
 	if b.cfg == nil {
@@ -264,6 +272,7 @@ func (b *Builder) Build() (*Service, error) {
 		coreManager:           coreManager,
 		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
 		managementConfigStore: b.managementConfigStore,
+		runtimeStoragePolicy:  b.runtimeStoragePolicy,
 	}
 	return service, nil
 }

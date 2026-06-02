@@ -363,6 +363,9 @@ type FileRequestLogger struct {
 	homeEnabled bool
 }
 
+// DisabledRequestLogger suppresses all local request-log persistence.
+type DisabledRequestLogger struct{}
+
 type homeRequestLogPayload struct {
 	Headers    map[string][]string `json:"headers,omitempty"`
 	RequestID  string              `json:"request_id,omitempty"`
@@ -472,6 +475,27 @@ func (l *FileRequestLogger) SetEnabled(enabled bool) {
 func (l *FileRequestLogger) SetErrorLogsMaxFiles(maxFiles int) {
 	l.errorLogsMaxFiles = maxFiles
 }
+
+// NewDisabledRequestLogger creates a request logger that never writes durable local files.
+func NewDisabledRequestLogger() *DisabledRequestLogger {
+	return &DisabledRequestLogger{}
+}
+
+func (l *DisabledRequestLogger) LogRequest(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, []byte, []byte, []byte, []*interfaces.ErrorMessage, string, time.Time, time.Time) error {
+	return nil
+}
+
+func (l *DisabledRequestLogger) LogStreamingRequest(string, string, map[string][]string, []byte, string) (StreamingLogWriter, error) {
+	return &NoOpStreamingLogWriter{}, nil
+}
+
+func (l *DisabledRequestLogger) IsEnabled() bool { return false }
+
+func (l *DisabledRequestLogger) SetEnabled(bool) {}
+
+func (l *DisabledRequestLogger) SetHomeEnabled(bool) {}
+
+func (l *DisabledRequestLogger) SetErrorLogsMaxFiles(int) {}
 
 // NewFileBodySource creates a temp-backed source under the request log directory.
 func (l *FileRequestLogger) NewFileBodySource(prefix string) (*FileBodySource, error) {

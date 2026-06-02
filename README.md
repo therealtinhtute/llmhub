@@ -42,6 +42,37 @@ This downloads the binary, creates the `llmhub` system user, seeds `/etc/llmhub/
 
 Point your AI coding tool at `http://SERVER_IP:8317/v1`. The management panel is at `http://SERVER_IP:8317/management.html` (configure `remote-management.secret-key` and `remote-management.allow-remote` before exposing beyond localhost).
 
+### Local binary VPS install
+
+When you already have a Linux `llmhub` binary, copy it beside the local
+installer and run it from that directory:
+
+```bash
+sudo ./install-local.sh
+```
+
+The local installer defaults to port `9090`. Override it with `DEFAULT_PORT`
+when needed:
+
+```bash
+sudo DEFAULT_PORT=8080 ./install-local.sh
+sudo ./install-local.sh /path/to/llmhub-linux-amd64
+```
+
+For Postgres-backed runtime storage, put `PGSTORE_DSN` in the same `.env` file.
+The installer keeps runtime metadata under `/var/lib/llmhub/pgstore` by setting
+`WRITABLE_PATH=/var/lib/llmhub`.
+
+Recommended same-directory layout:
+
+```text
+llmhub-install/
+  install-local.sh
+  llmhub
+  config.example.yaml
+  .env
+```
+
 ### Manual binary install
 
 If you prefer manual installation:

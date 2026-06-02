@@ -2,7 +2,7 @@
 # LLMHub local binary installer with full VPS setup
 # Usage:
 #   ./scripts/install-local.sh /path/to/llmhub-linux-amd64  # install specific binary
-#   ./scripts/install-local.sh                              # install ./llmhub, or select from dist/
+#   ./scripts/install-local.sh                              # install script-local ./llmhub, ./llmhub, or select from dist/
 set -eu
 
 BINARY="llmhub"
@@ -51,6 +51,81 @@ find_local_env_file() {
     return 1
 }
 
+find_source_binary() {
+    if [ -f "${SCRIPT_DIR}/${BINARY}" ]; then
+        SELECTED="${SCRIPT_DIR}/${BINARY}"
+        echo "==> Found script-local binary: $SELECTED"
+        return 0
+    fi
+
+    if [ -f "./${BINARY}" ]; then
+        SELECTED="./${BINARY}"
+        echo "==> Found local binary: $SELECTED"
+        return 0
+    fi
+
+    # Interactive selection from repo-root dist/.
+    DIST_DIR="dist"
+
+    if [ ! -f "go.mod" ]; then
+        echo "error: no llmhub binary was found next to install-local.sh or in the current directory" >&2
+        echo "Place llmhub, install-local.sh, and optionally config.example.yaml in the same directory." >&2
+        echo "Or run this script from the repository root with dist/ artifacts, or pass a binary path." >&2
+        exit 1
+    fi
+
+    if [ ! -d "$DIST_DIR" ]; then
+        echo "error: $DIST_DIR/ not found" >&2
+        echo "Run one of:" >&2
+        echo "  make build             # creates ./llmhub" >&2
+        echo "  make release-snapshot  # creates dist/ artifacts" >&2
+        echo "Or place llmhub and install-local.sh in the same directory." >&2
+        echo "Or provide a direct path: $0 /path/to/binary" >&2
+        exit 1
+    fi
+
+    BINARIES=$(find "$DIST_DIR" -type f -name "${BINARY}-linux-*" ! -name "*.txt" ! -name "*.json" 2>/dev/null | sort || true)
+
+    if [ -z "$BINARIES" ]; then
+        echo "error: no Linux binaries found in $DIST_DIR/" >&2
+        echo "Run one of:" >&2
+        echo "  make build             # creates ./llmhub" >&2
+        echo "  make release-snapshot  # creates dist/ artifacts" >&2
+        echo "Or place llmhub and install-local.sh in the same directory." >&2
+        exit 1
+    fi
+
+    BINARY_COUNT=$(echo "$BINARIES" | wc -l)
+
+    if [ "$BINARY_COUNT" -eq 1 ]; then
+        SELECTED="$BINARIES"
+        echo "==> Found 1 binary: $(basename "$SELECTED")"
+        return 0
+    fi
+
+    echo "==> Found $BINARY_COUNT Linux binaries in $DIST_DIR/:"
+    echo ""
+
+    i=1
+    echo "$BINARIES" | while IFS= read -r binary; do
+        size=$(du -h "$binary" | cut -f1)
+        mtime=$(stat -c '%y' "$binary" 2>/dev/null | cut -d' ' -f1 || stat -f '%Sm' -t '%Y-%m-%d' "$binary" 2>/dev/null || echo "unknown")
+        printf "%2d) %-40s  %8s  %s\n" "$i" "$(basename "$binary")" "$size" "$mtime"
+        i=$((i + 1))
+    done
+
+    echo ""
+    printf "Select binary to install [1-%d]: " "$BINARY_COUNT"
+    read -r choice
+
+    if ! echo "$choice" | grep -Eq '^[0-9]+$' || [ "$choice" -lt 1 ] || [ "$choice" -gt "$BINARY_COUNT" ]; then
+        echo "error: invalid selection" >&2
+        exit 1
+    fi
+
+    SELECTED=$(echo "$BINARIES" | sed -n "${choice}p")
+}
+
 render_system_config() {
     src="$1"
     awk -v host="$DEFAULT_HOST" -v port="$DEFAULT_PORT" -v auth_dir="${DATA_DIR}/auths" '
@@ -93,8 +168,13 @@ install_rendered_config() {
 ensure_env_bind() {
     env_file="$1"
     TMP_ENV_BIND="$(mktemp)"
-    awk -v host="$DEFAULT_HOST" -v port="$DEFAULT_PORT" '
-        BEGIN { wrote_host = 0; wrote_port = 0 }
+    awk -v host="$DEFAULT_HOST" -v port="$DEFAULT_PORT" -v writable_path="$DATA_DIR" '
+        BEGIN { wrote_host = 0; wrote_port = 0; wrote_writable_path = 0 }
+        /^[[:space:]]*WRITABLE_PATH=/ && !wrote_writable_path {
+            print "WRITABLE_PATH=" writable_path
+            wrote_writable_path = 1
+            next
+        }
         /^[[:space:]]*LLMHUB_HOST=/ && !wrote_host {
             print "LLMHUB_HOST=" host
             wrote_host = 1
@@ -107,6 +187,9 @@ ensure_env_bind() {
         }
         { print }
         END {
+            if (!wrote_writable_path) {
+                print "WRITABLE_PATH=" writable_path
+            }
             if (!wrote_host) {
                 print "LLMHUB_HOST=" host
             }
@@ -279,79 +362,8 @@ elif [ $# -gt 1 ]; then
     echo "error: usage: $0 [path/to/llmhub-linux-${EXPECTED_ARCH}]" >&2
     exit 1
 else
-    # Prefer the standard local build output when it exists.
-    if [ -f "./${BINARY}" ]; then
-        SELECTED="./${BINARY}"
-        echo "==> Found local binary: $SELECTED"
-        validate_binary "$SELECTED" || exit 1
-    else
-        # Interactive selection from dist/
-        DIST_DIR="dist"
-
-        # Check if running from repo root
-        if [ ! -f "go.mod" ]; then
-            echo "error: run this script from the repository root or pass a binary path" >&2
-            exit 1
-        fi
-
-        # Ensure dist/ exists
-        if [ ! -d "$DIST_DIR" ]; then
-            echo "error: $DIST_DIR/ not found" >&2
-            echo "Run one of:" >&2
-            echo "  make build             # creates ./llmhub" >&2
-            echo "  make release-snapshot  # creates dist/ artifacts" >&2
-            echo "Or provide a direct path: $0 /path/to/binary" >&2
-            exit 1
-        fi
-
-        # Find available binaries
-        BINARIES=$(find "$DIST_DIR" -type f -name "${BINARY}-linux-*" ! -name "*.txt" ! -name "*.json" 2>/dev/null | sort || true)
-
-        if [ -z "$BINARIES" ]; then
-            echo "error: no Linux binaries found in $DIST_DIR/" >&2
-            echo "Run one of:" >&2
-            echo "  make build             # creates ./llmhub" >&2
-            echo "  make release-snapshot  # creates dist/ artifacts" >&2
-            exit 1
-        fi
-
-        # Count binaries
-        BINARY_COUNT=$(echo "$BINARIES" | wc -l)
-
-        if [ "$BINARY_COUNT" -eq 1 ]; then
-            # Only one binary, use it directly
-            SELECTED="$BINARIES"
-            echo "==> Found 1 binary: $(basename "$SELECTED")"
-        else
-            # Multiple binaries, show selection menu
-            echo "==> Found $BINARY_COUNT Linux binaries in $DIST_DIR/:"
-            echo ""
-
-            # Build menu with file info
-            i=1
-            echo "$BINARIES" | while IFS= read -r binary; do
-                size=$(du -h "$binary" | cut -f1)
-                mtime=$(stat -c '%y' "$binary" 2>/dev/null | cut -d' ' -f1 || stat -f '%Sm' -t '%Y-%m-%d' "$binary" 2>/dev/null || echo "unknown")
-                printf "%2d) %-40s  %8s  %s\n" "$i" "$(basename "$binary")" "$size" "$mtime"
-                i=$((i + 1))
-            done
-
-            echo ""
-            printf "Select binary to install [1-%d]: " "$BINARY_COUNT"
-            read -r choice
-
-            # Validate choice
-            if ! echo "$choice" | grep -Eq '^[0-9]+$' || [ "$choice" -lt 1 ] || [ "$choice" -gt "$BINARY_COUNT" ]; then
-                echo "error: invalid selection" >&2
-                exit 1
-            fi
-
-            # Get selected binary
-            SELECTED=$(echo "$BINARIES" | sed -n "${choice}p")
-        fi
-
-        validate_binary "$SELECTED" || exit 1
-    fi
+    find_source_binary
+    validate_binary "$SELECTED" || exit 1
 fi
 
 echo "==> Installing llmhub to $INSTALL_DIR"
@@ -387,7 +399,8 @@ echo "    directories: $CONFIG_DIR, $DATA_DIR, $LOG_DIR"
 if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
     if ! TMP_CFG=$(find_local_config_example); then
         echo "error: ${CONFIG_DIR}/config.yaml does not exist and no local config.example.yaml was found" >&2
-        echo "Place config.example.yaml in the current directory, next to install-local.sh, or next to the binary." >&2
+        echo "Place llmhub, install-local.sh, and optionally config.example.yaml in the same directory." >&2
+        echo "Or place config.example.yaml in the current directory or next to the selected binary." >&2
         exit 1
     fi
 
@@ -433,7 +446,7 @@ else
     echo "    environment: $ENV_FILE (existing - left unchanged)"
 fi
 ensure_env_bind "$ENV_FILE"
-echo "    environment: $ENV_FILE (host public, port ${DEFAULT_PORT})"
+echo "    environment: $ENV_FILE (writable path ${DATA_DIR}, host public, port ${DEFAULT_PORT})"
 
 # Write systemd unit
 cat >"$UNIT_FILE" <<UNIT

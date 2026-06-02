@@ -25,6 +25,7 @@ const (
 type RefreshResult struct {
 	AccessToken  string
 	RefreshToken string
+	ProfileARN   string
 	ExpiresIn    int
 	ExpiresAt    time.Time
 }
@@ -156,6 +157,9 @@ func normalizeRawRefreshToken(ctx context.Context, value string, httpClient *htt
 	meta := baseMetadata()
 	meta["refresh_token"] = refreshed.RefreshToken
 	meta["access_token"] = refreshed.AccessToken
+	if refreshed.ProfileARN != "" {
+		meta["profile_arn"] = refreshed.ProfileARN
+	}
 	meta["expired"] = refreshed.ExpiresAt.Format(time.RFC3339)
 	meta["auth_method"] = DefaultAuthMethod
 	return meta, nil
@@ -188,6 +192,9 @@ func normalizeObject(ctx context.Context, obj map[string]any, httpClient *http.C
 		}
 		meta["access_token"] = refreshed.AccessToken
 		meta["refresh_token"] = refreshed.RefreshToken
+		if refreshed.ProfileARN != "" {
+			meta["profile_arn"] = refreshed.ProfileARN
+		}
 		meta["expired"] = refreshed.ExpiresAt.Format(time.RFC3339)
 	}
 	if expiresAt := strings.TrimSpace(stringValue(obj["expiresAt"])); expiresAt != "" {
@@ -252,6 +259,7 @@ func parseRefreshResponse(body []byte, fallbackRefreshToken string) (*RefreshRes
 	if refreshToken == "" {
 		refreshToken = fallbackRefreshToken
 	}
+	profileARN := firstString(payload, "profileArn", "profile_arn")
 	expiresIn := intValue(firstPresent(payload, "expiresIn", "expires_in"))
 	if expiresIn <= 0 {
 		expiresIn = DefaultTokenLifetime
@@ -259,6 +267,7 @@ func parseRefreshResponse(body []byte, fallbackRefreshToken string) (*RefreshRes
 	return &RefreshResult{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		ProfileARN:   profileARN,
 		ExpiresIn:    expiresIn,
 		ExpiresAt:    time.Now().UTC().Add(time.Duration(expiresIn) * time.Second),
 	}, nil

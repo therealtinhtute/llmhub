@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -40,12 +41,15 @@ func TestBuildKiroPayloadFromOpenAI_MessagesToolsImagesAndSuffixes(t *testing.T)
 	}
 	state := got["conversationState"].(map[string]any)
 	current := state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
-	if current["modelId"] != "CLAUDE_SONNET_4_5" {
-		t.Fatalf("modelId = %#v, want CLAUDE_SONNET_4_5", current["modelId"])
+	if current["modelId"] != "claude-sonnet-4.5" {
+		t.Fatalf("modelId = %#v, want claude-sonnet-4.5", current["modelId"])
 	}
 	content := current["content"].(string)
 	if !strings.Contains(content, "<thinking_mode>enabled</thinking_mode>") {
 		t.Fatalf("current content missing thinking tag: %q", content)
+	}
+	if !strings.Contains(content, "<max_thinking_length>16000</max_thinking_length>") {
+		t.Fatalf("current content missing max thinking tag: %q", content)
 	}
 	if !strings.Contains(content, "chunked file edits") {
 		t.Fatalf("current content missing agentic hint: %q", content)
@@ -64,6 +68,10 @@ func TestBuildKiroPayloadFromOpenAI_MessagesToolsImagesAndSuffixes(t *testing.T)
 	}
 	if len(firstUser["images"].([]any)) != 1 {
 		t.Fatalf("images = %#v, want one image", firstUser["images"])
+	}
+	inferenceConfig := got["inferenceConfig"].(map[string]any)
+	if inferenceConfig["maxTokens"].(float64) != 32000 {
+		t.Fatalf("maxTokens = %#v, want 32000", inferenceConfig["maxTokens"])
 	}
 }
 
@@ -109,10 +117,37 @@ func TestKiroExecutorExecute_HeadersBodyAndEventStream(t *testing.T) {
 	}
 }
 
+func TestKiroExecutorExecute_ParsesAWSEventStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+		_, _ = w.Write(kiroTestEventFrame("assistantResponseEvent", `{"content":"hello"}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"read_file","input":{"path":"a.txt"}}`))
+	}))
+	defer server.Close()
+
+	exec := NewKiroExecutor(&config.Config{})
+	resp, err := exec.Execute(context.Background(), testKiroAuth(server.URL, "access-1"), cliproxyexecutor.Request{
+		Model:   "claude-sonnet-4.5",
+		Payload: []byte(`{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("openai")})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !bytes.Contains(resp.Payload, []byte(`"content":"hello"`)) {
+		t.Fatalf("response payload = %s, want content hello", resp.Payload)
+	}
+	if !bytes.Contains(resp.Payload, []byte(`"tool_calls"`)) {
+		t.Fatalf("response payload = %s, want tool_calls", resp.Payload)
+	}
+	if !bytes.Contains(resp.Payload, []byte(`"arguments":"{\"path\":\"a.txt\"}"`)) {
+		t.Fatalf("response payload = %s, want JSON string tool arguments", resp.Payload)
+	}
+}
+
 func TestKiroExecutorExecute_RefreshesAfter401(t *testing.T) {
 	var generateCalls int
 	refreshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","expiresIn":3600}`)
+		_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","profileArn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/NEW","expiresIn":3600}`)
 	}))
 	defer refreshServer.Close()
 	generateServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +288,7 @@ func TestKiroExecutorResolveModels_RefreshesOnUnauthorized(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"models":[{"modelId":"auto","modelName":"Auto"}]}`)
 		case "/refreshToken":
-			_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","expiresIn":3600}`)
+			_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","profileArn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/NEW","expiresIn":3600}`)
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
@@ -287,6 +322,9 @@ func TestKiroExecutorResolveModels_RefreshesOnUnauthorized(t *testing.T) {
 	if got := refreshed.Metadata["refresh_token"]; got != "refresh-new" {
 		t.Fatalf("refreshed refresh_token = %#v", got)
 	}
+	if got := refreshed.Metadata["profile_arn"]; got != "arn:aws:codewhisperer:us-east-1:123456789012:profile/NEW" {
+		t.Fatalf("refreshed profile_arn = %#v", got)
+	}
 	if listAttempts != 2 {
 		t.Fatalf("list attempts = %d, want 2", listAttempts)
 	}
@@ -304,4 +342,31 @@ func testKiroAuth(baseURL, accessToken string) *cliproxyauth.Auth {
 			"profile_arn":   "arn:aws:codewhisperer:us-east-1:123456789012:profile/ABC",
 		},
 	}
+}
+
+func kiroTestEventFrame(eventType, payload string) []byte {
+	headers := kiroTestHeader(":event-type", eventType)
+	payloadBytes := []byte(payload)
+	totalLength := 12 + len(headers) + len(payloadBytes) + 4
+	frame := make([]byte, totalLength)
+	binary.BigEndian.PutUint32(frame[0:4], uint32(totalLength))
+	binary.BigEndian.PutUint32(frame[4:8], uint32(len(headers)))
+	copy(frame[12:], headers)
+	copy(frame[12+len(headers):], payloadBytes)
+	return frame
+}
+
+func kiroTestHeader(name, value string) []byte {
+	out := make([]byte, 1+len(name)+1+2+len(value))
+	offset := 0
+	out[offset] = byte(len(name))
+	offset++
+	copy(out[offset:], name)
+	offset += len(name)
+	out[offset] = 7
+	offset++
+	binary.BigEndian.PutUint16(out[offset:offset+2], uint16(len(value)))
+	offset += 2
+	copy(out[offset:], value)
+	return out
 }

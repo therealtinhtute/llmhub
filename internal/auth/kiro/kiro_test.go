@@ -52,7 +52,7 @@ func TestNormalizeImportMetadata_RawRefreshTokenRefreshes(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&sawBody); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		_, _ = w.Write([]byte(`{"accessToken":"access-2","refreshToken":"refresh-2","expiresIn":1800}`))
+		_, _ = w.Write([]byte(`{"accessToken":"access-2","refreshToken":"refresh-2","profileArn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/RAW","expiresIn":1800}`))
 	}))
 	defer server.Close()
 
@@ -67,6 +67,7 @@ func TestNormalizeImportMetadata_RawRefreshTokenRefreshes(t *testing.T) {
 	}
 	assertMetaString(t, meta, "access_token", "access-2")
 	assertMetaString(t, meta, "refresh_token", "refresh-2")
+	assertMetaString(t, meta, "profile_arn", "arn:aws:codewhisperer:us-east-1:123456789012:profile/RAW")
 	if got := strings.TrimSpace(meta["expired"].(string)); got == "" {
 		t.Fatal("expired is empty")
 	}
@@ -78,7 +79,7 @@ func TestRefreshAccessToken_AWSOIDCUsesClientCredentials(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&sawBody); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		_, _ = w.Write([]byte(`{"accessToken":"aws-access","expiresIn":3600}`))
+		_, _ = w.Write([]byte(`{"accessToken":"aws-access","profileArn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/AWS","expiresIn":3600}`))
 	}))
 	defer server.Close()
 
@@ -92,6 +93,9 @@ func TestRefreshAccessToken_AWSOIDCUsesClientCredentials(t *testing.T) {
 	}
 	if result.AccessToken != "aws-access" {
 		t.Fatalf("AccessToken = %q, want aws-access", result.AccessToken)
+	}
+	if result.ProfileARN != "arn:aws:codewhisperer:us-east-1:123456789012:profile/AWS" {
+		t.Fatalf("ProfileARN = %q, want AWS profile ARN", result.ProfileARN)
 	}
 	if sawBody["clientId"] != "client" || sawBody["clientSecret"] != "secret" || sawBody["grantType"] != "refresh_token" {
 		t.Fatalf("unexpected request body: %#v", sawBody)

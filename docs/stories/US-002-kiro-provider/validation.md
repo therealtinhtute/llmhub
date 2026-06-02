@@ -42,3 +42,19 @@ go test ./...
   - `GET /v1/models` returned Kiro fallback models after the remote shared model catalog omitted Kiro.
   - `GET /v0/management/auth-files/models?name=kiro-account16.json` returned all five Kiro auth-file models.
   - `POST /v1/chat/completions` with model `auto` routed to Kiro and returned upstream HTTP 403 because the imported Kiro account is suspended.
+
+2026-06-02:
+
+- Compared llmhub Kiro runtime against `decolua/9router` Kiro executor,
+  request translator, model constants, token refresh, and model catalog source.
+- Fixed runtime request mismatch: Kiro model IDs are now sent upstream unchanged
+  instead of being uppercased and rewritten with underscores.
+- Fixed response conversion mismatch: AWS EventStream binary frames are now
+  parsed for assistant content, reasoning content, tool calls, metrics, and the
+  previous JSON-text parser remains as a test fallback.
+- Fixed Kiro refresh/import metadata preservation: `profileArn` from refresh
+  responses is stored as `profile_arn` and reused by inference/model requests.
+- `go test ./internal/auth/kiro ./sdk/auth ./sdk/cliproxy ./internal/runtime/executor ./internal/registry` passed.
+- `go test ./...` could not run directly because local `data/postgres` is not
+  readable. Equivalent tracked Go package sweep passed via:
+  `go test $(rg --files -g '*.go' | sed '/^data\//d' | xargs -n1 dirname | sort -u | sed 's#^#./#')`.

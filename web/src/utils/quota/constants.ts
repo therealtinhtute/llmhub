@@ -34,6 +34,9 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
   antigravity: {
     light: { bg: '#e0f7fa', text: '#006064' },
   },
+  kiro: {
+    light: { bg: '#efe7ff', text: '#7432d6' },
+  },
   xai: {
     light: { bg: '#f3f4f6', text: '#111827', border: '1px solid #d1d5db' },
   },

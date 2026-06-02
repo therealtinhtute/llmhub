@@ -36,8 +36,11 @@ file or auth store record shape.
 
 ## UI / Platform Impact
 
-No management UI changes are required for v1. Operators can upload existing
-auth import files through the current auth-file route.
+Operators can upload existing auth import files through the current auth-file
+route. The management auth-file and quota pages show Kiro runtime quota and
+cooldown state from llmhub auth records. Kiro does not expose a provider quota
+endpoint in this slice, so the UI labels provider quota as unavailable instead
+of showing invented limits or reset windows.
 
 ## Observability
 

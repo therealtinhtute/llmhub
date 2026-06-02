@@ -14,6 +14,7 @@ export type AuthFileType =
   | 'claude'
   | 'codex'
   | 'antigravity'
+  | 'kiro'
   | 'xai'
   | 'iflow'
   | 'vertex'
@@ -31,6 +32,9 @@ export interface AuthFileItem {
   unavailable?: boolean;
   status?: string;
   statusMessage?: string;
+  quota?: RuntimeQuotaState;
+  model_states?: Record<string, RuntimeModelState>;
+  modelStates?: Record<string, RuntimeModelState>;
   lastRefresh?: string | number;
   modified?: number;
   success?: unknown;
@@ -43,4 +47,27 @@ export interface AuthFileItem {
 export interface AuthFilesResponse {
   files: AuthFileItem[];
   total?: number;
+}
+
+export interface RuntimeQuotaState {
+  exceeded?: boolean;
+  reason?: string;
+  next_recover_at?: string;
+  nextRecoverAt?: string;
+  backoff_level?: number;
+  backoffLevel?: number;
+}
+
+export interface RuntimeModelState {
+  status?: string;
+  status_message?: string;
+  statusMessage?: string;
+  unavailable?: boolean;
+  next_retry_after?: string;
+  nextRetryAfter?: string;
+  last_error?: unknown;
+  lastError?: unknown;
+  quota?: RuntimeQuotaState;
+  updated_at?: string;
+  updatedAt?: string;
 }

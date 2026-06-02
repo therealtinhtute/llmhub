@@ -6,6 +6,7 @@ import {
   CLAUDE_CONFIG,
   CODEX_CONFIG,
   GEMINI_CLI_CONFIG,
+  KIRO_CONFIG,
   KIMI_CONFIG,
   XAI_CONFIG,
 } from '@/components/quota';
@@ -24,12 +25,15 @@ import { QuotaProgressBar } from '@/features/authFiles/components/QuotaProgressB
 // passed to renderQuotaItems as the helpers.styles object.
 const quotaStyleMap = {
   quotaMessage: 'text-[12px] text-muted-foreground/60 text-center py-2',
-  quotaMessageAction: 'w-full border-none bg-transparent cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline text-[12px] text-muted-foreground/60 text-center py-2',
-  quotaError: 'text-[12px] text-destructive bg-destructive/[.08] border border-destructive py-1 px-2',
+  quotaMessageAction:
+    'w-full border-none bg-transparent cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline text-[12px] text-muted-foreground/60 text-center py-2',
+  quotaError:
+    'text-[12px] text-destructive bg-destructive/[.08] border border-destructive py-1 px-2',
   quotaWarning: 'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 py-1 px-2',
   quotaRow: 'flex flex-col gap-1',
   quotaRowHeader: 'flex items-center justify-between gap-2 min-w-0',
-  quotaModel: 'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0',
+  quotaModel:
+    'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0',
   quotaBar: 'h-2 bg-secondary overflow-hidden',
   quotaBarFill: 'h-full',
   quotaMeta: 'flex items-center gap-2 text-[12px] text-muted-foreground whitespace-nowrap',
@@ -39,7 +43,8 @@ const quotaStyleMap = {
   codexPlan: 'flex items-center gap-[6px] text-[12px] text-muted-foreground',
   codexPlanLabel: 'text-muted-foreground/60',
   codexPlanValue: 'font-semibold text-foreground capitalize',
-  premiumPlanValue: 'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-amber-500/15 border border-amber-500/30 text-amber-600 capitalize',
+  premiumPlanValue:
+    'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-amber-500/15 border border-amber-500/30 text-amber-600 capitalize',
 };
 
 type QuotaState = { status?: string; error?: string; errorStatus?: number } | undefined;
@@ -48,6 +53,7 @@ const getQuotaConfig = (type: QuotaProviderType) => {
   if (type === 'antigravity') return ANTIGRAVITY_CONFIG;
   if (type === 'claude') return CLAUDE_CONFIG;
   if (type === 'codex') return CODEX_CONFIG;
+  if (type === 'kiro') return KIRO_CONFIG;
   if (type === 'kimi') return KIMI_CONFIG;
   if (type === 'xai') return XAI_CONFIG;
   return GEMINI_CLI_CONFIG;
@@ -67,6 +73,8 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     if (quotaType === 'antigravity') return state.antigravityQuota[file.name] as QuotaState;
     if (quotaType === 'claude') return state.claudeQuota[file.name] as QuotaState;
     if (quotaType === 'codex') return state.codexQuota[file.name] as QuotaState;
+    if (quotaType === 'kiro')
+      return (state.kiroQuota[file.name] ?? KIRO_CONFIG.buildRuntimeState?.(file)) as QuotaState;
     if (quotaType === 'kimi') return state.kimiQuota[file.name] as QuotaState;
     if (quotaType === 'xai') return state.xaiQuota[file.name] as QuotaState;
     return state.geminiCliQuota[file.name] as QuotaState;
@@ -78,6 +86,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     if (quotaType === 'claude')
       return state.setClaudeQuota as unknown as (updater: unknown) => void;
     if (quotaType === 'codex') return state.setCodexQuota as unknown as (updater: unknown) => void;
+    if (quotaType === 'kiro') return state.setKiroQuota as unknown as (updater: unknown) => void;
     if (quotaType === 'kimi') return state.setKimiQuota as unknown as (updater: unknown) => void;
     if (quotaType === 'xai') return state.setXaiQuota as unknown as (updater: unknown) => void;
     return state.setGeminiCliQuota as unknown as (updater: unknown) => void;
@@ -154,7 +163,10 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
           })}
         </div>
       ) : quota ? (
-        (config.renderQuotaItems(quota, t, { styles: quotaStyleMap, QuotaProgressBar }) as ReactNode)
+        (config.renderQuotaItems(quota, t, {
+          styles: quotaStyleMap,
+          QuotaProgressBar,
+        }) as ReactNode)
       ) : (
         <div className={quotaStyleMap.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
       )}

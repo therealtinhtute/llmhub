@@ -26,6 +26,10 @@ import type {
   GeminiCliQuotaBucketState,
   GeminiCliQuotaState,
   GeminiCliUserTier,
+  KiroQuotaState,
+  KiroRuntimeModelQuotaState,
+  KiroRuntimeQuotaState,
+  KiroRuntimeStatus,
   KimiQuotaRow,
   KimiQuotaState,
   XaiBillingConfig,
@@ -78,6 +82,7 @@ import {
   isCodexFile,
   isDisabledAuthFile,
   isGeminiCliFile,
+  isKiroFile,
   isKimiFile,
   isRuntimeOnlyAuthFile,
   isXaiFile,
@@ -88,7 +93,7 @@ import { quotaStyles as styles } from './quotaStyles';
 
 type QuotaUpdater<T> = T | ((prev: T) => T);
 
-type QuotaType = 'antigravity' | 'claude' | 'codex' | 'gemini-cli' | 'kimi' | 'xai';
+type QuotaType = 'antigravity' | 'claude' | 'codex' | 'gemini-cli' | 'kiro' | 'kimi' | 'xai';
 
 const DEFAULT_ANTIGRAVITY_PROJECT_ID = 'bamboo-precept-lgxtn';
 const geminiCliSupplementaryRequestIds = new Map<string, number>();
@@ -107,12 +112,14 @@ export interface QuotaStore {
   claudeQuota: Record<string, ClaudeQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   geminiCliQuota: Record<string, GeminiCliQuotaState>;
+  kiroQuota: Record<string, KiroQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
   xaiQuota: Record<string, XaiQuotaState>;
   setAntigravityQuota: (updater: QuotaUpdater<Record<string, AntigravityQuotaState>>) => void;
   setClaudeQuota: (updater: QuotaUpdater<Record<string, ClaudeQuotaState>>) => void;
   setCodexQuota: (updater: QuotaUpdater<Record<string, CodexQuotaState>>) => void;
   setGeminiCliQuota: (updater: QuotaUpdater<Record<string, GeminiCliQuotaState>>) => void;
+  setKiroQuota: (updater: QuotaUpdater<Record<string, KiroQuotaState>>) => void;
   setKimiQuota: (updater: QuotaUpdater<Record<string, KimiQuotaState>>) => void;
   setXaiQuota: (updater: QuotaUpdater<Record<string, XaiQuotaState>>) => void;
   clearQuotaCache: () => void;
@@ -124,6 +131,7 @@ export interface QuotaConfig<TState, TData> {
   cardIdleMessageKey?: string;
   filterFn: (file: AuthFileItem) => boolean;
   fetchQuota: (file: AuthFileItem, t: TFunction) => Promise<TData>;
+  buildRuntimeState?: (file: AuthFileItem) => TState;
   storeSelector: (state: QuotaStore) => Record<string, TState>;
   storeSetter: keyof QuotaStore;
   buildLoadingState: () => TState;
@@ -1334,6 +1342,265 @@ const renderKimiItems = (
       h(QuotaProgressBar, { percent: remaining })
     );
   });
+};
+
+const readRuntimeString = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const readRuntimeTimestampString = (value: unknown): string | undefined => {
+  const timestamp = readRuntimeString(value);
+  if (!timestamp) return undefined;
+  if (timestamp.startsWith('0001-01-01')) return undefined;
+  return timestamp;
+};
+
+const readRuntimeBoolean = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    return trimmed === 'true' || trimmed === '1' || trimmed === 'yes' || trimmed === 'on';
+  }
+  return false;
+};
+
+const normalizeKiroRuntimeStatus = (
+  status: unknown,
+  options?: { disabled?: boolean; unavailable?: boolean; quotaExceeded?: boolean; error?: unknown }
+): KiroRuntimeStatus => {
+  if (options?.disabled) return 'disabled';
+  const rawStatus = readRuntimeString(status)?.toLowerCase();
+  if (rawStatus === 'disabled') return 'disabled';
+  if (rawStatus === 'error' || options?.error) return 'error';
+  if (rawStatus === 'unavailable' || options?.unavailable || options?.quotaExceeded) {
+    return 'unavailable';
+  }
+  return 'active';
+};
+
+const normalizeKiroRuntimeQuota = (raw: unknown): KiroRuntimeQuotaState => {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    exceeded: readRuntimeBoolean(source.exceeded),
+    reason: readRuntimeString(source.reason),
+    nextRecoverAt: readRuntimeTimestampString(source.next_recover_at ?? source.nextRecoverAt),
+  };
+};
+
+const normalizeKiroModelStates = (file: AuthFileItem): KiroRuntimeModelQuotaState[] => {
+  const rawStates = file.model_states ?? file.modelStates;
+  if (!rawStates || typeof rawStates !== 'object') return [];
+
+  return Object.entries(rawStates)
+    .map((entry): KiroRuntimeModelQuotaState | null => {
+      const [id, rawState] = entry;
+      if (!rawState || typeof rawState !== 'object') return null;
+      const state = rawState as Record<string, unknown>;
+      const quota = normalizeKiroRuntimeQuota(state.quota);
+      const unavailable = readRuntimeBoolean(state.unavailable);
+      return {
+        id,
+        status: normalizeKiroRuntimeStatus(state.status, {
+          unavailable,
+          quotaExceeded: quota.exceeded,
+          error: state.last_error ?? state.lastError,
+        }),
+        statusMessage: readRuntimeString(state.status_message ?? state.statusMessage),
+        unavailable,
+        nextRetryAfter: readRuntimeTimestampString(state.next_retry_after ?? state.nextRetryAfter),
+        quota,
+      };
+    })
+    .filter((state): state is KiroRuntimeModelQuotaState => state !== null)
+    .sort((left, right) => left.id.localeCompare(right.id));
+};
+
+const buildKiroRuntimeState = (file: AuthFileItem): KiroQuotaState => {
+  const quota = normalizeKiroRuntimeQuota(file.quota);
+  const disabled = isDisabledAuthFile(file);
+  const unavailable = readRuntimeBoolean(file.unavailable);
+  return {
+    status: 'runtime-only',
+    runtimeStatus: normalizeKiroRuntimeStatus(file.status, {
+      disabled,
+      unavailable,
+      quotaExceeded: quota.exceeded,
+    }),
+    statusMessage: readRuntimeString(file.status_message ?? file.statusMessage),
+    unavailable,
+    disabled,
+    quota,
+    modelStates: normalizeKiroModelStates(file),
+    providerQuotaAvailable: false,
+  };
+};
+
+const fetchKiroQuota = async (file: AuthFileItem): Promise<KiroQuotaState> =>
+  buildKiroRuntimeState(file);
+
+const renderKiroRuntimeStatusBadge = (
+  status: KiroRuntimeStatus,
+  t: TFunction,
+  helpers: QuotaRenderHelpers
+): ReactNode => {
+  const { createElement: h } = React;
+  const label = t(`kiro_quota.status_${status}`);
+  const className =
+    status === 'active'
+      ? `${helpers.styles.codexPlanValue} text-emerald-700`
+      : status === 'disabled'
+        ? `${helpers.styles.codexPlanValue} text-muted-foreground`
+        : status === 'error'
+          ? `${helpers.styles.codexPlanValue} text-destructive`
+          : `${helpers.styles.codexPlanValue} text-amber-700`;
+  return h('span', { className }, label);
+};
+
+const renderKiroItems = (
+  quota: KiroQuotaState,
+  t: TFunction,
+  helpers: QuotaRenderHelpers
+): ReactNode => {
+  const { styles: styleMap } = helpers;
+  const { createElement: h, Fragment } = React;
+  const nodes: ReactNode[] = [
+    h(
+      'div',
+      { key: 'provider-quota', className: styleMap.quotaWarning },
+      t('kiro_quota.provider_unavailable')
+    ),
+    h(
+      'div',
+      { key: 'runtime-status', className: styleMap.codexPlan },
+      h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_status')),
+      renderKiroRuntimeStatusBadge(quota.runtimeStatus, t, helpers)
+    ),
+  ];
+
+  if (quota.statusMessage) {
+    nodes.push(
+      h(
+        'div',
+        { key: 'status-message', className: styleMap.codexPlan },
+        h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_reason')),
+        h('span', { className: styleMap.codexPlanValue }, quota.statusMessage)
+      )
+    );
+  }
+
+  if (quota.quota.exceeded || quota.quota.reason || quota.quota.nextRecoverAt) {
+    nodes.push(
+      h(
+        'div',
+        { key: 'runtime-quota', className: styleMap.quotaRow },
+        h(
+          'div',
+          { className: styleMap.quotaRowHeader },
+          h('span', { className: styleMap.quotaModel }, t('kiro_quota.runtime_quota')),
+          h(
+            'div',
+            { className: styleMap.quotaMeta },
+            h(
+              'span',
+              { className: styleMap.quotaPercent },
+              quota.quota.exceeded ? t('kiro_quota.exceeded') : t('kiro_quota.available')
+            ),
+            quota.quota.reason
+              ? h('span', { className: styleMap.quotaAmount }, quota.quota.reason)
+              : null,
+            h(
+              'span',
+              { className: styleMap.quotaReset },
+              formatQuotaResetTime(quota.quota.nextRecoverAt)
+            )
+          )
+        )
+      )
+    );
+  } else {
+    nodes.push(
+      h(
+        'div',
+        { key: 'runtime-empty', className: styleMap.quotaMessage },
+        t('kiro_quota.no_runtime_quota')
+      )
+    );
+  }
+
+  if (quota.modelStates.length > 0) {
+    nodes.push(
+      ...quota.modelStates.map((model) =>
+        h(
+          'div',
+          { key: `model-${model.id}`, className: styleMap.quotaRow },
+          h(
+            'div',
+            { className: styleMap.quotaRowHeader },
+            h('span', { className: styleMap.quotaModel, title: model.id }, model.id),
+            h(
+              'div',
+              { className: styleMap.quotaMeta },
+              h(
+                'span',
+                { className: styleMap.quotaPercent },
+                t(`kiro_quota.status_${model.status}`)
+              ),
+              model.statusMessage
+                ? h('span', { className: styleMap.quotaAmount }, model.statusMessage)
+                : null,
+              h(
+                'span',
+                { className: styleMap.quotaReset },
+                formatQuotaResetTime(model.quota.nextRecoverAt ?? model.nextRetryAfter)
+              )
+            )
+          )
+        )
+      )
+    );
+  }
+
+  return h(Fragment, null, ...nodes);
+};
+
+export const KIRO_CONFIG: QuotaConfig<KiroQuotaState, KiroQuotaState> = {
+  type: 'kiro',
+  i18nPrefix: 'kiro_quota',
+  cardIdleMessageKey: 'kiro_quota.idle',
+  filterFn: (file) => isKiroFile(file),
+  fetchQuota: fetchKiroQuota,
+  storeSelector: (state) => state.kiroQuota,
+  storeSetter: 'setKiroQuota',
+  buildRuntimeState: buildKiroRuntimeState,
+  buildLoadingState: () => ({
+    status: 'loading',
+    runtimeStatus: 'active',
+    unavailable: false,
+    disabled: false,
+    quota: { exceeded: false },
+    modelStates: [],
+    providerQuotaAvailable: false,
+  }),
+  buildSuccessState: (data) => data,
+  buildErrorState: (message, status) => ({
+    status: 'error',
+    runtimeStatus: 'error',
+    unavailable: true,
+    disabled: false,
+    quota: { exceeded: false },
+    modelStates: [],
+    providerQuotaAvailable: false,
+    error: message,
+    errorStatus: status,
+  }),
+  cardClassName: styles.codexCard,
+  controlsClassName: styles.codexControls,
+  controlClassName: styles.codexControl,
+  gridClassName: styles.codexGrid,
+  renderQuotaItems: renderKiroItems,
 };
 
 const normalizeXaiCentValue = (value: XaiBillingConfig['monthlyLimit']): number | null => {

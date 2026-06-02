@@ -10,6 +10,7 @@ import {
   CLAUDE_CONFIG,
   CODEX_CONFIG,
   GEMINI_CLI_CONFIG,
+  KIRO_CONFIG,
   KIMI_CONFIG,
   XAI_CONFIG,
 } from '@/components/quota';
@@ -23,6 +24,7 @@ const ALL_CONFIGS = [
   CODEX_CONFIG,
   XAI_CONFIG,
   GEMINI_CLI_CONFIG,
+  KIRO_CONFIG,
   KIMI_CONFIG,
 ];
 

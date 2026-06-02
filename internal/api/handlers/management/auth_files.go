@@ -408,9 +408,13 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 		"status_message": auth.StatusMessage,
 		"disabled":       auth.Disabled,
 		"unavailable":    auth.Unavailable,
+		"quota":          auth.Quota,
 		"runtime_only":   runtimeOnly,
 		"source":         "memory",
 		"size":           int64(0),
+	}
+	if len(auth.ModelStates) > 0 {
+		entry["model_states"] = auth.ModelStates
 	}
 	if pathless {
 		entry["source"] = "postgres"

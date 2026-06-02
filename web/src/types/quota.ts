@@ -307,6 +307,36 @@ export interface KimiQuotaState {
   errorStatus?: number;
 }
 
+export type KiroRuntimeStatus = 'active' | 'disabled' | 'unavailable' | 'error';
+
+export interface KiroRuntimeQuotaState {
+  exceeded: boolean;
+  reason?: string;
+  nextRecoverAt?: string;
+}
+
+export interface KiroRuntimeModelQuotaState {
+  id: string;
+  status: KiroRuntimeStatus;
+  statusMessage?: string;
+  unavailable: boolean;
+  nextRetryAfter?: string;
+  quota: KiroRuntimeQuotaState;
+}
+
+export interface KiroQuotaState {
+  status: 'idle' | 'loading' | 'success' | 'error' | 'runtime-only';
+  runtimeStatus: KiroRuntimeStatus;
+  statusMessage?: string;
+  unavailable: boolean;
+  disabled: boolean;
+  quota: KiroRuntimeQuotaState;
+  modelStates: KiroRuntimeModelQuotaState[];
+  providerQuotaAvailable: false;
+  error?: string;
+  errorStatus?: number;
+}
+
 // xAI/Grok API payload types
 export interface XaiBillingCent {
   val?: number | string;

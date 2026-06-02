@@ -11,6 +11,7 @@ export {
   CLAUDE_CONFIG,
   CODEX_CONFIG,
   GEMINI_CLI_CONFIG,
+  KIRO_CONFIG,
   KIMI_CONFIG,
   XAI_CONFIG,
 } from './quotaConfigs';

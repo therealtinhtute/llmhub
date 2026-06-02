@@ -10,7 +10,7 @@ import { TYPE_COLORS } from '@/utils/quota';
 import { quotaStyles as styles } from './quotaStyles';
 import type { QuotaStyleMap } from './quotaStyles';
 
-type QuotaStatus = 'idle' | 'loading' | 'success' | 'error';
+type QuotaStatus = 'idle' | 'loading' | 'success' | 'error' | 'runtime-only';
 
 export interface QuotaStatusState {
   status: QuotaStatus;
@@ -23,8 +23,7 @@ export interface QuotaProgressBarProps {
 }
 
 export function QuotaProgressBar({ percent }: QuotaProgressBarProps) {
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(max, Math.max(min, value));
+  const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
   const normalized = percent === null ? null : clamp(percent, 0, 100);
   const fillClass =
     normalized === null
@@ -78,7 +77,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
   defaultType,
   canRefresh = false,
   onRefresh,
-  renderQuotaItems
+  renderQuotaItems,
 }: QuotaCardProps<TState>) {
   const { t } = useTranslation();
 
@@ -92,7 +91,9 @@ export function QuotaCard<TState extends QuotaStatusState>({
     quota?.errorStatus,
     quota?.error || t('common.unknown_error')
   );
-  const idleMessageKey = onRefresh ? `${i18nPrefix}.idle` : (cardIdleMessageKey ?? `${i18nPrefix}.idle`);
+  const idleMessageKey = onRefresh
+    ? `${i18nPrefix}.idle`
+    : (cardIdleMessageKey ?? `${i18nPrefix}.idle`);
 
   const getTypeLabel = (type: string): string => {
     const key = `auth_files.filter_${type}`;
@@ -110,7 +111,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
           style={{
             backgroundColor: typeColor.bg,
             color: typeColor.text,
-            ...(typeColor.border ? { border: typeColor.border } : {})
+            ...(typeColor.border ? { border: typeColor.border } : {}),
           }}
         >
           {getTypeLabel(displayType)}
@@ -137,7 +138,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
         ) : quotaStatus === 'error' ? (
           <div className={styles.quotaError}>
             {t(`${i18nPrefix}.load_failed`, {
-              message: quotaErrorMessage
+              message: quotaErrorMessage,
             })}
           </div>
         ) : quota ? (

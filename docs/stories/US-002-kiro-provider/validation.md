@@ -58,3 +58,12 @@ go test ./...
 - `go test ./...` could not run directly because local `data/postgres` is not
   readable. Equivalent tracked Go package sweep passed via:
   `go test $(rg --files -g '*.go' | sed '/^data\//d' | xargs -n1 dirname | sort -u | sed 's#^#./#')`.
+
+2026-06-02 runtime quota UI slice:
+
+- Expected Go proof:
+  `go test ./internal/api/handlers/management ./internal/auth/kiro ./sdk/auth ./internal/runtime/executor`.
+- Expected web proof: `bun run type-check` from `web/`.
+- Acceptance focuses on management auth-file responses exposing `quota` and
+  `model_states`, and the quota UI showing Kiro runtime state while clearly
+  marking provider quota unavailable.

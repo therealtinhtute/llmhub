@@ -83,7 +83,7 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6) => {
     goToNext,
     loading,
     loadingScope,
-    setLoading
+    setLoading,
   };
 };
 
@@ -97,12 +97,14 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
       claudeQuota: state.claudeQuota,
       codexQuota: state.codexQuota,
       geminiCliQuota: state.geminiCliQuota,
+      kiroQuota: state.kiroQuota,
       kimiQuota: state.kimiQuota,
       xaiQuota: state.xaiQuota,
       setAntigravityQuota: state.setAntigravityQuota,
       setClaudeQuota: state.setClaudeQuota,
       setCodexQuota: state.setCodexQuota,
       setGeminiCliQuota: state.setGeminiCliQuota,
+      setKiroQuota: state.setKiroQuota,
       setKimiQuota: state.setKimiQuota,
       setXaiQuota: state.setXaiQuota,
       clearQuotaCache: state.clearQuotaCache,
@@ -139,7 +141,7 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
     goToPrev,
     goToNext,
     loading: sectionLoading,
-    setLoading
+    setLoading,
   } = useQuotaPagination(allItems);
 
   useEffect(() => {
@@ -165,6 +167,25 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
       setPageSize(Math.min(columns * 3, MAX_ITEMS_PER_PAGE));
     }
   }, [effectiveViewMode, columns, allItems.length, setPageSize]);
+
+  useEffect(() => {
+    if (loading) return;
+
+    for (const config of configs) {
+      if (!config.buildRuntimeState) continue;
+      const providerFiles = files.filter((file) => config.filterFn(file));
+      const setter = useQuotaStore.getState()[
+        config.storeSetter as keyof QuotaStore
+      ] as QuotaSetter<Record<string, QuotaStatusState>>;
+      setter((prev) => {
+        const nextState: Record<string, QuotaStatusState> = {};
+        providerFiles.forEach((file) => {
+          nextState[file.name] = prev[file.name] ?? config.buildRuntimeState!(file);
+        });
+        return nextState;
+      });
+    }
+  }, [configs, files, loading]);
 
   const pendingQuotaRefreshRef = useRef(false);
   const prevFilesLoadingRef = useRef(loading);
@@ -192,7 +213,9 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
       targets.map(async ({ item, config }) => {
         try {
           const data = await config.fetchQuota(item, t);
-          const setter = useQuotaStore.getState()[config.storeSetter as keyof QuotaStore] as QuotaSetter<Record<string, QuotaStatusState>>;
+          const setter = useQuotaStore.getState()[
+            config.storeSetter as keyof QuotaStore
+          ] as QuotaSetter<Record<string, QuotaStatusState>>;
           setter((prev) => ({
             ...prev,
             [item.name]: config.buildSuccessState(data),
@@ -200,7 +223,9 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : t('common.unknown_error');
           const errorStatus = getStatusFromError(err);
-          const setter = useQuotaStore.getState()[config.storeSetter as keyof QuotaStore] as QuotaSetter<Record<string, QuotaStatusState>>;
+          const setter = useQuotaStore.getState()[
+            config.storeSetter as keyof QuotaStore
+          ] as QuotaSetter<Record<string, QuotaStatusState>>;
           setter((prev) => ({
             ...prev,
             [item.name]: config.buildErrorState(message, errorStatus),
@@ -218,7 +243,9 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
       const currentQuota = config.storeSelector(useQuotaStore.getState());
       if (currentQuota[item.name]?.status === 'loading') return;
 
-      const setQuota = useQuotaStore.getState()[config.storeSetter as keyof QuotaStore] as QuotaSetter<Record<string, QuotaStatusState>>;
+      const setQuota = useQuotaStore.getState()[
+        config.storeSetter as keyof QuotaStore
+      ] as QuotaSetter<Record<string, QuotaStatusState>>;
       setQuota((prev) => ({
         ...prev,
         [item.name]: config.buildLoadingState(),
@@ -226,7 +253,9 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
 
       try {
         const data = await config.fetchQuota(item, t);
-        const setter = useQuotaStore.getState()[config.storeSetter as keyof QuotaStore] as QuotaSetter<Record<string, QuotaStatusState>>;
+        const setter = useQuotaStore.getState()[
+          config.storeSetter as keyof QuotaStore
+        ] as QuotaSetter<Record<string, QuotaStatusState>>;
         setter((prev) => ({
           ...prev,
           [item.name]: config.buildSuccessState(data),
@@ -235,7 +264,9 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('common.unknown_error');
         const status = getStatusFromError(err);
-        const setter = useQuotaStore.getState()[config.storeSetter as keyof QuotaStore] as QuotaSetter<Record<string, QuotaStatusState>>;
+        const setter = useQuotaStore.getState()[
+          config.storeSetter as keyof QuotaStore
+        ] as QuotaSetter<Record<string, QuotaStatusState>>;
         setter((prev) => ({
           ...prev,
           [item.name]: config.buildErrorState(message, status),
@@ -321,19 +352,14 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
       </div>
       {allItems.length > pageSize && effectiveViewMode === 'paged' && (
         <div className={styles.pagination}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={goToPrev}
-            disabled={currentPage <= 1}
-          >
+          <Button variant="secondary" size="sm" onClick={goToPrev} disabled={currentPage <= 1}>
             {t('auth_files.pagination_prev')}
           </Button>
           <div className={styles.pageInfo}>
             {t('auth_files.pagination_info', {
               current: currentPage,
               total: totalPages,
-              count: allItems.length
+              count: allItems.length,
             })}
           </div>
           <Button

@@ -109,11 +109,13 @@ export function AuthFileCard(props: AuthFileCardProps) {
           ? 'linear-gradient(180deg,rgba(234,231,255,0.08),transparent)'
           : quotaType === 'gemini-cli'
             ? 'linear-gradient(180deg,rgba(224,232,255,0.08),transparent)'
-            : quotaType === 'kimi'
-              ? 'linear-gradient(180deg,rgba(220,232,255,0.08),transparent)'
-              : quotaType === 'xai'
-                ? 'linear-gradient(180deg,rgba(243,244,246,0.08),transparent)'
-                : undefined;
+            : quotaType === 'kiro'
+              ? 'linear-gradient(180deg,rgba(239,231,255,0.08),transparent)'
+              : quotaType === 'kimi'
+                ? 'linear-gradient(180deg,rgba(220,232,255,0.08),transparent)'
+                : quotaType === 'xai'
+                  ? 'linear-gradient(180deg,rgba(243,244,246,0.08),transparent)'
+                  : undefined;
 
   const rawAuthIndex = file['auth_index'] ?? file.authIndex;
   const authIndexKey = normalizeRecentRequestAuthIndex(rawAuthIndex);

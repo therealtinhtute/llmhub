@@ -13,7 +13,7 @@ LOG_DIR="${LOG_DIR:-/var/log/llmhub}"
 SERVICE_USER="${SERVICE_USER:-llmhub}"
 SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
 SERVICE_NAME="${SERVICE_NAME:-llmhub}"
-ENV_FILE="${ENV_FILE:-/etc/default/llmhub}"
+ENV_FILE="${ENV_FILE:-${INSTALL_DIR}/.env}"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
@@ -31,6 +31,76 @@ find_local_config_example() {
     done
 
     return 1
+}
+
+find_local_env_file() {
+    selected_dir=$(dirname -- "$SELECTED")
+
+    for env in \
+        ".env" \
+        "${SCRIPT_DIR}/.env" \
+        "${selected_dir}/.env"; do
+        if [ -f "$env" ]; then
+            printf '%s\n' "$env"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+config_port() {
+    cfg="${CONFIG_DIR}/config.yaml"
+    if [ ! -f "$cfg" ]; then
+        return 1
+    fi
+    awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*port:[[:space:]]*/ {
+            value=$0
+            sub(/^[[:space:]]*port:[[:space:]]*/, "", value)
+            sub(/[[:space:]]*#.*/, "", value)
+            gsub(/["'\''[:space:]]/, "", value)
+            if (value ~ /^[0-9]+$/) {
+                print value
+                exit 0
+            }
+        }
+    ' "$cfg"
+}
+
+service_port() {
+    if ! command -v systemctl >/dev/null 2>&1 || ! command -v ss >/dev/null 2>&1; then
+        return 1
+    fi
+    pid=$(systemctl show -p MainPID --value "${SERVICE_NAME}.service" 2>/dev/null || true)
+    case "$pid" in
+        ''|0|*[!0-9]*) return 1 ;;
+    esac
+    ss -ltnp 2>/dev/null | awk -v pid="$pid" '
+        index($0, "pid=" pid ",") > 0 {
+            split($4, parts, ":")
+            port=parts[length(parts)]
+            if (port ~ /^[0-9]+$/) {
+                print port
+                exit 0
+            }
+        }
+    '
+}
+
+resolved_port() {
+    port="$(service_port | head -n 1)"
+    if [ -n "$port" ]; then
+        printf '%s\n' "$port"
+        return 0
+    fi
+    port="$(config_port | head -n 1)"
+    if [ -n "$port" ]; then
+        printf '%s\n' "$port"
+        return 0
+    fi
+    printf '%s\n' "8317"
 }
 
 
@@ -227,9 +297,15 @@ else
     echo "    config: ${CONFIG_DIR}/config.yaml (existing - left unchanged)"
 fi
 
-# Write optional environment file for secrets/store backends.
+# Write optional environment file for secrets/store backends. By default this
+# lives next to the installed binary, so the service loads the binary-adjacent
+# .env file operators commonly update during deploys.
 if [ ! -f "$ENV_FILE" ]; then
-    cat >"$ENV_FILE" <<ENV
+    if TMP_ENV=$(find_local_env_file); then
+        install -m 0640 -o root -g "$SERVICE_GROUP" "$TMP_ENV" "$ENV_FILE"
+        echo "    environment: $ENV_FILE (seeded from $TMP_ENV)"
+    else
+        cat >"$ENV_FILE" <<ENV
 # Optional environment for llmhub systemd service.
 # Examples:
 # HOME_JWT=
@@ -238,9 +314,10 @@ if [ ! -f "$ENV_FILE" ]; then
 # GITSTORE_GIT_URL=
 WRITABLE_PATH=${DATA_DIR}
 ENV
-    chmod 0640 "$ENV_FILE"
-    chown root:"$SERVICE_GROUP" "$ENV_FILE"
-    echo "    environment: $ENV_FILE (created)"
+        chmod 0640 "$ENV_FILE"
+        chown root:"$SERVICE_GROUP" "$ENV_FILE"
+        echo "    environment: $ENV_FILE (created)"
+    fi
 else
     echo "    environment: $ENV_FILE (existing - left unchanged)"
 fi
@@ -281,10 +358,11 @@ echo ""
 systemctl status "${SERVICE_NAME}.service" --no-pager || true
 
 SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")"
+SERVER_PORT="$(resolved_port)"
 echo ""
 echo "==> llmhub is running"
-echo "    API endpoint:     http://${SERVER_IP}:8317/v1"
-echo "    Management panel: http://${SERVER_IP}:8317/management.html"
+echo "    API endpoint:     http://${SERVER_IP}:${SERVER_PORT}/v1"
+echo "    Management panel: http://${SERVER_IP}:${SERVER_PORT}/management.html"
 echo ""
 echo "    Edit ${CONFIG_DIR}/config.yaml to configure providers and accounts."
 echo "    Optional env: $ENV_FILE"

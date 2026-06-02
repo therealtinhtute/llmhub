@@ -489,6 +489,17 @@ func main() {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
+	if value, ok := lookupEnv("LLMHUB_HOST", "llmhub_host"); ok {
+		cfg.Host = value
+	}
+	if value, ok := lookupEnv("LLMHUB_PORT", "llmhub_port"); ok {
+		port, errParse := strconv.Atoi(value)
+		if errParse != nil || port <= 0 || port > 65535 {
+			log.Errorf("invalid LLMHUB_PORT: %q", value)
+			return
+		}
+		cfg.Port = port
+	}
 
 	// In cloud deploy mode, check if we have a valid configuration
 	var configFileExists bool

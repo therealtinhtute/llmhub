@@ -6,6 +6,8 @@
 set -eu
 
 BINARY="llmhub"
+DEFAULT_HOST="${DEFAULT_HOST:-0.0.0.0}"
+DEFAULT_PORT="${DEFAULT_PORT:-9090}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/llmhub}"
 DATA_DIR="${DATA_DIR:-/var/lib/llmhub}"
@@ -47,6 +49,74 @@ find_local_env_file() {
     done
 
     return 1
+}
+
+render_system_config() {
+    src="$1"
+    awk -v host="$DEFAULT_HOST" -v port="$DEFAULT_PORT" -v auth_dir="${DATA_DIR}/auths" '
+        BEGIN { saw_host = 0; saw_port = 0 }
+        /^[[:space:]]*host:[[:space:]]*/ {
+            print "host: \"" host "\""
+            saw_host = 1
+            next
+        }
+        /^[[:space:]]*port:[[:space:]]*/ {
+            print "port: " port
+            saw_port = 1
+            next
+        }
+        /^[[:space:]]*auth-dir:[[:space:]]*/ {
+            print "auth-dir: \"" auth_dir "\""
+            next
+        }
+        { print }
+        END {
+            if (!saw_host) {
+                print "host: \"" host "\""
+            }
+            if (!saw_port) {
+                print "port: " port
+            }
+        }
+    ' "$src"
+}
+
+install_rendered_config() {
+    src="$1"
+    dst="$2"
+    TMP_RENDERED="$(mktemp)"
+    render_system_config "$src" >"$TMP_RENDERED"
+    install -m 0640 -o root -g "$SERVICE_GROUP" "$TMP_RENDERED" "$dst"
+    rm -f "$TMP_RENDERED"
+}
+
+ensure_env_bind() {
+    env_file="$1"
+    TMP_ENV_BIND="$(mktemp)"
+    awk -v host="$DEFAULT_HOST" -v port="$DEFAULT_PORT" '
+        BEGIN { wrote_host = 0; wrote_port = 0 }
+        /^[[:space:]]*LLMHUB_HOST=/ && !wrote_host {
+            print "LLMHUB_HOST=" host
+            wrote_host = 1
+            next
+        }
+        /^[[:space:]]*LLMHUB_PORT=/ && !wrote_port {
+            print "LLMHUB_PORT=" port
+            wrote_port = 1
+            next
+        }
+        { print }
+        END {
+            if (!wrote_host) {
+                print "LLMHUB_HOST=" host
+            }
+            if (!wrote_port) {
+                print "LLMHUB_PORT=" port
+            }
+        }
+    ' "$env_file" >"$TMP_ENV_BIND"
+    install -m 0640 -o root -g "$SERVICE_GROUP" "$TMP_ENV_BIND" "$env_file"
+    rm -f "$TMP_ENV_BIND"
 }
 
 config_port() {
@@ -100,7 +170,44 @@ resolved_port() {
         printf '%s\n' "$port"
         return 0
     fi
-    printf '%s\n' "8317"
+    printf '%s\n' "$DEFAULT_PORT"
+}
+
+allow_firewall_port() {
+    port="$1"
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi '^Status:[[:space:]]*active'; then
+        ufw allow "${port}/tcp" >/dev/null
+        echo "    firewall: allowed ${port}/tcp via ufw"
+    fi
+}
+
+wait_for_service_port() {
+    attempts=0
+    while [ "$attempts" -lt 30 ]; do
+        state="$(systemctl is-active "${SERVICE_NAME}.service" 2>/dev/null || true)"
+        port="$(service_port | head -n 1)"
+        if [ -n "$port" ]; then
+            printf '%s\n' "$port"
+            return 0
+        fi
+        case "$state" in
+            active|activating|reloading)
+                ;;
+            *)
+                echo "error: ${SERVICE_NAME}.service is not active after restart (state: ${state:-unknown})" >&2
+                systemctl status "${SERVICE_NAME}.service" --no-pager >&2 || true
+                journalctl -u "${SERVICE_NAME}.service" -n 80 --no-pager >&2 || true
+                return 1
+                ;;
+        esac
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+
+    echo "error: ${SERVICE_NAME}.service is active but no listening TCP port was detected" >&2
+    systemctl status "${SERVICE_NAME}.service" --no-pager >&2 || true
+    journalctl -u "${SERVICE_NAME}.service" -n 80 --no-pager >&2 || true
+    return 1
 }
 
 
@@ -286,15 +393,17 @@ if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
 
     echo "    config source: $TMP_CFG"
 
-    # Adjust auth-dir path for system installation
-    TMP_RENDERED="$(mktemp)"
-    sed "s|auth-dir:.*|auth-dir: \"${DATA_DIR}/auths\"|" "$TMP_CFG" >"$TMP_RENDERED"
-    install -m 0640 -o root -g "$SERVICE_GROUP" "$TMP_RENDERED" "${CONFIG_DIR}/config.yaml"
-    rm -f "$TMP_RENDERED"
+    install_rendered_config "$TMP_CFG" "${CONFIG_DIR}/config.yaml"
 
     echo "    config: ${CONFIG_DIR}/config.yaml (seeded from local example - edit before use)"
 else
-    echo "    config: ${CONFIG_DIR}/config.yaml (existing - left unchanged)"
+    CURRENT_PORT="$(config_port | head -n 1)"
+    if [ "$CURRENT_PORT" != "$DEFAULT_PORT" ]; then
+        install_rendered_config "${CONFIG_DIR}/config.yaml" "${CONFIG_DIR}/config.yaml"
+        echo "    config: ${CONFIG_DIR}/config.yaml (existing - updated port to ${DEFAULT_PORT})"
+    else
+        echo "    config: ${CONFIG_DIR}/config.yaml (existing - port ${DEFAULT_PORT})"
+    fi
 fi
 
 # Write optional environment file for secrets/store backends. By default this
@@ -313,6 +422,8 @@ if [ ! -f "$ENV_FILE" ]; then
 # OBJECTSTORE_ENDPOINT=
 # GITSTORE_GIT_URL=
 WRITABLE_PATH=${DATA_DIR}
+LLMHUB_HOST=${DEFAULT_HOST}
+LLMHUB_PORT=${DEFAULT_PORT}
 ENV
         chmod 0640 "$ENV_FILE"
         chown root:"$SERVICE_GROUP" "$ENV_FILE"
@@ -321,6 +432,8 @@ ENV
 else
     echo "    environment: $ENV_FILE (existing - left unchanged)"
 fi
+ensure_env_bind "$ENV_FILE"
+echo "    environment: $ENV_FILE (host public, port ${DEFAULT_PORT})"
 
 # Write systemd unit
 cat >"$UNIT_FILE" <<UNIT
@@ -355,10 +468,14 @@ systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service"
 systemctl restart "${SERVICE_NAME}.service"
 echo ""
+SERVER_PORT="$(wait_for_service_port)"
 systemctl status "${SERVICE_NAME}.service" --no-pager || true
 
 SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")"
-SERVER_PORT="$(resolved_port)"
+if [ -z "$SERVER_PORT" ]; then
+    SERVER_PORT="$(resolved_port)"
+fi
+allow_firewall_port "$SERVER_PORT"
 echo ""
 echo "==> llmhub is running"
 echo "    API endpoint:     http://${SERVER_IP}:${SERVER_PORT}/v1"

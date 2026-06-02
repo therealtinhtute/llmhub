@@ -170,11 +170,13 @@ server to load `.env` and run against Postgres.
 
 See `config.example.yaml` for the full configuration reference.
 
-## Postgres Runtime Storage
+## Postgres Durable Runtime
 
 By default, llmhub keeps using the local `config.yaml` and auth JSON files under
 `auth-dir`. Set `PGSTORE_DSN` to make Postgres the runtime source of truth for
 cliproxy config, OAuth/auth records, and the recent management usage queue.
+This contract applies only to normal server runtime. `HOME_JWT` mode stays on
+its separate home-controlled path.
 
 Example Supabase-style configuration:
 
@@ -189,14 +191,16 @@ Boot behavior:
 
 - Without `PGSTORE_DSN`, local file mode is unchanged.
 - With `PGSTORE_DSN`, startup requires a working DB connection and does not
-  silently fall back to local auth files.
+  silently fall back to local durable runtime stores.
 - If the DB has config, llmhub loads config from Postgres.
 - If the DB has no config, llmhub imports the local `-config` path, or
   `config.yaml`, and saves it to Postgres.
 - On that same first boot, if the auth table is empty, existing local auth JSON
   files from the configured `auth-dir` are imported once.
-- After first import, DB rows win. Local files are not watched as the Postgres
-  runtime source.
+- After first import, DB rows win. Local files are bootstrap-only and are not
+  watched as the Postgres runtime source.
+- In Postgres mode, llmhub does not keep durable local server logs or request
+  archive files. Operational logs stay on stdout/stderr.
 
 Operational notes:
 
@@ -205,6 +209,9 @@ Operational notes:
 - Use a Supabase transaction/session pooler URL suitable for a long-running app.
 - Keep the usage retention short; it is a recent management queue, not a
   long-term analytics store.
+- If you previously relied on `logging-to-file`, request log files, or forced
+  error request archives, those local files are intentionally disabled when
+  `PGSTORE_DSN` is active.
 
 ## Management Panel
 

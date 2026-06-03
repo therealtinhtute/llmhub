@@ -3,6 +3,7 @@ package management
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -91,6 +92,68 @@ func TestUploadAuthFile_PathlessStorePersistsAndLists(t *testing.T) {
 	}
 	if got := entry["email"]; got != "uploaded@example.com" {
 		t.Fatalf("expected uploaded email, got %#v", got)
+	}
+}
+
+func TestUploadAuthFile_PathlessStoreSaveErrorReturnsFailure(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	store := &failingPathlessAuthStore{err: errors.New("database unavailable")}
+	manager := coreauth.NewManager(store, nil, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, manager)
+	h.tokenStore = store
+
+	rec := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(rec)
+	ginCtx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v0/management/auth-files?name=failed-postgres-user.json",
+		bytes.NewBufferString(`{"type":"codex","email":"failed@example.com"}`),
+	)
+	ginCtx.Request.Header.Set("Content-Type", "application/json")
+
+	h.UploadAuthFile(ginCtx)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected upload status %d, got %d with body %s", http.StatusInternalServerError, rec.Code, rec.Body.String())
+	}
+}
+
+func TestSaveTokenRecord_PathlessStoreRemembersAuthWithoutDoublePersist(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, manager)
+	h.tokenStore = store
+
+	record := &coreauth.Auth{
+		ID:       "codex-postgres-user.json",
+		FileName: "codex-postgres-user.json",
+		Provider: "codex",
+		Metadata: map[string]any{
+			"type":  "codex",
+			"email": "codex@example.com",
+		},
+	}
+
+	savedPath, err := h.saveTokenRecord(context.Background(), record)
+	if err != nil {
+		t.Fatalf("saveTokenRecord returned error: %v", err)
+	}
+	if savedPath != record.ID {
+		t.Fatalf("savedPath = %q, want %q", savedPath, record.ID)
+	}
+	if got := store.SaveCount(); got != 1 {
+		t.Fatalf("expected one store Save call, got %d", got)
+	}
+	saved, ok := manager.GetByID(record.ID)
+	if !ok || saved == nil {
+		t.Fatalf("expected saved auth record to be immediately registered in manager")
+	}
+	if saved.Provider != "codex" {
+		t.Fatalf("saved provider = %q, want codex", saved.Provider)
 	}
 }
 

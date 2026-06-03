@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 )
@@ -58,5 +59,45 @@ func TestWithSkipPersist_DisablesRegisterPersistence(t *testing.T) {
 	}
 	if got := store.saveCount.Load(); got != 0 {
 		t.Fatalf("expected 0 Save calls, got %d", got)
+	}
+}
+
+type failingStore struct {
+	err error
+}
+
+func (s *failingStore) List(context.Context) ([]*Auth, error) { return nil, nil }
+
+func (s *failingStore) Save(context.Context, *Auth) (string, error) {
+	return "", s.err
+}
+
+func (s *failingStore) Delete(context.Context, string) error { return nil }
+
+func TestManagerRegister_ReturnsPersistenceError(t *testing.T) {
+	wantErr := errors.New("database unavailable")
+	mgr := NewManager(&failingStore{err: wantErr}, nil, nil)
+
+	_, err := mgr.Register(context.Background(), &Auth{
+		ID:       "auth-1",
+		Provider: "codex",
+		Metadata: map[string]any{"type": "codex"},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Register error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestManagerUpdate_ReturnsPersistenceError(t *testing.T) {
+	wantErr := errors.New("database unavailable")
+	mgr := NewManager(&failingStore{err: wantErr}, nil, nil)
+
+	_, err := mgr.Update(context.Background(), &Auth{
+		ID:       "auth-1",
+		Provider: "codex",
+		Metadata: map[string]any{"type": "codex"},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Update error = %v, want %v", err, wantErr)
 	}
 }

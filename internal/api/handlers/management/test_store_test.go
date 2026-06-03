@@ -3,6 +3,7 @@ package management
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 
@@ -10,8 +11,9 @@ import (
 )
 
 type memoryAuthStore struct {
-	mu    sync.Mutex
-	items map[string]*coreauth.Auth
+	mu        sync.Mutex
+	items     map[string]*coreauth.Auth
+	saveCount int
 }
 
 func (s *memoryAuthStore) List(_ context.Context) ([]*coreauth.Auth, error) {
@@ -37,7 +39,15 @@ func (s *memoryAuthStore) Save(_ context.Context, auth *coreauth.Auth) (string, 
 		s.items = make(map[string]*coreauth.Auth)
 	}
 	s.items[auth.ID] = auth
+	s.saveCount++
 	return auth.ID, nil
+}
+
+func (s *memoryAuthStore) SaveCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.saveCount
 }
 
 func (s *memoryAuthStore) Delete(_ context.Context, id string) error {
@@ -72,4 +82,16 @@ func (s *pathlessMemoryAuthStore) LoadAuthContent(_ context.Context, id string) 
 		return nil, err
 	}
 	return raw, nil
+}
+
+type failingPathlessAuthStore struct {
+	pathlessMemoryAuthStore
+	err error
+}
+
+func (s *failingPathlessAuthStore) Save(context.Context, *coreauth.Auth) (string, error) {
+	if s.err == nil {
+		s.err = errors.New("save failed")
+	}
+	return "", s.err
 }

@@ -87,7 +87,7 @@ func (h *Handler) PostOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	if _, errWrite := WriteOAuthCallbackFileForPendingSession(h.cfg.AuthDir, canonicalProvider, state, code, errMsg); errWrite != nil {
+	if errWrite := SubmitOAuthCallbackForPendingSession(canonicalProvider, state, code, errMsg); errWrite != nil {
 		if errors.Is(errWrite, errOAuthSessionNotPending) {
 			_, status, okSession := GetOAuthSession(state)
 			if okSession && status != "" {

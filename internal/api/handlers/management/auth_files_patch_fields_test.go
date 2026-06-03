@@ -3,6 +3,7 @@ package management
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -278,5 +279,40 @@ func TestPatchAuthFileFields_ArbitraryFieldsPersistToFile(t *testing.T) {
 	}
 	if got := fgh["ijk"]; got != true {
 		t.Fatalf("fgh.ijk = %#v, want true", got)
+	}
+}
+
+func TestPatchAuthFileFields_SaveErrorReturnsFailure(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	store := &memoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	record := &coreauth.Auth{
+		ID:       "postgres-edit.json",
+		FileName: "postgres-edit.json",
+		Provider: "codex",
+		Metadata: map[string]any{
+			"type": "codex",
+		},
+	}
+	if _, errRegister := manager.Register(context.Background(), record); errRegister != nil {
+		t.Fatalf("failed to register auth record: %v", errRegister)
+	}
+	manager.SetStore(&failingPathlessAuthStore{err: errors.New("database unavailable")})
+
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, manager)
+
+	body := `{"name":"postgres-edit.json","note":"should fail"}`
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req
+
+	h.PatchAuthFileFields(ctx)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusInternalServerError, rec.Code, rec.Body.String())
 	}
 }

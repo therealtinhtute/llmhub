@@ -5,6 +5,6 @@ roadmap: .kit/planning/ROADMAP.md
 active_context: .kit/planning/phases/remove-page-transition/remove-page-transition-CONTEXT.md
 active_plan: .kit/planning/phases/remove-page-transition/remove-page-transition-PLAN.md
 latest_cook_run: .kit/runs/work/20260530-1210-remove-page-transition.md
-latest_check_report: .kit/reports/check/20260530-1220-web-ui-cleanup.md
+latest_check_report: .kit/reports/check/20260603-2119-auth-postgres-persistence.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-05-30 (end-of-session: quota-progress-bar-multi-status + --color-success fix)
+last_updated: 2026-06-03 (check: auth-postgres-persistence)

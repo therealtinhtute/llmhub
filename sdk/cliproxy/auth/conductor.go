@@ -1152,7 +1152,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 		m.scheduler.upsertAuth(authClone)
 	}
 	m.queueRefreshReschedule(auth.ID)
-	_ = m.persist(ctx, auth)
+	if err := m.persist(ctx, auth); err != nil {
+		return auth.Clone(), err
+	}
 	m.hook.OnAuthRegistered(ctx, auth.Clone())
 	return auth.Clone(), nil
 }
@@ -1186,7 +1188,9 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 		m.scheduler.upsertAuth(authClone)
 	}
 	m.queueRefreshReschedule(auth.ID)
-	_ = m.persist(ctx, auth)
+	if err := m.persist(ctx, auth); err != nil {
+		return auth.Clone(), err
+	}
 	m.hook.OnAuthUpdated(ctx, auth.Clone())
 	return auth.Clone(), nil
 }

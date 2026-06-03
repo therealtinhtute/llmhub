@@ -1760,7 +1760,14 @@ func (h *Handler) saveTokenRecord(ctx context.Context, record *coreauth.Auth) (s
 			return "", fmt.Errorf("post-auth hook failed: %w", err)
 		}
 	}
-	return store.Save(ctx, record)
+	savedPath, err := store.Save(ctx, record)
+	if err != nil {
+		return "", err
+	}
+	if err := h.upsertAuthRecord(coreauth.WithSkipPersist(ctx), record); err != nil {
+		return "", fmt.Errorf("remember saved auth record: %w", err)
+	}
+	return savedPath, nil
 }
 
 func (h *Handler) RequestAnthropicToken(c *gin.Context) {
@@ -1820,32 +1827,9 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
 			defer stopCallbackForwarderInstance(anthropicCallbackPort, forwarder)
 		}
 
-		// Helper: wait for callback file
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-anthropic-%s.oauth", state))
-		waitForFile := func(path string, timeout time.Duration) (map[string]string, error) {
-			deadline := time.Now().Add(timeout)
-			for {
-				if !IsOAuthSessionPending(state, "anthropic") {
-					return nil, errOAuthSessionNotPending
-				}
-				if time.Now().After(deadline) {
-					SetOAuthSessionError(state, "Timeout waiting for OAuth callback")
-					return nil, fmt.Errorf("timeout waiting for OAuth callback")
-				}
-				data, errRead := os.ReadFile(path)
-				if errRead == nil {
-					var m map[string]string
-					_ = json.Unmarshal(data, &m)
-					_ = os.Remove(path)
-					return m, nil
-				}
-				time.Sleep(500 * time.Millisecond)
-			}
-		}
-
 		fmt.Println("Waiting for authentication callback...")
 		// Wait up to 5 minutes
-		resultMap, errWait := waitForFile(waitFile, 5*time.Minute)
+		resultMap, errWait := WaitOAuthCallbackForPendingSession("anthropic", state, 5*time.Minute)
 		if errWait != nil {
 			if errors.Is(errWait, errOAuthSessionNotPending) {
 				return
@@ -1956,38 +1940,27 @@ func (h *Handler) RequestGeminiCLIToken(c *gin.Context) {
 			defer stopCallbackForwarderInstance(geminiCallbackPort, forwarder)
 		}
 
-		// Wait for callback file written by server route
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-gemini-%s.oauth", state))
 		fmt.Println("Waiting for authentication callback...")
-		deadline := time.Now().Add(5 * time.Minute)
 		var authCode string
-		for {
-			if !IsOAuthSessionPending(state, "gemini") {
+		resultMap, errWait := WaitOAuthCallbackForPendingSession("gemini", state, 5*time.Minute)
+		if errWait != nil {
+			if errors.Is(errWait, errOAuthSessionNotPending) {
 				return
 			}
-			if time.Now().After(deadline) {
-				log.Error("oauth flow timed out")
-				SetOAuthSessionError(state, "OAuth flow timed out")
-				return
-			}
-			if data, errR := os.ReadFile(waitFile); errR == nil {
-				var m map[string]string
-				_ = json.Unmarshal(data, &m)
-				_ = os.Remove(waitFile)
-				if errStr := m["error"]; errStr != "" {
-					log.Errorf("Authentication failed: %s", errStr)
-					SetOAuthSessionError(state, "Authentication failed")
-					return
-				}
-				authCode = m["code"]
-				if authCode == "" {
-					log.Errorf("Authentication failed: code not found")
-					SetOAuthSessionError(state, "Authentication failed: code not found")
-					return
-				}
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
+			log.Error("oauth flow timed out")
+			SetOAuthSessionError(state, "OAuth flow timed out")
+			return
+		}
+		if errStr := resultMap["error"]; errStr != "" {
+			log.Errorf("Authentication failed: %s", errStr)
+			SetOAuthSessionError(state, "Authentication failed")
+			return
+		}
+		authCode = resultMap["code"]
+		if authCode == "" {
+			log.Errorf("Authentication failed: code not found")
+			SetOAuthSessionError(state, "Authentication failed: code not found")
+			return
 		}
 
 		// Exchange authorization code for token
@@ -2224,41 +2197,30 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 			defer stopCallbackForwarderInstance(codexCallbackPort, forwarder)
 		}
 
-		// Wait for callback file
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-codex-%s.oauth", state))
-		deadline := time.Now().Add(5 * time.Minute)
 		var code string
-		for {
-			if !IsOAuthSessionPending(state, "codex") {
+		resultMap, errWait := WaitOAuthCallbackForPendingSession("codex", state, 5*time.Minute)
+		if errWait != nil {
+			if errors.Is(errWait, errOAuthSessionNotPending) {
 				return
 			}
-			if time.Now().After(deadline) {
-				authErr := codex.NewAuthenticationError(codex.ErrCallbackTimeout, fmt.Errorf("timeout waiting for OAuth callback"))
-				log.Error(codex.GetUserFriendlyMessage(authErr))
-				SetOAuthSessionError(state, "Timeout waiting for OAuth callback")
-				return
-			}
-			if data, errR := os.ReadFile(waitFile); errR == nil {
-				var m map[string]string
-				_ = json.Unmarshal(data, &m)
-				_ = os.Remove(waitFile)
-				if errStr := m["error"]; errStr != "" {
-					oauthErr := codex.NewOAuthError(errStr, "", http.StatusBadRequest)
-					log.Error(codex.GetUserFriendlyMessage(oauthErr))
-					SetOAuthSessionError(state, "Bad Request")
-					return
-				}
-				if m["state"] != state {
-					authErr := codex.NewAuthenticationError(codex.ErrInvalidState, fmt.Errorf("expected %s, got %s", state, m["state"]))
-					SetOAuthSessionError(state, "State code error")
-					log.Error(codex.GetUserFriendlyMessage(authErr))
-					return
-				}
-				code = m["code"]
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
+			authErr := codex.NewAuthenticationError(codex.ErrCallbackTimeout, errWait)
+			log.Error(codex.GetUserFriendlyMessage(authErr))
+			SetOAuthSessionError(state, "Timeout waiting for OAuth callback")
+			return
 		}
+		if errStr := resultMap["error"]; errStr != "" {
+			oauthErr := codex.NewOAuthError(errStr, "", http.StatusBadRequest)
+			log.Error(codex.GetUserFriendlyMessage(oauthErr))
+			SetOAuthSessionError(state, "Bad Request")
+			return
+		}
+		if resultMap["state"] != state {
+			authErr := codex.NewAuthenticationError(codex.ErrInvalidState, fmt.Errorf("expected %s, got %s", state, resultMap["state"]))
+			SetOAuthSessionError(state, "State code error")
+			log.Error(codex.GetUserFriendlyMessage(authErr))
+			return
+		}
+		code = resultMap["code"]
 
 		log.Debug("Authorization code received, exchanging for tokens...")
 		// Exchange code for tokens using internal auth service
@@ -2355,41 +2317,31 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
 			defer stopCallbackForwarderInstance(antigravity.CallbackPort, forwarder)
 		}
 
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-antigravity-%s.oauth", state))
-		deadline := time.Now().Add(5 * time.Minute)
 		var authCode string
-		for {
-			if !IsOAuthSessionPending(state, "antigravity") {
+		payload, errWait := WaitOAuthCallbackForPendingSession("antigravity", state, 5*time.Minute)
+		if errWait != nil {
+			if errors.Is(errWait, errOAuthSessionNotPending) {
 				return
 			}
-			if time.Now().After(deadline) {
-				log.Error("oauth flow timed out")
-				SetOAuthSessionError(state, "OAuth flow timed out")
-				return
-			}
-			if data, errReadFile := os.ReadFile(waitFile); errReadFile == nil {
-				var payload map[string]string
-				_ = json.Unmarshal(data, &payload)
-				_ = os.Remove(waitFile)
-				if errStr := strings.TrimSpace(payload["error"]); errStr != "" {
-					log.Errorf("Authentication failed: %s", errStr)
-					SetOAuthSessionError(state, "Authentication failed")
-					return
-				}
-				if payloadState := strings.TrimSpace(payload["state"]); payloadState != "" && payloadState != state {
-					log.Errorf("Authentication failed: state mismatch")
-					SetOAuthSessionError(state, "Authentication failed: state mismatch")
-					return
-				}
-				authCode = strings.TrimSpace(payload["code"])
-				if authCode == "" {
-					log.Error("Authentication failed: code not found")
-					SetOAuthSessionError(state, "Authentication failed: code not found")
-					return
-				}
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
+			log.Error("oauth flow timed out")
+			SetOAuthSessionError(state, "OAuth flow timed out")
+			return
+		}
+		if errStr := strings.TrimSpace(payload["error"]); errStr != "" {
+			log.Errorf("Authentication failed: %s", errStr)
+			SetOAuthSessionError(state, "Authentication failed")
+			return
+		}
+		if payloadState := strings.TrimSpace(payload["state"]); payloadState != "" && payloadState != state {
+			log.Errorf("Authentication failed: state mismatch")
+			SetOAuthSessionError(state, "Authentication failed: state mismatch")
+			return
+		}
+		authCode = strings.TrimSpace(payload["code"])
+		if authCode == "" {
+			log.Error("Authentication failed: code not found")
+			SetOAuthSessionError(state, "Authentication failed: code not found")
+			return
 		}
 
 		tokenResp, errToken := authSvc.ExchangeCodeForTokens(ctx, authCode, redirectURI)
@@ -2551,41 +2503,31 @@ func (h *Handler) RequestXAIToken(c *gin.Context) {
 			defer stopCallbackForwarderInstance(xaiauth.CallbackPort, forwarder)
 		}
 
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-xai-%s.oauth", state))
-		deadline := time.Now().Add(5 * time.Minute)
 		var authCode string
-		for {
-			if !IsOAuthSessionPending(state, "xai") {
+		payload, errWait := WaitOAuthCallbackForPendingSession("xai", state, 5*time.Minute)
+		if errWait != nil {
+			if errors.Is(errWait, errOAuthSessionNotPending) {
 				return
 			}
-			if time.Now().After(deadline) {
-				log.Error("xai oauth flow timed out")
-				SetOAuthSessionError(state, "OAuth flow timed out")
-				return
-			}
-			if data, errReadFile := os.ReadFile(waitFile); errReadFile == nil {
-				var payload map[string]string
-				_ = json.Unmarshal(data, &payload)
-				_ = os.Remove(waitFile)
-				if errStr := strings.TrimSpace(payload["error"]); errStr != "" {
-					log.Errorf("xAI authentication failed: %s", errStr)
-					SetOAuthSessionError(state, "Authentication failed: "+errStr)
-					return
-				}
-				if payloadState := strings.TrimSpace(payload["state"]); payloadState != "" && payloadState != state {
-					log.Errorf("xAI authentication failed: state mismatch")
-					SetOAuthSessionError(state, "Authentication failed: state mismatch")
-					return
-				}
-				authCode = strings.TrimSpace(payload["code"])
-				if authCode == "" {
-					log.Error("xAI authentication failed: code not found")
-					SetOAuthSessionError(state, "Authentication failed: code not found")
-					return
-				}
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
+			log.Error("xai oauth flow timed out")
+			SetOAuthSessionError(state, "OAuth flow timed out")
+			return
+		}
+		if errStr := strings.TrimSpace(payload["error"]); errStr != "" {
+			log.Errorf("xAI authentication failed: %s", errStr)
+			SetOAuthSessionError(state, "Authentication failed: "+errStr)
+			return
+		}
+		if payloadState := strings.TrimSpace(payload["state"]); payloadState != "" && payloadState != state {
+			log.Errorf("xAI authentication failed: state mismatch")
+			SetOAuthSessionError(state, "Authentication failed: state mismatch")
+			return
+		}
+		authCode = strings.TrimSpace(payload["code"])
+		if authCode == "" {
+			log.Error("xAI authentication failed: code not found")
+			SetOAuthSessionError(state, "Authentication failed: code not found")
+			return
 		}
 
 		bundle, errExchange := authSvc.ExchangeCodeForTokens(ctx, authCode, redirectURI, pkceCodes, discovery.TokenEndpoint)

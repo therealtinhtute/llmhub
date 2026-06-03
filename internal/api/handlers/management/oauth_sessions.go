@@ -25,6 +25,7 @@ var (
 type oauthSession struct {
 	Provider  string
 	Status    string
+	Callback  *oauthCallbackFilePayload
 	CreatedAt time.Time
 	ExpiresAt time.Time
 }
@@ -95,6 +96,60 @@ func (s *oauthSessionStore) SetError(state, message string) {
 	session.Status = message
 	session.ExpiresAt = now.Add(s.ttl)
 	s.sessions[state] = session
+}
+
+func (s *oauthSessionStore) SetCallback(state, provider string, payload oauthCallbackFilePayload) error {
+	state = strings.TrimSpace(state)
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if state == "" {
+		return errOAuthSessionNotPending
+	}
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.purgeExpiredLocked(now)
+	session, ok := s.sessions[state]
+	if !ok || session.Status != "" {
+		return errOAuthSessionNotPending
+	}
+	if provider != "" && !strings.EqualFold(session.Provider, provider) {
+		return fmt.Errorf("oauth provider mismatch")
+	}
+	payload.State = strings.TrimSpace(payload.State)
+	if payload.State == "" {
+		payload.State = state
+	}
+	session.Callback = &payload
+	session.ExpiresAt = now.Add(s.ttl)
+	s.sessions[state] = session
+	return nil
+}
+
+func (s *oauthSessionStore) TakeCallback(state, provider string) (oauthCallbackFilePayload, bool, error) {
+	state = strings.TrimSpace(state)
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.purgeExpiredLocked(now)
+	session, ok := s.sessions[state]
+	if !ok || session.Status != "" {
+		return oauthCallbackFilePayload{}, false, errOAuthSessionNotPending
+	}
+	if provider != "" && !strings.EqualFold(session.Provider, provider) {
+		return oauthCallbackFilePayload{}, false, fmt.Errorf("oauth provider mismatch")
+	}
+	if session.Callback == nil {
+		return oauthCallbackFilePayload{}, false, nil
+	}
+	payload := *session.Callback
+	session.Callback = nil
+	s.sessions[state] = session
+	return payload, true, nil
 }
 
 func (s *oauthSessionStore) Complete(state string) {
@@ -188,6 +243,53 @@ func GetOAuthSession(state string) (provider string, status string, ok bool) {
 
 func IsOAuthSessionPending(state, provider string) bool {
 	return oauthSessions.IsPending(state, provider)
+}
+
+func SubmitOAuthCallbackForPendingSession(provider, state, code, errorMessage string) error {
+	canonicalProvider, err := NormalizeOAuthProvider(provider)
+	if err != nil {
+		return err
+	}
+	if err := ValidateOAuthState(state); err != nil {
+		return err
+	}
+	payload := oauthCallbackFilePayload{
+		Code:  strings.TrimSpace(code),
+		State: strings.TrimSpace(state),
+		Error: strings.TrimSpace(errorMessage),
+	}
+	return oauthSessions.SetCallback(state, canonicalProvider, payload)
+}
+
+func WaitOAuthCallbackForPendingSession(provider, state string, timeout time.Duration) (map[string]string, error) {
+	canonicalProvider, err := NormalizeOAuthProvider(provider)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateOAuthState(state); err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		payload, ok, errTake := oauthSessions.TakeCallback(state, canonicalProvider)
+		if errTake != nil {
+			return nil, errTake
+		}
+		if ok {
+			return map[string]string{
+				"code":  strings.TrimSpace(payload.Code),
+				"state": strings.TrimSpace(payload.State),
+				"error": strings.TrimSpace(payload.Error),
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timeout waiting for OAuth callback")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func oauthSessionErrorWithCause(message string, cause error) string {
@@ -291,6 +393,12 @@ func WriteOAuthCallbackFileForPendingSession(authDir, provider, state, code, err
 	}
 	if !IsOAuthSessionPending(state, canonicalProvider) {
 		return "", errOAuthSessionNotPending
+	}
+	if err := SubmitOAuthCallbackForPendingSession(canonicalProvider, state, code, errorMessage); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(authDir) == "" {
+		return "", nil
 	}
 	return WriteOAuthCallbackFile(authDir, canonicalProvider, state, code, errorMessage)
 }

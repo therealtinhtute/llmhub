@@ -478,7 +478,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "anthropic", state, code, errStr)
+			_ = managementHandlers.SubmitOAuthCallbackForPendingSession("anthropic", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -492,7 +492,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "codex", state, code, errStr)
+			_ = managementHandlers.SubmitOAuthCallbackForPendingSession("codex", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -506,7 +506,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "gemini", state, code, errStr)
+			_ = managementHandlers.SubmitOAuthCallbackForPendingSession("gemini", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -520,7 +520,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "antigravity", state, code, errStr)
+			_ = managementHandlers.SubmitOAuthCallbackForPendingSession("antigravity", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -534,7 +534,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "xai", state, code, errStr)
+			_ = managementHandlers.SubmitOAuthCallbackForPendingSession("xai", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)

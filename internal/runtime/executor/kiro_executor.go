@@ -41,11 +41,16 @@ type KiroExecutor struct {
 }
 
 type kiroMessage struct {
-	Role       string
-	Content    any
-	ToolCallID string
-	ToolCalls  []map[string]any
-	Images     []any
+	Role        string
+	Content     any
+	ToolResults []kiroToolResult
+	ToolCalls   []map[string]any
+	Images      []any
+}
+
+type kiroToolResult struct {
+	ToolUseID string
+	Content   any
 }
 
 func NewKiroExecutor(cfg *config.Config) *KiroExecutor {
@@ -457,9 +462,6 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 
 	messages, _ := payload["messages"].([]any)
 	tools, _ := payload["tools"].([]any)
-	if err := validateKiroToolDefinitions(tools); err != nil {
-		return nil, err
-	}
 	systemPrompt, unified := kiroOpenAIMessages(messages)
 	if len(unified) == 0 {
 		return nil, fmt.Errorf("kiro translator: messages are required")
@@ -467,10 +469,14 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 	if err := validateKiroMessageToolCalls(unified); err != nil {
 		return nil, err
 	}
+	tools = synthesizeKiroToolsFromHistory(tools, unified)
+	if err := validateKiroToolDefinitions(tools); err != nil {
+		return nil, err
+	}
 	unified = ensureKiroUserFirst(unified)
-	unified = ensureKiroAlternating(unified)
 	current := unified[len(unified)-1]
 	history := unified[:len(unified)-1]
+	history = mergeAdjacentKiroUserHistory(history)
 	currentContent := textContent(current.Content)
 	if systemPrompt != "" && len(history) == 0 {
 		currentContent = strings.TrimSpace(systemPrompt + "\n\n" + currentContent)
@@ -478,6 +484,7 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 	if current.Role == "assistant" {
 		history = append(history, current)
 		current = kiroMessage{Role: "user", Content: "(empty placeholder)"}
+		history = mergeAdjacentKiroUserHistory(history)
 		currentContent = "(empty placeholder)"
 	}
 	if currentContent == "" {
@@ -507,12 +514,8 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 	if convertedTools := convertKiroTools(tools); len(convertedTools) > 0 {
 		contextValue["tools"] = convertedTools
 	}
-	if current.ToolCallID != "" {
-		contextValue["toolResults"] = []any{map[string]any{
-			"toolUseId": current.ToolCallID,
-			"status":    "success",
-			"content":   []any{map[string]any{"text": textContent(current.Content)}},
-		}}
+	if toolResults := buildKiroToolResults(current.ToolResults); len(toolResults) > 0 {
+		contextValue["toolResults"] = toolResults
 	}
 	if len(contextValue) > 0 {
 		userInput["userInputMessageContext"] = contextValue
@@ -562,7 +565,14 @@ func kiroOpenAIMessages(messages []any) (string, []kiroMessage) {
 			}
 			continue
 		case "tool":
-			out = append(out, kiroMessage{Role: "user", Content: content, ToolCallID: stringFromMap(msg, "tool_call_id")})
+			out = append(out, kiroMessage{
+				Role:    "user",
+				Content: content,
+				ToolResults: []kiroToolResult{{
+					ToolUseID: stringFromMap(msg, "tool_call_id"),
+					Content:   content,
+				}},
+			})
 		case "assistant":
 			var toolCalls []map[string]any
 			if rawCalls, ok := msg["tool_calls"].([]any); ok {
@@ -596,12 +606,8 @@ func buildKiroHistory(messages []kiroMessage, modelID string) []any {
 			continue
 		}
 		user := map[string]any{"content": content, "modelId": modelID, "origin": "AI_EDITOR"}
-		if msg.ToolCallID != "" {
-			user["userInputMessageContext"] = map[string]any{"toolResults": []any{map[string]any{
-				"toolUseId": msg.ToolCallID,
-				"status":    "success",
-				"content":   []any{map[string]any{"text": content}},
-			}}}
+		if toolResults := buildKiroToolResults(msg.ToolResults); len(toolResults) > 0 {
+			user["userInputMessageContext"] = map[string]any{"toolResults": toolResults}
 		}
 		if images := msg.Images; len(images) > 0 {
 			user["images"] = images
@@ -609,6 +615,25 @@ func buildKiroHistory(messages []kiroMessage, modelID string) []any {
 		history = append(history, map[string]any{"userInputMessage": user})
 	}
 	return history
+}
+
+func buildKiroToolResults(results []kiroToolResult) []any {
+	if len(results) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(results))
+	for _, result := range results {
+		toolUseID := strings.TrimSpace(result.ToolUseID)
+		if toolUseID == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"toolUseId": toolUseID,
+			"status":    "success",
+			"content":   []any{map[string]any{"text": textContent(result.Content)}},
+		})
+	}
+	return out
 }
 
 func convertKiroTools(tools []any) []any {
@@ -629,6 +654,40 @@ func convertKiroTools(tools []any) []any {
 			"description": description,
 			"inputSchema": map[string]any{"json": sanitizeKiroSchema(fn["parameters"])},
 		}})
+	}
+	return out
+}
+
+func synthesizeKiroToolsFromHistory(tools []any, messages []kiroMessage) []any {
+	if len(tools) > 0 {
+		return tools
+	}
+	out := make([]any, 0)
+	seen := make(map[string]struct{})
+	for _, msg := range messages {
+		for _, call := range msg.ToolCalls {
+			fn, _ := call["function"].(map[string]any)
+			name := strings.TrimSpace(stringFromMap(fn, "name"))
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name":        name,
+					"description": "Tool: " + name,
+					"parameters": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{},
+						"required":   []any{},
+					},
+				},
+			})
+		}
 	}
 	return out
 }
@@ -685,6 +744,37 @@ func validateKiroMessageToolCalls(messages []kiroMessage) error {
 }
 
 func sanitizeKiroSchema(raw any) any {
+	sanitized, ok := sanitizeKiroSchemaValue(raw).(map[string]any)
+	if !ok {
+		return map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+			"required":   []any{},
+		}
+	}
+	out := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+		"required":   []any{},
+	}
+	for k, v := range sanitized {
+		out[k] = v
+	}
+	if required, ok := normalizeKiroRequired(out["required"]); ok {
+		out["required"] = required
+	} else {
+		out["required"] = []any{}
+	}
+	if _, ok := out["properties"]; !ok {
+		out["properties"] = map[string]any{}
+	}
+	if _, ok := out["type"]; !ok {
+		out["type"] = "object"
+	}
+	return out
+}
+
+func sanitizeKiroSchemaValue(raw any) any {
 	switch typed := raw.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
@@ -693,17 +783,18 @@ func sanitizeKiroSchema(raw any) any {
 				continue
 			}
 			if k == "required" {
-				if arr, ok := v.([]any); ok && len(arr) == 0 {
-					continue
+				if required, ok := normalizeKiroRequired(v); ok {
+					out[k] = required
 				}
+				continue
 			}
-			out[k] = sanitizeKiroSchema(v)
+			out[k] = sanitizeKiroSchemaValue(v)
 		}
 		return out
 	case []any:
 		out := make([]any, len(typed))
 		for i := range typed {
-			out[i] = sanitizeKiroSchema(typed[i])
+			out[i] = sanitizeKiroSchemaValue(typed[i])
 		}
 		return out
 	default:
@@ -711,6 +802,21 @@ func sanitizeKiroSchema(raw any) any {
 			return map[string]any{}
 		}
 		return raw
+	}
+}
+
+func normalizeKiroRequired(v any) ([]any, bool) {
+	switch typed := v.(type) {
+	case []any:
+		return typed, true
+	case []string:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out, true
+	default:
+		return nil, false
 	}
 }
 
@@ -739,18 +845,40 @@ func ensureKiroUserFirst(messages []kiroMessage) []kiroMessage {
 	return append([]kiroMessage{{Role: "user", Content: "(empty placeholder)"}}, messages...)
 }
 
-func ensureKiroAlternating(messages []kiroMessage) []kiroMessage {
+func mergeAdjacentKiroUserHistory(messages []kiroMessage) []kiroMessage {
 	if len(messages) < 2 {
 		return messages
 	}
-	out := []kiroMessage{messages[0]}
-	for _, msg := range messages[1:] {
-		if msg.Role == "user" && out[len(out)-1].Role == "user" {
-			out = append(out, kiroMessage{Role: "assistant", Content: "(empty placeholder)"})
+	out := make([]kiroMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Role == "user" && len(out) > 0 && out[len(out)-1].Role == "user" {
+			out[len(out)-1] = mergeKiroUserMessages(out[len(out)-1], msg)
+			continue
 		}
 		out = append(out, msg)
 	}
 	return out
+}
+
+func mergeKiroUserMessages(left, right kiroMessage) kiroMessage {
+	merged := left
+	leftText := strings.TrimSpace(textContent(left.Content))
+	rightText := strings.TrimSpace(textContent(right.Content))
+	switch {
+	case leftText == "":
+		merged.Content = rightText
+	case rightText == "":
+		merged.Content = leftText
+	default:
+		merged.Content = leftText + "\n\n" + rightText
+	}
+	if len(right.Images) > 0 {
+		merged.Images = append(append([]any{}, left.Images...), right.Images...)
+	}
+	if len(right.ToolResults) > 0 {
+		merged.ToolResults = append(append([]kiroToolResult{}, left.ToolResults...), right.ToolResults...)
+	}
+	return merged
 }
 
 func shouldInjectKiroThinking(payload map[string]any, requestedModel string) bool {
@@ -895,33 +1023,11 @@ func textContent(content any) string {
 }
 
 func extractKiroImages(content any) []any {
-	items, ok := content.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]any, 0)
-	for _, raw := range items {
-		item, _ := raw.(map[string]any)
-		if stringFromMap(item, "type") != "image_url" {
-			continue
-		}
-		imageURL, _ := item["image_url"].(map[string]any)
-		url := stringFromMap(imageURL, "url")
-		if !strings.HasPrefix(url, "data:") {
-			continue
-		}
-		header, data, ok := strings.Cut(url, ",")
-		if !ok || data == "" {
-			continue
-		}
-		mediaType := strings.TrimPrefix(strings.Split(header, ";")[0], "data:")
-		format := mediaType
-		if _, right, ok := strings.Cut(mediaType, "/"); ok {
-			format = right
-		}
-		out = append(out, map[string]any{"format": format, "source": map[string]any{"bytes": data}})
-	}
-	return out
+	// Kiro's upstream image handling still rejects otherwise valid Claude/OpenAI
+	// multimodal requests with "Improperly formed request". Until the upstream
+	// contract is clearer, drop image blocks on this path so Claude tool flows
+	// keep working instead of failing hard.
+	return nil
 }
 
 type kiroParsedEvent struct {

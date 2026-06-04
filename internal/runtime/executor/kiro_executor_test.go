@@ -18,7 +18,7 @@ import (
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 )
 
-func TestBuildKiroPayloadFromOpenAI_MessagesToolsImagesAndSuffixes(t *testing.T) {
+func TestBuildKiroPayloadFromOpenAI_MessagesToolsAndSuffixes(t *testing.T) {
 	payload := []byte(`{
 		"model":"claude-sonnet-4.5-thinking-agentic",
 		"reasoning_effort":"high",
@@ -61,13 +61,23 @@ func TestBuildKiroPayloadFromOpenAI_MessagesToolsImagesAndSuffixes(t *testing.T)
 	if len(ctx["toolResults"].([]any)) != 1 {
 		t.Fatalf("toolResults = %#v, want one result", ctx["toolResults"])
 	}
+	toolSchema := ctx["tools"].([]any)[0].(map[string]any)["toolSpecification"].(map[string]any)["inputSchema"].(map[string]any)["json"].(map[string]any)
+	if got := toolSchema["type"]; got != "object" {
+		t.Fatalf("tool schema type = %#v, want object", got)
+	}
+	if _, ok := toolSchema["properties"].(map[string]any); !ok {
+		t.Fatalf("tool schema properties = %#v, want object map", toolSchema["properties"])
+	}
+	if required, ok := toolSchema["required"].([]any); !ok || len(required) != 0 {
+		t.Fatalf("tool schema required = %#v, want empty array", toolSchema["required"])
+	}
 	history := state["history"].([]any)
 	firstUser := history[0].(map[string]any)["userInputMessage"].(map[string]any)
 	if !strings.Contains(firstUser["content"].(string), "system prompt") {
 		t.Fatalf("first history content = %q, want system prompt", firstUser["content"])
 	}
-	if len(firstUser["images"].([]any)) != 1 {
-		t.Fatalf("images = %#v, want one image", firstUser["images"])
+	if _, ok := firstUser["images"]; ok {
+		t.Fatalf("images = %#v, want images omitted on Kiro path", firstUser["images"])
 	}
 	inferenceConfig := got["inferenceConfig"].(map[string]any)
 	if inferenceConfig["maxTokens"].(float64) != 32000 {
@@ -126,6 +136,182 @@ func TestBuildKiroPayloadFromOpenAI_RejectsLongAssistantToolCallName(t *testing.
 	}
 	if !strings.Contains(err.Error(), longName) {
 		t.Fatalf("error = %q, want long tool call name", err.Error())
+	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_NormalizesSchemaDefaults(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[{"role":"user","content":"hi"}],
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"properties":{"path":{"type":"string"}}}}}]
+	}`)
+
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	current := got["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	ctx := current["userInputMessageContext"].(map[string]any)
+	toolSchema := ctx["tools"].([]any)[0].(map[string]any)["toolSpecification"].(map[string]any)["inputSchema"].(map[string]any)["json"].(map[string]any)
+	if got := toolSchema["type"]; got != "object" {
+		t.Fatalf("tool schema type = %#v, want object", got)
+	}
+	if _, ok := toolSchema["properties"].(map[string]any); !ok {
+		t.Fatalf("tool schema properties = %#v, want object map", toolSchema["properties"])
+	}
+	if required, ok := toolSchema["required"].([]any); !ok || len(required) != 0 {
+		t.Fatalf("tool schema required = %#v, want empty array", toolSchema["required"])
+	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_MergesAdjacentUserHistoryTurns(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":"First question"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a.txt\"}"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":"file body"},
+			{"role":"user","content":"Follow-up after tool"},
+			{"role":"assistant","content":"Second answer"},
+			{"role":"user","content":"Final user turn"}
+		]
+	}`)
+
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	state := got["conversationState"].(map[string]any)
+	history := state["history"].([]any)
+	if len(history) != 4 {
+		t.Fatalf("history len = %d, want 4 after merge", len(history))
+	}
+	mergedUser := history[2].(map[string]any)["userInputMessage"].(map[string]any)
+	if got := mergedUser["content"]; got != "file body\n\nFollow-up after tool" {
+		t.Fatalf("merged user content = %#v, want merged tool/user text", got)
+	}
+	ctx := mergedUser["userInputMessageContext"].(map[string]any)
+	toolResults := ctx["toolResults"].([]any)
+	if len(toolResults) != 1 {
+		t.Fatalf("toolResults len = %d, want 1", len(toolResults))
+	}
+	if got := toolResults[0].(map[string]any)["toolUseId"]; got != "call_1" {
+		t.Fatalf("toolUseId = %#v, want call_1", got)
+	}
+	current := state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	if got := current["content"].(string); !strings.Contains(got, "Final user turn") {
+		t.Fatalf("current content = %q, want final user turn only", got)
+	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_SynthesizesToolsFromHistory(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":"First question"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"edit_file","arguments":"{\"path\":\"a.txt\"}"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":"edited"},
+			{"role":"user","content":"Continue"}
+		]
+	}`)
+
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	current := got["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	ctx := current["userInputMessageContext"].(map[string]any)
+	tools := ctx["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools len = %d, want synthesized tool", len(tools))
+	}
+	spec := tools[0].(map[string]any)["toolSpecification"].(map[string]any)
+	if got := spec["name"]; got != "edit_file" {
+		t.Fatalf("tool name = %#v, want edit_file", got)
+	}
+	schema := spec["inputSchema"].(map[string]any)["json"].(map[string]any)
+	if required, ok := schema["required"].([]any); !ok || len(required) != 0 {
+		t.Fatalf("synthesized required = %#v, want empty array", schema["required"])
+	}
+}
+
+func TestBuildKiroRequest_ClaudeSourceSynthesizesToolsFromHistory(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"First question"}]},
+			{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"edit_file","input":{"path":"a.txt"}}]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"call_1","content":[{"type":"text","text":"edited"}]},
+				{"type":"text","text":"Continue"}
+			]}
+		],
+		"stream":false
+	}`)
+
+	body, _, _, err := buildKiroRequest(cliproxyexecutor.Request{
+		Model:   "claude-sonnet-4.5",
+		Payload: payload,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("claude")}, false)
+	if err != nil {
+		t.Fatalf("buildKiroRequest() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	current := got["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	ctx := current["userInputMessageContext"].(map[string]any)
+	tools := ctx["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools len = %d, want 1", len(tools))
+	}
+	if got := tools[0].(map[string]any)["toolSpecification"].(map[string]any)["name"]; got != "edit_file" {
+		t.Fatalf("tool name = %#v, want edit_file", got)
+	}
+}
+
+func TestBuildKiroRequest_ClaudeSourceDropsCurrentImages(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":[
+				{"type":"text","text":"Inspect this image"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+cqRsAAAAASUVORK5CYII="}}
+			]}
+		],
+		"tools":[
+			{"name":"inspect_image","description":"Inspect image metadata","input_schema":{"properties":{"target":{"type":"string"}}}}
+		],
+		"stream":false
+	}`)
+
+	body, _, _, err := buildKiroRequest(cliproxyexecutor.Request{
+		Model:   "claude-sonnet-4.5",
+		Payload: payload,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("claude")}, false)
+	if err != nil {
+		t.Fatalf("buildKiroRequest() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	current := got["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	if _, ok := current["images"]; ok {
+		t.Fatalf("images = %#v, want images omitted on Kiro path", current["images"])
 	}
 }
 

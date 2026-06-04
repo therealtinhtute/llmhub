@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { ConfirmationModal } from '@/components/common/ConfirmationModal';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ProtectedRoute } from '@/router/ProtectedRoute';
+import { RouteErrorPage } from '@/router/RouteErrorPage';
 import { useLanguageStore, useThemeStore } from '@/stores';
 
 function RootShell() {
@@ -20,6 +21,7 @@ function RootShell() {
 const router = createHashRouter([
   {
     element: <RootShell />,
+    errorElement: <RouteErrorPage />,
     children: [
       { path: '/login', element: <LoginPage /> },
       {
@@ -46,8 +48,7 @@ function App() {
 
   useEffect(() => {
     setLanguage(language);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 仅用于首屏同步 i18n 语言
+  }, [language, setLanguage]);
 
   useEffect(() => {
     document.documentElement.lang = language;

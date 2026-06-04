@@ -75,6 +75,60 @@ func TestBuildKiroPayloadFromOpenAI_MessagesToolsImagesAndSuffixes(t *testing.T)
 	}
 }
 
+func TestBuildKiroPayloadFromOpenAI_RejectsLongToolDefinitionName(t *testing.T) {
+	longName := "mcp__GitHub__check_if_a_repository_is_starred_by_the_authenticated_user"
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[{"role":"user","content":"hi"}],
+		"tools":[{"type":"function","function":{"name":"` + longName + `","description":"tool","parameters":{"type":"object"}}}]
+	}`)
+
+	_, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err == nil {
+		t.Fatal("buildKiroPayloadFromOpenAI() error = nil, want bad request")
+	}
+	status, ok := err.(interface{ StatusCode() int })
+	if !ok {
+		t.Fatalf("error %T does not expose StatusCode()", err)
+	}
+	if got := status.StatusCode(); got != http.StatusBadRequest {
+		t.Fatalf("StatusCode() = %d, want %d", got, http.StatusBadRequest)
+	}
+	if !strings.Contains(err.Error(), longName) {
+		t.Fatalf("error = %q, want long tool name", err.Error())
+	}
+	if !strings.Contains(err.Error(), "64") {
+		t.Fatalf("error = %q, want Kiro limit detail", err.Error())
+	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_RejectsLongAssistantToolCallName(t *testing.T) {
+	longName := "mcp__GitHub__check_if_a_person_is_followed_by_the_authenticated_user"
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":"hi"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"` + longName + `","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":"done"}
+		]
+	}`)
+
+	_, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err == nil {
+		t.Fatal("buildKiroPayloadFromOpenAI() error = nil, want bad request")
+	}
+	status, ok := err.(interface{ StatusCode() int })
+	if !ok {
+		t.Fatalf("error %T does not expose StatusCode()", err)
+	}
+	if got := status.StatusCode(); got != http.StatusBadRequest {
+		t.Fatalf("StatusCode() = %d, want %d", got, http.StatusBadRequest)
+	}
+	if !strings.Contains(err.Error(), longName) {
+		t.Fatalf("error = %q, want long tool call name", err.Error())
+	}
+}
+
 func TestKiroExecutorExecute_HeadersBodyAndEventStream(t *testing.T) {
 	var sawAuth, sawTarget string
 	var sawBody map[string]any
@@ -141,6 +195,68 @@ func TestKiroExecutorExecute_ParsesAWSEventStream(t *testing.T) {
 	}
 	if !bytes.Contains(resp.Payload, []byte(`"arguments":"{\"path\":\"a.txt\"}"`)) {
 		t.Fatalf("response payload = %s, want JSON string tool arguments", resp.Payload)
+	}
+}
+
+func TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":{}}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":""}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":"{\"own"}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":"er\": "}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":"\"therealtinhtute\""}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":", "}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":"\"repo\""}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":": \"llmhub\"}"}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":{}}`))
+	}))
+	defer server.Close()
+
+	exec := NewKiroExecutor(&config.Config{})
+	resp, err := exec.Execute(context.Background(), testKiroAuth(server.URL, "access-1"), cliproxyexecutor.Request{
+		Model:   "claude-sonnet-4.5",
+		Payload: []byte(`{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("openai")})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var payload struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal response payload: %v", err)
+	}
+	if len(payload.Choices) != 1 {
+		t.Fatalf("choices = %d, want 1", len(payload.Choices))
+	}
+	toolCalls := payload.Choices[0].Message.ToolCalls
+	if len(toolCalls) != 1 {
+		t.Fatalf("tool_calls = %d, want 1; payload=%s", len(toolCalls), resp.Payload)
+	}
+	if got := toolCalls[0].Function.Name; got != "repo_starred" {
+		t.Fatalf("tool name = %q, want repo_starred", got)
+	}
+	var args map[string]string
+	if err := json.Unmarshal([]byte(toolCalls[0].Function.Arguments), &args); err != nil {
+		t.Fatalf("unmarshal tool arguments: %v (raw=%q)", err, toolCalls[0].Function.Arguments)
+	}
+	if got := args["owner"]; got != "therealtinhtute" {
+		t.Fatalf("owner = %q, want therealtinhtute", got)
+	}
+	if got := args["repo"]; got != "llmhub" {
+		t.Fatalf("repo = %q, want llmhub", got)
 	}
 }
 

@@ -29,6 +29,8 @@ default while preserving existing environment overrides such as `DEFAULT_PORT`.
   `auth-dir: "/var/lib/llmhub/auths"` by default.
 - Existing configs and env files preserve their content while normalizing the
   configured writable path, host, and port to the selected defaults.
+- Interactive installs can add Postgres runtime settings into the service env
+  file without requiring a pre-existing `.env`.
 - Error messages mention the same-directory package layout.
 
 ## Design Notes
@@ -69,4 +71,7 @@ No Harness behavior changes expected.
 - User-reported Postgres mode systemd failure showed missing writable runtime
   base caused metadata to fall back to `/etc/llmhub/pgstore`; installer now
   normalizes `WRITABLE_PATH=/var/lib/llmhub` in existing env files.
+- Interactive installer path now prompts for `PGSTORE_DSN`,
+  `PGSTORE_SCHEMA`, and `PGSTORE_USAGE_RETENTION_SECONDS` when operators want
+  Postgres runtime storage without pre-seeding `.env`.
 - Full Linux systemd smoke was not run in this macOS workspace.

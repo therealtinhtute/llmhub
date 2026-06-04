@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -10,19 +10,38 @@ export function ProtectedRoute({ children }: { children: ReactElement }) {
   const apiBase = useAuthStore((state) => state.apiBase);
   const checkAuth = useAuthStore((state) => state.checkAuth);
   const [checking, setChecking] = useState(false);
+  const lastAttemptRef = useRef<string>('');
 
   useEffect(() => {
+    const attemptKey = `${apiBase}::${managementKey}`;
+    if (isAuthenticated || !managementKey || !apiBase) {
+      lastAttemptRef.current = '';
+      setChecking(false);
+      return;
+    }
+
+    if (lastAttemptRef.current === attemptKey) {
+      return;
+    }
+
+    lastAttemptRef.current = attemptKey;
+    let cancelled = false;
+
     const tryRestore = async () => {
-      if (!isAuthenticated && managementKey && apiBase) {
-        setChecking(true);
-        try {
-          await checkAuth();
-        } finally {
+      setChecking(true);
+      try {
+        await checkAuth();
+      } finally {
+        if (!cancelled) {
           setChecking(false);
         }
       }
     };
     tryRestore();
+
+    return () => {
+      cancelled = true;
+    };
   }, [apiBase, isAuthenticated, managementKey, checkAuth]);
 
   if (checking) {

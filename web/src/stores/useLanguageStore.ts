@@ -25,6 +25,9 @@ export const useLanguageStore = create<LanguageState>()(
         if (!isSupportedLanguage(language)) {
           return;
         }
+        if (get().language === language && i18n.language === language) {
+          return;
+        }
         // 切换 i18next 语言
         i18n.changeLanguage(language);
         set({ language });

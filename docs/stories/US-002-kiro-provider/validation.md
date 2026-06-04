@@ -67,3 +67,77 @@ go test ./...
 - Acceptance focuses on management auth-file responses exposing `quota` and
   `model_states`, and the quota UI showing Kiro runtime state while clearly
   marking provider quota unavailable.
+
+2026-06-04 investigation note:
+
+- Reviewed `jwadow/kiro-gateway` issue `#41` and cached the upstream evidence in
+  `.kit/cache/github/jwadow/kiro-gateway/`.
+- Confirmed upstream Kiro rejects tool names longer than 64 characters and that
+  `kiro-gateway` now fails early with explicit validation instead of letting
+  Kiro return a generic malformed-request error.
+- Confirmed llmhub currently forwards tool names unchanged in
+  `internal/runtime/executor/kiro_executor.go` for both tool definitions and
+  assistant tool calls, so long MCP/Codex tool names are the most likely cause
+  of current "cannot call tool" failures.
+- The older "tool_result lost during merge" failure mode did not match the
+  llmhub Kiro translator shape during this review because tool results are kept
+  as separate user turns rather than merged user content.
+- Follow-up implementation should add a Kiro-specific validation error for tool
+  names longer than 64 characters and cover it with focused executor tests.
+
+2026-06-04 implementation and live verification:
+
+- Added a Kiro-specific request-build guard in
+  `internal/runtime/executor/kiro_executor.go` that rejects tool definitions
+  and assistant tool-call history when any tool name exceeds 64 characters.
+- Added focused executor tests covering:
+  - oversized Kiro tool definitions
+  - oversized assistant tool calls in prior conversation history
+- Verification passed:
+  - `go test ./internal/runtime/executor -run 'TestBuildKiroPayloadFromOpenAI|TestKiroExecutor'`
+  - `go test ./sdk/cliproxy ./internal/registry ./internal/auth/kiro ./sdk/auth`
+  - `go test ./...`
+  - `go build -o /private/tmp/llmhub-kiro-smoke/llmhub ./cmd/server`
+- Live Anthropic-compatible smoke against
+  `http://127.0.0.1:31286/v1/messages` with model `claude-sonnet-4.5` and the
+  existing auth file under `/private/tmp/llmhub-kiro-smoke/auths`:
+  - 3 oversized-tool requests returned local `400 invalid_request_error` with
+    explicit length details instead of a vague upstream malformed-request error.
+  - 1 plain no-tool request reached Kiro and returned upstream `403` with an
+    explicit account suspension message.
+  - 1 short-tool request returned `503 auth_unavailable` after the same Kiro
+    auth had been suspended for model use by the upstream provider.
+- Conclusion: the local tool-name failure is fixed and now surfaces correctly,
+  but successful end-to-end Kiro execution is currently blocked by the real
+  account state, not by the llmhub Kiro translator.
+
+2026-06-04 follow-up live verification with refreshed multi-auth Kiro pool:
+
+- Loaded five refreshed Kiro auth files into `/private/tmp/llmhub-kiro-multi`
+  and rebuilt `./cmd/server` to `/private/tmp/llmhub-kiro-multi/llmhub`.
+- During the first successful real tool-use attempt, Kiro returned incremental
+  `toolUseEvent` fragments and llmhub incorrectly surfaced them as many
+  duplicate tool calls in non-stream OpenAI/Anthropic-compatible responses.
+- Added a non-stream Kiro coalescing fix in
+  `internal/runtime/executor/kiro_executor.go` so repeated `toolUseEvent`
+  chunks are merged by `toolUseId`, argument fragments are concatenated, and
+  placeholder `{}` payloads are only kept when the tool truly has no input.
+- Added focused executor regression coverage for fragmented Kiro tool-use
+  events in `internal/runtime/executor/kiro_executor_test.go`.
+- Verification passed after the fix:
+  - `go test ./internal/runtime/executor -run 'TestBuildKiroPayloadFromOpenAI|TestKiroExecutorExecute_ParsesAWSEventStream|TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents'`
+  - `go test ./...`
+  - `go build -o /private/tmp/llmhub-kiro-multi/llmhub ./cmd/server`
+- Final live Anthropic-compatible smoke against
+  `http://127.0.0.1:31287/v1/messages`:
+  - plain request to `claude-sonnet-4.5` returned `200`
+  - forced short-tool request returned `200` with
+    `stop_reason: "tool_use"` and a single `repo_starred` tool call whose input
+    preserved `owner=therealtinhtute` and `repo=llmhub`
+  - oversized tool name returned local `400 invalid_request_error` with the
+    explicit 64-character limit message
+  - thinking request to `claude-sonnet-4.5-thinking` returned `200`
+  - `auto` request returned `200`
+- Conclusion: llmhub now handles Kiro tool calls correctly on the real
+  Anthropic-compatible path, while rejecting unsupported long tool names
+  locally with a clear validation error.

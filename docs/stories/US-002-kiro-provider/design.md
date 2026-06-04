@@ -29,6 +29,11 @@ translates OpenAI chat-completions payloads to Kiro `conversationState`, calls
 Kiro is available as provider key `kiro`. Existing model alias and excluded
 model configuration accepts the `kiro` channel.
 
+Kiro upstream also imposes a hard 64-character limit on tool names inside
+`toolSpecification.name` and `toolUses[].name`. The current llmhub executor
+forwards tool names unchanged, so long MCP/Codex-style names must be rejected
+or shortened before sending Kiro requests.
+
 ## Data Model
 
 No schema migration is required. Kiro auth state uses the existing auth metadata

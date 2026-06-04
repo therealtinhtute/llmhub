@@ -53,6 +53,23 @@ find_local_env_file() {
     return 1
 }
 
+read_env_value() {
+    env_file="$1"
+    key="$2"
+
+    if [ ! -f "$env_file" ]; then
+        return 1
+    fi
+
+    awk -v key="$key" '
+        /^[[:space:]]*#/ { next }
+        index($0, key "=") == 1 {
+            print substr($0, length(key) + 2)
+            exit 0
+        }
+    ' "$env_file"
+}
+
 find_source_binary() {
     if [ -f "${SCRIPT_DIR}/${BINARY}" ]; then
         SELECTED="${SCRIPT_DIR}/${BINARY}"
@@ -202,6 +219,133 @@ ensure_env_bind() {
     ' "$env_file" >"$TMP_ENV_BIND"
     install -m 0640 -o root -g "$SERVICE_GROUP" "$TMP_ENV_BIND" "$env_file"
     rm -f "$TMP_ENV_BIND"
+}
+
+prompt_postgres_runtime() {
+    env_file="$1"
+
+    if [ ! -t 0 ]; then
+        return 0
+    fi
+
+    if [ -n "${PGSTORE_DSN:-}" ]; then
+        return 0
+    fi
+
+    current_dsn="$(read_env_value "$env_file" PGSTORE_DSN 2>/dev/null || true)"
+    current_schema="$(read_env_value "$env_file" PGSTORE_SCHEMA 2>/dev/null || true)"
+    current_retention="$(read_env_value "$env_file" PGSTORE_USAGE_RETENTION_SECONDS 2>/dev/null || true)"
+
+    if [ -n "$current_dsn" ]; then
+        printf "Postgres runtime DSN found in %s. Update it now? [y/N]: " "$env_file"
+    else
+        printf "Configure Postgres runtime storage now? [y/N]: "
+    fi
+    read -r postgres_choice
+
+    case "$postgres_choice" in
+        [yY]|[yY][eE][sS])
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    while :; do
+        if [ -n "$current_dsn" ]; then
+            printf "PGSTORE_DSN [%s]: " "$current_dsn"
+        else
+            printf "PGSTORE_DSN: "
+        fi
+        read -r prompted_dsn
+        if [ -z "$prompted_dsn" ]; then
+            prompted_dsn="$current_dsn"
+        fi
+        if [ -n "$prompted_dsn" ]; then
+            PROMPTED_PGSTORE_DSN="$prompted_dsn"
+            break
+        fi
+        echo "error: PGSTORE_DSN cannot be empty when Postgres runtime is enabled" >&2
+    done
+
+    schema_default="${current_schema:-llmhub}"
+    printf "PGSTORE_SCHEMA [%s]: " "$schema_default"
+    read -r prompted_schema
+    if [ -z "$prompted_schema" ]; then
+        prompted_schema="$schema_default"
+    fi
+    PROMPTED_PGSTORE_SCHEMA="$prompted_schema"
+
+    retention_default="${current_retention:-60}"
+    while :; do
+        printf "PGSTORE_USAGE_RETENTION_SECONDS [%s]: " "$retention_default"
+        read -r prompted_retention
+        if [ -z "$prompted_retention" ]; then
+            prompted_retention="$retention_default"
+        fi
+        if echo "$prompted_retention" | grep -Eq '^[0-9]+$'; then
+            PROMPTED_PGSTORE_USAGE_RETENTION_SECONDS="$prompted_retention"
+            break
+        fi
+        echo "error: PGSTORE_USAGE_RETENTION_SECONDS must be a non-negative integer" >&2
+    done
+}
+
+ensure_env_postgres() {
+    env_file="$1"
+    pg_dsn="${PGSTORE_DSN:-${PROMPTED_PGSTORE_DSN:-}}"
+
+    if [ -z "$pg_dsn" ]; then
+        return 0
+    fi
+
+    pg_schema="${PGSTORE_SCHEMA:-${PROMPTED_PGSTORE_SCHEMA:-}}"
+    if [ -z "$pg_schema" ]; then
+        pg_schema="llmhub"
+    fi
+
+    pg_retention="${PGSTORE_USAGE_RETENTION_SECONDS:-${PROMPTED_PGSTORE_USAGE_RETENTION_SECONDS:-}}"
+    if [ -z "$pg_retention" ]; then
+        pg_retention="60"
+    fi
+
+    TMP_ENV_POSTGRES="$(mktemp)"
+    awk -v dsn="$pg_dsn" -v schema="$pg_schema" -v retention="$pg_retention" '
+        BEGIN {
+            wrote_dsn = 0
+            wrote_schema = 0
+            wrote_retention = 0
+        }
+        /^[[:space:]]*PGSTORE_DSN=/ && !wrote_dsn {
+            print "PGSTORE_DSN=" dsn
+            wrote_dsn = 1
+            next
+        }
+        /^[[:space:]]*PGSTORE_SCHEMA=/ && !wrote_schema {
+            print "PGSTORE_SCHEMA=" schema
+            wrote_schema = 1
+            next
+        }
+        /^[[:space:]]*PGSTORE_USAGE_RETENTION_SECONDS=/ && !wrote_retention {
+            print "PGSTORE_USAGE_RETENTION_SECONDS=" retention
+            wrote_retention = 1
+            next
+        }
+        { print }
+        END {
+            if (!wrote_dsn) {
+                print "PGSTORE_DSN=" dsn
+            }
+            if (!wrote_schema) {
+                print "PGSTORE_SCHEMA=" schema
+            }
+            if (!wrote_retention) {
+                print "PGSTORE_USAGE_RETENTION_SECONDS=" retention
+            }
+        }
+    ' "$env_file" >"$TMP_ENV_POSTGRES"
+    install -m 0640 -o root -g "$SERVICE_GROUP" "$TMP_ENV_POSTGRES" "$env_file"
+    rm -f "$TMP_ENV_POSTGRES"
 }
 
 config_port() {
@@ -560,8 +704,13 @@ ENV
 else
     echo "    environment: $ENV_FILE (existing - left unchanged)"
 fi
+prompt_postgres_runtime "$ENV_FILE"
 ensure_env_bind "$ENV_FILE"
+ensure_env_postgres "$ENV_FILE"
 echo "    environment: $ENV_FILE (writable path ${DATA_DIR}, host public, port ${DEFAULT_PORT})"
+if read_env_value "$ENV_FILE" PGSTORE_DSN >/dev/null 2>&1; then
+    echo "    postgres: enabled via $ENV_FILE"
+fi
 
 # Write systemd unit
 cat >"$UNIT_FILE" <<UNIT

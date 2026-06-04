@@ -66,9 +66,19 @@ the local `llmhub` port and prints HTTPS endpoints. Point the domain's DNS A
 record at the VPS first or immediately after install; TLS becomes live once DNS
 propagates.
 
-For Postgres-backed runtime storage, put `PGSTORE_DSN` in the same `.env` file.
-The installer keeps runtime metadata under `/var/lib/llmhub/pgstore` by setting
-`WRITABLE_PATH=/var/lib/llmhub`.
+For Postgres-backed runtime storage, the installer can prompt for
+`PGSTORE_DSN`, `PGSTORE_SCHEMA`, and
+`PGSTORE_USAGE_RETENTION_SECONDS` during the run, or you can put them in the
+same `.env` file ahead of time. The installer keeps runtime metadata under
+`/var/lib/llmhub/pgstore` by setting `WRITABLE_PATH=/var/lib/llmhub`.
+
+Example `.env`:
+
+```bash
+PGSTORE_DSN='postgres://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require'
+PGSTORE_SCHEMA='llmhub'
+PGSTORE_USAGE_RETENTION_SECONDS='60'
+```
 
 Recommended same-directory layout:
 

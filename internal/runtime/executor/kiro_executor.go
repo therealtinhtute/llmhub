@@ -33,6 +33,7 @@ const (
 	kiroAMZTarget             = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
 	kiroDefaultContextLength  = 200000
 	kiroDefaultMaxOutputToken = 64000
+	kiroToolNameMaxLength     = 64
 )
 
 type KiroExecutor struct {
@@ -456,9 +457,15 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 
 	messages, _ := payload["messages"].([]any)
 	tools, _ := payload["tools"].([]any)
+	if err := validateKiroToolDefinitions(tools); err != nil {
+		return nil, err
+	}
 	systemPrompt, unified := kiroOpenAIMessages(messages)
 	if len(unified) == 0 {
 		return nil, fmt.Errorf("kiro translator: messages are required")
+	}
+	if err := validateKiroMessageToolCalls(unified); err != nil {
+		return nil, err
 	}
 	unified = ensureKiroUserFirst(unified)
 	unified = ensureKiroAlternating(unified)
@@ -626,6 +633,57 @@ func convertKiroTools(tools []any) []any {
 	return out
 }
 
+func validateKiroToolDefinitions(tools []any) error {
+	var violations []string
+	for _, raw := range tools {
+		tool, _ := raw.(map[string]any)
+		fn, _ := tool["function"].(map[string]any)
+		name := strings.TrimSpace(stringFromMap(fn, "name"))
+		if name == "" {
+			continue
+		}
+		if len(name) > kiroToolNameMaxLength {
+			violations = append(violations, fmt.Sprintf("tool %q is %d characters", name, len(name)))
+		}
+	}
+	if len(violations) == 0 {
+		return nil
+	}
+	return statusErr{
+		code: http.StatusBadRequest,
+		msg: fmt.Sprintf(
+			"kiro translator: tool name(s) exceed Kiro API limit of %d characters: %s",
+			kiroToolNameMaxLength,
+			strings.Join(violations, "; "),
+		),
+	}
+}
+
+func validateKiroMessageToolCalls(messages []kiroMessage) error {
+	var violations []string
+	for _, msg := range messages {
+		for _, call := range msg.ToolCalls {
+			fn, _ := call["function"].(map[string]any)
+			name := strings.TrimSpace(stringFromMap(fn, "name"))
+			if name == "" || len(name) <= kiroToolNameMaxLength {
+				continue
+			}
+			violations = append(violations, fmt.Sprintf("assistant tool call %q is %d characters", name, len(name)))
+		}
+	}
+	if len(violations) == 0 {
+		return nil
+	}
+	return statusErr{
+		code: http.StatusBadRequest,
+		msg: fmt.Sprintf(
+			"kiro translator: tool name(s) exceed Kiro API limit of %d characters: %s",
+			kiroToolNameMaxLength,
+			strings.Join(violations, "; "),
+		),
+	}
+}
+
 func sanitizeKiroSchema(raw any) any {
 	switch typed := raw.(type) {
 	case map[string]any:
@@ -660,12 +718,13 @@ func openAIToolCallsToKiro(calls []map[string]any) []any {
 	out := make([]any, 0, len(calls))
 	for _, call := range calls {
 		fn, _ := call["function"].(map[string]any)
+		name := stringFromMap(fn, "name")
 		var input any = map[string]any{}
 		if args := strings.TrimSpace(stringFromMap(fn, "arguments")); args != "" {
 			_ = json.Unmarshal([]byte(args), &input)
 		}
 		out = append(out, map[string]any{
-			"name":      stringFromMap(fn, "name"),
+			"name":      name,
 			"input":     input,
 			"toolUseId": stringFromMap(call, "id"),
 		})
@@ -876,6 +935,12 @@ type kiroToolCall struct {
 	ID        string
 	Name      string
 	Arguments string
+}
+
+type kiroToolCallAccumulator struct {
+	Name             string
+	ArgumentsBuilder strings.Builder
+	FallbackArgument string
 }
 
 type kiroEventParser struct {
@@ -1133,22 +1198,57 @@ func findKiroJSONEnd(raw []byte, start int) int {
 func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent) []byte {
 	var content strings.Builder
 	toolCalls := make([]any, 0)
+	toolAccumulators := map[string]*kiroToolCallAccumulator{}
+	toolOrder := make([]string, 0)
 	for _, event := range events {
 		if event.Type == "content" {
 			content.WriteString(event.Content)
 		}
 		if event.Type == "tool_calls" {
 			for _, call := range event.ToolCalls {
-				toolCalls = append(toolCalls, map[string]any{
-					"id":   call.ID,
-					"type": "function",
-					"function": map[string]any{
-						"name":      call.Name,
-						"arguments": call.Arguments,
-					},
-				})
+				acc := toolAccumulators[call.ID]
+				if acc == nil {
+					acc = &kiroToolCallAccumulator{}
+					toolAccumulators[call.ID] = acc
+					toolOrder = append(toolOrder, call.ID)
+				}
+				if call.Name != "" {
+					acc.Name = call.Name
+				}
+				trimmedArgs := strings.TrimSpace(call.Arguments)
+				switch trimmedArgs {
+				case "":
+					continue
+				case "{}":
+					if acc.ArgumentsBuilder.Len() == 0 {
+						acc.FallbackArgument = trimmedArgs
+					}
+				default:
+					acc.ArgumentsBuilder.WriteString(trimmedArgs)
+				}
 			}
 		}
+	}
+	for _, id := range toolOrder {
+		acc := toolAccumulators[id]
+		if acc == nil || acc.Name == "" {
+			continue
+		}
+		arguments := acc.ArgumentsBuilder.String()
+		if arguments == "" {
+			arguments = acc.FallbackArgument
+		}
+		if arguments == "" {
+			arguments = "{}"
+		}
+		toolCalls = append(toolCalls, map[string]any{
+			"id":   id,
+			"type": "function",
+			"function": map[string]any{
+				"name":      acc.Name,
+				"arguments": arguments,
+			},
+		})
 	}
 	finishReason := "stop"
 	message := map[string]any{

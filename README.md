@@ -51,13 +51,20 @@ installer and run it from that directory:
 sudo ./install-local.sh
 ```
 
-The local installer defaults to port `9090`. Override it with `DEFAULT_PORT`
-when needed:
+The local installer defaults to port `9090`. It prompts for an optional domain
+name for Caddy HTTPS; leave the prompt blank to keep the direct IP/port setup.
+Override the port or preseed domain mode when needed:
 
 ```bash
 sudo DEFAULT_PORT=8080 ./install-local.sh
+sudo CADDY_DOMAIN=llm.example.com ./install-local.sh
 sudo ./install-local.sh /path/to/llmhub-linux-amd64
 ```
+
+If you provide a domain, the installer configures Caddy as a reverse proxy to
+the local `llmhub` port and prints HTTPS endpoints. Point the domain's DNS A
+record at the VPS first or immediately after install; TLS becomes live once DNS
+propagates.
 
 For Postgres-backed runtime storage, put `PGSTORE_DSN` in the same `.env` file.
 The installer keeps runtime metadata under `/var/lib/llmhub/pgstore` by setting

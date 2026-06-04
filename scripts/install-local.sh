@@ -17,6 +17,8 @@ SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
 SERVICE_NAME="${SERVICE_NAME:-llmhub}"
 ENV_FILE="${ENV_FILE:-${INSTALL_DIR}/.env}"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+CADDY_DOMAIN="${CADDY_DOMAIN:-}"
+CADDYFILE_PATH="${CADDYFILE_PATH:-/etc/caddy/Caddyfile}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 find_local_config_example() {
@@ -293,6 +295,117 @@ wait_for_service_port() {
     return 1
 }
 
+valid_domain() {
+    domain="$1"
+    if [ -z "$domain" ]; then
+        return 0
+    fi
+
+    printf '%s\n' "$domain" | grep -Eq \
+        '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+}
+
+prompt_domain() {
+    if [ -n "$CADDY_DOMAIN" ]; then
+        if ! valid_domain "$CADDY_DOMAIN"; then
+            echo "error: invalid CADDY_DOMAIN: $CADDY_DOMAIN" >&2
+            exit 1
+        fi
+        return 0
+    fi
+
+    if [ -t 0 ]; then
+        printf "Domain for Caddy HTTPS (leave blank to skip): "
+        read -r CADDY_DOMAIN
+        if [ -n "$CADDY_DOMAIN" ] && ! valid_domain "$CADDY_DOMAIN"; then
+            echo "error: invalid domain: $CADDY_DOMAIN" >&2
+            exit 1
+        fi
+    fi
+}
+
+ensure_debian_apt() {
+    if ! command -v apt-get >/dev/null 2>&1 || [ ! -f /etc/debian_version ]; then
+        echo "error: automatic Caddy setup currently supports Debian/Ubuntu only" >&2
+        exit 1
+    fi
+}
+
+install_caddy_if_needed() {
+    ensure_debian_apt
+
+    if command -v caddy >/dev/null 2>&1; then
+        echo "    caddy: $(caddy version | head -n 1)"
+        return 0
+    fi
+
+    echo "==> Installing Caddy for domain mode"
+    apt-get update -qq
+    apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl gnupg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+        -o /etc/apt/sources.list.d/caddy-stable.list
+    apt-get update -qq
+    apt-get install -y -qq caddy
+    echo "    caddy: installed"
+}
+
+configure_caddy() {
+    domain="$1"
+    upstream_port="$2"
+    caddy_dir=$(dirname -- "$CADDYFILE_PATH")
+    backup_file=""
+
+    install_caddy_if_needed
+    install -d -m 0755 "$caddy_dir"
+
+    if [ -f "$CADDYFILE_PATH" ]; then
+        backup_file="${CADDYFILE_PATH}.bak.$(date +%s)"
+        cp -p "$CADDYFILE_PATH" "$backup_file"
+        echo "    caddy backup: $backup_file"
+    fi
+
+    cat >"$CADDYFILE_PATH" <<EOF
+$domain {
+    encode gzip
+    reverse_proxy 127.0.0.1:$upstream_port
+}
+EOF
+
+    if ! caddy validate --config "$CADDYFILE_PATH" >/dev/null 2>&1; then
+        if [ -n "$backup_file" ] && [ -f "$backup_file" ]; then
+            cp -p "$backup_file" "$CADDYFILE_PATH"
+        else
+            rm -f "$CADDYFILE_PATH"
+        fi
+        echo "error: generated Caddyfile is invalid" >&2
+        exit 1
+    fi
+
+    systemctl daemon-reload
+    systemctl enable caddy >/dev/null
+    systemctl restart caddy
+
+    if ! systemctl is-active --quiet caddy; then
+        echo "error: caddy failed to start" >&2
+        systemctl status caddy --no-pager >&2 || true
+        journalctl -u caddy -n 80 --no-pager >&2 || true
+        exit 1
+    fi
+
+    allow_firewall_port 80
+    allow_firewall_port 443
+
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsSI -H "Host: $domain" "http://127.0.0.1/" >/dev/null 2>&1; then
+            echo "    caddy: local proxy check passed"
+        else
+            echo "warning: local Caddy proxy check failed; confirm DNS points to this VPS and inspect caddy logs" >&2
+        fi
+    fi
+}
+
 
 # Require root
 if [ "$(id -u)" -ne 0 ]; then
@@ -365,6 +478,8 @@ else
     find_source_binary
     validate_binary "$SELECTED" || exit 1
 fi
+
+prompt_domain
 
 echo "==> Installing llmhub to $INSTALL_DIR"
 
@@ -488,12 +603,27 @@ SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")"
 if [ -z "$SERVER_PORT" ]; then
     SERVER_PORT="$(resolved_port)"
 fi
-allow_firewall_port "$SERVER_PORT"
+
+if [ -n "$CADDY_DOMAIN" ]; then
+    configure_caddy "$CADDY_DOMAIN" "$SERVER_PORT"
+else
+    allow_firewall_port "$SERVER_PORT"
+fi
 echo ""
 echo "==> llmhub is running"
-echo "    API endpoint:     http://${SERVER_IP}:${SERVER_PORT}/v1"
-echo "    Management panel: http://${SERVER_IP}:${SERVER_PORT}/management.html"
+if [ -n "$CADDY_DOMAIN" ]; then
+    echo "    API endpoint:     https://${CADDY_DOMAIN}/v1"
+    echo "    Management panel: https://${CADDY_DOMAIN}/management.html"
+    echo "    Direct app port:  http://${SERVER_IP}:${SERVER_PORT}"
+    echo "    DNS note:         point ${CADDY_DOMAIN} to ${SERVER_IP}; HTTPS becomes live after DNS propagation"
+else
+    echo "    API endpoint:     http://${SERVER_IP}:${SERVER_PORT}/v1"
+    echo "    Management panel: http://${SERVER_IP}:${SERVER_PORT}/management.html"
+fi
 echo ""
 echo "    Edit ${CONFIG_DIR}/config.yaml to configure providers and accounts."
 echo "    Optional env: $ENV_FILE"
 echo "    Logs: journalctl -u ${SERVICE_NAME} -f"
+if [ -n "$CADDY_DOMAIN" ]; then
+    echo "    Caddy logs: journalctl -u caddy -f"
+fi

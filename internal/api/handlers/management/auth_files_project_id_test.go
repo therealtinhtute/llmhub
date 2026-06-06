@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -20,19 +18,15 @@ func TestListAuthFiles_IncludesProjectIDFromManager(t *testing.T) {
 
 	authDir := t.TempDir()
 	fileName := "gemini-user@example.com-project-a.json"
-	filePath := filepath.Join(authDir, fileName)
-	if errWrite := os.WriteFile(filePath, []byte(`{"type":"gemini","email":"user@example.com","project_id":"project-a"}`), 0o600); errWrite != nil {
-		t.Fatalf("failed to write auth file: %v", errWrite)
-	}
-
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	record := &coreauth.Auth{
 		ID:       fileName,
 		FileName: fileName,
 		Provider: "gemini-cli",
 		Status:   coreauth.StatusActive,
 		Attributes: map[string]string{
-			"path": filePath,
+			"source": "postgres",
 		},
 		Metadata: map[string]any{
 			"type":       "gemini",
@@ -45,7 +39,7 @@ func TestListAuthFiles_IncludesProjectIDFromManager(t *testing.T) {
 	}
 
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
-	h.tokenStore = &memoryAuthStore{}
+	h.tokenStore = store
 
 	entry := firstAuthFileEntry(t, h)
 	if got := entry["project_id"]; got != "project-a" {
@@ -53,17 +47,31 @@ func TestListAuthFiles_IncludesProjectIDFromManager(t *testing.T) {
 	}
 }
 
-func TestListAuthFilesFromDisk_IncludesProjectID(t *testing.T) {
+func TestListAuthFiles_IncludesProjectIDFromPathlessStore(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)
 
 	authDir := t.TempDir()
-	filePath := filepath.Join(authDir, "gemini-user@example.com-project-a.json")
-	if errWrite := os.WriteFile(filePath, []byte(`{"type":"gemini","email":"user@example.com","project_id":"project-a"}`), 0o600); errWrite != nil {
-		t.Fatalf("failed to write auth file: %v", errWrite)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	if _, err := manager.Register(context.Background(), &coreauth.Auth{
+		ID:       "gemini-user@example.com-project-a.json",
+		FileName: "gemini-user@example.com-project-a.json",
+		Provider: "gemini-cli",
+		Attributes: map[string]string{
+			"source": "postgres",
+		},
+		Metadata: map[string]any{
+			"type":       "gemini",
+			"email":      "user@example.com",
+			"project_id": "project-a",
+		},
+	}); err != nil {
+		t.Fatalf("failed to register auth file: %v", err)
 	}
 
-	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = store
 
 	entry := firstAuthFileEntry(t, h)
 	if got := entry["project_id"]; got != "project-a" {
@@ -77,19 +85,15 @@ func TestListAuthFiles_IncludesWebsocketsFromManager(t *testing.T) {
 
 	authDir := t.TempDir()
 	fileName := "codex-user@example.com-pro.json"
-	filePath := filepath.Join(authDir, fileName)
-	if errWrite := os.WriteFile(filePath, []byte(`{"type":"codex","email":"user@example.com"}`), 0o600); errWrite != nil {
-		t.Fatalf("failed to write auth file: %v", errWrite)
-	}
-
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	record := &coreauth.Auth{
 		ID:       fileName,
 		FileName: fileName,
 		Provider: "codex",
 		Status:   coreauth.StatusActive,
 		Attributes: map[string]string{
-			"path":       filePath,
+			"source":     "postgres",
 			"websockets": "true",
 		},
 		Metadata: map[string]any{
@@ -101,7 +105,7 @@ func TestListAuthFiles_IncludesWebsocketsFromManager(t *testing.T) {
 	}
 
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
-	h.tokenStore = &memoryAuthStore{}
+	h.tokenStore = store
 
 	entry := firstAuthFileEntry(t, h)
 	if got := entry["websockets"]; got != true {
@@ -109,17 +113,31 @@ func TestListAuthFiles_IncludesWebsocketsFromManager(t *testing.T) {
 	}
 }
 
-func TestListAuthFilesFromDisk_IncludesWebsockets(t *testing.T) {
+func TestListAuthFiles_IncludesWebsocketsFromPathlessStoreMetadata(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)
 
 	authDir := t.TempDir()
-	filePath := filepath.Join(authDir, "codex-user@example.com-pro.json")
-	if errWrite := os.WriteFile(filePath, []byte(`{"type":"codex","email":"user@example.com","websockets":false}`), 0o600); errWrite != nil {
-		t.Fatalf("failed to write auth file: %v", errWrite)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	if _, err := manager.Register(context.Background(), &coreauth.Auth{
+		ID:       "codex-user@example.com-pro.json",
+		FileName: "codex-user@example.com-pro.json",
+		Provider: "codex",
+		Attributes: map[string]string{
+			"source": "postgres",
+		},
+		Metadata: map[string]any{
+			"type":       "codex",
+			"email":      "user@example.com",
+			"websockets": false,
+		},
+	}); err != nil {
+		t.Fatalf("failed to register auth file: %v", err)
 	}
 
-	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = store
 
 	entry := firstAuthFileEntry(t, h)
 	if got := entry["websockets"]; got != false {

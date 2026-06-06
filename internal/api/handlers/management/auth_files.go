@@ -248,7 +248,7 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		return
 	}
 	if h.authManager == nil {
-		h.listAuthFilesFromDisk(c)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
 		return
 	}
 	auths := h.authManager.List()
@@ -656,35 +656,25 @@ func (h *Handler) DownloadAuthFile(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "name must end with .json"})
 		return
 	}
-	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
-		id := name
-		if auth := h.findAuthForDelete(name); auth != nil {
-			id = auth.ID
-		}
-		data, err := store.LoadAuthContent(c.Request.Context(), id)
-		if err != nil {
-			if os.IsNotExist(err) {
-				c.JSON(404, gin.H{"error": "file not found"})
-			} else {
-				c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth: %v", err)})
-			}
-			return
-		}
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(name)))
-		c.Data(200, "application/json", data)
+	store, err := h.requirePathlessAuthStore()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	full := filepath.Join(h.cfg.AuthDir, name)
-	data, err := os.ReadFile(full)
+	id := name
+	if auth := h.findAuthForDelete(name); auth != nil {
+		id = auth.ID
+	}
+	data, err := store.LoadAuthContent(c.Request.Context(), id)
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.JSON(404, gin.H{"error": "file not found"})
 		} else {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
+			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth: %v", err)})
 		}
 		return
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(name)))
 	c.Data(200, "application/json", data)
 }
 
@@ -777,50 +767,21 @@ func (h *Handler) DeleteAuthFile(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	if all := c.Query("all"); all == "true" || all == "1" || all == "*" {
-		if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
-			deleted := 0
-			for _, auth := range h.authManager.List() {
-				if auth == nil || auth.ID == "" || isRuntimeOnlyAuth(auth) {
-					continue
-				}
-				if err := h.deleteTokenRecord(ctx, auth.ID); err != nil {
-					c.JSON(500, gin.H{"error": err.Error()})
-					return
-				}
-				h.forgetAuth(auth.ID)
-				deleted++
-			}
-			c.JSON(200, gin.H{"status": "ok", "deleted": deleted})
-			return
-		}
-		entries, err := os.ReadDir(h.cfg.AuthDir)
-		if err != nil {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth dir: %v", err)})
+		if _, err := h.requirePathlessAuthStore(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		deleted := 0
-		for _, e := range entries {
-			if e.IsDir() {
+		for _, auth := range h.authManager.List() {
+			if auth == nil || auth.ID == "" || isRuntimeOnlyAuth(auth) {
 				continue
 			}
-			name := e.Name()
-			if !strings.HasSuffix(strings.ToLower(name), ".json") {
-				continue
+			if err := h.deleteTokenRecord(ctx, auth.ID); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
 			}
-			full := filepath.Join(h.cfg.AuthDir, name)
-			if !filepath.IsAbs(full) {
-				if abs, errAbs := filepath.Abs(full); errAbs == nil {
-					full = abs
-				}
-			}
-			if err = os.Remove(full); err == nil {
-				if errDel := h.deleteTokenRecord(ctx, full); errDel != nil {
-					c.JSON(500, gin.H{"error": errDel.Error()})
-					return
-				}
-				deleted++
-				h.forgetAuth(full)
-			}
+			h.forgetAuth(auth.ID)
+			deleted++
 		}
 		c.JSON(200, gin.H{"status": "ok", "deleted": deleted})
 		return
@@ -921,28 +882,12 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 		return errNormalize
 	}
 	data = normalizedData
-	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
-		auth, err := h.buildAuthFromFileData(filepath.Base(name), data)
-		if err != nil {
-			return err
-		}
-		if err := h.upsertAuthRecord(ctx, auth); err != nil {
-			return err
-		}
-		return nil
-	}
-	dst := filepath.Join(h.cfg.AuthDir, filepath.Base(name))
-	if !filepath.IsAbs(dst) {
-		if abs, errAbs := filepath.Abs(dst); errAbs == nil {
-			dst = abs
-		}
-	}
-	auth, err := h.buildAuthFromFileData(dst, data)
-	if err != nil {
+	if _, err := h.requirePathlessAuthStore(); err != nil {
 		return err
 	}
-	if errWrite := os.WriteFile(dst, data, 0o600); errWrite != nil {
-		return fmt.Errorf("failed to write file: %w", errWrite)
+	auth, err := h.buildAuthFromFileData(filepath.Base(name), data)
+	if err != nil {
+		return err
 	}
 	if err := h.upsertAuthRecord(ctx, auth); err != nil {
 		return err
@@ -1045,43 +990,20 @@ func (h *Handler) deleteAuthFileByName(ctx context.Context, name string) (string
 		return "", http.StatusBadRequest, fmt.Errorf("invalid name")
 	}
 
-	targetPath := filepath.Join(h.cfg.AuthDir, filepath.Base(name))
 	targetID := ""
 	if targetAuth := h.findAuthForDelete(name); targetAuth != nil {
 		targetID = strings.TrimSpace(targetAuth.ID)
-		if path := strings.TrimSpace(authAttribute(targetAuth, "path")); path != "" {
-			targetPath = path
-		}
 	}
-	if store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore); ok && store.PathlessAuthStore() {
-		if targetID == "" {
-			targetID = filepath.Base(name)
-		}
-		if errDeleteRecord := h.deleteTokenRecord(ctx, targetID); errDeleteRecord != nil {
-			return filepath.Base(name), http.StatusInternalServerError, errDeleteRecord
-		}
-		h.forgetAuth(targetID)
-		return filepath.Base(name), http.StatusOK, nil
+	if _, err := h.requirePathlessAuthStore(); err != nil {
+		return filepath.Base(name), http.StatusInternalServerError, err
 	}
-	if !filepath.IsAbs(targetPath) {
-		if abs, errAbs := filepath.Abs(targetPath); errAbs == nil {
-			targetPath = abs
-		}
+	if targetID == "" {
+		targetID = filepath.Base(name)
 	}
-	if errRemove := os.Remove(targetPath); errRemove != nil {
-		if os.IsNotExist(errRemove) {
-			return filepath.Base(name), http.StatusNotFound, errAuthFileNotFound
-		}
-		return filepath.Base(name), http.StatusInternalServerError, fmt.Errorf("failed to remove file: %w", errRemove)
-	}
-	if errDeleteRecord := h.deleteTokenRecord(ctx, targetPath); errDeleteRecord != nil {
+	if errDeleteRecord := h.deleteTokenRecord(ctx, targetID); errDeleteRecord != nil {
 		return filepath.Base(name), http.StatusInternalServerError, errDeleteRecord
 	}
-	if targetID != "" {
-		h.forgetAuth(targetID)
-	} else {
-		h.forgetAuth(targetPath)
-	}
+	h.forgetAuth(targetID)
 	return filepath.Base(name), http.StatusOK, nil
 }
 
@@ -1745,6 +1667,14 @@ func (h *Handler) tokenStoreWithBaseDir() coreauth.Store {
 		}
 	}
 	return store
+}
+
+func (h *Handler) requirePathlessAuthStore() (pathlessAuthStore, error) {
+	store, ok := h.tokenStoreWithBaseDir().(pathlessAuthStore)
+	if !ok || !store.PathlessAuthStore() {
+		return nil, fmt.Errorf("filesystem auth storage is no longer supported")
+	}
+	return store, nil
 }
 
 func (h *Handler) saveTokenRecord(ctx context.Context, record *coreauth.Auth) (string, error) {

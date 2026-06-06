@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -19,36 +17,16 @@ func TestDeleteAuthFile_UsesAuthPathFromManager(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)
 
-	tempDir := t.TempDir()
-	authDir := filepath.Join(tempDir, "auth")
-	externalDir := filepath.Join(tempDir, "external")
-	if errMkdirAuth := os.MkdirAll(authDir, 0o700); errMkdirAuth != nil {
-		t.Fatalf("failed to create auth dir: %v", errMkdirAuth)
-	}
-	if errMkdirExternal := os.MkdirAll(externalDir, 0o700); errMkdirExternal != nil {
-		t.Fatalf("failed to create external dir: %v", errMkdirExternal)
-	}
-
+	authDir := t.TempDir()
 	fileName := "codex-user@example.com-plus.json"
-	shadowPath := filepath.Join(authDir, fileName)
-	realPath := filepath.Join(externalDir, fileName)
-	if errWriteShadow := os.WriteFile(shadowPath, []byte(`{"type":"codex","email":"shadow@example.com"}`), 0o600); errWriteShadow != nil {
-		t.Fatalf("failed to write shadow file: %v", errWriteShadow)
-	}
-	if errWriteReal := os.WriteFile(realPath, []byte(`{"type":"codex","email":"real@example.com"}`), 0o600); errWriteReal != nil {
-		t.Fatalf("failed to write real file: %v", errWriteReal)
-	}
-
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	record := &coreauth.Auth{
 		ID:          "legacy/" + fileName,
 		FileName:    fileName,
 		Provider:    "codex",
 		Status:      coreauth.StatusError,
 		Unavailable: true,
-		Attributes: map[string]string{
-			"path": realPath,
-		},
 		Metadata: map[string]any{
 			"type":  "codex",
 			"email": "real@example.com",
@@ -59,7 +37,7 @@ func TestDeleteAuthFile_UsesAuthPathFromManager(t *testing.T) {
 	}
 
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
-	h.tokenStore = &memoryAuthStore{}
+	h.tokenStore = store
 
 	deleteRec := httptest.NewRecorder()
 	deleteCtx, _ := gin.CreateTestContext(deleteRec)
@@ -70,11 +48,8 @@ func TestDeleteAuthFile_UsesAuthPathFromManager(t *testing.T) {
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("expected delete status %d, got %d with body %s", http.StatusOK, deleteRec.Code, deleteRec.Body.String())
 	}
-	if _, errStatReal := os.Stat(realPath); !os.IsNotExist(errStatReal) {
-		t.Fatalf("expected managed auth file to be removed, stat err: %v", errStatReal)
-	}
-	if _, errStatShadow := os.Stat(shadowPath); errStatShadow != nil {
-		t.Fatalf("expected shadow auth file to remain, stat err: %v", errStatShadow)
+	if _, ok := store.items[record.ID]; ok {
+		t.Fatalf("expected managed auth to be removed from pathless store")
 	}
 
 	listRec := httptest.NewRecorder()
@@ -105,14 +80,18 @@ func TestDeleteAuthFile_FallbackToAuthDirPath(t *testing.T) {
 
 	authDir := t.TempDir()
 	fileName := "fallback-user.json"
-	filePath := filepath.Join(authDir, fileName)
-	if errWrite := os.WriteFile(filePath, []byte(`{"type":"codex"}`), 0o600); errWrite != nil {
-		t.Fatalf("failed to write auth file: %v", errWrite)
-	}
-
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
-	h.tokenStore = &memoryAuthStore{}
+	h.tokenStore = store
+	if _, errRegister := manager.Register(context.Background(), &coreauth.Auth{
+		ID:       fileName,
+		FileName: fileName,
+		Provider: "codex",
+		Metadata: map[string]any{"type": "codex"},
+	}); errRegister != nil {
+		t.Fatalf("failed to register auth file: %v", errRegister)
+	}
 
 	deleteRec := httptest.NewRecorder()
 	deleteCtx, _ := gin.CreateTestContext(deleteRec)
@@ -123,7 +102,7 @@ func TestDeleteAuthFile_FallbackToAuthDirPath(t *testing.T) {
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("expected delete status %d, got %d with body %s", http.StatusOK, deleteRec.Code, deleteRec.Body.String())
 	}
-	if _, errStat := os.Stat(filePath); !os.IsNotExist(errStat) {
-		t.Fatalf("expected auth file to be removed from auth dir, stat err: %v", errStat)
+	if _, ok := store.items[fileName]; ok {
+		t.Fatalf("expected auth to be removed from pathless store")
 	}
 }

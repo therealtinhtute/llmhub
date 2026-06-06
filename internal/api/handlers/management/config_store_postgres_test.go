@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -83,5 +84,79 @@ func TestPutCodexKeys_ConfigStoreSaveErrorReturnsFailure(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status %d, got %d with body %s", http.StatusInternalServerError, rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutDebug_ConfigChangeHookRunsOutsideLock(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	store := &recordingConfigStore{}
+	h := NewHandlerWithoutConfigFilePath(&config.Config{}, nil)
+	h.SetConfigStore(store)
+	h.SetConfigChangeHook(func(cfg *config.Config) {
+		h.SetConfig(cfg)
+	})
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPut, "/v0/management/debug", bytes.NewBufferString(`{"value":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req
+
+	done := make(chan struct{})
+	go func() {
+		h.PutDebug(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PutDebug deadlocked while invoking config change hook")
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !h.cfg.Debug {
+		t.Fatal("expected debug flag to be persisted in handler config")
+	}
+}
+
+func TestPutConfigYAML_ConfigChangeHookRunsOutsideLock(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	store := &recordingConfigStore{}
+	h := NewHandlerWithoutConfigFilePath(&config.Config{}, nil)
+	h.SetConfigStore(store)
+	h.SetConfigChangeHook(func(cfg *config.Config) {
+		h.SetConfig(cfg)
+	})
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPut, "/v0/management/config.yaml", bytes.NewBufferString("debug: true\n"))
+	req.Header.Set("Content-Type", "application/yaml")
+	ctx.Request = req
+
+	done := make(chan struct{})
+	go func() {
+		h.PutConfigYAML(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PutConfigYAML deadlocked while invoking config change hook")
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !h.cfg.Debug {
+		t.Fatal("expected config yaml write to update handler config")
 	}
 }

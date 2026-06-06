@@ -143,7 +143,7 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 	defer h.mu.Unlock()
 	h.cfg.GeminiKey = append([]config.GeminiKey(nil), arr...)
 	h.cfg.SanitizeGeminiKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	type geminiKeyPatch struct {
@@ -192,7 +192,7 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 		if trimmed == "" {
 			h.cfg.GeminiKey = append(h.cfg.GeminiKey[:targetIndex], h.cfg.GeminiKey[targetIndex+1:]...)
 			h.cfg.SanitizeGeminiKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 		entry.APIKey = trimmed
@@ -214,7 +214,7 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	}
 	h.cfg.GeminiKey[targetIndex] = entry
 	h.cfg.SanitizeGeminiKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) DeleteGeminiKey(c *gin.Context) {
@@ -233,7 +233,7 @@ func (h *Handler) DeleteGeminiKey(c *gin.Context) {
 			if len(out) != len(h.cfg.GeminiKey) {
 				h.cfg.GeminiKey = out
 				h.cfg.SanitizeGeminiKeys()
-				h.persistLocked(c)
+				h.persistLockedAndRespond(c)
 			} else {
 				c.JSON(404, gin.H{"error": "item not found"})
 			}
@@ -260,7 +260,7 @@ func (h *Handler) DeleteGeminiKey(c *gin.Context) {
 		}
 		h.cfg.GeminiKey = append(h.cfg.GeminiKey[:matchIndex], h.cfg.GeminiKey[matchIndex+1:]...)
 		h.cfg.SanitizeGeminiKeys()
-		h.persistLocked(c)
+		h.persistLockedAndRespond(c)
 		return
 	}
 	if idxStr := c.Query("index"); idxStr != "" {
@@ -268,7 +268,7 @@ func (h *Handler) DeleteGeminiKey(c *gin.Context) {
 		if _, err := fmt.Sscanf(idxStr, "%d", &idx); err == nil && idx >= 0 && idx < len(h.cfg.GeminiKey) {
 			h.cfg.GeminiKey = append(h.cfg.GeminiKey[:idx], h.cfg.GeminiKey[idx+1:]...)
 			h.cfg.SanitizeGeminiKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 	}
@@ -303,7 +303,7 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 	defer h.mu.Unlock()
 	h.cfg.ClaudeKey = arr
 	h.cfg.SanitizeClaudeKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	type claudeKeyPatch struct {
@@ -370,7 +370,7 @@ func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	normalizeClaudeKey(&entry)
 	h.cfg.ClaudeKey[targetIndex] = entry
 	h.cfg.SanitizeClaudeKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) DeleteClaudeKey(c *gin.Context) {
@@ -388,7 +388,7 @@ func (h *Handler) DeleteClaudeKey(c *gin.Context) {
 			}
 			h.cfg.ClaudeKey = out
 			h.cfg.SanitizeClaudeKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 
@@ -410,7 +410,7 @@ func (h *Handler) DeleteClaudeKey(c *gin.Context) {
 			h.cfg.ClaudeKey = append(h.cfg.ClaudeKey[:matchIndex], h.cfg.ClaudeKey[matchIndex+1:]...)
 		}
 		h.cfg.SanitizeClaudeKeys()
-		h.persistLocked(c)
+		h.persistLockedAndRespond(c)
 		return
 	}
 	if idxStr := c.Query("index"); idxStr != "" {
@@ -419,7 +419,7 @@ func (h *Handler) DeleteClaudeKey(c *gin.Context) {
 		if err == nil && idx >= 0 && idx < len(h.cfg.ClaudeKey) {
 			h.cfg.ClaudeKey = append(h.cfg.ClaudeKey[:idx], h.cfg.ClaudeKey[idx+1:]...)
 			h.cfg.SanitizeClaudeKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 	}
@@ -458,7 +458,7 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 	defer h.mu.Unlock()
 	h.cfg.OpenAICompatibility = filtered
 	h.cfg.SanitizeOpenAICompatibility()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	type openAICompatPatch struct {
@@ -515,7 +515,7 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 		if trimmed == "" {
 			h.cfg.OpenAICompatibility = append(h.cfg.OpenAICompatibility[:targetIndex], h.cfg.OpenAICompatibility[targetIndex+1:]...)
 			h.cfg.SanitizeOpenAICompatibility()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 		entry.BaseURL = trimmed
@@ -532,7 +532,7 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	normalizeOpenAICompatibilityEntry(&entry)
 	h.cfg.OpenAICompatibility[targetIndex] = entry
 	h.cfg.SanitizeOpenAICompatibility()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) DeleteOpenAICompat(c *gin.Context) {
@@ -547,7 +547,7 @@ func (h *Handler) DeleteOpenAICompat(c *gin.Context) {
 		}
 		h.cfg.OpenAICompatibility = out
 		h.cfg.SanitizeOpenAICompatibility()
-		h.persistLocked(c)
+		h.persistLockedAndRespond(c)
 		return
 	}
 	if idxStr := c.Query("index"); idxStr != "" {
@@ -556,7 +556,7 @@ func (h *Handler) DeleteOpenAICompat(c *gin.Context) {
 		if err == nil && idx >= 0 && idx < len(h.cfg.OpenAICompatibility) {
 			h.cfg.OpenAICompatibility = append(h.cfg.OpenAICompatibility[:idx], h.cfg.OpenAICompatibility[idx+1:]...)
 			h.cfg.SanitizeOpenAICompatibility()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 	}
@@ -595,7 +595,7 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 	defer h.mu.Unlock()
 	h.cfg.VertexCompatAPIKey = append([]config.VertexCompatKey(nil), arr...)
 	h.cfg.SanitizeVertexCompatKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	type vertexCompatPatch struct {
@@ -645,7 +645,7 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 		if trimmed == "" {
 			h.cfg.VertexCompatAPIKey = append(h.cfg.VertexCompatAPIKey[:targetIndex], h.cfg.VertexCompatAPIKey[targetIndex+1:]...)
 			h.cfg.SanitizeVertexCompatKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 		entry.APIKey = trimmed
@@ -658,7 +658,7 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 		if trimmed == "" {
 			h.cfg.VertexCompatAPIKey = append(h.cfg.VertexCompatAPIKey[:targetIndex], h.cfg.VertexCompatAPIKey[targetIndex+1:]...)
 			h.cfg.SanitizeVertexCompatKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 		entry.BaseURL = trimmed
@@ -678,7 +678,7 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	normalizeVertexCompatKey(&entry)
 	h.cfg.VertexCompatAPIKey[targetIndex] = entry
 	h.cfg.SanitizeVertexCompatKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) DeleteVertexCompatKey(c *gin.Context) {
@@ -696,7 +696,7 @@ func (h *Handler) DeleteVertexCompatKey(c *gin.Context) {
 			}
 			h.cfg.VertexCompatAPIKey = out
 			h.cfg.SanitizeVertexCompatKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 
@@ -718,7 +718,7 @@ func (h *Handler) DeleteVertexCompatKey(c *gin.Context) {
 			h.cfg.VertexCompatAPIKey = append(h.cfg.VertexCompatAPIKey[:matchIndex], h.cfg.VertexCompatAPIKey[matchIndex+1:]...)
 		}
 		h.cfg.SanitizeVertexCompatKeys()
-		h.persistLocked(c)
+		h.persistLockedAndRespond(c)
 		return
 	}
 	if idxStr := c.Query("index"); idxStr != "" {
@@ -727,7 +727,7 @@ func (h *Handler) DeleteVertexCompatKey(c *gin.Context) {
 		if errScan == nil && idx >= 0 && idx < len(h.cfg.VertexCompatAPIKey) {
 			h.cfg.VertexCompatAPIKey = append(h.cfg.VertexCompatAPIKey[:idx], h.cfg.VertexCompatAPIKey[idx+1:]...)
 			h.cfg.SanitizeVertexCompatKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 	}
@@ -951,7 +951,7 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 	defer h.mu.Unlock()
 	h.cfg.CodexKey = filtered
 	h.cfg.SanitizeCodexKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 func (h *Handler) PatchCodexKey(c *gin.Context) {
 	type codexKeyPatch struct {
@@ -1005,7 +1005,7 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 		if trimmed == "" {
 			h.cfg.CodexKey = append(h.cfg.CodexKey[:targetIndex], h.cfg.CodexKey[targetIndex+1:]...)
 			h.cfg.SanitizeCodexKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 		entry.BaseURL = trimmed
@@ -1025,7 +1025,7 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 	normalizeCodexKey(&entry)
 	h.cfg.CodexKey[targetIndex] = entry
 	h.cfg.SanitizeCodexKeys()
-	h.persistLocked(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) DeleteCodexKey(c *gin.Context) {
@@ -1043,7 +1043,7 @@ func (h *Handler) DeleteCodexKey(c *gin.Context) {
 			}
 			h.cfg.CodexKey = out
 			h.cfg.SanitizeCodexKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 
@@ -1065,7 +1065,7 @@ func (h *Handler) DeleteCodexKey(c *gin.Context) {
 			h.cfg.CodexKey = append(h.cfg.CodexKey[:matchIndex], h.cfg.CodexKey[matchIndex+1:]...)
 		}
 		h.cfg.SanitizeCodexKeys()
-		h.persistLocked(c)
+		h.persistLockedAndRespond(c)
 		return
 	}
 	if idxStr := c.Query("index"); idxStr != "" {
@@ -1074,7 +1074,7 @@ func (h *Handler) DeleteCodexKey(c *gin.Context) {
 		if err == nil && idx >= 0 && idx < len(h.cfg.CodexKey) {
 			h.cfg.CodexKey = append(h.cfg.CodexKey[:idx], h.cfg.CodexKey[idx+1:]...)
 			h.cfg.SanitizeCodexKeys()
-			h.persistLocked(c)
+			h.persistLockedAndRespond(c)
 			return
 		}
 	}

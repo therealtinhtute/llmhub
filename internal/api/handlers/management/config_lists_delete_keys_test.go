@@ -33,6 +33,7 @@ func TestDeleteGeminiKey_RequiresBaseURLWhenAPIKeyDuplicated(t *testing.T) {
 				{APIKey: "shared-key", BaseURL: "https://b.example.com"},
 			},
 		},
+		configStore:    &recordingConfigStore{},
 		configFilePath: writeTestConfigFile(t),
 	}
 
@@ -61,6 +62,7 @@ func TestDeleteGeminiKey_DeletesOnlyMatchingBaseURL(t *testing.T) {
 				{APIKey: "shared-key", BaseURL: "https://b.example.com"},
 			},
 		},
+		configStore:    &recordingConfigStore{},
 		configFilePath: writeTestConfigFile(t),
 	}
 
@@ -92,6 +94,7 @@ func TestDeleteClaudeKey_DeletesEmptyBaseURLWhenExplicitlyProvided(t *testing.T)
 				{APIKey: "shared-key", BaseURL: "https://claude.example.com"},
 			},
 		},
+		configStore:    &recordingConfigStore{},
 		configFilePath: writeTestConfigFile(t),
 	}
 
@@ -123,6 +126,7 @@ func TestDeleteVertexCompatKey_DeletesOnlyMatchingBaseURL(t *testing.T) {
 				{APIKey: "shared-key", BaseURL: "https://b.example.com"},
 			},
 		},
+		configStore:    &recordingConfigStore{},
 		configFilePath: writeTestConfigFile(t),
 	}
 
@@ -154,6 +158,7 @@ func TestDeleteCodexKey_RequiresBaseURLWhenAPIKeyDuplicated(t *testing.T) {
 				{APIKey: "shared-key", BaseURL: "https://b.example.com"},
 			},
 		},
+		configStore:    &recordingConfigStore{},
 		configFilePath: writeTestConfigFile(t),
 	}
 

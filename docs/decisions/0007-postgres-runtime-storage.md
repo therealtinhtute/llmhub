@@ -16,20 +16,18 @@ Postgres is the only durable runtime owner once bootstrap finishes.
 
 ## Decision
 
-When `PGSTORE_DSN` is set, llmhub uses Postgres as the only durable runtime
-store for config, auth, and recent usage queue records. The service seeds DB
-config and auth rows from local files only on first boot when the corresponding
-DB tables are empty. After seeding, DB rows win. Startup fails clearly when the
-DB connection fails, and the server does not fall back to local durable
-runtime stores.
+LLMHub now uses Postgres as the only supported durable runtime store for
+config, auth, and recent usage queue records. Initial config is seeded through
+env-driven bootstrap commands such as `llmhub init-db-from-env`, and optional
+legacy migration happens through an explicit one-time import command. After the
+DB has config, rows in Postgres always win. Startup fails clearly when the DB
+connection fails, when the DB has not been initialized yet, or when operators
+try to use removed local runtime backends.
 
 In this mode, llmhub disables durable local server logging and request archive
 logging instead of introducing new Postgres log tables. Stdout/stderr remains
-the operational log surface. Synthetic Postgres config/auth paths remain labels
-for compatibility only; they are not authoritative durable mirrors.
-
-Local file mode remains unchanged when `PGSTORE_DSN` is unset. `HOME_JWT` mode
-is a separate runtime path and is not changed by this decision.
+the operational log surface. Local file mode, git/object runtime backends, and
+`HOME_JWT` runtime mode are removed from normal server startup.
 
 ## Alternatives Considered
 

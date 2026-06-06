@@ -38,7 +38,7 @@ For production, install the latest GitHub Release binary and set up a systemd se
 curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/scripts/install.sh | sudo sh
 ```
 
-This downloads the binary, creates the `llmhub` system user, seeds `/etc/llmhub/config.yaml`, and starts the service. Edit the config to add your provider accounts, then restart: `sudo systemctl restart llmhub`.
+This downloads the binary, creates the `llmhub` system user, prompts for Postgres plus initial config env, seeds the remote database once, and starts the service.
 
 Point your AI coding tool at `http://SERVER_IP:8317/v1`. The management panel is at `http://SERVER_IP:8317/management.html` (configure `remote-management.secret-key` and `remote-management.allow-remote` before exposing beyond localhost).
 
@@ -86,7 +86,6 @@ Recommended same-directory layout:
 llmhub-install/
   install-local.sh
   llmhub
-  config.example.yaml
   .env
 ```
 
@@ -128,20 +127,30 @@ The one-line installer does this automatically. If installing manually, create t
 
 ```bash
 sudo useradd --system --home /var/lib/llmhub --shell /usr/sbin/nologin llmhub
-sudo mkdir -p /etc/llmhub /var/lib/llmhub/auths /var/log/llmhub
+sudo mkdir -p /etc/llmhub /var/lib/llmhub /var/log/llmhub
 sudo chown -R llmhub:llmhub /var/lib/llmhub /var/log/llmhub
-sudo chmod 750 /var/lib/llmhub /var/lib/llmhub/auths
+sudo chmod 750 /var/lib/llmhub
 ```
 
-Download and install the config:
+Create the bootstrap env file:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/config.example.yaml \
-  -o /tmp/config.example.yaml
-sudo install -m 0640 -o root -g llmhub /tmp/config.example.yaml /etc/llmhub/config.yaml
+sudo tee /etc/llmhub/llmhub.env >/dev/null <<'EOF'
+LLMHUB_HOST=0.0.0.0
+LLMHUB_PORT=8317
+PGSTORE_DSN='postgres://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require'
+PGSTORE_SCHEMA='llmhub'
+PGSTORE_USAGE_RETENTION_SECONDS='60'
+LLMHUB_INIT_CONFIG_B64='<base64 of initial YAML config>'
+EOF
 ```
 
-Edit `/etc/llmhub/config.yaml` to set `auth-dir: "/var/lib/llmhub/auths"` and configure providers.
+Seed the database once:
+
+```bash
+sudo -u llmhub env $(grep -v '^#' /etc/llmhub/llmhub.env | xargs) \
+  /usr/local/bin/llmhub init-db-from-env -env-file /etc/llmhub/llmhub.env
+```
 
 Install the systemd unit:
 
@@ -156,8 +165,11 @@ Wants=network-online.target
 Type=simple
 User=llmhub
 Group=llmhub
-WorkingDirectory=/etc/llmhub
-ExecStart=/usr/local/bin/llmhub -config /etc/llmhub/config.yaml
+WorkingDirectory=/var/lib/llmhub
+Environment=HOME=/var/lib/llmhub
+EnvironmentFile=-/etc/llmhub/llmhub.env
+ExecStartPre=/usr/local/bin/llmhub init-db-from-env -env-file /etc/llmhub/llmhub.env
+ExecStart=/usr/local/bin/llmhub
 Restart=on-failure
 RestartSec=5s
 
@@ -178,22 +190,23 @@ For local development, build from source with Go 1.21+ and Bun:
 
 ```bash
 make build
-./llmhub -config config.yaml
+./llmhub init-db-from-env -env-file .env
+./llmhub
 ```
 
-Use `make dev` for local file-backed development. It intentionally skips `.env`
-storage settings such as `PGSTORE_DSN`. Use `make dev-pg` when you want the dev
-server to load `.env` and run against Postgres.
+Use `make dev-pg` when you want the dev server to load `.env`, seed Postgres,
+and run against the DB-backed runtime.
 
-See `config.example.yaml` for the full configuration reference.
+The initial runtime config is supplied through `LLMHUB_INIT_CONFIG_YAML` or
+`LLMHUB_INIT_CONFIG_B64`, then stored in Postgres. Runtime reads and writes
+config only from the database after that.
 
 ## Postgres Durable Runtime
 
-By default, llmhub keeps using the local `config.yaml` and auth JSON files under
-`auth-dir`. Set `PGSTORE_DSN` to make Postgres the runtime source of truth for
-cliproxy config, OAuth/auth records, and the recent management usage queue.
-This contract applies only to normal server runtime. `HOME_JWT` mode stays on
-its separate home-controlled path.
+LLMHub runtime is now Postgres-only. Provide `PGSTORE_DSN` plus one of
+`LLMHUB_INIT_CONFIG_YAML` or `LLMHUB_INIT_CONFIG_B64` for the initial seed, and
+Postgres becomes the source of truth for cliproxy config, OAuth/auth records,
+and the recent management usage queue.
 
 Example Supabase-style configuration:
 
@@ -201,22 +214,21 @@ Example Supabase-style configuration:
 export PGSTORE_DSN='postgres://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require'
 export PGSTORE_SCHEMA='llmhub'
 export PGSTORE_USAGE_RETENTION_SECONDS='60'
-llmhub -config /etc/llmhub/config.yaml
+export LLMHUB_INIT_CONFIG_B64="$(printf '%s\n' 'host: 0.0.0.0' 'port: 8317' | base64 | tr -d '\n')"
+llmhub init-db-from-env
+llmhub
 ```
 
 Boot behavior:
 
-- Without `PGSTORE_DSN`, local file mode is unchanged.
-- With `PGSTORE_DSN`, startup requires a working DB connection and does not
-  silently fall back to local durable runtime stores.
-- If the DB has config, llmhub loads config from Postgres.
-- If the DB has no config, llmhub imports the local `-config` path, or
-  `config.yaml`, and saves it to Postgres.
-- On that same first boot, if the auth table is empty, existing local auth JSON
-  files from the configured `auth-dir` are imported once.
-- After first import, DB rows win. Local files are bootstrap-only and are not
-  watched as the Postgres runtime source.
-- In Postgres mode, llmhub does not keep durable local server logs or request
+- Startup requires a working Postgres connection and does not fall back to any
+  local durable runtime store.
+- `init-db-from-env` creates schema/tables if needed and seeds config only when
+  the config row is still empty.
+- Runtime fails fast when the DB has no config yet; run `llmhub init-db-from-env`
+  or `llmhub migrate-local-to-db` first.
+- Management edits and OAuth/auth writes persist directly to Postgres.
+- Runtime does not keep durable local auth files, config files, or request
   archive files. Operational logs stay on stdout/stderr.
 
 Operational notes:

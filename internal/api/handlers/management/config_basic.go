@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -119,65 +118,27 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_yaml", "message": err.Error()})
 		return
 	}
-	if h.configStore != nil {
-		newCfg, errParse := config.ParseConfigBytes(body)
-		if errParse != nil {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": errParse.Error()})
-			return
-		}
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		if _, errSave := h.configStore.SaveConfig(c.Request.Context(), body); errSave != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errSave.Error()})
-			return
-		}
-		h.cfg = newCfg
-		if h.configChangeHook != nil {
-			h.configChangeHook(newCfg)
-		}
-		c.JSON(http.StatusOK, gin.H{"ok": true, "changed": []string{"config"}})
+	if h.configStore == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": "management config store is not configured"})
 		return
 	}
-	// Validate config using LoadConfigOptional with optional=false to enforce parsing
-	tmpDir := filepath.Dir(h.configFilePath)
-	tmpFile, err := os.CreateTemp(tmpDir, "config-validate-*.yaml")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": err.Error()})
-		return
-	}
-	tempFile := tmpFile.Name()
-	if _, errWrite := tmpFile.Write(body); errWrite != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tempFile)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errWrite.Error()})
-		return
-	}
-	if errClose := tmpFile.Close(); errClose != nil {
-		_ = os.Remove(tempFile)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errClose.Error()})
-		return
-	}
-	defer func() {
-		_ = os.Remove(tempFile)
-	}()
-	_, err = config.LoadConfigOptional(tempFile, false)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": err.Error()})
+	newCfg, errParse := config.ParseConfigBytes(body)
+	if errParse != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": errParse.Error()})
 		return
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if WriteConfig(h.configFilePath, body) != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": "failed to write config"})
-		return
-	}
-	// Reload into handler to keep memory in sync
-	newCfg, err := config.LoadConfig(h.configFilePath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "reload_failed", "message": err.Error()})
+	if _, errSave := h.configStore.SaveConfig(c.Request.Context(), body); errSave != nil {
+		h.mu.Unlock()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errSave.Error()})
 		return
 	}
 	h.cfg = newCfg
+	hook := h.configChangeHook
+	h.mu.Unlock()
+	if hook != nil {
+		hook(newCfg)
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "changed": []string{"config"}})
 }
 
@@ -188,11 +149,11 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 		data []byte
 		err  error
 	)
-	if h.configStore != nil {
-		data, err = h.configStore.LoadConfigBytes(c.Request.Context())
-	} else {
-		data, err = os.ReadFile(h.configFilePath)
+	if h.configStore == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": "management config store is not configured"})
+		return
 	}
+	data, err = h.configStore.LoadConfigBytes(c.Request.Context())
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "config file not found"})

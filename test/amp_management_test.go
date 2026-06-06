@@ -2,6 +2,7 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,15 +15,26 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/config"
 )
 
+type ampRecordingConfigStore struct {
+	data []byte
+}
+
+func (s *ampRecordingConfigStore) LoadConfigBytes(context.Context) ([]byte, error) {
+	return append([]byte(nil), s.data...), nil
+}
+
+func (s *ampRecordingConfigStore) SaveConfig(_ context.Context, data []byte) (int64, error) {
+	s.data = append([]byte(nil), data...)
+	return 1, nil
+}
+
 func init() {
 	gin.SetMode(gin.TestMode)
 }
 
 // newAmpTestHandler creates a test handler with default ampcode configuration.
-func newAmpTestHandler(t *testing.T) (*management.Handler, string) {
+func newAmpTestHandler(t *testing.T) (*management.Handler, *ampRecordingConfigStore) {
 	t.Helper()
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	cfg := &config.Config{
 		AmpCode: config.AmpCode{
@@ -36,12 +48,10 @@ func newAmpTestHandler(t *testing.T) (*management.Handler, string) {
 		},
 	}
 
-	if err := os.WriteFile(configPath, []byte("port: 8080\n"), 0644); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
-	}
-
-	h := management.NewHandler(cfg, configPath, nil)
-	return h, configPath
+	store := &ampRecordingConfigStore{data: []byte("port: 8080\n")}
+	h := management.NewHandler(cfg, "", nil)
+	h.SetConfigStore(store)
+	return h, store
 }
 
 // setupAmpRouter creates a test router with all ampcode management endpoints.
@@ -193,7 +203,7 @@ func TestPutAmpUpstreamAPIKey(t *testing.T) {
 }
 
 func TestPutAmpUpstreamAPIKeys_PersistsAndReturns(t *testing.T) {
-	h, configPath := newAmpTestHandler(t)
+	h, store := newAmpTestHandler(t)
 	r := setupAmpRouter(h)
 
 	body := `{"value":[{"upstream-api-key":"  u1  ","api-keys":["  k1  ","","k2"]}]}`
@@ -206,10 +216,10 @@ func TestPutAmpUpstreamAPIKeys_PersistsAndReturns(t *testing.T) {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
 	}
 
-	// Verify it was persisted to disk
-	loaded, err := config.LoadConfig(configPath)
+	// Verify it was persisted to the config store
+	loaded, err := config.ParseConfigBytes(store.data)
 	if err != nil {
-		t.Fatalf("failed to load config from disk: %v", err)
+		t.Fatalf("failed to parse stored config: %v", err)
 	}
 	if len(loaded.AmpCode.UpstreamAPIKeys) != 1 {
 		t.Fatalf("expected 1 upstream-api-keys entry, got %d", len(loaded.AmpCode.UpstreamAPIKeys))

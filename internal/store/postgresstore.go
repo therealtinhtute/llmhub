@@ -41,9 +41,6 @@ type PostgresStore struct {
 	db *sql.DB
 
 	cfg        PostgresStoreConfig
-	spoolRoot  string
-	configPath string
-	authDir    string
 
 	mu sync.Mutex
 }
@@ -76,19 +73,6 @@ func NewPostgresStore(ctx context.Context, cfg PostgresStoreConfig) (*PostgresSt
 		cfg.UsageTable = defaultUsageTable
 	}
 
-	spoolRoot := strings.TrimSpace(cfg.SpoolDir)
-	if spoolRoot == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			spoolRoot = filepath.Join(cwd, "pgstore")
-		} else {
-			spoolRoot = filepath.Join(os.TempDir(), "pgstore")
-		}
-	}
-	absSpool, err := filepath.Abs(spoolRoot)
-	if err != nil {
-		return nil, fmt.Errorf("postgres store: resolve metadata directory: %w", err)
-	}
-
 	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("postgres store: open database connection: %w", err)
@@ -99,11 +83,8 @@ func NewPostgresStore(ctx context.Context, cfg PostgresStoreConfig) (*PostgresSt
 	}
 
 	return &PostgresStore{
-		db:         db,
-		cfg:        cfg,
-		spoolRoot:  absSpool,
-		configPath: filepath.Join(absSpool, "config", "config.yaml"),
-		authDir:    filepath.Join(absSpool, "auths"),
+		db:  db,
+		cfg: cfg,
 	}, nil
 }
 
@@ -197,55 +178,21 @@ func (s *PostgresStore) EnsureSchema(ctx context.Context) error {
 	return nil
 }
 
-// Bootstrap seeds empty Postgres tables from local files once. After seeding, database rows win.
-func (s *PostgresStore) Bootstrap(ctx context.Context, configPath, defaultConfigPath string) (*ConfigSnapshot, bool, error) {
-	if err := s.EnsureSchema(ctx); err != nil {
-		return nil, false, err
-	}
-	snapshot, err := s.LoadConfig(ctx)
-	if err == nil {
-		return snapshot, false, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, false, err
-	}
-
-	seedPath := firstExistingPath(configPath, defaultConfigPath)
-	if seedPath == "" {
-		return nil, false, fmt.Errorf("postgres store: no local config found to seed database")
-	}
-	data, errRead := os.ReadFile(seedPath)
-	if errRead != nil {
-		return nil, false, fmt.Errorf("postgres store: read seed config: %w", errRead)
-	}
-	version, errSave := s.SaveConfig(ctx, data)
-	if errSave != nil {
-		return nil, false, errSave
-	}
-	return &ConfigSnapshot{Content: []byte(normalizeLineEndings(string(data))), Version: version}, true, nil
-}
-
-// SeedAuthFromDirectory imports local auth JSON files only when the auth table is empty.
-func (s *PostgresStore) SeedAuthFromDirectory(ctx context.Context, authDir string) (int, error) {
+// ImportAuthFromDirectory imports auth JSON files from a legacy local directory.
+func (s *PostgresStore) ImportAuthFromDirectory(ctx context.Context, authDir string, overwrite bool) (int, int, error) {
 	authDir = strings.TrimSpace(authDir)
 	if authDir == "" {
-		return 0, nil
-	}
-	count, err := s.authRowCount(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if count > 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	entries, err := os.ReadDir(authDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return 0, nil
+			return 0, 0, nil
 		}
-		return 0, fmt.Errorf("postgres store: read seed auth dir: %w", err)
+		return 0, 0, fmt.Errorf("postgres store: read auth dir: %w", err)
 	}
 	imported := 0
+	skipped := 0
 	for _, entry := range entries {
 		if entry == nil || entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
 			continue
@@ -255,42 +202,60 @@ func (s *PostgresStore) SeedAuthFromDirectory(ctx context.Context, authDir strin
 		if errRead != nil || len(data) == 0 {
 			continue
 		}
-		if errSave := s.saveAuthPayload(ctx, entry.Name(), data, time.Now()); errSave != nil {
-			return imported, errSave
+		id := entry.Name()
+		if !overwrite {
+			exists, errExists := s.authExists(ctx, id)
+			if errExists != nil {
+				return imported, skipped, errExists
+			}
+			if exists {
+				skipped++
+				continue
+			}
+		}
+		if errSave := s.saveAuthPayload(ctx, id, data, time.Now()); errSave != nil {
+			return imported, skipped, errSave
 		}
 		imported++
 	}
-	return imported, nil
+	return imported, skipped, nil
 }
 
-// ConfigPath returns a synthetic path for components that need a non-empty label.
-func (s *PostgresStore) ConfigPath() string {
-	if s == nil {
-		return ""
+func (s *PostgresStore) authExists(ctx context.Context, id string) (bool, error) {
+	query := fmt.Sprintf("SELECT 1 FROM %s WHERE id = $1", s.fullTableName(s.cfg.AuthTable))
+	var exists int
+	if err := s.db.QueryRowContext(ctx, query, id).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("postgres store: check auth exists: %w", err)
 	}
-	return s.configPath
-}
-
-// AuthDir returns a synthetic auth directory path. It is not a runtime source in Postgres mode.
-func (s *PostgresStore) AuthDir() string {
-	if s == nil {
-		return ""
-	}
-	return s.authDir
-}
-
-// WorkDir exposes the metadata directory used for synthetic paths.
-func (s *PostgresStore) WorkDir() string {
-	if s == nil {
-		return ""
-	}
-	return s.spoolRoot
+	return true, nil
 }
 
 // PathlessAuthStore marks this backend as not requiring filesystem auth paths.
 func (s *PostgresStore) PathlessAuthStore() bool { return true }
 
 func (s *PostgresStore) SetBaseDir(string) {}
+
+// InitializeConfig saves config only when the Postgres config row is still empty.
+func (s *PostgresStore) InitializeConfig(ctx context.Context, data []byte) (bool, int64, error) {
+	if err := s.EnsureSchema(ctx); err != nil {
+		return false, 0, err
+	}
+	version, err := s.CurrentVersion(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+	if version > 0 {
+		return false, version, nil
+	}
+	version, err = s.SaveConfig(ctx, data)
+	if err != nil {
+		return false, 0, err
+	}
+	return true, version, nil
+}
 
 // LoadConfig returns the current config bytes and version.
 func (s *PostgresStore) LoadConfig(ctx context.Context) (*ConfigSnapshot, error) {

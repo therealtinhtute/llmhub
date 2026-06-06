@@ -310,36 +310,55 @@ func (h *Handler) AuthenticateManagementKey(clientIP string, localClient bool, p
 	return true, 0, ""
 }
 
-// persist saves the current in-memory config to disk.
+// persist saves the current in-memory config to the configured store and then
+// notifies the runtime after the handler mutex is released.
 func (h *Handler) persist(c *gin.Context) bool {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.persistLocked(c)
+	cfgForHook, hook, ok := h.persistLocked(c)
+	h.mu.Unlock()
+	if !ok {
+		return false
+	}
+	if hook != nil {
+		hook(cfgForHook)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	return true
 }
 
-// persistLocked saves the current in-memory config to disk.
-// It expects the caller to hold h.mu.
-func (h *Handler) persistLocked(c *gin.Context) bool {
-	if h.configStore != nil {
-		data, errMarshal := yaml.Marshal(h.cfg)
-		if errMarshal != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to encode config: %v", errMarshal)})
-			return false
-		}
-		if _, errSave := h.configStore.SaveConfig(c.Request.Context(), data); errSave != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", errSave)})
-			return false
-		}
-		if h.configChangeHook != nil {
-			h.configChangeHook(h.cfg)
-		}
-	} else {
-		// Preserve comments when writing local files.
-		if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
-			return false
-		}
+// persistLocked saves the current in-memory config to the configured store.
+// It expects the caller to hold h.mu. The returned hook must be invoked only
+// after h.mu has been released.
+func (h *Handler) persistLocked(c *gin.Context) (*config.Config, func(*config.Config), bool) {
+	if h.configStore == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "management config store is not configured"})
+		return nil, nil, false
 	}
+	data, errMarshal := yaml.Marshal(h.cfg)
+	if errMarshal != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to encode config: %v", errMarshal)})
+		return nil, nil, false
+	}
+	if _, errSave := h.configStore.SaveConfig(c.Request.Context(), data); errSave != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", errSave)})
+		return nil, nil, false
+	}
+	return h.cfg, h.configChangeHook, true
+}
+
+// persistLockedAndRespond is for callers that already hold h.mu and need the
+// config change hook to run outside the critical section.
+func (h *Handler) persistLockedAndRespond(c *gin.Context) bool {
+	cfgForHook, hook, ok := h.persistLocked(c)
+	h.mu.Unlock()
+	if !ok {
+		h.mu.Lock()
+		return false
+	}
+	if hook != nil {
+		hook(cfgForHook)
+	}
+	h.mu.Lock()
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	return true
 }

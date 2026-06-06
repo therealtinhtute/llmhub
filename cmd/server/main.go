@@ -5,37 +5,28 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
-	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
 	configaccess "github.com/therealtinhtute/llmhub/internal/access/config_access"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/cmd"
 	"github.com/therealtinhtute/llmhub/internal/config"
-	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/misc"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
-	"github.com/therealtinhtute/llmhub/internal/store"
 	_ "github.com/therealtinhtute/llmhub/internal/translator"
 	"github.com/therealtinhtute/llmhub/internal/tui"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy"
-	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 var (
@@ -58,6 +49,14 @@ func init() {
 // service based on the provided flags (login, codex-login, or server mode).
 func main() {
 	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init-db-from-env":
+			os.Exit(runInitDBFromEnv(os.Args[2:]))
+		case "migrate-local-to-db":
+			os.Exit(runMigrateLocalToDB(os.Args[2:]))
+		}
+	}
 
 	// Command-line flags to control the application's behavior.
 	var login bool
@@ -72,10 +71,7 @@ func main() {
 	var projectID string
 	var vertexImport string
 	var vertexImportPrefix string
-	var configPath string
 	var password string
-	var homeJWT string
-	var homeDisableClusterDiscovery bool
 	var tuiMode bool
 	var standalone bool
 	var localModel bool
@@ -91,12 +87,9 @@ func main() {
 	flag.BoolVar(&kimiLogin, "kimi-login", false, "Login to Kimi using OAuth")
 	flag.BoolVar(&xaiLogin, "xai-login", false, "Login to xAI using OAuth")
 	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
-	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
 	flag.StringVar(&vertexImportPrefix, "vertex-import-prefix", "", "Prefix for Vertex model namespacing (use with -vertex-import)")
 	flag.StringVar(&password, "password", "", "")
-	flag.StringVar(&homeJWT, "home-jwt", "", "Home control plane JWT for mTLS certificate bootstrap and connection")
-	flag.BoolVar(&homeDisableClusterDiscovery, "home-disable-cluster-discovery", false, "Disable Home CLUSTER NODES discovery and keep using the configured -home-jwt address")
 	flag.BoolVar(&tuiMode, "tui", false, "Start with terminal management UI")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.BoolVar(&localModel, "local-model", false, "Use embedded model catalog only, skip remote model fetching")
@@ -134,366 +127,27 @@ func main() {
 	// Core application variables.
 	var err error
 	var cfg *config.Config
-	var isCloudDeploy bool
-	var configLoadedFromHome bool
 	var (
-		usePostgresStore      bool
-		pgStoreDSN            string
-		pgStoreSchema         string
-		pgStoreLocalPath      string
+		pgStoreInst           interface{ Close() error }
 		pgStoreUsageRetention int
-		pgStoreInst           *store.PostgresStore
-		useGitStore           bool
-		gitStoreRemoteURL     string
-		gitStoreUser          string
-		gitStorePassword      string
-		gitStoreBranch        string
-		gitStoreLocalPath     string
-		gitStoreInst          *store.GitTokenStore
-		gitStoreRoot          string
-		useObjectStore        bool
-		objectStoreEndpoint   string
-		objectStoreAccess     string
-		objectStoreSecret     string
-		objectStoreBucket     string
-		objectStoreLocalPath  string
-		objectStoreInst       *store.ObjectTokenStore
+		configFilePath        = runtimeConfigLabel
 	)
-
-	wd, err := os.Getwd()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pgStore, loadedCfg, retention, err := loadRuntimeConfigFromPostgres(ctx)
 	if err != nil {
-		log.Errorf("failed to get working directory: %v", err)
+		log.Errorf("failed to load runtime config: %v", err)
 		return
 	}
-
-	// Load environment variables from .env if present.
-	if strings.TrimSpace(os.Getenv("LLMHUB_SKIP_DOTENV")) == "" {
-		if errLoad := godotenv.Load(filepath.Join(wd, ".env")); errLoad != nil {
-			if !errors.Is(errLoad, os.ErrNotExist) {
-				log.WithError(errLoad).Warn("failed to load .env file")
-			}
-		}
-	}
-
-	lookupEnv := func(keys ...string) (string, bool) {
-		for _, key := range keys {
-			if value, ok := os.LookupEnv(key); ok {
-				if trimmed := strings.TrimSpace(value); trimmed != "" {
-					return trimmed, true
-				}
-			}
-		}
-		return "", false
-	}
-	writableBase := util.WritablePath()
-
-	if strings.TrimSpace(homeJWT) == "" {
-		if v, ok := lookupEnv("HOME_JWT", "home_jwt"); ok {
-			homeJWT = v
-		}
-	}
-
-	if value, ok := lookupEnv("PGSTORE_DSN", "pgstore_dsn"); ok {
-		usePostgresStore = true
-		pgStoreDSN = value
-	}
-	if usePostgresStore {
-		if value, ok := lookupEnv("PGSTORE_SCHEMA", "pgstore_schema"); ok {
-			pgStoreSchema = value
-		}
-		if value, ok := lookupEnv("PGSTORE_LOCAL_PATH", "pgstore_local_path"); ok {
-			pgStoreLocalPath = value
-		}
-		if value, ok := lookupEnv("PGSTORE_USAGE_RETENTION_SECONDS", "pgstore_usage_retention_seconds"); ok {
-			if parsed, errParse := strconv.Atoi(value); errParse == nil {
-				pgStoreUsageRetention = parsed
-			}
-		}
-		if pgStoreLocalPath == "" {
-			if writableBase != "" {
-				pgStoreLocalPath = writableBase
-			} else {
-				pgStoreLocalPath = wd
-			}
-		}
-		useGitStore = false
-	}
-	if value, ok := lookupEnv("GITSTORE_GIT_URL", "gitstore_git_url"); ok {
-		useGitStore = true
-		gitStoreRemoteURL = value
-	}
-	if value, ok := lookupEnv("GITSTORE_GIT_USERNAME", "gitstore_git_username"); ok {
-		gitStoreUser = value
-	}
-	if value, ok := lookupEnv("GITSTORE_GIT_TOKEN", "gitstore_git_token"); ok {
-		gitStorePassword = value
-	}
-	if value, ok := lookupEnv("GITSTORE_LOCAL_PATH", "gitstore_local_path"); ok {
-		gitStoreLocalPath = value
-	}
-	if value, ok := lookupEnv("GITSTORE_GIT_BRANCH", "gitstore_git_branch"); ok {
-		gitStoreBranch = value
-	}
-	if value, ok := lookupEnv("OBJECTSTORE_ENDPOINT", "objectstore_endpoint"); ok {
-		useObjectStore = true
-		objectStoreEndpoint = value
-	}
-	if value, ok := lookupEnv("OBJECTSTORE_ACCESS_KEY", "objectstore_access_key"); ok {
-		objectStoreAccess = value
-	}
-	if value, ok := lookupEnv("OBJECTSTORE_SECRET_KEY", "objectstore_secret_key"); ok {
-		objectStoreSecret = value
-	}
-	if value, ok := lookupEnv("OBJECTSTORE_BUCKET", "objectstore_bucket"); ok {
-		objectStoreBucket = value
-	}
-	if value, ok := lookupEnv("OBJECTSTORE_LOCAL_PATH", "objectstore_local_path"); ok {
-		objectStoreLocalPath = value
-	}
-
-	// Check for cloud deploy mode only on first execution
-	// Read env var name in uppercase: DEPLOY
-	deployEnv := os.Getenv("DEPLOY")
-	if deployEnv == "cloud" {
-		isCloudDeploy = true
-	}
-
-	// Determine and load the configuration file.
-	// Prefer the Postgres store when configured, otherwise fallback to git or local files.
-	var configFilePath string
-	if strings.TrimSpace(homeJWT) != "" {
-		configLoadedFromHome = true
-		ctxHome, cancelHome := context.WithTimeout(context.Background(), 30*time.Second)
-		homeCfg, errHomeCfg := home.ConfigFromJWT(ctxHome, homeJWT)
-		cancelHome()
-		if errHomeCfg != nil {
-			log.Errorf("invalid -home-jwt: %v", errHomeCfg)
-			return
-		}
-		if homeDisableClusterDiscovery {
-			homeCfg.DisableClusterDiscovery = true
-		}
-		homeClient := home.New(homeCfg)
-		defer homeClient.Close()
-
-		ctxHomeConfig, cancelHomeConfig := context.WithTimeout(context.Background(), 30*time.Second)
-		raw, errGetConfig := homeClient.GetConfig(ctxHomeConfig)
-		cancelHomeConfig()
-		if errGetConfig != nil {
-			log.Errorf("failed to fetch config from home: %v", errGetConfig)
-			return
-		}
-
-		parsed, errParseConfig := config.ParseConfigBytes(raw)
-		if errParseConfig != nil {
-			log.Errorf("failed to parse config payload from home: %v", errParseConfig)
-			return
-		}
-		if parsed == nil {
-			parsed = &config.Config{}
-		}
-		parsed.Home = homeCfg
-		parsed.Port = 8317 // Default to 8317 for home mode, can be overridden by home config
-		parsed.UsageStatisticsEnabled = true
-		cfg = parsed
-
-		// Keep a non-empty config path for downstream components (log paths, management assets, etc),
-		// but do not require the file to exist when loading config from home.
-		if strings.TrimSpace(configPath) != "" {
-			configFilePath = configPath
-		} else {
-			configFilePath = filepath.Join(wd, "config.yaml")
-		}
-
-		// Local stores are intentionally disabled when config is loaded from home.
-		usePostgresStore = false
-		useObjectStore = false
-		useGitStore = false
-	} else if usePostgresStore {
-		if pgStoreLocalPath == "" {
-			pgStoreLocalPath = wd
-		}
-		pgStoreLocalPath = filepath.Join(pgStoreLocalPath, "pgstore")
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		pgStoreInst, err = store.NewPostgresStore(ctx, store.PostgresStoreConfig{
-			DSN:      pgStoreDSN,
-			Schema:   pgStoreSchema,
-			SpoolDir: pgStoreLocalPath,
-		})
-		cancel()
-		if err != nil {
-			log.Errorf("failed to initialize postgres token store: %v", err)
-			return
-		}
-		seedConfigPath := configPath
-		if strings.TrimSpace(seedConfigPath) == "" {
-			seedConfigPath = filepath.Join(wd, "config.yaml")
-		}
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		configSnapshot, firstBoot, errBootstrap := pgStoreInst.Bootstrap(ctx, seedConfigPath, filepath.Join(wd, "config.yaml"))
-		if errBootstrap != nil {
-			cancel()
-			log.Errorf("failed to bootstrap postgres-backed config: %v", errBootstrap)
-			return
-		}
-		cancel()
-		configFilePath = pgStoreInst.ConfigPath()
-		cfg, err = config.ParseConfigBytes(configSnapshot.Content)
-		if err == nil {
-			seedAuthDir, errResolveSeedAuthDir := util.ResolveAuthDir(cfg.AuthDir)
-			if errResolveSeedAuthDir != nil {
-				log.Errorf("failed to resolve auth directory for postgres seed: %v", errResolveSeedAuthDir)
-				return
-			}
-			if firstBoot {
-				ctxSeedAuth, cancelSeedAuth := context.WithTimeout(context.Background(), 30*time.Second)
-				imported, errSeedAuth := pgStoreInst.SeedAuthFromDirectory(ctxSeedAuth, seedAuthDir)
-				cancelSeedAuth()
-				if errSeedAuth != nil {
-					log.Errorf("failed to seed postgres auth store: %v", errSeedAuth)
-					return
-				}
-				if imported > 0 {
-					log.Infof("postgres-backed token store imported %d auth file(s)", imported)
-				}
-			}
-			cfg.AuthDir = pgStoreInst.AuthDir()
-			log.Info("postgres-backed durable runtime enabled; Postgres owns config/auth/usage after bootstrap")
-		}
-	} else if useObjectStore {
-		if objectStoreLocalPath == "" {
-			if writableBase != "" {
-				objectStoreLocalPath = writableBase
-			} else {
-				objectStoreLocalPath = wd
-			}
-		}
-		objectStoreRoot := filepath.Join(objectStoreLocalPath, "objectstore")
-		resolvedEndpoint := strings.TrimSpace(objectStoreEndpoint)
-		useSSL := true
-		if strings.Contains(resolvedEndpoint, "://") {
-			parsed, errParse := url.Parse(resolvedEndpoint)
-			if errParse != nil {
-				log.Errorf("failed to parse object store endpoint %q: %v", objectStoreEndpoint, errParse)
-				return
-			}
-			switch strings.ToLower(parsed.Scheme) {
-			case "http":
-				useSSL = false
-			case "https":
-				useSSL = true
-			default:
-				log.Errorf("unsupported object store scheme %q (only http and https are allowed)", parsed.Scheme)
-				return
-			}
-			if parsed.Host == "" {
-				log.Errorf("object store endpoint %q is missing host information", objectStoreEndpoint)
-				return
-			}
-			resolvedEndpoint = parsed.Host
-			if parsed.Path != "" && parsed.Path != "/" {
-				resolvedEndpoint = strings.TrimSuffix(parsed.Host+parsed.Path, "/")
-			}
-		}
-		resolvedEndpoint = strings.TrimRight(resolvedEndpoint, "/")
-		objCfg := store.ObjectStoreConfig{
-			Endpoint:  resolvedEndpoint,
-			Bucket:    objectStoreBucket,
-			AccessKey: objectStoreAccess,
-			SecretKey: objectStoreSecret,
-			LocalRoot: objectStoreRoot,
-			UseSSL:    useSSL,
-			PathStyle: true,
-		}
-		objectStoreInst, err = store.NewObjectTokenStore(objCfg)
-		if err != nil {
-			log.Errorf("failed to initialize object token store: %v", err)
-			return
-		}
-		examplePath := filepath.Join(wd, "config.example.yaml")
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if errBootstrap := objectStoreInst.Bootstrap(ctx, examplePath); errBootstrap != nil {
-			cancel()
-			log.Errorf("failed to bootstrap object-backed config: %v", errBootstrap)
-			return
-		}
-		cancel()
-		configFilePath = objectStoreInst.ConfigPath()
-		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
-		if err == nil {
-			if cfg == nil {
-				cfg = &config.Config{}
-			}
-			cfg.AuthDir = objectStoreInst.AuthDir()
-			log.Infof("object-backed token store enabled, bucket: %s", objectStoreBucket)
-		}
-	} else if useGitStore {
-		if gitStoreLocalPath == "" {
-			if writableBase != "" {
-				gitStoreLocalPath = writableBase
-			} else {
-				gitStoreLocalPath = wd
-			}
-		}
-		gitStoreRoot = filepath.Join(gitStoreLocalPath, "gitstore")
-		authDir := filepath.Join(gitStoreRoot, "auths")
-		gitStoreInst = store.NewGitTokenStore(gitStoreRemoteURL, gitStoreUser, gitStorePassword, gitStoreBranch)
-		gitStoreInst.SetBaseDir(authDir)
-		if errRepo := gitStoreInst.EnsureRepository(); errRepo != nil {
-			log.Errorf("failed to prepare git token store: %v", errRepo)
-			return
-		}
-		configFilePath = gitStoreInst.ConfigPath()
-		if configFilePath == "" {
-			configFilePath = filepath.Join(gitStoreRoot, "config", "config.yaml")
-		}
-		if _, statErr := os.Stat(configFilePath); errors.Is(statErr, fs.ErrNotExist) {
-			examplePath := filepath.Join(wd, "config.example.yaml")
-			if _, errExample := os.Stat(examplePath); errExample != nil {
-				log.Errorf("failed to find template config file: %v", errExample)
-				return
-			}
-			if errCopy := misc.CopyConfigTemplate(examplePath, configFilePath); errCopy != nil {
-				log.Errorf("failed to bootstrap git-backed config: %v", errCopy)
-				return
-			}
-			if errCommit := gitStoreInst.PersistConfig(context.Background()); errCommit != nil {
-				log.Errorf("failed to commit initial git-backed config: %v", errCommit)
-				return
-			}
-			log.Infof("git-backed config initialized from template: %s", configFilePath)
-		} else if statErr != nil {
-			log.Errorf("failed to inspect git-backed config: %v", statErr)
-			return
-		}
-		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
-		if err == nil {
-			cfg.AuthDir = gitStoreInst.AuthDir()
-			log.Infof("git-backed token store enabled, repository path: %s", gitStoreRoot)
-		}
-	} else if configPath != "" {
-		configFilePath = configPath
-		cfg, err = config.LoadConfigOptional(configPath, isCloudDeploy)
-	} else {
-		wd, err = os.Getwd()
-		if err != nil {
-			log.Errorf("failed to get working directory: %v", err)
-			return
-		}
-		configFilePath = filepath.Join(wd, "config.yaml")
-		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
-	}
-	if err != nil {
-		log.Errorf("failed to load config: %v", err)
-		return
-	}
-	if cfg == nil {
-		cfg = &config.Config{}
-	}
-	if value, ok := lookupEnv("LLMHUB_HOST", "llmhub_host"); ok {
+	defer pgStore.Close()
+	pgStoreInst = pgStore
+	_ = pgStoreInst
+	cfg = loadedCfg
+	pgStoreUsageRetention = retention
+	if value, ok := lookupEnvTrimmed("LLMHUB_HOST", "llmhub_host"); ok {
 		cfg.Host = value
 	}
-	if value, ok := lookupEnv("LLMHUB_PORT", "llmhub_port"); ok {
+	if value, ok := lookupEnvTrimmed("LLMHUB_PORT", "llmhub_port"); ok {
 		port, errParse := strconv.Atoi(value)
 		if errParse != nil || port <= 0 || port > 65535 {
 			log.Errorf("invalid LLMHUB_PORT: %q", value)
@@ -502,42 +156,13 @@ func main() {
 		cfg.Port = port
 	}
 
-	// In cloud deploy mode, check if we have a valid configuration
-	var configFileExists bool
-	if isCloudDeploy {
-		if configLoadedFromHome && cfg != nil {
-			configFileExists = cfg.Port != 0
-		} else {
-			if info, errStat := os.Stat(configFilePath); errStat != nil {
-				// Don't mislead: API server will not start until configuration is provided.
-				log.Info("Cloud deploy mode: No configuration file detected; standing by for configuration")
-				configFileExists = false
-			} else if info.IsDir() {
-				log.Info("Cloud deploy mode: Config path is a directory; standing by for configuration")
-				configFileExists = false
-			} else if cfg.Port == 0 {
-				// LoadConfigOptional returns empty config when file is empty or invalid.
-				// Config file exists but is empty or invalid; treat as missing config
-				log.Info("Cloud deploy mode: Configuration file is empty or invalid; standing by for valid configuration")
-				configFileExists = false
-			} else {
-				log.Info("Cloud deploy mode: Configuration file detected; starting service")
-				configFileExists = true
-			}
-		}
-	}
 	redisqueue.SetUsageStatisticsEnabled(cfg.UsageStatisticsEnabled)
-	if usePostgresStore && pgStoreUsageRetention > 0 {
+	if pgStoreUsageRetention > 0 {
 		cfg.RedisUsageQueueRetentionSeconds = pgStoreUsageRetention
 	}
 	redisqueue.SetRetentionSeconds(cfg.RedisUsageQueueRetentionSeconds)
-	if usePostgresStore {
-		redisqueue.SetUsageStore(pgStoreInst)
-	} else {
-		redisqueue.SetUsageStore(nil)
-	}
-	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
-	runtimeStoragePolicy := runtimepolicy.RuntimeStorage{PostgresDurable: usePostgresStore}
+	redisqueue.SetUsageStore(pgStore)
+	runtimeStoragePolicy := runtimepolicy.RuntimeStorage{PostgresDurable: true}
 
 	if err = logging.ConfigureLogOutputWithPolicy(cfg, runtimeStoragePolicy); err != nil {
 		log.Errorf("failed to configure log output: %v", err)
@@ -551,29 +176,14 @@ func main() {
 
 	// Set the log level based on the configuration.
 	util.SetLogLevel(cfg)
-
-	if resolvedAuthDir, errResolveAuthDir := util.ResolveAuthDir(cfg.AuthDir); errResolveAuthDir != nil {
-		log.Errorf("failed to resolve auth directory: %v", errResolveAuthDir)
-		return
-	} else {
-		cfg.AuthDir = resolvedAuthDir
-	}
 	// Create login options to be used in authentication flows.
 	options := &cmd.LoginOptions{
 		NoBrowser:    noBrowser,
 		CallbackPort: oauthCallbackPort,
 	}
 
-	// Register the shared token store once so all components use the same persistence backend.
-	if usePostgresStore {
-		sdkAuth.RegisterTokenStore(pgStoreInst)
-	} else if useObjectStore {
-		sdkAuth.RegisterTokenStore(objectStoreInst)
-	} else if useGitStore {
-		sdkAuth.RegisterTokenStore(gitStoreInst)
-	} else {
-		sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())
-	}
+	// Register the shared Postgres token store once so all components use DB persistence.
+	sdkAuth.RegisterTokenStore(pgStore)
 
 	// Register built-in access providers before constructing services.
 	configaccess.Register(&cfg.SDKConfig)
@@ -603,12 +213,6 @@ func main() {
 	} else if xaiLogin {
 		cmd.DoXAILogin(cfg, options)
 	} else {
-		// In cloud deploy mode without config file, just wait for shutdown signals
-		if isCloudDeploy && !configFileExists {
-			// No config file available, just wait for shutdown
-			cmd.WaitForCloudDeploy()
-			return
-		}
 		if localModel && (!tuiMode || standalone) {
 			log.Info("Local model mode: using embedded model catalog, remote model updates disabled")
 		}
@@ -616,10 +220,8 @@ func main() {
 			if standalone {
 				// Standalone mode: start an embedded local server and connect TUI client to it.
 				misc.StartAntigravityVersionUpdater(context.Background())
-				if !localModel && !cfg.Home.Enabled {
+				if !localModel {
 					registry.StartModelsUpdater(context.Background())
-				} else if cfg.Home.Enabled {
-					log.Info("Home mode: remote model updates disabled")
 				}
 				hook := tui.NewLogHook(2000)
 				hook.SetFormatter(&logging.LogFormatter{})
@@ -650,47 +252,11 @@ func main() {
 					password = localMgmtPassword
 				}
 
-				if usePostgresStore {
-					cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
-						builder.WithManagementConfigStore(pgStoreInst).
-							WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst)).
-							WithRuntimeStoragePolicy(runtimeStoragePolicy)
-					})
-					client := tui.NewClient(cfg.Port, password)
-					ready := false
-					backoff := 100 * time.Millisecond
-					for i := 0; i < 30; i++ {
-						if _, errGetConfig := client.GetConfig(); errGetConfig == nil {
-							ready = true
-							break
-						}
-						time.Sleep(backoff)
-						if backoff < time.Second {
-							backoff = time.Duration(float64(backoff) * 1.5)
-						}
-					}
-
-					if !ready {
-						restoreIO()
-						cancel()
-						<-done
-						fmt.Fprintf(os.Stderr, "TUI error: embedded server is not ready\n")
-						return
-					}
-
-					if errRun := tui.Run(cfg.Port, password, hook, origStdout); errRun != nil {
-						restoreIO()
-						fmt.Fprintf(os.Stderr, "TUI error: %v\n", errRun)
-					} else {
-						restoreIO()
-					}
-
-					cancel()
-					<-done
-					return
-				}
-
-				cancel, done := cmd.StartServiceBackground(cfg, configFilePath, password)
+				cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
+					builder.WithManagementConfigStore(pgStore).
+						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
+						WithRuntimeStoragePolicy(runtimeStoragePolicy)
+				})
 
 				client := tui.NewClient(cfg.Port, password)
 				ready := false
@@ -733,20 +299,14 @@ func main() {
 		} else {
 			// Start the main proxy service
 			misc.StartAntigravityVersionUpdater(context.Background())
-			if !localModel && !cfg.Home.Enabled {
+			if !localModel {
 				registry.StartModelsUpdater(context.Background())
-			} else if cfg.Home.Enabled {
-				log.Info("Home mode: remote model updates disabled")
 			}
-			if usePostgresStore {
-				cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
-					builder.WithManagementConfigStore(pgStoreInst).
-						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStoreInst)).
-						WithRuntimeStoragePolicy(runtimeStoragePolicy)
-				})
-			} else {
-				cmd.StartService(cfg, configFilePath, password)
-			}
+			cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
+				builder.WithManagementConfigStore(pgStore).
+					WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
+					WithRuntimeStoragePolicy(runtimeStoragePolicy)
+			})
 		}
 	}
 }

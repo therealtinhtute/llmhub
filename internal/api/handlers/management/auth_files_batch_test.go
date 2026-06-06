@@ -2,13 +2,12 @@ package management
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -21,8 +20,10 @@ func TestUploadAuthFile_BatchMultipart(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	authDir := t.TempDir()
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = store
 
 	files := []struct {
 		name    string
@@ -67,20 +68,14 @@ func TestUploadAuthFile_BatchMultipart(t *testing.T) {
 		t.Fatalf("expected uploaded=%d, got %#v", len(files), payload["uploaded"])
 	}
 
-	for _, file := range files {
-		fullPath := filepath.Join(authDir, file.name)
-		data, err := os.ReadFile(fullPath)
-		if err != nil {
-			t.Fatalf("expected uploaded file %s to exist: %v", file.name, err)
-		}
-		if string(data) != file.content {
-			t.Fatalf("expected file %s content %q, got %q", file.name, file.content, string(data))
-		}
-	}
-
 	auths := manager.List()
 	if len(auths) != len(files) {
 		t.Fatalf("expected %d auth entries, got %d", len(files), len(auths))
+	}
+	for _, file := range files {
+		if _, ok := store.items[file.name]; !ok {
+			t.Fatalf("expected uploaded auth %s in pathless store", file.name)
+		}
 	}
 }
 
@@ -89,8 +84,10 @@ func TestUploadAuthFile_Kiro9RouterJSONNormalizes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	authDir := t.TempDir()
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = store
 	body := `{
 		"provider":"kiro",
 		"authType":"oauth",
@@ -112,9 +109,9 @@ func TestUploadAuthFile_Kiro9RouterJSONNormalizes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected upload status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
 	}
-	raw, err := os.ReadFile(filepath.Join(authDir, "kiro.json"))
+	raw, err := store.LoadAuthContent(context.Background(), "kiro.json")
 	if err != nil {
-		t.Fatalf("read uploaded file: %v", err)
+		t.Fatalf("read uploaded auth: %v", err)
 	}
 	var meta map[string]any
 	if err := json.Unmarshal(raw, &meta); err != nil {
@@ -140,13 +137,22 @@ func TestUploadAuthFile_BatchMultipart_InvalidJSONDoesNotOverwriteExistingFile(t
 	gin.SetMode(gin.TestMode)
 
 	authDir := t.TempDir()
-	manager := coreauth.NewManager(nil, nil, nil)
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = store
 
 	existingName := "alpha.json"
-	existingContent := `{"type":"codex","email":"alpha@example.com"}`
-	if err := os.WriteFile(filepath.Join(authDir, existingName), []byte(existingContent), 0o600); err != nil {
-		t.Fatalf("failed to seed existing auth file: %v", err)
+	if _, err := manager.Register(context.Background(), &coreauth.Auth{
+		ID:       existingName,
+		FileName: existingName,
+		Provider: "codex",
+		Metadata: map[string]any{
+			"type":  "codex",
+			"email": "alpha@example.com",
+		},
+	}); err != nil {
+		t.Fatalf("failed to seed existing auth: %v", err)
 	}
 
 	files := []struct {
@@ -184,20 +190,20 @@ func TestUploadAuthFile_BatchMultipart_InvalidJSONDoesNotOverwriteExistingFile(t
 		t.Fatalf("expected upload status %d, got %d with body %s", http.StatusMultiStatus, rec.Code, rec.Body.String())
 	}
 
-	data, err := os.ReadFile(filepath.Join(authDir, existingName))
+	data, err := store.LoadAuthContent(context.Background(), existingName)
 	if err != nil {
-		t.Fatalf("expected existing auth file to remain readable: %v", err)
+		t.Fatalf("expected existing auth to remain readable: %v", err)
 	}
-	if string(data) != existingContent {
-		t.Fatalf("expected existing auth file to remain %q, got %q", existingContent, string(data))
+	if !bytes.Contains(data, []byte(`"alpha@example.com"`)) {
+		t.Fatalf("expected existing auth to remain alpha@example.com, got %q", string(data))
 	}
 
-	betaData, err := os.ReadFile(filepath.Join(authDir, "beta.json"))
+	betaData, err := store.LoadAuthContent(context.Background(), "beta.json")
 	if err != nil {
-		t.Fatalf("expected valid auth file to be created: %v", err)
+		t.Fatalf("expected valid auth to be created: %v", err)
 	}
-	if string(betaData) != files[1].content {
-		t.Fatalf("expected beta auth file content %q, got %q", files[1].content, string(betaData))
+	if !bytes.Contains(betaData, []byte(`"beta@example.com"`)) {
+		t.Fatalf("expected beta auth to contain beta@example.com, got %q", string(betaData))
 	}
 }
 
@@ -207,15 +213,20 @@ func TestDeleteAuthFile_BatchQuery(t *testing.T) {
 
 	authDir := t.TempDir()
 	files := []string{"alpha.json", "beta.json"}
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = store
 	for _, name := range files {
-		if err := os.WriteFile(filepath.Join(authDir, name), []byte(`{"type":"codex"}`), 0o600); err != nil {
-			t.Fatalf("failed to write auth file %s: %v", name, err)
+		if _, err := manager.Register(context.Background(), &coreauth.Auth{
+			ID:       name,
+			FileName: name,
+			Provider: "codex",
+			Metadata: map[string]any{"type": "codex"},
+		}); err != nil {
+			t.Fatalf("failed to seed auth %s: %v", name, err)
 		}
 	}
-
-	manager := coreauth.NewManager(nil, nil, nil)
-	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
-	h.tokenStore = &memoryAuthStore{}
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
@@ -241,8 +252,8 @@ func TestDeleteAuthFile_BatchQuery(t *testing.T) {
 	}
 
 	for _, name := range files {
-		if _, err := os.Stat(filepath.Join(authDir, name)); !os.IsNotExist(err) {
-			t.Fatalf("expected auth file %s to be removed, stat err: %v", name, err)
+		if _, ok := store.items[name]; ok {
+			t.Fatalf("expected auth %s to be removed from pathless store", name)
 		}
 	}
 }

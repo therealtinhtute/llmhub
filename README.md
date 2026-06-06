@@ -61,6 +61,13 @@ sudo CADDY_DOMAIN=llm.example.com ./install-local.sh
 sudo ./install-local.sh /path/to/llmhub-linux-amd64
 ```
 
+The generated `systemd` unit is VPS-oriented by default: it uses
+`Restart=always`, waits `3s` between restart attempts, and disables the default
+start-rate lockout with `StartLimitIntervalSec=0` so `llmhub` keeps coming back
+after repeated crashes until you fix the underlying issue. Override these at
+install time with `SERVICE_RESTART=...`, `SERVICE_RESTART_SEC=...`, or
+`SERVICE_START_LIMIT_INTERVAL=...` if you want a different policy.
+
 If you provide a domain, the installer configures Caddy as a reverse proxy to
 the local `llmhub` port and prints HTTPS endpoints. Point the domain's DNS A
 record at the VPS first or immediately after install; TLS becomes live once DNS
@@ -71,6 +78,9 @@ For Postgres-backed runtime storage, the installer can prompt for
 `PGSTORE_USAGE_RETENTION_SECONDS` during the run, or you can put them in the
 same `.env` file ahead of time. The installer keeps runtime metadata under
 `/var/lib/llmhub/pgstore` by setting `WRITABLE_PATH=/var/lib/llmhub`.
+`LLMHUB_INIT_CONFIG_B64` or `LLMHUB_INIT_CONFIG_YAML` is needed only for the
+first seed of an empty Postgres runtime; rerunning the installer against an
+already-seeded VPS can skip the YAML paste step.
 
 Example `.env`:
 
@@ -160,6 +170,7 @@ sudo tee /etc/systemd/system/llmhub.service >/dev/null <<'EOF'
 Description=LLMHub proxy server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -170,8 +181,8 @@ Environment=HOME=/var/lib/llmhub
 EnvironmentFile=-/etc/llmhub/llmhub.env
 ExecStartPre=/usr/local/bin/llmhub init-db-from-env -env-file /etc/llmhub/llmhub.env
 ExecStart=/usr/local/bin/llmhub
-Restart=on-failure
-RestartSec=5s
+Restart=always
+RestartSec=3s
 
 [Install]
 WantedBy=multi-user.target

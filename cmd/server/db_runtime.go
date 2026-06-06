@@ -91,6 +91,13 @@ func loadInitConfigBytesFromEnv() ([]byte, error) {
 	return nil, fmt.Errorf("missing LLMHUB_INIT_CONFIG_YAML or LLMHUB_INIT_CONFIG_B64")
 }
 
+func loadInitConfigBytesForVersion(version int64) ([]byte, error) {
+	if version > 0 {
+		return nil, nil
+	}
+	return loadInitConfigBytesFromEnv()
+}
+
 func runInitDBFromEnv(args []string) int {
 	flags := flag.NewFlagSet("init-db-from-env", flag.ContinueOnError)
 	envFile := flags.String("env-file", "", "Optional env file to load before reading init variables")
@@ -101,11 +108,6 @@ func runInitDBFromEnv(args []string) int {
 		log.Errorf("failed to load env file: %v", err)
 		return 1
 	}
-	configBytes, err := loadInitConfigBytesFromEnv()
-	if err != nil {
-		log.Errorf("failed to load init config from env: %v", err)
-		return 1
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pgStore, _, err := loadPostgresStoreFromEnv(ctx)
@@ -114,6 +116,24 @@ func runInitDBFromEnv(args []string) int {
 		return 1
 	}
 	defer pgStore.Close()
+	if err := pgStore.EnsureSchema(ctx); err != nil {
+		log.Errorf("failed to ensure postgres schema: %v", err)
+		return 1
+	}
+	version, err := pgStore.CurrentVersion(ctx)
+	if err != nil {
+		log.Errorf("failed to inspect postgres config version: %v", err)
+		return 1
+	}
+	configBytes, err := loadInitConfigBytesForVersion(version)
+	if err != nil {
+		log.Errorf("failed to load init config from env: %v", err)
+		return 1
+	}
+	if version > 0 {
+		log.Infof("postgres config already initialized; current version remains %d", version)
+		return 0
+	}
 	seeded, version, err := pgStore.InitializeConfig(ctx, configBytes)
 	if err != nil {
 		log.Errorf("failed to initialize postgres config: %v", err)

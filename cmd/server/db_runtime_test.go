@@ -33,6 +33,26 @@ func TestLoadInitConfigBytesFromEnvBase64TakesPriority(t *testing.T) {
 	}
 }
 
+func TestLoadInitConfigBytesForVersionSkipsWhenAlreadySeeded(t *testing.T) {
+	data, err := loadInitConfigBytesForVersion(3)
+	if err != nil {
+		t.Fatalf("loadInitConfigBytesForVersion() error = %v", err)
+	}
+	if data != nil {
+		t.Fatalf("loadInitConfigBytesForVersion() data = %q, want nil", string(data))
+	}
+}
+
+func TestLoadInitConfigBytesForVersionRequiresEnvWhenEmpty(t *testing.T) {
+	t.Setenv("LLMHUB_INIT_CONFIG_B64", "")
+	t.Setenv("LLMHUB_INIT_CONFIG_YAML", "")
+
+	_, err := loadInitConfigBytesForVersion(0)
+	if err == nil || !strings.Contains(err.Error(), "missing LLMHUB_INIT_CONFIG") {
+		t.Fatalf("loadInitConfigBytesForVersion() error = %v, want missing init config", err)
+	}
+}
+
 func TestLegacyRuntimeModeErrorRejectsLegacyEnv(t *testing.T) {
 	t.Setenv("HOME_JWT", "legacy-home")
 

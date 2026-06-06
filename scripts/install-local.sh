@@ -19,6 +19,9 @@ ENV_FILE="${ENV_FILE:-${CONFIG_DIR}/llmhub.env}"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 CADDY_DOMAIN="${CADDY_DOMAIN:-}"
 CADDYFILE_PATH="${CADDYFILE_PATH:-/etc/caddy/Caddyfile}"
+SERVICE_RESTART="${SERVICE_RESTART:-always}"
+SERVICE_RESTART_SEC="${SERVICE_RESTART_SEC:-3s}"
+SERVICE_START_LIMIT_INTERVAL="${SERVICE_START_LIMIT_INTERVAL:-0}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 
 find_local_env_file() {
@@ -153,16 +156,20 @@ prompt_init_config() {
     fi
     echo ""
     echo "Paste initial LLMHub config YAML for database bootstrap."
+    echo "Press Enter on an empty first line to skip when Postgres is already initialized."
     echo "Finish with a line containing only END."
     tmp_yaml="$(mktemp)"
     while IFS= read -r line; do
+        if [ -z "$line" ] && [ ! -s "$tmp_yaml" ]; then
+            rm -f "$tmp_yaml"
+            return 0
+        fi
         [ "$line" = "END" ] && break
         printf '%s\n' "$line" >>"$tmp_yaml"
     done
     if [ ! -s "$tmp_yaml" ]; then
         rm -f "$tmp_yaml"
-        echo "error: initial config YAML cannot be empty" >&2
-        exit 1
+        return 0
     fi
     PROMPTED_INIT_CONFIG_B64="$(base64 <"$tmp_yaml" | tr -d '\n')"
     rm -f "$tmp_yaml"
@@ -170,17 +177,18 @@ prompt_init_config() {
 
 ensure_env_runtime() {
     env_file="$1"
-    pg_dsn="${PGSTORE_DSN:-${PROMPTED_PGSTORE_DSN:-}}"
-    pg_schema="${PGSTORE_SCHEMA:-${PROMPTED_PGSTORE_SCHEMA:-llmhub}}"
-    pg_retention="${PGSTORE_USAGE_RETENTION_SECONDS:-${PROMPTED_PGSTORE_USAGE_RETENTION_SECONDS:-60}}"
-    init_b64="${LLMHUB_INIT_CONFIG_B64:-${PROMPTED_INIT_CONFIG_B64:-}}"
-    init_yaml="${LLMHUB_INIT_CONFIG_YAML:-}"
+    current_dsn="$(read_env_value "$env_file" PGSTORE_DSN 2>/dev/null || true)"
+    current_schema="$(read_env_value "$env_file" PGSTORE_SCHEMA 2>/dev/null || true)"
+    current_retention="$(read_env_value "$env_file" PGSTORE_USAGE_RETENTION_SECONDS 2>/dev/null || true)"
+    current_b64="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_B64 2>/dev/null || true)"
+    current_yaml="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_YAML 2>/dev/null || true)"
+    pg_dsn="${PGSTORE_DSN:-${PROMPTED_PGSTORE_DSN:-$current_dsn}}"
+    pg_schema="${PGSTORE_SCHEMA:-${PROMPTED_PGSTORE_SCHEMA:-${current_schema:-llmhub}}}"
+    pg_retention="${PGSTORE_USAGE_RETENTION_SECONDS:-${PROMPTED_PGSTORE_USAGE_RETENTION_SECONDS:-${current_retention:-60}}}"
+    init_b64="${LLMHUB_INIT_CONFIG_B64:-${PROMPTED_INIT_CONFIG_B64:-$current_b64}}"
+    init_yaml="${LLMHUB_INIT_CONFIG_YAML:-$current_yaml}"
     if [ -z "$pg_dsn" ]; then
         echo "error: PGSTORE_DSN is required" >&2
-        exit 1
-    fi
-    if [ -z "$init_b64" ] && [ -z "$init_yaml" ]; then
-        echo "error: missing LLMHUB_INIT_CONFIG_B64/LLMHUB_INIT_CONFIG_YAML for first boot" >&2
         exit 1
     fi
 
@@ -404,6 +412,7 @@ cat >"$UNIT_FILE" <<UNIT
 Description=LLMHub proxy server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=${SERVICE_START_LIMIT_INTERVAL}
 
 [Service]
 Type=simple
@@ -414,8 +423,8 @@ Environment=HOME=${DATA_DIR}
 EnvironmentFile=-${ENV_FILE}
 ExecStartPre=${INSTALL_DIR}/${BINARY} init-db-from-env -env-file ${ENV_FILE}
 ExecStart=${INSTALL_DIR}/${BINARY}
-Restart=on-failure
-RestartSec=5s
+Restart=${SERVICE_RESTART}
+RestartSec=${SERVICE_RESTART_SEC}
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

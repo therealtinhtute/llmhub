@@ -191,20 +191,16 @@ func TestBuildKiroPayloadFromOpenAI_MergesAdjacentUserHistoryTurns(t *testing.T)
 	}
 	state := got["conversationState"].(map[string]any)
 	history := state["history"].([]any)
-	if len(history) != 4 {
-		t.Fatalf("history len = %d, want 4 after merge", len(history))
+	if len(history) != 2 {
+		t.Fatalf("history len = %d, want 2 after flattening completed tool turn", len(history))
 	}
-	mergedUser := history[2].(map[string]any)["userInputMessage"].(map[string]any)
-	if got := mergedUser["content"]; got != "file body\n\nFollow-up after tool" {
-		t.Fatalf("merged user content = %#v, want merged tool/user text", got)
+	mergedUser := history[0].(map[string]any)["userInputMessage"].(map[string]any)
+	content := mergedUser["content"].(string)
+	if !strings.Contains(content, "Tool results:") || !strings.Contains(content, "[read_file] file body") {
+		t.Fatalf("merged user content = %q, want flattened narrated tool results", content)
 	}
-	ctx := mergedUser["userInputMessageContext"].(map[string]any)
-	toolResults := ctx["toolResults"].([]any)
-	if len(toolResults) != 1 {
-		t.Fatalf("toolResults len = %d, want 1", len(toolResults))
-	}
-	if got := toolResults[0].(map[string]any)["toolUseId"]; got != "call_1" {
-		t.Fatalf("toolUseId = %#v, want call_1", got)
+	if _, ok := mergedUser["userInputMessageContext"]; ok {
+		t.Fatalf("merged user context = %#v, want historical tool results flattened", mergedUser["userInputMessageContext"])
 	}
 	current := state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
 	if got := current["content"].(string); !strings.Contains(got, "Final user turn") {
@@ -312,6 +308,93 @@ func TestBuildKiroRequest_ClaudeSourceDropsCurrentImages(t *testing.T) {
 	current := got["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
 	if _, ok := current["images"]; ok {
 		t.Fatalf("images = %#v, want images omitted on Kiro path", current["images"])
+	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_StripsHistoricalStructuredToolTurns(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":"First question"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"edit_file","arguments":"{\"path\":\"a.txt\"}"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":"edited 1"},
+			{"role":"user","content":"Continue 1"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_2","type":"function","function":{"name":"edit_file","arguments":"{\"path\":\"b.txt\"}"}}]},
+			{"role":"tool","tool_call_id":"call_2","content":"edited 2"}
+		]
+	}`)
+
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	state := got["conversationState"].(map[string]any)
+	history := state["history"].([]any)
+	if len(history) != 2 {
+		t.Fatalf("history len = %d, want 2 after stripping completed tool turn", len(history))
+	}
+	firstUser := history[0].(map[string]any)["userInputMessage"].(map[string]any)
+	content := firstUser["content"].(string)
+	if !strings.Contains(content, "Tool results:") {
+		t.Fatalf("history user content = %q, want narrated tool results", content)
+	}
+	if !strings.Contains(content, "[edit_file] edited 1") {
+		t.Fatalf("history user content = %q, want tool attribution", content)
+	}
+	if _, ok := firstUser["userInputMessageContext"]; ok {
+		t.Fatalf("history user context = %#v, want historical tool results flattened", firstUser["userInputMessageContext"])
+	}
+	lastAssistant := history[1].(map[string]any)["assistantResponseMessage"].(map[string]any)
+	if len(lastAssistant["toolUses"].([]any)) != 1 {
+		t.Fatalf("active assistant toolUses = %#v, want one active tool turn", lastAssistant["toolUses"])
+	}
+	current := state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	ctx := current["userInputMessageContext"].(map[string]any)
+	if len(ctx["toolResults"].([]any)) != 1 {
+		t.Fatalf("current toolResults = %#v, want active current tool result preserved", ctx["toolResults"])
+	}
+	if got := ctx["toolResults"].([]any)[0].(map[string]any)["toolUseId"]; got != "call_2" {
+		t.Fatalf("current toolUseId = %#v, want call_2", got)
+	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_FlattensOrphanCurrentToolResults(t *testing.T) {
+	payload := []byte(`{
+		"model":"claude-sonnet-4.5",
+		"messages":[
+			{"role":"user","content":"First question"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"edit_file","arguments":"{\"path\":\"a.txt\"}"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":"edited 1"},
+			{"role":"assistant","content":"Done with that tool"},
+			{"role":"tool","tool_call_id":"call_1","content":"edited 1 retry"}
+		]
+	}`)
+
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	state := got["conversationState"].(map[string]any)
+	current := state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	content := current["content"].(string)
+	if !strings.Contains(content, "Tool results:") {
+		t.Fatalf("current content = %q, want orphan tool result flattened into content", content)
+	}
+	if !strings.Contains(content, "[edit_file] edited 1 retry") {
+		t.Fatalf("current content = %q, want flattened tool attribution", content)
+	}
+	if ctx, ok := current["userInputMessageContext"].(map[string]any); ok {
+		if _, hasResults := ctx["toolResults"]; hasResults {
+			t.Fatalf("current toolResults = %#v, want orphan tool result removed from structured context", ctx["toolResults"])
+		}
 	}
 }
 

@@ -22,6 +22,11 @@ Planned changes:
   placeholders
 - synthesize minimal tool declarations from assistant `tool_calls` when the
   current request omits `tools`
+- strip completed historical structured tool turns from Kiro history, narrate
+  their results into user content, and keep only the active final assistant
+  tool turn paired with the current request
+- flatten orphan current `tool_result` payloads into message text instead of
+  sending unmatched structured `toolResults` upstream
 
 ## Boundaries
 

@@ -34,6 +34,7 @@ const (
 	kiroDefaultContextLength  = 200000
 	kiroDefaultMaxOutputToken = 64000
 	kiroToolNameMaxLength     = 64
+	kiroToolResultsPrefix     = "Tool results:"
 )
 
 type KiroExecutor struct {
@@ -477,6 +478,16 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 	current := unified[len(unified)-1]
 	history := unified[:len(unified)-1]
 	history = mergeAdjacentKiroUserHistory(history)
+	historyToolNames := kiroToolCallNameMap(history)
+	currentToolResultIDs := collectKiroToolResultIDs(current.ToolResults)
+	keepCurrentToolResults := currentKiroToolResultsMatchLastAssistant(history, currentToolResultIDs)
+	if keepCurrentToolResults {
+		history = sanitizeKiroHistory(history, currentToolResultIDs)
+	} else {
+		history = sanitizeKiroHistory(history, nil)
+		current.Content = flattenKiroToolResultsIntoContent(current.Content, current.ToolResults, historyToolNames)
+		current.ToolResults = nil
+	}
 	currentContent := textContent(current.Content)
 	if systemPrompt != "" && len(history) == 0 {
 		currentContent = strings.TrimSpace(systemPrompt + "\n\n" + currentContent)
@@ -836,6 +847,197 @@ func openAIToolCallsToKiro(calls []map[string]any) []any {
 		})
 	}
 	return out
+}
+
+func collectKiroToolResultIDs(results []kiroToolResult) map[string]struct{} {
+	if len(results) == 0 {
+		return nil
+	}
+	ids := make(map[string]struct{}, len(results))
+	for _, result := range results {
+		id := strings.TrimSpace(result.ToolUseID)
+		if id == "" {
+			continue
+		}
+		ids[id] = struct{}{}
+	}
+	return ids
+}
+
+func currentKiroToolResultsMatchLastAssistant(history []kiroMessage, currentToolResultIDs map[string]struct{}) bool {
+	if len(currentToolResultIDs) == 0 || len(history) == 0 {
+		return false
+	}
+	last := history[len(history)-1]
+	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
+		return false
+	}
+	for _, call := range last.ToolCalls {
+		callID := strings.TrimSpace(stringFromMap(call, "id"))
+		if callID == "" {
+			return false
+		}
+		if _, ok := currentToolResultIDs[callID]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func kiroToolCallNameMap(messages []kiroMessage) map[string]string {
+	names := make(map[string]string)
+	for _, msg := range messages {
+		for _, call := range msg.ToolCalls {
+			callID := strings.TrimSpace(stringFromMap(call, "id"))
+			if callID == "" {
+				continue
+			}
+			fn, _ := call["function"].(map[string]any)
+			name := strings.TrimSpace(stringFromMap(fn, "name"))
+			if name == "" {
+				continue
+			}
+			names[callID] = name
+		}
+	}
+	return names
+}
+
+func narrateKiroToolResults(results []kiroToolResult, toolNames map[string]string) string {
+	if len(results) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(results))
+	for _, result := range results {
+		body := strings.TrimSpace(textContent(result.Content))
+		if body == "" {
+			body = "(no output)"
+		}
+		toolName := strings.TrimSpace(toolNames[strings.TrimSpace(result.ToolUseID)])
+		if toolName != "" {
+			parts = append(parts, fmt.Sprintf("[%s] %s", toolName, body))
+			continue
+		}
+		parts = append(parts, body)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return kiroToolResultsPrefix + "\n\n" + strings.Join(parts, "\n\n")
+}
+
+func joinKiroContent(existing any, extra string) any {
+	existingText := strings.TrimSpace(textContent(existing))
+	extra = strings.TrimSpace(extra)
+	switch {
+	case existingText != "" && extra != "":
+		return existingText + "\n\n" + extra
+	case extra != "":
+		return extra
+	default:
+		return existingText
+	}
+}
+
+func flattenKiroToolResultsIntoContent(existing any, results []kiroToolResult, toolNames map[string]string) any {
+	narrated := strings.TrimSpace(narrateKiroToolResults(results, toolNames))
+	existingText := strings.TrimSpace(textContent(existing))
+	if narrated == "" {
+		return existingText
+	}
+	if existingText == "" {
+		return narrated
+	}
+	plain := strings.TrimSpace(plainKiroToolResultText(results))
+	remainder := existingText
+	if plain != "" {
+		switch {
+		case remainder == plain:
+			remainder = ""
+		case strings.HasPrefix(remainder, plain+"\n\n"):
+			remainder = strings.TrimSpace(strings.TrimPrefix(remainder, plain+"\n\n"))
+		}
+	}
+	switch {
+	case remainder != "":
+		return narrated + "\n\n" + remainder
+	default:
+		return narrated
+	}
+}
+
+func plainKiroToolResultText(results []kiroToolResult) string {
+	parts := make([]string, 0, len(results))
+	for _, result := range results {
+		body := strings.TrimSpace(textContent(result.Content))
+		if body == "" {
+			continue
+		}
+		parts = append(parts, body)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func sanitizeKiroHistory(messages []kiroMessage, currentToolResultIDs map[string]struct{}) []kiroMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	toolNames := kiroToolCallNameMap(messages)
+	activeIdx := -1
+	if len(currentToolResultIDs) > 0 {
+		last := messages[len(messages)-1]
+		if last.Role == "assistant" && len(last.ToolCalls) > 0 {
+			allCovered := true
+			for _, call := range last.ToolCalls {
+				callID := strings.TrimSpace(stringFromMap(call, "id"))
+				if callID == "" {
+					allCovered = false
+					break
+				}
+				if _, ok := currentToolResultIDs[callID]; !ok {
+					allCovered = false
+					break
+				}
+			}
+			if allCovered {
+				activeIdx = len(messages) - 1
+			}
+		}
+	}
+
+	sanitized := make([]kiroMessage, 0, len(messages))
+	for idx, msg := range messages {
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 && idx != activeIdx {
+			msg.ToolCalls = nil
+		}
+		if msg.Role == "user" && len(msg.ToolResults) > 0 {
+			msg.Content = flattenKiroToolResultsIntoContent(msg.Content, msg.ToolResults, toolNames)
+			msg.ToolResults = nil
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) == 0 && strings.TrimSpace(textContent(msg.Content)) == "" {
+			continue
+		}
+		if msg.Role == "user" && strings.TrimSpace(textContent(msg.Content)) == "" && len(msg.Images) == 0 {
+			msg.Content = "(empty placeholder)"
+		}
+		sanitized = append(sanitized, msg)
+	}
+	sanitized = mergeAdjacentKiroUserHistory(sanitized)
+	return trimLeadingKiroAssistantHistory(sanitized)
+}
+
+func trimLeadingKiroAssistantHistory(messages []kiroMessage) []kiroMessage {
+	start := 0
+	for start < len(messages) && messages[start].Role == "assistant" {
+		start++
+	}
+	if start == 0 {
+		return messages
+	}
+	if start >= len(messages) {
+		return nil
+	}
+	return messages[start:]
 }
 
 func ensureKiroUserFirst(messages []kiroMessage) []kiroMessage {

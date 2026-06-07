@@ -23,12 +23,15 @@ env GOCACHE=/private/tmp/llmhub-gocache go test ./internal/runtime/executor ./sd
 env GOCACHE=/private/tmp/llmhub-gocache go test ./...
 make build
 env GOCACHE=/private/tmp/llmhub-gocache go run /private/tmp/llmhub-kiro-mock/main.go
-env -i PATH=$PATH HOME=$HOME LLMHUB_SKIP_DOTENV=1 ./llmhub -config /private/tmp/llmhub-kiro-config.yaml
+./llmhub init-db-from-env -env-file /private/tmp/llmhub-kiro.env
+set -a; . /private/tmp/llmhub-kiro.env; set +a; ./llmhub
 bash /private/tmp/llmhub-verify-many.sh
 ```
 
 ## Acceptance Evidence
 
+- `env GOCACHE=/private/tmp/llmhub-gocache go test ./internal/runtime/executor -run 'TestBuildKiroPayloadFromOpenAI_(StripsHistoricalStructuredToolTurns|FlattensOrphanCurrentToolResults|MergesAdjacentUserHistoryTurns|SynthesizesToolsFromHistory)|TestBuildKiroRequest_ClaudeSourceSynthesizesToolsFromHistory'` passed on 2026-06-07.
+- `env GOCACHE=/private/tmp/llmhub-gocache go test ./internal/runtime/executor` passed on 2026-06-07 after hardening the Kiro history sanitizer for completed and orphaned tool-result turns.
 - `env GOCACHE=/private/tmp/llmhub-gocache go test ./internal/runtime/executor` passed on 2026-06-04.
 - `env GOCACHE=/private/tmp/llmhub-gocache go test ./internal/runtime/executor ./sdk/cliproxy ./internal/registry` passed on 2026-06-04.
 - `env GOCACHE=/private/tmp/llmhub-gocache go test ./...` passed on 2026-06-04.

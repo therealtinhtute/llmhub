@@ -41,6 +41,11 @@ dev: embed
 	LLMHUB_SKIP_DOTENV=1 PGSTORE_DSN= pgstore_dsn= PGSTORE_SCHEMA= pgstore_schema= PGSTORE_LOCAL_PATH= pgstore_local_path= PGSTORE_USAGE_RETENTION_SECONDS= pgstore_usage_retention_seconds= go run ./cmd/server/
 
 dev-pg: embed
+	@test -f .env || { echo ".env is required for make dev-pg" >&2; exit 1; }
+	go run ./cmd/server/ init-db-from-env -env-file .env
+	@set -a; \
+	. ./.env; \
+	set +a; \
 	go run ./cmd/server/
 
 release-check:

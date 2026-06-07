@@ -10,9 +10,9 @@ normal
 
 ## Product Contract
 
-`scripts/install-local.sh` supports local VPS installs when `install-local.sh`,
-`llmhub`, and optionally `config.example.yaml` and `.env` are copied into the
-same directory and run from there. The local installer keeps port `9090` as its
+`scripts/install-local.sh` supports local VPS installs when
+`install-local.sh`, `llmhub`, and optionally `.env` are copied into the same
+directory and run from there. The local installer keeps port `9090` as its
 default while preserving existing environment overrides such as `DEFAULT_PORT`.
 
 ## Relevant Product Docs

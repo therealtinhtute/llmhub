@@ -37,8 +37,6 @@ RUN mkdir /LLMHub
 
 COPY --from=builder ./app/LLMHub /LLMHub/LLMHub
 
-COPY config.example.yaml /LLMHub/config.example.yaml
-
 WORKDIR /LLMHub
 
 EXPOSE 8317

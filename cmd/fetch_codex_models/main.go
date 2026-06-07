@@ -8,8 +8,7 @@
 //
 // Flags:
 //
-//	--auths-dir       <path>  Directory containing auth JSON files (default: config auth-dir)
-//	--config          <path>  Config file path                 (default: "config.yaml")
+//	--auths-dir       <path>  Directory containing auth JSON files (default: ~/.llmhub)
 //	--output          <path>  Output JSON file path             (default: "codex_models.json")
 //	--client-version <ver>   Codex client_version query value  (default: "0.133.0")
 //	--pretty                 Pretty-print the output JSON      (default: true)
@@ -29,14 +28,13 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	codexauth "github.com/therealtinhtute/llmhub/internal/auth/codex"
-	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkauth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -55,23 +53,15 @@ func init() {
 
 func main() {
 	var authsDir string
-	var configPath string
 	var outputPath string
 	var clientVersion string
 	var pretty bool
 
-	flag.StringVar(&authsDir, "auths-dir", "", "Directory containing auth JSON files (overrides config auth-dir)")
-	flag.StringVar(&configPath, "config", "", "Configure File Path")
+	flag.StringVar(&authsDir, "auths-dir", "", "Directory containing auth JSON files")
 	flag.StringVar(&outputPath, "output", "codex_models.json", "Output JSON file path")
 	flag.StringVar(&clientVersion, "client-version", defaultClientVersion, "Codex client_version query value")
 	flag.BoolVar(&pretty, "pretty", true, "Pretty-print the output JSON")
 	flag.Parse()
-	authsDirOverridden := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "auths-dir" {
-			authsDirOverridden = true
-		}
-	})
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -79,21 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if strings.TrimSpace(configPath) == "" {
-		configPath = filepath.Join(wd, "config.yaml")
-	}
-	cfg, err := config.LoadConfigOptional(configPath, false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to load config file %s: %v\n", configPath, err)
-		os.Exit(1)
-	}
-	if cfg == nil {
-		cfg = &config.Config{}
-	}
-
-	if !authsDirOverridden {
-		authsDir = cfg.AuthDir
-	} else if strings.TrimSpace(authsDir) != "" && !strings.HasPrefix(strings.TrimSpace(authsDir), "~") && !filepath.IsAbs(authsDir) {
+	if strings.TrimSpace(authsDir) != "" && !strings.HasPrefix(strings.TrimSpace(authsDir), "~") && !filepath.IsAbs(authsDir) {
 		authsDir = filepath.Join(wd, authsDir)
 	}
 	if authsDir, err = util.ResolveAuthDir(authsDir); err != nil {

@@ -66,16 +66,17 @@ Every provider pair has three transform functions keyed in the `sdk/translator` 
 
 Translators live under `internal/translator/<provider>/` and are registered via `init()` (blank-imported in `cmd/server/main.go` via `_ "github.com/therealtinhtute/llmhub/internal/translator"`).
 
-### Config and token storage
+### Config and runtime storage
 
-Default config file: `config.yaml` in working directory (see `config.example.yaml` for reference).
+Normal server startup is Postgres-only. Bootstrap the first runtime snapshot
+with `llmhub init-db-from-env` using `PGSTORE_DSN` plus
+`LLMHUB_INIT_CONFIG_YAML` or `LLMHUB_INIT_CONFIG_B64`, then run `llmhub`
+without a local `config.yaml`.
 
-Token store priority (set via env vars):
-1. `HOME_JWT` — Home control plane (cloud/managed mode)
-2. `PGSTORE_DSN` — Postgres
-3. `OBJECTSTORE_ENDPOINT` — S3-compatible object store
-4. `GITSTORE_GIT_URL` — Git-backed store
-5. File store (default) — `~/.llmhub/`
+At runtime, `llmhub` loads config from Postgres and only applies
+`LLMHUB_HOST` / `LLMHUB_PORT` as process-level overrides. The management API
+still exposes `/v0/management/config.yaml`, but that YAML is stored in
+Postgres rather than the working directory.
 
 ### Provider routing
 

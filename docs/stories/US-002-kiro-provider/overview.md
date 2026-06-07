@@ -22,7 +22,7 @@ routes OpenAI-shaped chat completion requests through AWS CodeWhisperer
 
 ## Affected Product Docs
 
-- `config.example.yaml`
+- `README.md`
 
 ## Non-Goals
 

@@ -43,14 +43,34 @@ file or auth store record shape.
 
 Operators can upload existing auth import files through the current auth-file
 route. The management auth-file and quota pages show Kiro runtime quota and
-cooldown state from llmhub auth records. Kiro does not expose a provider quota
-endpoint in this slice, so the UI labels provider quota as unavailable instead
-of showing invented limits or reset windows.
+cooldown state from llmhub auth records.
+
+Kiro provider quota is fetched per auth account through `getUsageLimits` and
+stored as normalized runtime metadata under `kiro_quota`. The management
+auth-file list exposes this normalized snapshot, and the quota UI renders
+provider quota, trial, overage, and runtime cooldown state together.
+
+The quota fetch path follows the current 9router endpoint fallback sequence:
+CodeWhisperer `GET /getUsageLimits`, CodeWhisperer JSON-RPC-style `POST` with
+`AmazonCodeWhispererService.GetUsageLimits`, then Q `GET /getUsageLimits`.
+The normalized state keeps scalar `current/limit/remaining/percent` fields for
+routing compatibility and a `quotas` collection for all provider quota rows.
+
+When persisted Kiro provider quota is exhausted, routing skips that auth until
+the provider reset time is reached. This is a transient runtime block, not a
+permanent disable. The existing 429/402/403 cooldown path remains the fallback
+when provider quota is missing or stale.
+
+Kiro stream `metricsEvent`, `contextUsageEvent`, and `meteringEvent` are parsed
+for runtime usage accounting. Per-auth request/token stats are stored in auth
+metadata as `kiro_usage_stats` and shown below provider quota in the quota UI.
 
 ## Observability
 
 Executor requests and responses use the existing upstream request/response
-recording helpers. Token refresh failures surface as provider errors.
+recording helpers. Token refresh failures surface as provider errors. Kiro
+quota refresh errors are shown as quota metadata/status text and do not mark the
+auth permanently disabled.
 
 ## Alternatives Considered
 

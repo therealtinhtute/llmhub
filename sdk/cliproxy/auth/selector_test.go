@@ -124,6 +124,37 @@ func TestFillFirstSelectorPick_PriorityFallbackCooldown(t *testing.T) {
 	}
 }
 
+func TestFillFirstSelectorPick_SkipsExhaustedKiroProviderQuota(t *testing.T) {
+	t.Parallel()
+
+	selector := &FillFirstSelector{}
+	nextReset := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	exhausted := &Auth{
+		ID:       "kiro-exhausted",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"kiro_quota": map[string]any{
+				"provider_quota_available": true,
+				"current":                  100,
+				"limit":                    100,
+				"next_reset_at":            nextReset,
+			},
+		},
+	}
+	ready := &Auth{ID: "kiro-ready", Provider: "kiro"}
+
+	got, err := selector.Pick(context.Background(), "kiro", "claude-sonnet-4.5", cliproxyexecutor.Options{}, []*Auth{exhausted, ready})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Pick() auth = nil")
+	}
+	if got.ID != "kiro-ready" {
+		t.Fatalf("Pick() auth.ID = %q, want kiro-ready", got.ID)
+	}
+}
+
 func TestRoundRobinSelectorPick_Concurrent(t *testing.T) {
 	selector := &RoundRobinSelector{}
 	auths := []*Auth{

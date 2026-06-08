@@ -324,6 +324,64 @@ export interface KiroRuntimeModelQuotaState {
   quota: KiroRuntimeQuotaState;
 }
 
+export interface KiroProviderQuotaState {
+  providerQuotaAvailable: boolean;
+  message?: string;
+  plan?: string;
+  quotas?: KiroProviderQuotaRow[];
+  current?: number | null;
+  limit?: number | null;
+  percent?: number | null;
+  remaining?: number | null;
+  nextResetAt?: string;
+  subscriptionType?: string;
+  subscriptionTitle?: string;
+  trialCurrent?: number | null;
+  trialLimit?: number | null;
+  trialPercent?: number | null;
+  trialStatus?: string;
+  trialExpiresAt?: string;
+  overageStatus?: string;
+  overageCap?: number | null;
+  overageRate?: number | null;
+  currentOverages?: number | null;
+  checkedAt?: string;
+}
+
+export interface KiroProviderQuotaRow {
+  id: string;
+  resourceType?: string;
+  name: string;
+  current?: number | null;
+  limit?: number | null;
+  used?: number | null;
+  total?: number | null;
+  remaining?: number | null;
+  percent?: number | null;
+  remainingPercent?: number | null;
+  resetAt?: string;
+  unlimited?: boolean;
+  freeTrial?: boolean;
+  trialStatus?: string;
+  subscriptionTitle?: string;
+  subscriptionType?: string;
+  overageStatus?: string;
+  overageCap?: number | null;
+  overageRate?: number | null;
+  currentOverages?: number | null;
+}
+
+export interface KiroRuntimeUsageStats {
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedTokens: number;
+  lastModel?: string;
+  lastUsedAt?: string;
+  updatedAt?: string;
+}
+
 export interface KiroQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error' | 'runtime-only';
   runtimeStatus: KiroRuntimeStatus;
@@ -332,7 +390,9 @@ export interface KiroQuotaState {
   disabled: boolean;
   quota: KiroRuntimeQuotaState;
   modelStates: KiroRuntimeModelQuotaState[];
-  providerQuotaAvailable: false;
+  providerQuotaAvailable: boolean;
+  providerQuota?: KiroProviderQuotaState | null;
+  runtimeUsageStats?: KiroRuntimeUsageStats | null;
   error?: string;
   errorStatus?: number;
 }

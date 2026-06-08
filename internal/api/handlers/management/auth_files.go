@@ -33,6 +33,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	"github.com/therealtinhtute/llmhub/internal/misc"
 	"github.com/therealtinhtute/llmhub/internal/registry"
+	runtimeexecutor "github.com/therealtinhtute/llmhub/internal/runtime/executor"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -314,6 +315,131 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
 	c.JSON(200, gin.H{"models": result})
 }
 
+// RefreshKiroQuota fetches and persists the normalized Kiro provider quota for one auth.
+func (h *Handler) RefreshKiroQuota(c *gin.Context) {
+	if h == nil || h.authManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+		return
+	}
+
+	var req struct {
+		Name      string `json:"name"`
+		ID        string `json:"id"`
+		AuthIndex string `json:"auth_index"`
+	}
+	if c.Request.Body != nil {
+		decoder := json.NewDecoder(c.Request.Body)
+		decoder.UseNumber()
+		if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+	}
+	if req.Name == "" {
+		req.Name = c.Query("name")
+	}
+	if req.ID == "" {
+		req.ID = c.Query("id")
+	}
+	if req.AuthIndex == "" {
+		req.AuthIndex = c.Query("auth_index")
+	}
+
+	auth := h.findKiroAuthForQuota(req.Name, req.ID, req.AuthIndex)
+	if auth == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "kiro auth file not found"})
+		return
+	}
+
+	exec := runtimeexecutor.NewKiroExecutor(h.cfg)
+	quota, refreshedAuth, err := exec.FetchQuota(c.Request.Context(), auth)
+	if refreshedAuth != nil {
+		auth = refreshedAuth
+	}
+	if err != nil {
+		h.applyKiroQuotaRefreshError(c.Request.Context(), auth, err)
+		c.JSON(statusCodeFromManagementError(err), gin.H{"error": err.Error()})
+		return
+	}
+
+	updated := runtimeexecutor.ApplyKiroQuotaToAuth(auth, quota, time.Now().UTC())
+	if _, errUpdate := h.authManager.Update(c.Request.Context(), updated); errUpdate != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to persist kiro quota: %v", errUpdate)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"quota": quota})
+}
+
+func (h *Handler) findKiroAuthForQuota(name, id, authIndex string) *coreauth.Auth {
+	if h == nil || h.authManager == nil {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	id = strings.TrimSpace(id)
+	authIndex = strings.TrimSpace(authIndex)
+	if id != "" {
+		if auth, ok := h.authManager.GetByID(id); ok && auth != nil && strings.EqualFold(strings.TrimSpace(auth.Provider), kiroauth.Provider) {
+			return auth
+		}
+	}
+	auths := h.authManager.List()
+	for _, auth := range auths {
+		if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), kiroauth.Provider) {
+			continue
+		}
+		auth.EnsureIndex()
+		switch {
+		case name != "" && (strings.TrimSpace(auth.FileName) == name || strings.TrimSpace(auth.ID) == name):
+			return auth
+		case name != "" && filepath.Base(strings.TrimSpace(authAttribute(auth, "path"))) == name:
+			return auth
+		case authIndex != "" && strings.TrimSpace(auth.Index) == authIndex:
+			return auth
+		}
+	}
+	return nil
+}
+
+func (h *Handler) applyKiroQuotaRefreshError(ctx context.Context, auth *coreauth.Auth, err error) {
+	if h == nil || h.authManager == nil || auth == nil || err == nil {
+		return
+	}
+	status := statusCodeFromManagementError(err)
+	if status != http.StatusTooManyRequests && status != http.StatusPaymentRequired && status != http.StatusForbidden {
+		return
+	}
+	updated := auth.Clone()
+	if updated.Metadata == nil {
+		updated.Metadata = make(map[string]any)
+	}
+	now := time.Now().UTC()
+	quota, ok := runtimeexecutor.KiroQuotaFromAuth(updated)
+	if !ok {
+		quota = runtimeexecutor.KiroQuotaState{}
+	}
+	quota.Message = err.Error()
+	quota.CheckedAt = now
+	updated.Metadata["kiro_quota"] = quota
+	updated.UpdatedAt = time.Now().UTC()
+	updated.StatusMessage = err.Error()
+	_, _ = h.authManager.Update(ctx, updated)
+}
+
+func statusCodeFromManagementError(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	var statusProvider interface{ StatusCode() int }
+	if errors.As(err, &statusProvider) {
+		status := statusProvider.StatusCode()
+		if status >= 100 && status <= 599 {
+			return status
+		}
+	}
+	return http.StatusInternalServerError
+}
+
 // List auth files from disk when the auth manager is unavailable.
 func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 	entries, err := os.ReadDir(h.cfg.AuthDir)
@@ -415,6 +541,16 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	}
 	if len(auth.ModelStates) > 0 {
 		entry["model_states"] = auth.ModelStates
+	}
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), kiroauth.Provider) {
+		if quota, ok := runtimeexecutor.KiroQuotaFromAuth(auth); ok {
+			entry["kiro_quota"] = quota
+		}
+		if auth.Metadata != nil {
+			if stats, ok := auth.Metadata["kiro_usage_stats"]; ok && stats != nil {
+				entry["kiro_usage_stats"] = stats
+			}
+		}
 	}
 	if pathless {
 		entry["source"] = "postgres"

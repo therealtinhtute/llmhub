@@ -102,7 +102,7 @@ export function SystemPage() {
   const versionTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const otherLabel = useMemo(
-    () => (i18n.language?.toLowerCase().startsWith('zh') ? '其他' : 'Other'),
+    () => (i18n.language?.toLowerCase().startsWith('vi') ? 'Khác' : 'Other'),
     [i18n.language]
   );
   const groupedModels = useMemo(() => classifyModels(models, { otherLabel }), [models, otherLabel]);

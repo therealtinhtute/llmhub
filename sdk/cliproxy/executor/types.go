@@ -75,6 +75,8 @@ type Response struct {
 type StreamChunk struct {
 	// Payload is the raw provider chunk payload.
 	Payload []byte
+	// Metadata exposes optional structured data for runtime accounting.
+	Metadata map[string]any
 	// Err reports any terminal error encountered while producing chunks.
 	Err error
 }

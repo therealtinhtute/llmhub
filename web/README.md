@@ -97,12 +97,10 @@ Check the LLMHub server documentation/config comments for the full authenticatio
 
 ## Internationalization
 
-Currently supports four languages:
+Currently supports two languages:
 
 - English (en)
-- Simplified Chinese (zh-CN)
-- Traditional Chinese (zh-TW)
-- Russian (ru)
+- Vietnamese (vi)
 
 The UI language is automatically detected from browser settings and can be manually switched from the login page or header language menu.
 

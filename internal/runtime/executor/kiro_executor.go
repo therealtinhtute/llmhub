@@ -24,6 +24,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/util"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	coreusage "github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 )
 
@@ -35,6 +36,8 @@ const (
 	kiroDefaultMaxOutputToken = 64000
 	kiroToolNameMaxLength     = 64
 	kiroToolResultsPrefix     = "Tool results:"
+	kiroUsageDetailMetadata   = "kiro_usage_detail"
+	kiroUsageEstimatedMeta    = "kiro_usage_estimated"
 )
 
 type KiroExecutor struct {
@@ -195,20 +198,24 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	if err != nil {
 		return resp, err
 	}
+	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
 	body = applyKiroProfileARN(body, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
 	if err != nil {
+		reporter.PublishFailure(ctx, err)
 		return resp, err
 	}
 	if httpResp.StatusCode == http.StatusUnauthorized {
 		_ = httpResp.Body.Close()
 		refreshed, errRefresh := e.Refresh(ctx, auth)
 		if errRefresh != nil {
+			reporter.PublishFailure(ctx, errRefresh)
 			return resp, errRefresh
 		}
 		auth = refreshed
 		httpResp, err = e.doKiroRequest(ctx, auth, body)
 		if err != nil {
+			reporter.PublishFailure(ctx, err)
 			return resp, err
 		}
 	}
@@ -219,17 +226,31 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		data, _ := io.ReadAll(httpResp.Body)
-		return resp, statusErr{code: httpResp.StatusCode, msg: string(data)}
+		err = statusErr{code: httpResp.StatusCode, msg: string(data)}
+		reporter.PublishFailure(ctx, err)
+		return resp, err
 	}
 	data, err := io.ReadAll(httpResp.Body)
 	if err != nil {
+		reporter.PublishFailure(ctx, err)
 		return resp, err
 	}
 	events := newKiroEventParser().Feed(data)
-	openaiPayload := kiroEventsToOpenAINonStream(req.Model, events)
+	detail, hasUsage, estimated := kiroUsageFromEvents(events)
+	if hasUsage {
+		reporter.Publish(ctx, detail)
+	} else {
+		reporter.EnsurePublished(ctx)
+	}
+	openaiPayload := kiroEventsToOpenAINonStream(req.Model, events, detail, hasUsage)
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, sdktranslator.FromString("openai"), from, req.Model, originalOpenAI, body, openaiPayload, &param)
-	return cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}, nil
+	metadata := map[string]any{}
+	if hasUsage {
+		metadata[kiroUsageDetailMetadata] = kiroUsageDetailMap(detail)
+		metadata[kiroUsageEstimatedMeta] = estimated
+	}
+	return cliproxyexecutor.Response{Payload: out, Metadata: metadata, Headers: httpResp.Header.Clone()}, nil
 }
 
 func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
@@ -237,27 +258,33 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	if err != nil {
 		return nil, err
 	}
+	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
 	body = applyKiroProfileARN(body, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
 	if err != nil {
+		reporter.PublishFailure(ctx, err)
 		return nil, err
 	}
 	if httpResp.StatusCode == http.StatusUnauthorized {
 		_ = httpResp.Body.Close()
 		refreshed, errRefresh := e.Refresh(ctx, auth)
 		if errRefresh != nil {
+			reporter.PublishFailure(ctx, errRefresh)
 			return nil, errRefresh
 		}
 		auth = refreshed
 		httpResp, err = e.doKiroRequest(ctx, auth, body)
 		if err != nil {
+			reporter.PublishFailure(ctx, err)
 			return nil, err
 		}
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		data, _ := io.ReadAll(httpResp.Body)
 		_ = httpResp.Body.Close()
-		return nil, statusErr{code: httpResp.StatusCode, msg: string(data)}
+		err = statusErr{code: httpResp.StatusCode, msg: string(data)}
+		reporter.PublishFailure(ctx, err)
+		return nil, err
 	}
 
 	headers := httpResp.Header.Clone()
@@ -274,11 +301,13 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		first := true
 		toolIndexes := map[string]int{}
 		nextToolIndex := 0
+		usageAcc := newKiroUsageAccumulator()
 		for {
 			n, readErr := httpResp.Body.Read(buf)
 			if n > 0 {
 				events := parser.Feed(buf[:n])
 				for _, event := range events {
+					usageAcc.Observe(event)
 					var chunks [][]byte
 					switch event.Type {
 					case "content":
@@ -317,8 +346,28 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 			}
 			if readErr != nil {
 				if readErr != io.EOF {
+					reporter.PublishFailure(ctx, readErr)
 					out <- cliproxyexecutor.StreamChunk{Err: readErr}
 					return
+				}
+				detail, hasUsage, estimated := usageAcc.Detail()
+				if hasUsage {
+					reporter.Publish(ctx, detail)
+					finishReason := "stop"
+					if len(toolIndexes) > 0 {
+						finishReason = "tool_calls"
+					}
+					finish := kiroOpenAIStreamFinishPayload(completionID, req.Model, created, finishReason, detail)
+					outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, body, finish, &param)
+					metadata := map[string]any{
+						kiroUsageDetailMetadata: kiroUsageDetailMap(detail),
+						kiroUsageEstimatedMeta:  estimated,
+					}
+					for i := range outChunks {
+						out <- cliproxyexecutor.StreamChunk{Payload: outChunks[i], Metadata: metadata}
+					}
+				} else {
+					reporter.EnsurePublished(ctx)
 				}
 				done := []byte("data: [DONE]\n\n")
 				outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, body, done, &param)
@@ -1239,6 +1288,16 @@ type kiroParsedEvent struct {
 	ToolCalls []kiroToolCall
 }
 
+type kiroUsageAccumulator struct {
+	detail                 coreusage.Detail
+	hasUsage               bool
+	estimated              bool
+	contextUsagePercentage float64
+	hasContextUsage        bool
+	hasMetering            bool
+	totalContentLength     int64
+}
+
 type kiroToolCall struct {
 	ID        string
 	Name      string
@@ -1257,6 +1316,68 @@ type kiroEventParser struct {
 }
 
 func newKiroEventParser() *kiroEventParser { return &kiroEventParser{} }
+
+func newKiroUsageAccumulator() *kiroUsageAccumulator { return &kiroUsageAccumulator{} }
+
+func (a *kiroUsageAccumulator) Observe(event kiroParsedEvent) {
+	if a == nil {
+		return
+	}
+	switch event.Type {
+	case "content", "reasoning":
+		a.totalContentLength += int64(len(event.Content))
+	case "usage":
+		if detail, ok := kiroUsageDetailFromPayload(event.Usage); ok {
+			a.detail = detail
+			a.hasUsage = true
+			a.estimated = false
+		}
+	case "context_usage":
+		if pct, ok := kiroContextUsagePercentage(event.Usage); ok {
+			a.contextUsagePercentage = pct
+			a.hasContextUsage = true
+		}
+	case "metering":
+		a.hasMetering = true
+	}
+}
+
+func (a *kiroUsageAccumulator) Detail() (coreusage.Detail, bool, bool) {
+	if a == nil {
+		return coreusage.Detail{}, false, false
+	}
+	if a.hasUsage {
+		return normalizeKiroUsageDetail(a.detail), true, a.estimated
+	}
+	if !a.hasContextUsage || !a.hasMetering {
+		return coreusage.Detail{}, false, false
+	}
+	outputTokens := int64(0)
+	if a.totalContentLength > 0 {
+		outputTokens = maxInt64(1, a.totalContentLength/4)
+	}
+	inputTokens := int64(0)
+	if a.contextUsagePercentage > 0 {
+		inputTokens = int64((a.contextUsagePercentage * float64(kiroDefaultContextLength)) / 100)
+	}
+	detail := normalizeKiroUsageDetail(coreusage.Detail{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+	})
+	if !kiroUsageDetailNonZero(detail) {
+		return coreusage.Detail{}, false, false
+	}
+	return detail, true, true
+}
+
+func kiroUsageFromEvents(events []kiroParsedEvent) (coreusage.Detail, bool, bool) {
+	acc := newKiroUsageAccumulator()
+	for _, event := range events {
+		acc.Observe(event)
+	}
+	return acc.Detail()
+}
 
 func (p *kiroEventParser) Feed(chunk []byte) []kiroParsedEvent {
 	out := make([]kiroParsedEvent, 0)
@@ -1401,6 +1522,10 @@ func parseKiroEventStreamFrame(frame []byte) ([]kiroParsedEvent, bool) {
 		return []kiroParsedEvent{{Type: "tool_calls", ToolCalls: calls}}, true
 	case "metricsEvent":
 		return []kiroParsedEvent{{Type: "usage", Usage: payload}}, true
+	case "contextUsageEvent":
+		return []kiroParsedEvent{{Type: "context_usage", Usage: payload}}, true
+	case "meteringEvent":
+		return []kiroParsedEvent{{Type: "metering", Usage: payload}}, true
 	default:
 		return nil, true
 	}
@@ -1503,7 +1628,7 @@ func findKiroJSONEnd(raw []byte, start int) int {
 	return -1
 }
 
-func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent) []byte {
+func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent, detail coreusage.Detail, hasUsage bool) []byte {
 	var content strings.Builder
 	toolCalls := make([]any, 0)
 	toolAccumulators := map[string]*kiroToolCallAccumulator{}
@@ -1523,16 +1648,15 @@ func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent) []byte 
 				if call.Name != "" {
 					acc.Name = call.Name
 				}
-				trimmedArgs := strings.TrimSpace(call.Arguments)
-				switch trimmedArgs {
+				switch call.Arguments {
 				case "":
 					continue
 				case "{}":
 					if acc.ArgumentsBuilder.Len() == 0 {
-						acc.FallbackArgument = trimmedArgs
+						acc.FallbackArgument = call.Arguments
 					}
 				default:
-					acc.ArgumentsBuilder.WriteString(trimmedArgs)
+					acc.ArgumentsBuilder.WriteString(call.Arguments)
 				}
 			}
 		}
@@ -1578,8 +1702,110 @@ func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent) []byte 
 			"message":       message,
 		}},
 	}
+	if hasUsage {
+		payload["usage"] = kiroUsageDetailMap(detail)
+	}
 	raw, _ := json.Marshal(payload)
 	return raw
+}
+
+func kiroOpenAIStreamFinishPayload(id, model string, created int64, finishReason string, detail coreusage.Detail) []byte {
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	payload := map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"created": created,
+		"model":   model,
+		"choices": []any{map[string]any{
+			"index":         0,
+			"delta":         map[string]any{},
+			"finish_reason": finishReason,
+		}},
+		"usage": kiroUsageDetailMap(detail),
+	}
+	raw, _ := json.Marshal(payload)
+	return append(append([]byte("data: "), raw...), []byte("\n\n")...)
+}
+
+func kiroUsageDetailMap(detail coreusage.Detail) map[string]any {
+	detail = normalizeKiroUsageDetail(detail)
+	out := map[string]any{
+		"prompt_tokens":     detail.InputTokens,
+		"completion_tokens": detail.OutputTokens,
+		"total_tokens":      detail.TotalTokens,
+	}
+	if detail.ReasoningTokens > 0 {
+		out["completion_tokens_details"] = map[string]any{"reasoning_tokens": detail.ReasoningTokens}
+	}
+	if detail.CachedTokens > 0 {
+		out["prompt_tokens_details"] = map[string]any{"cached_tokens": detail.CachedTokens}
+	}
+	return out
+}
+
+func normalizeKiroUsageDetail(detail coreusage.Detail) coreusage.Detail {
+	if detail.TotalTokens == 0 {
+		detail.TotalTokens = detail.InputTokens + detail.OutputTokens + detail.ReasoningTokens
+	}
+	return detail
+}
+
+func kiroUsageDetailNonZero(detail coreusage.Detail) bool {
+	return detail.InputTokens != 0 ||
+		detail.OutputTokens != 0 ||
+		detail.ReasoningTokens != 0 ||
+		detail.CachedTokens != 0 ||
+		detail.TotalTokens != 0
+}
+
+func kiroUsageDetailFromPayload(raw any) (coreusage.Detail, bool) {
+	source, ok := raw.(map[string]any)
+	if !ok || source == nil {
+		return coreusage.Detail{}, false
+	}
+	metrics := source
+	if nested, ok := source["metricsEvent"].(map[string]any); ok {
+		metrics = nested
+	}
+	input := numberPtr(firstMapValue(metrics, "inputTokens", "input_tokens", "prompt_tokens"))
+	output := numberPtr(firstMapValue(metrics, "outputTokens", "output_tokens", "completion_tokens"))
+	total := numberPtr(firstMapValue(metrics, "totalTokens", "total_tokens"))
+	detail := coreusage.Detail{}
+	if input != nil {
+		detail.InputTokens = int64(*input)
+	}
+	if output != nil {
+		detail.OutputTokens = int64(*output)
+	}
+	if total != nil {
+		detail.TotalTokens = int64(*total)
+	}
+	detail = normalizeKiroUsageDetail(detail)
+	return detail, kiroUsageDetailNonZero(detail)
+}
+
+func kiroContextUsagePercentage(raw any) (float64, bool) {
+	source, ok := raw.(map[string]any)
+	if !ok || source == nil {
+		return 0, false
+	}
+	if nested, ok := source["contextUsageEvent"].(map[string]any); ok {
+		source = nested
+	}
+	value := numberPtr(firstMapValue(source, "contextUsagePercentage", "context_usage_percentage"))
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func kiroContentEventToOpenAIStream(id, model string, created int64, content string, first bool) [][]byte {

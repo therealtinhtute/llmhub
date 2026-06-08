@@ -4,7 +4,7 @@
 
 import { apiClient } from './client';
 import type { AuthFilesResponse } from '@/types/authFile';
-import type { OAuthModelAliasEntry } from '@/types';
+import type { KiroProviderQuotaState, OAuthModelAliasEntry } from '@/types';
 import { parseTimestampMs } from '@/utils/timestamp';
 
 type StatusError = { status?: number };
@@ -42,6 +42,9 @@ type AuthFileBatchDeleteResult = {
   deleted: number;
   files: string[];
   failed: AuthFileBatchFailure[];
+};
+type KiroQuotaRefreshResponse = {
+  quota?: KiroProviderQuotaState;
 };
 
 export const AUTH_FILE_INVALID_JSON_OBJECT_ERROR = 'AUTH_FILE_INVALID_JSON_OBJECT';
@@ -450,6 +453,22 @@ export const authFilesApi = {
     });
     const blob = response.data as Blob;
     return blob.text();
+  },
+
+  async refreshKiroQuota(params: {
+    name?: string;
+    id?: string;
+    authIndex?: string;
+  }): Promise<KiroProviderQuotaState> {
+    const data = await apiClient.post<KiroQuotaRefreshResponse>('/auth-files/kiro/quota', {
+      name: params.name,
+      id: params.id,
+      auth_index: params.authIndex,
+    });
+    if (!data.quota) {
+      throw new Error('Kiro quota response missing quota');
+    }
+    return data.quota;
   },
 
   async downloadJsonObject(name: string): Promise<Record<string, unknown>> {

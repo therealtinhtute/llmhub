@@ -375,6 +375,12 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 	if auth.Disabled || auth.Status == StatusDisabled {
 		return true, blockReasonDisabled, time.Time{}
 	}
+	if blocked, next := kiroProviderQuotaBlocked(auth, now); blocked {
+		if !next.IsZero() {
+			return true, blockReasonCooldown, next
+		}
+		return true, blockReasonOther, time.Time{}
+	}
 	if model != "" {
 		if len(auth.ModelStates) > 0 {
 			state, ok := auth.ModelStates[model]
@@ -425,6 +431,110 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 		return true, blockReasonOther, next
 	}
 	return false, blockReasonNone, time.Time{}
+}
+
+func kiroProviderQuotaBlocked(auth *Auth, now time.Time) (bool, time.Time) {
+	if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "kiro") || auth.Metadata == nil {
+		return false, time.Time{}
+	}
+	raw := auth.Metadata["kiro_quota"]
+	if raw == nil {
+		return false, time.Time{}
+	}
+	source, ok := raw.(map[string]any)
+	if !ok {
+		if marshaled, err := json.Marshal(raw); err == nil {
+			_ = json.Unmarshal(marshaled, &source)
+		}
+	}
+	if len(source) == 0 {
+		return false, time.Time{}
+	}
+	current, okCurrent := authQuotaNumber(source["current"])
+	limit, okLimit := authQuotaNumber(source["limit"])
+	if !okCurrent || !okLimit || limit <= 0 || current < limit {
+		return false, time.Time{}
+	}
+	next := authQuotaTime(firstAuthQuotaValue(source, "next_reset_at", "nextResetAt"))
+	if !next.IsZero() && !next.After(now) {
+		return false, time.Time{}
+	}
+	return true, next
+}
+
+func firstAuthQuotaValue(source map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := source[key]; ok && value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func authQuotaNumber(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseFloat(trimmed, 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func authQuotaTime(value any) time.Time {
+	switch typed := value.(type) {
+	case time.Time:
+		return typed.UTC()
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" || strings.HasPrefix(trimmed, "0001-01-01") {
+			return time.Time{}
+		}
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+			if parsed, err := time.Parse(layout, trimmed); err == nil {
+				return parsed.UTC()
+			}
+		}
+		if unix, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+			return authQuotaUnixTime(unix)
+		}
+	case float64:
+		return authQuotaUnixTime(int64(typed))
+	case int64:
+		return authQuotaUnixTime(typed)
+	case int:
+		return authQuotaUnixTime(int64(typed))
+	case json.Number:
+		if unix, err := typed.Int64(); err == nil {
+			return authQuotaUnixTime(unix)
+		}
+	}
+	return time.Time{}
+}
+
+func authQuotaUnixTime(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
+	}
+	if value > 1e12 {
+		return time.UnixMilli(value).UTC()
+	}
+	return time.Unix(value, 0).UTC()
 }
 
 // sessionPattern matches Claude Code user_id format:

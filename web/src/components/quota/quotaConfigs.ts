@@ -26,10 +26,13 @@ import type {
   GeminiCliQuotaBucketState,
   GeminiCliQuotaState,
   GeminiCliUserTier,
+  KiroProviderQuotaState,
+  KiroProviderQuotaRow,
   KiroQuotaState,
   KiroRuntimeModelQuotaState,
   KiroRuntimeQuotaState,
   KiroRuntimeStatus,
+  KiroRuntimeUsageStats,
   KimiQuotaRow,
   KimiQuotaState,
   XaiBillingConfig,
@@ -1367,6 +1370,150 @@ const readRuntimeBoolean = (value: unknown): boolean => {
   return false;
 };
 
+const normalizeKiroProviderQuotaRows = (raw: unknown): KiroProviderQuotaRow[] => {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((entry, index): KiroProviderQuotaRow | null => {
+      const source = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+      if (!source) return null;
+      const resourceType = readRuntimeString(source.resource_type ?? source.resourceType);
+      const id = readRuntimeString(source.id) ?? resourceType ?? `quota-${index}`;
+      const name = readRuntimeString(source.name) ?? resourceType ?? id;
+      const current = normalizeNumberValue(source.current);
+      const limit = normalizeNumberValue(source.limit);
+      const used = normalizeNumberValue(source.used) ?? current;
+      const total = normalizeNumberValue(source.total) ?? limit;
+      const remaining = normalizeNumberValue(source.remaining);
+      const percent = normalizeNumberValue(source.percent);
+      const remainingPercent = normalizeNumberValue(
+        source.remaining_percent ?? source.remainingPercent
+      );
+
+      return {
+        id,
+        resourceType: resourceType ?? undefined,
+        name,
+        current,
+        limit,
+        used,
+        total,
+        remaining,
+        percent,
+        remainingPercent,
+        resetAt: readRuntimeTimestampString(source.reset_at ?? source.resetAt),
+        unlimited: readRuntimeBoolean(source.unlimited),
+        freeTrial: readRuntimeBoolean(source.free_trial ?? source.freeTrial),
+        trialStatus: readRuntimeString(source.trial_status ?? source.trialStatus),
+        subscriptionTitle: readRuntimeString(
+          source.subscription_title ?? source.subscriptionTitle
+        ),
+        subscriptionType: readRuntimeString(
+          source.subscription_type ?? source.subscriptionType
+        ),
+        overageStatus: readRuntimeString(source.overage_status ?? source.overageStatus),
+        overageCap: normalizeNumberValue(source.overage_cap ?? source.overageCap),
+        overageRate: normalizeNumberValue(source.overage_rate ?? source.overageRate),
+        currentOverages: normalizeNumberValue(
+          source.current_overages ?? source.currentOverages
+        ),
+      };
+    })
+    .filter((row): row is KiroProviderQuotaRow => row !== null);
+};
+
+const normalizeKiroProviderQuota = (raw: unknown): KiroProviderQuotaState | null => {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  if (!source) return null;
+
+  const current = normalizeNumberValue(source.current);
+  const limit = normalizeNumberValue(source.limit);
+  const quotas = normalizeKiroProviderQuotaRows(source.quotas);
+  const providerQuotaAvailable =
+    readRuntimeBoolean(
+      source.provider_quota_available ?? source.providerQuotaAvailable ?? source.available
+    ) || current !== null || limit !== null || quotas.length > 0;
+
+  if (!providerQuotaAvailable) {
+    return {
+      providerQuotaAvailable: false,
+      message: readRuntimeString(source.message),
+      plan: readRuntimeString(source.plan),
+      quotas,
+      checkedAt: readRuntimeTimestampString(source.checked_at ?? source.checkedAt),
+    };
+  }
+
+  return {
+    providerQuotaAvailable,
+    message: readRuntimeString(source.message),
+    plan: readRuntimeString(source.plan),
+    quotas,
+    current,
+    limit,
+    percent: normalizeNumberValue(source.percent),
+    remaining: normalizeNumberValue(source.remaining),
+    nextResetAt: readRuntimeTimestampString(source.next_reset_at ?? source.nextResetAt),
+    subscriptionType: readRuntimeString(
+      source.subscription_type ?? source.subscriptionType
+    ),
+    subscriptionTitle: readRuntimeString(
+      source.subscription_title ?? source.subscriptionTitle
+    ),
+    trialCurrent: normalizeNumberValue(source.trial_current ?? source.trialCurrent),
+    trialLimit: normalizeNumberValue(source.trial_limit ?? source.trialLimit),
+    trialPercent: normalizeNumberValue(source.trial_percent ?? source.trialPercent),
+    trialStatus: readRuntimeString(source.trial_status ?? source.trialStatus),
+    trialExpiresAt: readRuntimeTimestampString(
+      source.trial_expires_at ?? source.trialExpiresAt
+    ),
+    overageStatus: readRuntimeString(source.overage_status ?? source.overageStatus),
+    overageCap: normalizeNumberValue(source.overage_cap ?? source.overageCap),
+    overageRate: normalizeNumberValue(source.overage_rate ?? source.overageRate),
+    currentOverages: normalizeNumberValue(
+      source.current_overages ?? source.currentOverages
+    ),
+    checkedAt: readRuntimeTimestampString(source.checked_at ?? source.checkedAt),
+  };
+};
+
+const normalizeKiroRuntimeUsageStats = (raw: unknown): KiroRuntimeUsageStats | null => {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  if (!source) return null;
+  const requests = normalizeNumberValue(source.requests) ?? 0;
+  const promptTokens = normalizeNumberValue(source.prompt_tokens ?? source.promptTokens) ?? 0;
+  const completionTokens =
+    normalizeNumberValue(source.completion_tokens ?? source.completionTokens) ?? 0;
+  const totalTokens = normalizeNumberValue(source.total_tokens ?? source.totalTokens) ?? 0;
+  const estimatedTokens =
+    normalizeNumberValue(source.estimated_tokens ?? source.estimatedTokens) ?? 0;
+  const lastModel = readRuntimeString(source.last_model ?? source.lastModel);
+  const lastUsedAt = readRuntimeTimestampString(source.last_used_at ?? source.lastUsedAt);
+  const updatedAt = readRuntimeTimestampString(source.updated_at ?? source.updatedAt);
+  if (
+    requests === 0 &&
+    promptTokens === 0 &&
+    completionTokens === 0 &&
+    totalTokens === 0 &&
+    estimatedTokens === 0 &&
+    !lastModel &&
+    !lastUsedAt &&
+    !updatedAt
+  ) {
+    return null;
+  }
+  return {
+    requests,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    estimatedTokens,
+    lastModel: lastModel ?? undefined,
+    lastUsedAt,
+    updatedAt,
+  };
+};
+
 const normalizeKiroRuntimeStatus = (
   status: unknown,
   options?: { disabled?: boolean; unavailable?: boolean; quotaExceeded?: boolean; error?: unknown }
@@ -1422,8 +1569,12 @@ const buildKiroRuntimeState = (file: AuthFileItem): KiroQuotaState => {
   const quota = normalizeKiroRuntimeQuota(file.quota);
   const disabled = isDisabledAuthFile(file);
   const unavailable = readRuntimeBoolean(file.unavailable);
+  const providerQuota = normalizeKiroProviderQuota(file.kiro_quota ?? file.kiroQuota);
+  const runtimeUsageStats = normalizeKiroRuntimeUsageStats(
+    file.kiro_usage_stats ?? file.kiroUsageStats
+  );
   return {
-    status: 'runtime-only',
+    status: providerQuota?.providerQuotaAvailable ? 'success' : 'runtime-only',
     runtimeStatus: normalizeKiroRuntimeStatus(file.status, {
       disabled,
       unavailable,
@@ -1434,12 +1585,26 @@ const buildKiroRuntimeState = (file: AuthFileItem): KiroQuotaState => {
     disabled,
     quota,
     modelStates: normalizeKiroModelStates(file),
-    providerQuotaAvailable: false,
+    providerQuotaAvailable: Boolean(providerQuota?.providerQuotaAvailable),
+    providerQuota,
+    runtimeUsageStats,
   };
 };
 
-const fetchKiroQuota = async (file: AuthFileItem): Promise<KiroQuotaState> =>
-  buildKiroRuntimeState(file);
+const fetchKiroQuota = async (file: AuthFileItem): Promise<KiroQuotaState> => {
+  const rawAuthIndex = file['auth_index'] ?? file.authIndex;
+  const authIndex = normalizeAuthIndex(rawAuthIndex);
+  const quota = await authFilesApi.refreshKiroQuota({
+    name: file.name,
+    authIndex: authIndex ?? undefined,
+  });
+  return {
+    ...buildKiroRuntimeState(file),
+    status: quota.providerQuotaAvailable ? 'success' : 'runtime-only',
+    providerQuotaAvailable: quota.providerQuotaAvailable,
+    providerQuota: normalizeKiroProviderQuota(quota) ?? quota,
+  };
+};
 
 const renderKiroRuntimeStatusBadge = (
   status: KiroRuntimeStatus,
@@ -1459,26 +1624,276 @@ const renderKiroRuntimeStatusBadge = (
   return h('span', { className }, label);
 };
 
+const formatKiroQuotaNumber = (value?: number | null): string => {
+  if (value === undefined || value === null || !Number.isFinite(value)) return '-';
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const humanizeKiroQuotaName = (name: string, t: TFunction, freeTrial?: boolean): string => {
+  const normalized = name.trim().toLowerCase();
+  const base =
+    normalized === 'agentic_request'
+      ? t('kiro_quota.provider_quota')
+      : normalized === 'free_trial'
+        ? t('kiro_quota.trial_quota')
+        : name
+            .split('_')
+            .filter(Boolean)
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+            .join(' ');
+  return freeTrial && normalized !== 'free_trial' ? `${base} (${t('kiro_quota.trial')})` : base;
+};
+
+const renderKiroProviderQuotaRow = (
+  row: KiroProviderQuotaRow,
+  t: TFunction,
+  helpers: QuotaRenderHelpers
+): ReactNode => {
+  const { styles: styleMap, QuotaProgressBar } = helpers;
+  const { createElement: h } = React;
+  const used = row.used ?? row.current ?? null;
+  const total = row.total ?? row.limit ?? null;
+  const usedPercent =
+    row.percent ?? (used != null && total && total > 0 ? (used / total) * 100 : null);
+  const remainingPercent =
+    row.remainingPercent ?? (usedPercent === null ? null : Math.max(0, 100 - usedPercent));
+  const amountLabel =
+    used != null && total != null
+      ? `${formatKiroQuotaNumber(used)} / ${formatKiroQuotaNumber(total)}`
+      : row.remaining != null
+        ? t('kiro_quota.remaining_amount', {
+            amount: formatKiroQuotaNumber(row.remaining),
+          })
+        : undefined;
+  const label = humanizeKiroQuotaName(row.name || row.resourceType || row.id, t, row.freeTrial);
+
+  return h(
+    'div',
+    { key: `provider-quota-${row.id}`, className: styleMap.quotaRow },
+    h(
+      'div',
+      { className: styleMap.quotaRowHeader },
+      h('span', { className: styleMap.quotaModel, title: row.resourceType ?? row.name }, label),
+      h(
+        'div',
+        { className: styleMap.quotaMeta },
+        row.trialStatus ? h('span', { className: styleMap.quotaAmount }, row.trialStatus) : null,
+        h(
+          'span',
+          { className: styleMap.quotaPercent },
+          usedPercent === null ? '-' : `${Math.round(usedPercent)}%`
+        ),
+        amountLabel ? h('span', { className: styleMap.quotaAmount }, amountLabel) : null,
+        h('span', { className: styleMap.quotaReset }, formatQuotaResetTime(row.resetAt))
+      )
+    ),
+    h(QuotaProgressBar, { percent: remainingPercent })
+  );
+};
+
 const renderKiroItems = (
   quota: KiroQuotaState,
   t: TFunction,
   helpers: QuotaRenderHelpers
 ): ReactNode => {
-  const { styles: styleMap } = helpers;
+  const { styles: styleMap, QuotaProgressBar } = helpers;
   const { createElement: h, Fragment } = React;
-  const nodes: ReactNode[] = [
-    h(
-      'div',
-      { key: 'provider-quota', className: styleMap.quotaWarning },
-      t('kiro_quota.provider_unavailable')
-    ),
+  const nodes: ReactNode[] = [];
+  const providerQuota = quota.providerQuota;
+
+  if (providerQuota?.providerQuotaAvailable) {
+    const planLabel =
+      providerQuota.subscriptionTitle || providerQuota.subscriptionType || providerQuota.plan
+        ? [providerQuota.subscriptionTitle || providerQuota.plan, providerQuota.subscriptionType]
+            .filter(Boolean)
+            .join(' / ')
+        : null;
+
+    if (planLabel) {
+      nodes.push(
+        h(
+          'div',
+          { key: 'subscription', className: styleMap.codexPlan },
+          h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.subscription')),
+          h('span', { className: styleMap.codexPlanValue }, planLabel)
+        )
+      );
+    }
+
+    if (providerQuota.quotas && providerQuota.quotas.length > 0) {
+      nodes.push(
+        ...providerQuota.quotas.map((row) => renderKiroProviderQuotaRow(row, t, helpers))
+      );
+    } else {
+      nodes.push(
+        renderKiroProviderQuotaRow(
+          {
+            id: 'provider',
+            name: 'agentic_request',
+            current: providerQuota.current,
+            limit: providerQuota.limit,
+            used: providerQuota.current,
+            total: providerQuota.limit,
+            remaining: providerQuota.remaining,
+            percent: providerQuota.percent,
+            resetAt: providerQuota.nextResetAt,
+          },
+          t,
+          helpers
+        )
+      );
+    }
+
+    if (
+      (!providerQuota.quotas || providerQuota.quotas.length === 0) &&
+      (providerQuota.trialCurrent != null || providerQuota.trialLimit != null)
+    ) {
+      const trialUsedPercent =
+        providerQuota.trialPercent ??
+        (providerQuota.trialCurrent != null && providerQuota.trialLimit
+          ? (providerQuota.trialCurrent / providerQuota.trialLimit) * 100
+          : null);
+      nodes.push(
+        h(
+          'div',
+          { key: 'trial-quota', className: styleMap.quotaRow },
+          h(
+            'div',
+            { className: styleMap.quotaRowHeader },
+            h('span', { className: styleMap.quotaModel }, t('kiro_quota.trial_quota')),
+            h(
+              'div',
+              { className: styleMap.quotaMeta },
+              providerQuota.trialStatus
+                ? h('span', { className: styleMap.quotaAmount }, providerQuota.trialStatus)
+                : null,
+              h(
+                'span',
+                { className: styleMap.quotaPercent },
+                trialUsedPercent === null ? '-' : `${Math.round(trialUsedPercent)}%`
+              ),
+              h(
+                'span',
+                { className: styleMap.quotaAmount },
+                `${formatKiroQuotaNumber(providerQuota.trialCurrent)} / ${formatKiroQuotaNumber(providerQuota.trialLimit)}`
+              ),
+              h(
+                'span',
+                { className: styleMap.quotaReset },
+                formatQuotaResetTime(providerQuota.trialExpiresAt)
+              )
+            )
+          ),
+          h(QuotaProgressBar, {
+            percent: trialUsedPercent === null ? null : Math.max(0, 100 - trialUsedPercent),
+          })
+        )
+      );
+    }
+
+    if (
+      providerQuota.overageStatus ||
+      providerQuota.currentOverages != null ||
+      providerQuota.overageCap != null ||
+      providerQuota.overageRate != null
+    ) {
+      const overageParts = [
+        providerQuota.currentOverages != null
+          ? t('kiro_quota.current_overages', {
+              amount: formatKiroQuotaNumber(providerQuota.currentOverages),
+            })
+          : null,
+        providerQuota.overageCap != null
+          ? t('kiro_quota.overage_cap', {
+              amount: formatKiroQuotaNumber(providerQuota.overageCap),
+            })
+          : null,
+        providerQuota.overageRate != null
+          ? t('kiro_quota.overage_rate', {
+              amount: formatKiroQuotaNumber(providerQuota.overageRate),
+            })
+          : null,
+      ].filter(Boolean);
+      nodes.push(
+        h(
+          'div',
+          { key: 'overage', className: styleMap.codexPlan },
+          h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.overage')),
+          h(
+            'span',
+            { className: styleMap.codexPlanValue },
+            [providerQuota.overageStatus, ...overageParts].filter(Boolean).join(' / ')
+          )
+        )
+      );
+    }
+  } else {
+    nodes.push(
+      h(
+        'div',
+        { key: 'provider-quota-unavailable', className: styleMap.quotaWarning },
+        providerQuota?.message || t('kiro_quota.provider_unavailable')
+      )
+    );
+  }
+
+  if (quota.runtimeUsageStats) {
+    const stats = quota.runtimeUsageStats;
+    const tokenParts = [
+      t('kiro_quota.prompt_tokens', { count: stats.promptTokens }),
+      t('kiro_quota.completion_tokens', { count: stats.completionTokens }),
+      t('kiro_quota.total_tokens', { count: stats.totalTokens }),
+      stats.estimatedTokens > 0
+        ? t('kiro_quota.estimated_tokens', { count: stats.estimatedTokens })
+        : null,
+    ].filter(Boolean);
+    nodes.push(
+      h(
+        'div',
+        { key: 'runtime-usage-requests', className: styleMap.codexPlan },
+        h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_usage')),
+        h(
+          'span',
+          { className: styleMap.codexPlanValue },
+          t('kiro_quota.requests', { count: stats.requests })
+        )
+      ),
+      h(
+        'div',
+        { key: 'runtime-usage-tokens', className: styleMap.codexPlan },
+        h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_tokens')),
+        h('span', { className: styleMap.codexPlanValue }, tokenParts.join(' / '))
+      )
+    );
+    if (stats.lastModel || stats.lastUsedAt) {
+      const lastUsedParts = [
+        stats.lastModel,
+        stats.lastUsedAt ? formatQuotaResetTime(stats.lastUsedAt) : null,
+      ].filter(Boolean);
+      nodes.push(
+        h(
+          'div',
+          { key: 'runtime-usage-last', className: styleMap.codexPlan },
+          h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.last_used')),
+          h(
+            'span',
+            { className: styleMap.codexPlanValue },
+            lastUsedParts.join(' / ')
+          )
+        )
+      );
+    }
+  }
+
+  nodes.push(
     h(
       'div',
       { key: 'runtime-status', className: styleMap.codexPlan },
       h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_status')),
       renderKiroRuntimeStatusBadge(quota.runtimeStatus, t, helpers)
     ),
-  ];
+  );
 
   if (quota.statusMessage) {
     nodes.push(
@@ -1515,47 +1930,6 @@ const renderKiroItems = (
               'span',
               { className: styleMap.quotaReset },
               formatQuotaResetTime(quota.quota.nextRecoverAt)
-            )
-          )
-        )
-      )
-    );
-  } else {
-    nodes.push(
-      h(
-        'div',
-        { key: 'runtime-empty', className: styleMap.quotaMessage },
-        t('kiro_quota.no_runtime_quota')
-      )
-    );
-  }
-
-  if (quota.modelStates.length > 0) {
-    nodes.push(
-      ...quota.modelStates.map((model) =>
-        h(
-          'div',
-          { key: `model-${model.id}`, className: styleMap.quotaRow },
-          h(
-            'div',
-            { className: styleMap.quotaRowHeader },
-            h('span', { className: styleMap.quotaModel, title: model.id }, model.id),
-            h(
-              'div',
-              { className: styleMap.quotaMeta },
-              h(
-                'span',
-                { className: styleMap.quotaPercent },
-                t(`kiro_quota.status_${model.status}`)
-              ),
-              model.statusMessage
-                ? h('span', { className: styleMap.quotaAmount }, model.statusMessage)
-                : null,
-              h(
-                'span',
-                { className: styleMap.quotaReset },
-                formatQuotaResetTime(model.quota.nextRecoverAt ?? model.nextRetryAfter)
-              )
             )
           )
         )

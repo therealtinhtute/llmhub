@@ -113,6 +113,10 @@ type Result struct {
 	RetryAfter *time.Duration
 	// Error describes the failure when Success is false.
 	Error *Error
+	// UsageDetail carries provider token usage for runtime account accounting.
+	UsageDetail coreusage.Detail
+	// UsageEstimated marks usage values estimated from provider runtime signals.
+	UsageEstimated bool
 }
 
 // Selector chooses an auth candidate for execution.
@@ -820,6 +824,9 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 	go func() {
 		defer close(out)
 		var failed bool
+		var usageDetail coreusage.Detail
+		var usageEstimated bool
+		var hasUsage bool
 		forward := true
 		emit := func(chunk cliproxyexecutor.StreamChunk) bool {
 			if chunk.Err != nil && !failed {
@@ -829,6 +836,11 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 					rerr.HTTPStatus = se.StatusCode()
 				}
 				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr})
+			}
+			if detail, estimated, ok := kiroUsageResultFromMetadata(provider, chunk.Metadata); ok {
+				usageDetail = detail
+				usageEstimated = estimated
+				hasUsage = true
 			}
 			if !forward {
 				return false
@@ -858,7 +870,12 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 			}
 		}
 		if !failed {
-			m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: true})
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: true}
+			if hasUsage {
+				result.UsageDetail = usageDetail
+				result.UsageEstimated = usageEstimated
+			}
+			m.MarkResult(ctx, result)
 		}
 	}()
 	return &cliproxyexecutor.StreamResult{Headers: headers, Chunks: out}
@@ -1442,6 +1459,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				authErr = errExec
 				continue
 			}
+			applyKiroUsageResultFromResponse(&result, resp)
 			m.MarkResult(execCtx, result)
 			return resp, nil
 		}
@@ -1541,6 +1559,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 				authErr = errExec
 				continue
 			}
+			applyKiroUsageResultFromResponse(&result, resp)
 			m.MarkResult(execCtx, result)
 			return resp, nil
 		}
@@ -2422,6 +2441,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			}
 		}
 
+		applyKiroRuntimeUsageStats(auth, result, now)
 		_ = m.persist(ctx, auth)
 		authSnapshot = auth.Clone()
 	}
@@ -2443,6 +2463,142 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 
 	m.hook.OnResult(ctx, result)
+}
+
+func applyKiroUsageResultFromResponse(result *Result, resp cliproxyexecutor.Response) {
+	if result == nil {
+		return
+	}
+	detail, estimated, ok := kiroUsageResultFromMetadata(result.Provider, resp.Metadata)
+	if !ok {
+		return
+	}
+	result.UsageDetail = detail
+	result.UsageEstimated = estimated
+}
+
+func kiroUsageResultFromMetadata(provider string, metadata map[string]any) (coreusage.Detail, bool, bool) {
+	if !strings.EqualFold(strings.TrimSpace(provider), "kiro") || len(metadata) == 0 {
+		return coreusage.Detail{}, false, false
+	}
+	detailRaw, ok := metadata["kiro_usage_detail"]
+	if !ok || detailRaw == nil {
+		return coreusage.Detail{}, false, false
+	}
+	detailMap, ok := detailRaw.(map[string]any)
+	if !ok {
+		raw, err := json.Marshal(detailRaw)
+		if err != nil {
+			return coreusage.Detail{}, false, false
+		}
+		if err := json.Unmarshal(raw, &detailMap); err != nil {
+			return coreusage.Detail{}, false, false
+		}
+	}
+	detail := coreusage.Detail{
+		InputTokens:     int64FromMetadata(firstAuthQuotaValue(detailMap, "prompt_tokens", "input_tokens")),
+		OutputTokens:    int64FromMetadata(firstAuthQuotaValue(detailMap, "completion_tokens", "output_tokens")),
+		ReasoningTokens: int64FromMetadata(firstAuthQuotaValue(detailMap, "completion_tokens_details", "output_tokens_details")),
+		TotalTokens:     int64FromMetadata(firstAuthQuotaValue(detailMap, "total_tokens")),
+	}
+	if nested, ok := firstAuthQuotaValue(detailMap, "completion_tokens_details", "output_tokens_details").(map[string]any); ok {
+		detail.ReasoningTokens = int64FromMetadata(firstAuthQuotaValue(nested, "reasoning_tokens"))
+	}
+	if nested, ok := firstAuthQuotaValue(detailMap, "prompt_tokens_details", "input_tokens_details").(map[string]any); ok {
+		detail.CachedTokens = int64FromMetadata(firstAuthQuotaValue(nested, "cached_tokens"))
+	}
+	if detail.TotalTokens == 0 {
+		detail.TotalTokens = detail.InputTokens + detail.OutputTokens + detail.ReasoningTokens
+	}
+	if !usageDetailNonZero(detail) {
+		return coreusage.Detail{}, false, false
+	}
+	estimated := boolFromMetadata(metadata["kiro_usage_estimated"])
+	return detail, estimated, true
+}
+
+func applyKiroRuntimeUsageStats(auth *Auth, result Result, now time.Time) {
+	if auth == nil || !result.Success || !strings.EqualFold(strings.TrimSpace(result.Provider), "kiro") {
+		return
+	}
+	if auth.Metadata == nil {
+		auth.Metadata = make(map[string]any)
+	}
+	stats := map[string]any{}
+	if existing, ok := auth.Metadata["kiro_usage_stats"]; ok && existing != nil {
+		if existingMap, ok := existing.(map[string]any); ok {
+			for key, value := range existingMap {
+				stats[key] = value
+			}
+		} else if raw, err := json.Marshal(existing); err == nil {
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err == nil {
+				for key, value := range decoded {
+					stats[key] = value
+				}
+			}
+		}
+	}
+	detail := result.UsageDetail
+	if detail.TotalTokens == 0 {
+		detail.TotalTokens = detail.InputTokens + detail.OutputTokens + detail.ReasoningTokens
+	}
+	stats["requests"] = int64FromMetadata(stats["requests"]) + 1
+	stats["prompt_tokens"] = int64FromMetadata(stats["prompt_tokens"]) + detail.InputTokens
+	stats["completion_tokens"] = int64FromMetadata(stats["completion_tokens"]) + detail.OutputTokens
+	stats["total_tokens"] = int64FromMetadata(stats["total_tokens"]) + detail.TotalTokens
+	if result.UsageEstimated && detail.TotalTokens > 0 {
+		stats["estimated_tokens"] = int64FromMetadata(stats["estimated_tokens"]) + detail.TotalTokens
+	}
+	if model := strings.TrimSpace(result.Model); model != "" {
+		stats["last_model"] = model
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	stats["last_used_at"] = now.UTC()
+	stats["updated_at"] = now.UTC()
+	auth.Metadata["kiro_usage_stats"] = stats
+}
+
+func int64FromMetadata(value any) int64 {
+	if value == nil {
+		return 0
+	}
+	if number, ok := authQuotaNumber(value); ok {
+		return int64(number)
+	}
+	return 0
+}
+
+func boolFromMetadata(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float64:
+		return typed != 0
+	default:
+		return false
+	}
+}
+
+func usageDetailNonZero(detail coreusage.Detail) bool {
+	return detail.InputTokens != 0 ||
+		detail.OutputTokens != 0 ||
+		detail.ReasoningTokens != 0 ||
+		detail.CachedTokens != 0 ||
+		detail.TotalTokens != 0
 }
 
 func ensureModelState(auth *Auth, model string) *ModelState {
@@ -3821,6 +3977,7 @@ func (m *Manager) tryAntigravityCreditsExecute(ctx context.Context, req cliproxy
 				m.MarkResult(creditsCtx, result)
 				continue
 			}
+			applyKiroUsageResultFromResponse(&result, resp)
 			m.MarkResult(creditsCtx, result)
 			return resp, true
 		}

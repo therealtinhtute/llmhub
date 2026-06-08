@@ -15,11 +15,15 @@ In scope:
 - Static fallback model registration.
 - Focused tests for import, refresh, translation, executor behavior, and service
   binding.
+- Kiro `getUsageLimits` quota refresh, normalized persistence, management/UI
+  rendering, and runtime skip of exhausted provider quota.
+- Kiro runtime usage stats from stream metrics/context/metering events.
+- Web quota UI rendering for Kiro provider quota, runtime cooldown, and runtime
+  usage stats.
 
 Out of scope:
 
 - Interactive Kiro login flows.
-- Web management UI changes.
 
 ## Risk Classification
 
@@ -44,6 +48,10 @@ Hard gates:
 4. Add executor translation and streaming parser.
 5. Add docs/config example.
 6. Run focused and broad Go verification.
+7. Add Kiro provider quota fetch, endpoint fallback, management refresh action,
+   UI rendering, and routing skip tests.
+8. Add Kiro runtime usage stats from stream events and expose them through
+   management auth-file responses.
 
 ## Stop Conditions
 

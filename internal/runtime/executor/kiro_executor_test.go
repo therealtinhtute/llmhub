@@ -467,6 +467,44 @@ func TestKiroExecutorExecute_ParsesAWSEventStream(t *testing.T) {
 	}
 }
 
+func TestKiroEventUsageFromMetricsEvent(t *testing.T) {
+	events := newKiroEventParser().Feed(kiroTestEventFrame("metricsEvent", `{"inputTokens":12,"outputTokens":7}`))
+	detail, ok, estimated := kiroUsageFromEvents(events)
+	if !ok {
+		t.Fatal("kiroUsageFromEvents() ok = false, want true")
+	}
+	if estimated {
+		t.Fatal("estimated = true, want false for metricsEvent")
+	}
+	if detail.InputTokens != 12 || detail.OutputTokens != 7 || detail.TotalTokens != 19 {
+		t.Fatalf("detail = %+v, want 12/7/19", detail)
+	}
+}
+
+func TestKiroEventUsageEstimatesFromContextAndMeteringEvents(t *testing.T) {
+	parser := newKiroEventParser()
+	events := parser.Feed(kiroTestEventFrame("assistantResponseEvent", `{"content":"hello world"}`))
+	events = append(events, parser.Feed(kiroTestEventFrame("contextUsageEvent", `{"contextUsagePercentage":0.5}`))...)
+	events = append(events, parser.Feed(kiroTestEventFrame("meteringEvent", `{}`))...)
+
+	detail, ok, estimated := kiroUsageFromEvents(events)
+	if !ok {
+		t.Fatal("kiroUsageFromEvents() ok = false, want true")
+	}
+	if !estimated {
+		t.Fatal("estimated = false, want true")
+	}
+	if detail.InputTokens != 1000 {
+		t.Fatalf("input tokens = %d, want 1000", detail.InputTokens)
+	}
+	if detail.OutputTokens <= 0 {
+		t.Fatalf("output tokens = %d, want positive estimate", detail.OutputTokens)
+	}
+	if detail.TotalTokens != detail.InputTokens+detail.OutputTokens {
+		t.Fatalf("total tokens = %d, want input+output", detail.TotalTokens)
+	}
+}
+
 func TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
@@ -479,6 +517,8 @@ func TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents(t *testing.T) {
 		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":"\"repo\""}`))
 		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":": \"llmhub\"}"}`))
 		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"repo_starred","input":{}}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_2","name":"search","input":"{\"query\":\"hello "}`))
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_2","name":"search","input":"world\"}"}`))
 	}))
 	defer server.Close()
 
@@ -511,8 +551,8 @@ func TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents(t *testing.T) {
 		t.Fatalf("choices = %d, want 1", len(payload.Choices))
 	}
 	toolCalls := payload.Choices[0].Message.ToolCalls
-	if len(toolCalls) != 1 {
-		t.Fatalf("tool_calls = %d, want 1; payload=%s", len(toolCalls), resp.Payload)
+	if len(toolCalls) != 2 {
+		t.Fatalf("tool_calls = %d, want 2; payload=%s", len(toolCalls), resp.Payload)
 	}
 	if got := toolCalls[0].Function.Name; got != "repo_starred" {
 		t.Fatalf("tool name = %q, want repo_starred", got)
@@ -526,6 +566,16 @@ func TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents(t *testing.T) {
 	}
 	if got := args["repo"]; got != "llmhub" {
 		t.Fatalf("repo = %q, want llmhub", got)
+	}
+	if got := toolCalls[1].Function.Name; got != "search" {
+		t.Fatalf("second tool name = %q, want search", got)
+	}
+	var searchArgs map[string]string
+	if err := json.Unmarshal([]byte(toolCalls[1].Function.Arguments), &searchArgs); err != nil {
+		t.Fatalf("unmarshal second tool arguments: %v (raw=%q)", err, toolCalls[1].Function.Arguments)
+	}
+	if got := searchArgs["query"]; got != "hello world" {
+		t.Fatalf("query = %q, want preserved whitespace", got)
 	}
 }
 

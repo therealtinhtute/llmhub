@@ -68,6 +68,33 @@ go test ./...
   `model_states`, and the quota UI showing Kiro runtime state while clearly
   marking provider quota unavailable.
 
+2026-06-08 provider quota tracking and runtime usage stats slice:
+
+- Added mocked `getUsageLimits` proof for paid quota, trial quota, reset date,
+  overage fields, empty/unavailable quota, endpoint fallback order, and 401
+  refresh retry.
+- Added mocked management proof that `POST /v0/management/auth-files/kiro/quota`
+  updates auth runtime metadata and quota state.
+- Added management proof that Kiro quota refresh 402/403/429 metadata failures
+  do not mark the auth as permanently errored or disabled.
+- Added selector proof that an exhausted persisted Kiro provider quota is
+  skipped so routing can fall back to another account.
+- Added executor proof for Kiro `metricsEvent` token usage and
+  `contextUsageEvent` plus `meteringEvent` estimate fallback.
+- Added auth manager proof that successful Kiro calls accumulate
+  `kiro_usage_stats` on auth metadata.
+- Updated web quota UI proof to render provider quota rows, trial/overage,
+  runtime usage stats, runtime cooldown, and model states.
+- Focused verification passed:
+  - `go test ./internal/runtime/executor ./internal/api/handlers/management ./sdk/cliproxy/auth`
+  - `cd web && bun run type-check`
+- Follow-up review fixed fragmented Kiro tool-call argument coalescing so raw
+  fragments preserve whitespace inside JSON string values.
+- Final verification passed:
+  - `go test ./internal/runtime/executor -run 'TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents|TestKiroExecutorExecute_ParsesAWSEventStream|TestKiroExecutor'`
+  - `go test ./...`
+  - `cd web && bun run type-check`
+
 2026-06-04 investigation note:
 
 - Reviewed `jwadow/kiro-gateway` issue `#41` and cached the upstream evidence in

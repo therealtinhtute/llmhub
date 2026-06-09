@@ -233,7 +233,7 @@ export function DashboardPage() {
       label: t('dashboard.available_models'),
       value: modelsLoading ? '-' : models.length,
       icon: <IconSatellite size={24} />,
-      path: '/system',
+      path: '/models',
       loading: modelsLoading,
       sublabel: t('dashboard.available_models_desc'),
     },

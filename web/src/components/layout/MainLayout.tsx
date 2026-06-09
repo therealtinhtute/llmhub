@@ -14,6 +14,7 @@ import {
   IconSidebarConfig,
   IconSidebarDashboard,
   IconSidebarLogs,
+  IconSidebarModels,
   IconSidebarOauth,
   IconSidebarProviders,
   IconSidebarQuota,
@@ -61,6 +62,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   aiProviders: <IconSidebarProviders size={18} />,
   authFiles: <IconSidebarAuthFiles size={18} />,
   oauth: <IconSidebarOauth size={18} />,
+  models: <IconSidebarModels size={18} />,
   quota: <IconSidebarQuota size={18} />,
   config: <IconSidebarConfig size={18} />,
   logs: <IconSidebarLogs size={18} />,
@@ -215,6 +217,7 @@ export function MainLayout() {
         { path: '/ai-providers', labelKey: 'nav.ai_providers', metaKey: 'nav_meta.ai_providers', icon: sidebarIcons.aiProviders },
         { path: '/auth-files', labelKey: 'nav.auth_files', metaKey: 'nav_meta.auth_files', icon: sidebarIcons.authFiles },
         { path: '/oauth', labelKey: 'nav.oauth', metaKey: 'nav_meta.oauth', icon: sidebarIcons.oauth },
+        { path: '/models', labelKey: 'nav.models', metaKey: 'nav_meta.models', icon: sidebarIcons.models },
       ],
     },
     {

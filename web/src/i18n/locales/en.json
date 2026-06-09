@@ -115,6 +115,7 @@
     "ai_providers": "AI Providers",
     "auth_files": "Auth Files",
     "oauth": "OAuth Login",
+    "models": "Models",
     "quota_management": "Quota Management",
     "config_management": "Config Panel",
     "logs": "Logs Viewer",
@@ -131,6 +132,7 @@
     "ai_providers": "Upstream model routing",
     "auth_files": "Auth files & credentials",
     "oauth": "OAuth authorization",
+    "models": "Inventory & aliases",
     "quota_management": "API keys & limits",
     "logs": "Request tracing",
     "config_management": "Gateway configuration",
@@ -1108,6 +1110,20 @@
     "refresh_all_credentials": "Refresh all credentials",
     "card_idle_hint": "Use the top \"Refresh all credentials\" button to fetch the latest quota data.",
     "tab_all": "All"
+  },
+  "models_management": {
+    "title": "Models",
+    "description": "Review models exposed by the proxy and manage OAuth model aliases from one place.",
+    "available_models_title": "Available Models",
+    "search_placeholder": "Search models or aliases",
+    "total_models": "Available models",
+    "provider_count": "Alias providers",
+    "alias_count": "Alias mappings",
+    "models_loading": "Loading available models...",
+    "models_empty": "No models returned by /models",
+    "models_error": "Failed to load model list",
+    "models_count": "{{count}} available models",
+    "search_empty": "No models match your search"
   },
   "system_info": {
     "title": "Management Center Info",

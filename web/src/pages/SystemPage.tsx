@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
@@ -10,38 +10,10 @@ import {
   useAuthStore,
   useConfigStore,
   useNotificationStore,
-  useModelsStore,
-  useThemeStore,
 } from '@/stores';
 import { configApi, versionApi } from '@/services/api';
-import { apiKeysApi } from '@/services/api/apiKeys';
-import { classifyModels } from '@/utils/models';
 import { STORAGE_KEY_AUTH } from '@/utils/constants';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
-import iconGemini from '@/assets/icons/gemini.svg';
-import iconClaude from '@/assets/icons/claude.svg';
-import iconOpenaiLight from '@/assets/icons/openai-light.svg';
-import iconOpenaiDark from '@/assets/icons/openai-dark.svg';
-import iconQwen from '@/assets/icons/qwen.svg';
-import iconKimiLight from '@/assets/icons/kimi-light.svg';
-import iconKimiDark from '@/assets/icons/kimi-dark.svg';
-import iconGlm from '@/assets/icons/glm.svg';
-import iconGrok from '@/assets/icons/grok.svg';
-import iconGrokDark from '@/assets/icons/grok-dark.svg';
-import iconDeepseek from '@/assets/icons/deepseek.svg';
-import iconMinimax from '@/assets/icons/minimax.svg';
-
-const MODEL_CATEGORY_ICONS: Record<string, string | { light: string; dark: string }> = {
-  gpt: { light: iconOpenaiLight, dark: iconOpenaiDark },
-  claude: iconClaude,
-  gemini: iconGemini,
-  qwen: iconQwen,
-  kimi: { light: iconKimiLight, dark: iconKimiDark },
-  glm: iconGlm,
-  grok: { light: iconGrok, dark: iconGrokDark },
-  deepseek: iconDeepseek,
-  minimax: iconMinimax,
-};
 
 const linkIconClass = (type: 'github' | 'docs' | 'primary') =>
   `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-emerald-500' : 'bg-primary'}`;
@@ -75,37 +47,21 @@ const compareVersions = (latest?: string | null, current?: string | null) => {
 export function SystemPage() {
   const { t, i18n } = useTranslation();
   const { showConfirmation } = useNotificationStore();
-  const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const auth = useAuthStore();
   const config = useConfigStore((state) => state.config);
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const clearCache = useConfigStore((state) => state.clearCache);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
 
-  const models = useModelsStore((state) => state.models);
-  const modelsLoading = useModelsStore((state) => state.loading);
-  const modelsError = useModelsStore((state) => state.error);
-  const fetchModelsFromStore = useModelsStore((state) => state.fetchModels);
-
-  const [modelStatus, setModelStatus] = useState<{
-    type: 'success' | 'warning' | 'error' | 'muted';
-    message: string;
-  }>();
   const [requestLogModalOpen, setRequestLogModalOpen] = useState(false);
   const [requestLogDraft, setRequestLogDraft] = useState(false);
   const [requestLogTouched, setRequestLogTouched] = useState(false);
   const [requestLogSaving, setRequestLogSaving] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
 
-  const apiKeysCache = useRef<string[]>([]);
   const versionTapCount = useRef(0);
   const versionTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const otherLabel = useMemo(
-    () => (i18n.language?.toLowerCase().startsWith('vi') ? 'Khác' : 'Other'),
-    [i18n.language]
-  );
-  const groupedModels = useMemo(() => classifyModels(models, { otherLabel }), [models, otherLabel]);
   const requestLogEnabled = config?.requestLog ?? false;
   const requestLogDirty = requestLogDraft !== requestLogEnabled;
   const canEditRequestLog = auth.connectionStatus === 'connected' && Boolean(config);
@@ -115,100 +71,6 @@ export function SystemPage() {
   const buildTime = auth.serverBuildDate
     ? new Date(auth.serverBuildDate).toLocaleString(i18n.language)
     : t('system_info.version_unknown');
-
-  const getIconForCategory = (categoryId: string): string | null => {
-    const iconEntry = MODEL_CATEGORY_ICONS[categoryId];
-    if (!iconEntry) return null;
-    if (typeof iconEntry === 'string') return iconEntry;
-    return resolvedTheme === 'dark' ? iconEntry.dark : iconEntry.light;
-  };
-
-  const normalizeApiKeyList = (input: unknown): string[] => {
-    if (!Array.isArray(input)) return [];
-    const seen = new Set<string>();
-    const keys: string[] = [];
-
-    input.forEach((item) => {
-      const record =
-        item !== null && typeof item === 'object' && !Array.isArray(item)
-          ? (item as Record<string, unknown>)
-          : null;
-      const value =
-        typeof item === 'string'
-          ? item
-          : record
-            ? (record['api-key'] ?? record['apiKey'] ?? record.key ?? record.Key)
-            : '';
-      const trimmed = String(value ?? '').trim();
-      if (!trimmed || seen.has(trimmed)) return;
-      seen.add(trimmed);
-      keys.push(trimmed);
-    });
-
-    return keys;
-  };
-
-  const resolveApiKeysForModels = useCallback(async () => {
-    if (apiKeysCache.current.length) {
-      return apiKeysCache.current;
-    }
-
-    const configKeys = normalizeApiKeyList(config?.apiKeys);
-    if (configKeys.length) {
-      apiKeysCache.current = configKeys;
-      return configKeys;
-    }
-
-    try {
-      const list = await apiKeysApi.list();
-      const normalized = normalizeApiKeyList(list);
-      if (normalized.length) {
-        apiKeysCache.current = normalized;
-      }
-      return normalized;
-    } catch (err) {
-      console.warn('Auto loading API keys for models failed:', err);
-      return [];
-    }
-  }, [config?.apiKeys]);
-
-  const fetchModels = async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
-    if (auth.connectionStatus !== 'connected') {
-      setModelStatus({
-        type: 'warning',
-        message: t('notification.connection_required'),
-      });
-      return;
-    }
-
-    if (!auth.apiBase) {
-      toast.warning(t('notification.connection_required'));
-      return;
-    }
-
-    if (forceRefresh) {
-      apiKeysCache.current = [];
-    }
-
-    setModelStatus({ type: 'muted', message: t('system_info.models_loading') });
-    try {
-      const apiKeys = await resolveApiKeysForModels();
-      const primaryKey = apiKeys[0];
-      const list = await fetchModelsFromStore(auth.apiBase, primaryKey, forceRefresh);
-      const hasModels = list.length > 0;
-      setModelStatus({
-        type: hasModels ? 'success' : 'warning',
-        message: hasModels
-          ? t('system_info.models_count', { count: list.length })
-          : t('system_info.models_empty'),
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-      const suffix = message ? `: ${message}` : '';
-      const text = `${t('system_info.models_error')}${suffix}`;
-      setModelStatus({ type: 'error', message: text });
-    }
-  };
 
   const handleClearLoginStorage = () => {
     showConfirmation({
@@ -337,11 +199,6 @@ export function SystemPage() {
     };
   }, []);
 
-  useEffect(() => {
-    fetchModels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.connectionStatus, auth.apiBase]);
-
   return (
     <div className="w-full">
       <h1 className="text-[28px] font-bold text-foreground mb-6">{t('system_info.title')}</h1>
@@ -453,62 +310,6 @@ export function SystemPage() {
               </div>
             </a>
           </div>
-        </Card>
-
-        <Card
-          title={t('system_info.models_title')}
-          extra={
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => fetchModels({ forceRefresh: true })}
-              loading={modelsLoading}
-            >
-              {t('common.refresh')}
-            </Button>
-          }
-        >
-          <p className="text-sm text-muted-foreground mb-3">{t('system_info.models_desc')}</p>
-          {modelStatus && (
-            <div className={`inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border leading-[1.5] rounded-sm ${modelStatus.type === 'success' ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40' : modelStatus.type === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : modelStatus.type === 'warning' ? 'text-amber-700 bg-amber-100 border-amber-400/30' : 'border-border text-muted-foreground bg-muted'}`}>{modelStatus.message}</div>
-          )}
-          {modelsError && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{modelsError}</div>}
-          {modelsLoading ? (
-            <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('common.loading')}</div>
-          ) : models.length === 0 ? (
-            <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('system_info.models_empty')}</div>
-          ) : (
-            <div className="flex flex-col">
-              {groupedModels.map((group) => {
-                const iconSrc = getIconForCategory(group.id);
-                return (
-                  <div key={group.id} className="flex items-center justify-between gap-2 py-2.5 border-b border-border last:border-b-0">
-                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        {iconSrc && <img src={iconSrc} alt="" className="w-[18px] h-[18px] shrink-0" />}
-                        <span className="text-sm font-medium text-foreground">{group.label}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {t('system_info.models_count', { count: group.items.length })}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {group.items.map((model) => (
-                        <span
-                          key={`${model.name}-${model.alias ?? 'default'}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 border border-border bg-muted font-mono text-sm"
-                          title={model.description || ''}
-                        >
-                          <span className="text-foreground font-semibold">{model.name}</span>
-                          {model.alias && <span className="text-muted-foreground text-xs">{model.alias}</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </Card>
 
         <Card title={t('system_info.clear_login_title')}>

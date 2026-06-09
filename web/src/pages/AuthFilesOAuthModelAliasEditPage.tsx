@@ -17,7 +17,7 @@ import { generateId } from '@/utils/helpers';
 
 type AuthFileModelItem = { id: string; display_name?: string; type?: string; owned_by?: string };
 
-type LocationState = { fromAuthFiles?: boolean } | null;
+type LocationState = { fromAuthFiles?: boolean; returnTo?: string } | null;
 
 type OAuthModelMappingFormEntry = OAuthModelAliasEntry & { id: string };
 
@@ -138,6 +138,10 @@ export function AuthFilesOAuthModelAliasEditPage() {
 
   const handleBack = useCallback(() => {
     const state = location.state as LocationState;
+    if (state?.returnTo) {
+      navigate(state.returnTo, { replace: true });
+      return;
+    }
     if (state?.fromAuthFiles) {
       navigate(-1);
       return;

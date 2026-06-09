@@ -115,6 +115,7 @@
     "ai_providers": "AI Providers",
     "auth_files": "Auth Files",
     "oauth": "OAuth Login",
+    "models": "Models",
     "quota_management": "Quota Management",
     "config_management": "Config Panel",
     "logs": "Logs Viewer",
@@ -131,6 +132,7 @@
     "ai_providers": "Upstream model routing",
     "auth_files": "Auth files & credentials",
     "oauth": "OAuth authorization",
+    "models": "Model inventory & alias",
     "quota_management": "API keys & limits",
     "logs": "Request tracing",
     "config_management": "Gateway configuration",
@@ -1108,6 +1110,20 @@
     "refresh_all_credentials": "Refresh all credentials",
     "card_idle_hint": "Use the top \"Refresh all credentials\" button to fetch the latest quota data.",
     "tab_all": "All"
+  },
+  "models_management": {
+    "title": "Models",
+    "description": "Xem các model proxy đang expose và quản lý OAuth model alias ở một nơi.",
+    "available_models_title": "Available Models",
+    "search_placeholder": "Tìm model hoặc alias",
+    "total_models": "Model đang có",
+    "provider_count": "Alias providers",
+    "alias_count": "Alias mappings",
+    "models_loading": "Đang tải danh sách model...",
+    "models_empty": "Không có model nào từ /models",
+    "models_error": "Không tải được danh sách model",
+    "models_count": "{{count}} model đang có",
+    "search_empty": "Không có model khớp tìm kiếm"
   },
   "system_info": {
     "title": "Management Center Info",

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -581,6 +582,7 @@ func TestKiroExecutorExecute_CollapsesFragmentedToolUseEvents(t *testing.T) {
 
 func TestKiroExecutorExecute_RefreshesAfter401(t *testing.T) {
 	var generateCalls int
+	var retryBody map[string]any
 	refreshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","profileArn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/NEW","expiresIn":3600}`)
 	}))
@@ -594,6 +596,9 @@ func TestKiroExecutorExecute_RefreshesAfter401(t *testing.T) {
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer access-new" {
 			t.Fatalf("retry Authorization = %q, want refreshed token", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&retryBody); err != nil {
+			t.Fatalf("decode retry body: %v", err)
 		}
 		_, _ = io.WriteString(w, `{"content":"ok"}`)
 	}))
@@ -612,6 +617,9 @@ func TestKiroExecutorExecute_RefreshesAfter401(t *testing.T) {
 	}
 	if generateCalls != 2 {
 		t.Fatalf("generate calls = %d, want 2", generateCalls)
+	}
+	if got := retryBody["profileArn"]; got != "arn:aws:codewhisperer:us-east-1:123456789012:profile/NEW" {
+		t.Fatalf("retry profileArn = %#v, want refreshed profile ARN", got)
 	}
 	if !bytes.Contains(resp.Payload, []byte(`"content":"ok"`)) {
 		t.Fatalf("response payload = %s, want ok", resp.Payload)
@@ -762,6 +770,218 @@ func TestKiroExecutorResolveModels_RefreshesOnUnauthorized(t *testing.T) {
 	}
 	if listAttempts != 2 {
 		t.Fatalf("list attempts = %d, want 2", listAttempts)
+	}
+}
+
+func TestKiroExecutorPrepareRequestAuth_ResolvesProfileFromListAvailableProfiles(t *testing.T) {
+	var listCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		listCalls++
+		if r.URL.Path != kiroListProfilesPath {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+			t.Fatalf("Authorization = %q, want access-token", got)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode profile body: %v", err)
+		}
+		if payload["maxResults"].(float64) != 10 {
+			t.Fatalf("maxResults = %#v, want 10", payload["maxResults"])
+		}
+		_, _ = io.WriteString(w, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-west-2:123:profile/FETCHED"}]}`)
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-profile",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"access_token":      "access-token",
+			"list_profiles_url": server.URL + kiroListProfilesPath,
+		},
+	}
+	exec := NewKiroExecutor(&config.Config{})
+	if !exec.ShouldPrepareRequestAuth(auth) {
+		t.Fatal("ShouldPrepareRequestAuth() = false, want true")
+	}
+	updated, err := exec.PrepareRequestAuth(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("PrepareRequestAuth() error = %v", err)
+	}
+	if updated == nil {
+		t.Fatal("updated auth = nil")
+	}
+	if got := updated.Metadata["profile_arn"]; got != "arn:aws:codewhisperer:us-west-2:123:profile/FETCHED" {
+		t.Fatalf("profile_arn = %#v, want fetched", got)
+	}
+	if _, mutated := auth.Metadata["profile_arn"]; mutated {
+		t.Fatal("original auth was mutated")
+	}
+	if listCalls != 1 {
+		t.Fatalf("list calls = %d, want 1", listCalls)
+	}
+}
+
+func TestKiroExecutorResolveProfileARN_RetriesTransientProfileFetch(t *testing.T) {
+	var listCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		listCalls++
+		if listCalls < 3 {
+			http.Error(w, "temporary", http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:123:profile/RETRY"}]}`)
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-profile-retry",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"access_token":      "access-token",
+			"list_profiles_url": server.URL + kiroListProfilesPath,
+		},
+	}
+	profileARN, updated, err := NewKiroExecutor(&config.Config{}).ResolveProfileARN(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("ResolveProfileARN() error = %v", err)
+	}
+	if profileARN != "arn:aws:codewhisperer:us-east-1:123:profile/RETRY" {
+		t.Fatalf("profileARN = %q, want retry ARN", profileARN)
+	}
+	if updated == nil || updated.Metadata["profile_arn"] != profileARN {
+		t.Fatalf("updated profile = %#v, want retry ARN", updated)
+	}
+	if listCalls != 3 {
+		t.Fatalf("list calls = %d, want 3", listCalls)
+	}
+}
+
+func TestKiroExecutorResolveProfileARN_EmptyListFallsBackToRefresh(t *testing.T) {
+	var refreshCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case kiroListProfilesPath:
+			_, _ = io.WriteString(w, `{"profiles":[]}`)
+		case "/refresh":
+			refreshCalls++
+			_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","profileArn":"arn:aws:codewhisperer:us-east-1:123:profile/REFRESH","expiresIn":3600}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-profile-refresh",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"access_token":      "access-old",
+			"refresh_token":     "refresh-old",
+			"list_profiles_url": server.URL + kiroListProfilesPath,
+			"refresh_url":       server.URL + "/refresh",
+		},
+	}
+	profileARN, updated, err := NewKiroExecutor(&config.Config{}).ResolveProfileARN(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("ResolveProfileARN() error = %v", err)
+	}
+	if profileARN != "arn:aws:codewhisperer:us-east-1:123:profile/REFRESH" {
+		t.Fatalf("profileARN = %q, want refresh ARN", profileARN)
+	}
+	if updated == nil || updated.Metadata["access_token"] != "access-new" || updated.Metadata["profile_arn"] != profileARN {
+		t.Fatalf("updated auth = %#v, want refreshed auth with profile", updated)
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
+	}
+}
+
+func TestKiroExecutorResolveProfileARN_NoProfileAfterListAndRefresh(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case kiroListProfilesPath:
+			_, _ = io.WriteString(w, `{"profiles":[]}`)
+		case "/refresh":
+			_, _ = io.WriteString(w, `{"accessToken":"access-new","refreshToken":"refresh-new","expiresIn":3600}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-profile-missing",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"access_token":      "access-old",
+			"refresh_token":     "refresh-old",
+			"list_profiles_url": server.URL + kiroListProfilesPath,
+			"refresh_url":       server.URL + "/refresh",
+		},
+	}
+	_, _, err := NewKiroExecutor(&config.Config{}).ResolveProfileARN(context.Background(), auth)
+	if err == nil || !strings.Contains(err.Error(), "no available Kiro profile") {
+		t.Fatalf("ResolveProfileARN() error = %v, want no available Kiro profile", err)
+	}
+}
+
+func TestKiroExecutorSetOverageStatus_PostsPreferenceAndRefreshesQuota(t *testing.T) {
+	var setBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case kiroListProfilesPath:
+			_, _ = io.WriteString(w, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:123:profile/OVERAGE"}]}`)
+		case kiroSetUserPreferencePath:
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want access-token", got)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&setBody); err != nil {
+				t.Fatalf("decode set body: %v", err)
+			}
+			_, _ = io.WriteString(w, `{}`)
+		case kiroUsageLimitsPath:
+			_, _ = io.WriteString(w, `{
+				"overageConfiguration":{"overageStatus":"DISABLED"},
+				"usageBreakdownList":[{"resourceType":"AGENTIC_REQUEST","currentUsage":100,"usageLimit":100}]
+			}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-overage",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"access_token":            "access-token",
+			"list_profiles_url":       server.URL + kiroListProfilesPath,
+			"set_user_preference_url": server.URL + kiroSetUserPreferencePath,
+			"quota_url":               server.URL + kiroUsageLimitsPath,
+		},
+	}
+	quota, updated, err := NewKiroExecutor(&config.Config{}).SetOverageStatus(context.Background(), auth, true)
+	if err != nil {
+		t.Fatalf("SetOverageStatus() error = %v", err)
+	}
+	if updated == nil || updated.Metadata["profile_arn"] != "arn:aws:codewhisperer:us-east-1:123:profile/OVERAGE" {
+		t.Fatalf("updated auth = %#v, want resolved profile", updated)
+	}
+	if setBody["profileArn"] != "arn:aws:codewhisperer:us-east-1:123:profile/OVERAGE" {
+		t.Fatalf("profileArn body = %#v, want resolved profile", setBody["profileArn"])
+	}
+	config, ok := setBody["overageConfiguration"].(map[string]any)
+	if !ok || config["overageStatus"] != "ENABLED" {
+		t.Fatalf("overageConfiguration = %#v, want ENABLED", setBody["overageConfiguration"])
+	}
+	if quota.OverageStatus != "ENABLED" {
+		t.Fatalf("quota overage status = %q, want forced ENABLED", quota.OverageStatus)
+	}
+	if quota.Exhausted(time.Now().UTC()) {
+		t.Fatalf("quota exhausted = true, want overage-enabled quota routable")
 	}
 }
 

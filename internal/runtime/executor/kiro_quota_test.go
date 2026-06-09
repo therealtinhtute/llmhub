@@ -209,6 +209,43 @@ func TestParseKiroUsageLimits_EmptyQuotaUnavailable(t *testing.T) {
 	}
 }
 
+func TestKiroQuotaStateExhausted_RespectsOverageStatus(t *testing.T) {
+	now := time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC)
+	reset := now.Add(time.Hour)
+	current := 100.0
+	limit := 100.0
+
+	tests := []struct {
+		name          string
+		overageStatus string
+		want          bool
+	}{
+		{name: "enabled overage stays routable", overageStatus: "ENABLED", want: false},
+		{name: "disabled overage blocks", overageStatus: "DISABLED", want: true},
+		{name: "unknown overage blocks", overageStatus: "UNKNOWN", want: true},
+		{name: "empty overage blocks", overageStatus: "", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			quota := KiroQuotaState{
+				ProviderQuotaAvailable: true,
+				Current:                &current,
+				Limit:                  &limit,
+				NextResetAt:            &reset,
+				OverageStatus:          tt.overageStatus,
+			}
+			if got := quota.Exhausted(now); got != tt.want {
+				t.Fatalf("Exhausted() = %v, want %v", got, tt.want)
+			}
+			auth := ApplyKiroQuotaToAuth(&cliproxyauth.Auth{Provider: "kiro"}, quota, now)
+			if got := auth.Quota.Exceeded; got != tt.want {
+				t.Fatalf("ApplyKiroQuotaToAuth quota exceeded = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestKiroExecutorFetchQuota_UsesEndpointFallbackOrder(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

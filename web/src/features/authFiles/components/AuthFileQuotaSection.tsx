@@ -9,10 +9,13 @@ import {
   KIRO_CONFIG,
   KIMI_CONFIG,
   XAI_CONFIG,
+  buildKiroQuotaStateFromProvider,
 } from '@/components/quota';
 import { toast } from 'sonner';
 import { useQuotaStore } from '@/stores';
-import type { AuthFileItem } from '@/types';
+import { authFilesApi } from '@/services/api';
+import type { AuthFileItem, KiroQuotaState } from '@/types';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import { getStatusFromError } from '@/utils/quota';
 import {
   isRuntimeOnlyAuthFile,
@@ -43,6 +46,9 @@ const quotaStyleMap = {
   codexPlan: 'flex items-center gap-[6px] text-[12px] text-muted-foreground',
   codexPlanLabel: 'text-muted-foreground/60',
   codexPlanValue: 'font-semibold text-foreground capitalize',
+  overagePlanValue: 'flex min-w-0 flex-1 items-center justify-between gap-2 font-semibold text-foreground',
+  overageToggle:
+    'shrink-0 border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',
   premiumPlanValue:
     'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-amber-500/15 border border-amber-500/30 text-amber-600 capitalize',
 };
@@ -130,6 +136,55 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     }
   }, [disableControls, file, quota?.status, quotaType, t, updateQuotaState]);
 
+  const setKiroOverageForFile = useCallback(
+    async (enabled: boolean) => {
+      if (quotaType !== 'kiro') return;
+      if (disableControls || file.disabled) return;
+      const current = (useQuotaStore.getState().kiroQuota[file.name] ??
+        KIRO_CONFIG.buildRuntimeState?.(file)) as KiroQuotaState | undefined;
+      if (!current?.providerQuotaAvailable || current.status === 'loading' || current.overageUpdating) {
+        return;
+      }
+
+      const authIndex = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
+      useQuotaStore.getState().setKiroQuota((prev) => ({
+        ...prev,
+        [file.name]: {
+          ...current,
+          overageUpdating: true,
+        },
+      }));
+
+      try {
+        const providerQuota = await authFilesApi.setKiroOverage({
+          name: file.name,
+          authIndex: authIndex ?? undefined,
+          enabled,
+        });
+        useQuotaStore.getState().setKiroQuota((prev) => ({
+          ...prev,
+          [file.name]: buildKiroQuotaStateFromProvider(file, providerQuota),
+        }));
+        toast.success(
+          t(enabled ? 'kiro_quota.overage_enable_success' : 'kiro_quota.overage_disable_success', {
+            name: file.name,
+          })
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : t('common.unknown_error');
+        useQuotaStore.getState().setKiroQuota((prev) => ({
+          ...prev,
+          [file.name]: {
+            ...(prev[file.name] ?? current),
+            overageUpdating: false,
+          },
+        }));
+        toast.error(t('kiro_quota.overage_toggle_failed', { name: file.name, message }));
+      }
+    },
+    [disableControls, file, quotaType, t]
+  );
+
   const config = getQuotaConfig(quotaType) as unknown as {
     i18nPrefix: string;
     renderQuotaItems: (quota: unknown, t: TFunction, helpers: unknown) => unknown;
@@ -166,6 +221,12 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         (config.renderQuotaItems(quota, t, {
           styles: quotaStyleMap,
           QuotaProgressBar,
+          item: file,
+          quotaDisabled: file.disabled,
+          onSetKiroOverage:
+            quotaType === 'kiro'
+              ? (_item: AuthFileItem, enabled: boolean) => setKiroOverageForFile(enabled)
+              : undefined,
         }) as ReactNode)
       ) : (
         <div className={quotaStyleMap.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>

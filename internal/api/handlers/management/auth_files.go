@@ -371,6 +371,67 @@ func (h *Handler) RefreshKiroQuota(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"quota": quota})
 }
 
+// SetKiroOverage flips the upstream Kiro overage preference for one auth and persists the refreshed quota.
+func (h *Handler) SetKiroOverage(c *gin.Context) {
+	if h == nil || h.authManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+		return
+	}
+
+	var req struct {
+		Name      string `json:"name"`
+		ID        string `json:"id"`
+		AuthIndex string `json:"auth_index"`
+		Enabled   *bool  `json:"enabled"`
+	}
+	if c.Request.Body != nil {
+		decoder := json.NewDecoder(c.Request.Body)
+		decoder.UseNumber()
+		if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+	}
+	if req.Enabled == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "enabled is required"})
+		return
+	}
+	if req.Name == "" {
+		req.Name = c.Query("name")
+	}
+	if req.ID == "" {
+		req.ID = c.Query("id")
+	}
+	if req.AuthIndex == "" {
+		req.AuthIndex = c.Query("auth_index")
+	}
+
+	auth := h.findKiroAuthForQuota(req.Name, req.ID, req.AuthIndex)
+	if auth == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "kiro auth file not found"})
+		return
+	}
+
+	exec := runtimeexecutor.NewKiroExecutor(h.cfg)
+	quota, refreshedAuth, err := exec.SetOverageStatus(c.Request.Context(), auth, *req.Enabled)
+	if refreshedAuth != nil {
+		auth = refreshedAuth
+	}
+	if err != nil {
+		h.applyKiroQuotaRefreshError(c.Request.Context(), auth, err)
+		c.JSON(statusCodeFromManagementError(err), gin.H{"error": err.Error()})
+		return
+	}
+
+	updated := runtimeexecutor.ApplyKiroQuotaToAuth(auth, quota, time.Now().UTC())
+	if _, errUpdate := h.authManager.Update(c.Request.Context(), updated); errUpdate != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to persist kiro overage quota: %v", errUpdate)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"quota": quota})
+}
+
 func (h *Handler) findKiroAuthForQuota(name, id, authIndex string) *coreauth.Auth {
 	if h == nil || h.authManager == nil {
 		return nil

@@ -405,6 +405,7 @@ export interface KiroQuotaState {
   providerQuotaAvailable: boolean;
   providerQuota?: KiroProviderQuotaState | null;
   runtimeUsageStats?: KiroRuntimeUsageStats | null;
+  overageUpdating?: boolean;
   error?: string;
   errorStatus?: number;
 }

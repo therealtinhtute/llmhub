@@ -14,5 +14,6 @@ export {
   KIRO_CONFIG,
   KIMI_CONFIG,
   XAI_CONFIG,
+  buildKiroQuotaStateFromProvider,
 } from './quotaConfigs';
 export type { QuotaConfig } from './quotaConfigs';

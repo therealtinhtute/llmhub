@@ -73,6 +73,9 @@ export const quotaStyles = {
   codexPlan: 'flex items-center gap-1.5 text-[12px] text-muted-foreground',
   codexPlanLabel: 'text-[var(--text-tertiary,hsl(var(--muted-foreground)))]',
   codexPlanValue: 'font-semibold text-foreground capitalize',
+  overagePlanValue: 'flex min-w-0 flex-1 items-center justify-between gap-2 font-semibold text-foreground',
+  overageToggle:
+    'shrink-0 border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',
   premiumPlanValue:
     'relative inline-flex items-center font-bold text-[12px] px-2 py-0.5 rounded-full overflow-visible isolate [background:radial-gradient(circle_at_18%_24%,rgba(255,255,255,0.96)_0%,rgba(255,255,255,0.72)_18%,rgba(255,255,255,0)_42%),linear-gradient(135deg,#fff9e3_0%,#ffe07f_52%,#e0aa14_100%)] border border-[rgba(217,165,22,0.72)] shadow-[0_1px_3px_rgba(133,92,0,0.16),0_0_0_1px_rgba(255,255,255,0.22)_inset,0_0_16px_rgba(255,214,98,0.28)] text-[#6b4b00] [text-shadow:0_1px_0_rgba(255,255,255,0.55)] capitalize',
 

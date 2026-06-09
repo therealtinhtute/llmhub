@@ -6,11 +6,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { toast } from 'sonner';
 import { useQuotaStore, useThemeStore } from '@/stores';
-import type { AuthFileItem, ResolvedTheme } from '@/types';
+import type { AuthFileItem, KiroQuotaState, ResolvedTheme } from '@/types';
+import { authFilesApi } from '@/services/api';
 import { getStatusFromError } from '@/utils/quota';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import { QuotaCard } from './QuotaCard';
 import type { QuotaStatusState } from './QuotaCard';
-import type { QuotaConfig, QuotaStore } from './quotaConfigs';
+import { buildKiroQuotaStateFromProvider, type QuotaConfig, type QuotaStore } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { quotaStyles as styles } from './quotaStyles';
@@ -277,6 +279,53 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
     [disabled, t]
   );
 
+  const setKiroOverageForItem = useCallback(
+    async (item: AuthFileItem, enabled: boolean) => {
+      if (disabled || item.disabled) return;
+      const current = useQuotaStore.getState().kiroQuota[item.name];
+      if (!current?.providerQuotaAvailable || current.status === 'loading' || current.overageUpdating) {
+        return;
+      }
+
+      const authIndex = normalizeAuthIndex(item['auth_index'] ?? item.authIndex);
+      useQuotaStore.getState().setKiroQuota((prev) => ({
+        ...prev,
+        [item.name]: {
+          ...current,
+          overageUpdating: true,
+        } as KiroQuotaState,
+      }));
+
+      try {
+        const quota = await authFilesApi.setKiroOverage({
+          name: item.name,
+          authIndex: authIndex ?? undefined,
+          enabled,
+        });
+        useQuotaStore.getState().setKiroQuota((prev) => ({
+          ...prev,
+          [item.name]: buildKiroQuotaStateFromProvider(item, quota),
+        }));
+        toast.success(
+          t(enabled ? 'kiro_quota.overage_enable_success' : 'kiro_quota.overage_disable_success', {
+            name: item.name,
+          })
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : t('common.unknown_error');
+        useQuotaStore.getState().setKiroQuota((prev) => ({
+          ...prev,
+          [item.name]: {
+            ...(prev[item.name] ?? current),
+            overageUpdating: false,
+          } as KiroQuotaState,
+        }));
+        toast.error(t('kiro_quota.overage_toggle_failed', { name: item.name, message }));
+      }
+    },
+    [disabled, t]
+  );
+
   const isRefreshing = sectionLoading || loading;
 
   if (allItems.length === 0) {
@@ -346,6 +395,7 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
             defaultType={config.type}
             canRefresh={!disabled && !item.disabled}
             onRefresh={() => void refreshQuotaForItem(item, config)}
+            onSetKiroOverage={config.type === 'kiro' ? setKiroOverageForItem : undefined}
             renderQuotaItems={config.renderQuotaItems}
           />
         ))}

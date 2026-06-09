@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,8 @@ import (
 const (
 	kiroGeneratePath          = "/generateAssistantResponse"
 	kiroListModelsPath        = "/ListAvailableModels"
+	kiroListProfilesPath      = "/ListAvailableProfiles"
+	kiroSetUserPreferencePath = "/setUserPreference"
 	kiroAMZTarget             = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
 	kiroDefaultContextLength  = 200000
 	kiroDefaultMaxOutputToken = 64000
@@ -123,6 +126,12 @@ type kiroModelCatalogResponse struct {
 	Models []kiroUpstreamModel `json:"models"`
 }
 
+type kiroProfileCatalogResponse struct {
+	Profiles []struct {
+		Arn string `json:"arn"`
+	} `json:"profiles"`
+}
+
 type kiroUpstreamModel struct {
 	ID             string                 `json:"id"`
 	ModelID        string                 `json:"modelId"`
@@ -193,13 +202,244 @@ func (e *KiroExecutor) fetchKiroModelCatalog(ctx context.Context, auth *cliproxy
 	return payload.Models, nil
 }
 
+func (e *KiroExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool {
+	if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), kiro.Provider) {
+		return false
+	}
+	if auth.Disabled || auth.Status == cliproxyauth.StatusDisabled {
+		return false
+	}
+	return metadataString(auth, "access_token") != "" && metadataString(auth, "profile_arn") == ""
+}
+
+func (e *KiroExecutor) PrepareRequestAuth(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+	if auth == nil || !e.ShouldPrepareRequestAuth(auth) {
+		return nil, nil
+	}
+	_, updated, err := e.ResolveProfileARN(ctx, auth)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (e *KiroExecutor) ResolveProfileARN(ctx context.Context, auth *cliproxyauth.Auth) (string, *cliproxyauth.Auth, error) {
+	if auth == nil {
+		return "", nil, fmt.Errorf("kiro profile: auth is nil")
+	}
+	if profileARN := metadataString(auth, "profile_arn"); profileARN != "" {
+		return profileARN, nil, nil
+	}
+	if metadataString(auth, "access_token") == "" {
+		return "", nil, statusErr{code: http.StatusUnauthorized, msg: "kiro profile: missing access token"}
+	}
+
+	profileARN, err := e.listAvailableProfilesWithRetry(ctx, auth)
+	if err == nil && profileARN != "" {
+		updated := auth.Clone()
+		if updated.Metadata == nil {
+			updated.Metadata = make(map[string]any)
+		}
+		updated.Metadata["profile_arn"] = profileARN
+		updated.UpdatedAt = time.Now().UTC()
+		return profileARN, updated, nil
+	}
+
+	if metadataString(auth, "refresh_token") != "" {
+		refreshed, errRefresh := e.Refresh(ctx, auth)
+		if errRefresh == nil {
+			if refreshedARN := metadataString(refreshed, "profile_arn"); refreshedARN != "" {
+				return refreshedARN, refreshed, nil
+			}
+		}
+	}
+
+	return "", nil, fmt.Errorf("no available Kiro profile")
+}
+
+func (e *KiroExecutor) listAvailableProfilesWithRetry(ctx context.Context, auth *cliproxyauth.Auth) (string, error) {
+	const maxAttempts = 3
+	var lastErr error
+	backoff := 200 * time.Millisecond
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		profileARN, err := e.listAvailableProfiles(ctx, auth)
+		if err == nil {
+			return profileARN, nil
+		}
+		lastErr = err
+		if !isTransientKiroProfileFetchError(err) || attempt == maxAttempts {
+			return "", err
+		}
+		if ctx == nil {
+			time.Sleep(backoff)
+		} else {
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return "", ctx.Err()
+			case <-timer.C:
+			}
+		}
+		backoff *= 2
+	}
+	return "", lastErr
+}
+
+func (e *KiroExecutor) listAvailableProfiles(ctx context.Context, auth *cliproxyauth.Auth) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body := []byte(`{"maxResults":10}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, kiroListAvailableProfilesURL(auth), bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("kiro profile: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+metadataString(auth, "access_token"))
+	req.Header.Set("Content-Type", "application/json")
+	applyKiroModelListHeaders(req, auth)
+	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 30*time.Second)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("kiro profile: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("kiro profile: read response: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", statusErr{code: resp.StatusCode, msg: fmt.Sprintf("kiro profile: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))}
+	}
+	var payload kiroProfileCatalogResponse
+	if err := json.Unmarshal(respBody, &payload); err != nil {
+		return "", fmt.Errorf("kiro profile: decode response: %w", err)
+	}
+	for _, profile := range payload.Profiles {
+		if profileARN := strings.TrimSpace(profile.Arn); profileARN != "" {
+			return profileARN, nil
+		}
+	}
+	return "", fmt.Errorf("kiro profile: empty profile list")
+}
+
+func isTransientKiroProfileFetchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "empty profile list") {
+		return false
+	}
+	var status interface{ StatusCode() int }
+	if errors.As(err, &status) {
+		code := status.StatusCode()
+		return code == http.StatusTooManyRequests || code >= http.StatusInternalServerError
+	}
+	return true
+}
+
+func (e *KiroExecutor) SetOverageStatus(ctx context.Context, auth *cliproxyauth.Auth, enabled bool) (KiroQuotaState, *cliproxyauth.Auth, error) {
+	if auth == nil {
+		return KiroQuotaState{}, nil, fmt.Errorf("kiro overage: auth is nil")
+	}
+	status := "DISABLED"
+	if enabled {
+		status = "ENABLED"
+	}
+
+	profileARN, updatedAuth, err := e.ResolveProfileARN(ctx, auth)
+	if err != nil {
+		return KiroQuotaState{}, nil, fmt.Errorf("kiro overage: resolve profileArn: %w", err)
+	}
+	if updatedAuth != nil {
+		auth = updatedAuth
+	}
+
+	refreshedOn401 := false
+	for {
+		err = e.postKiroOverageStatus(ctx, auth, profileARN, status)
+		if err == nil {
+			break
+		}
+		var statusProvider interface{ StatusCode() int }
+		if !errors.As(err, &statusProvider) || statusProvider.StatusCode() != http.StatusUnauthorized || refreshedOn401 || metadataString(auth, "refresh_token") == "" {
+			return KiroQuotaState{}, auth, err
+		}
+		refreshedOn401 = true
+		refreshed, errRefresh := e.Refresh(ctx, auth)
+		if errRefresh != nil {
+			return KiroQuotaState{}, auth, errRefresh
+		}
+		auth = refreshed
+		profileARN, updatedAuth, err = e.ResolveProfileARN(ctx, auth)
+		if err != nil {
+			return KiroQuotaState{}, auth, fmt.Errorf("kiro overage: resolve refreshed profileArn: %w", err)
+		}
+		if updatedAuth != nil {
+			auth = updatedAuth
+		}
+	}
+
+	quota, refreshedQuotaAuth, err := e.FetchQuota(ctx, auth)
+	if refreshedQuotaAuth != nil {
+		auth = refreshedQuotaAuth
+	}
+	if err != nil {
+		quota = KiroQuotaState{
+			ProviderQuotaAvailable: false,
+			Message:                err.Error(),
+			OverageStatus:          status,
+			CheckedAt:              time.Now().UTC(),
+		}
+	} else {
+		quota.OverageStatus = status
+	}
+	return quota, auth, nil
+}
+
+func (e *KiroExecutor) postKiroOverageStatus(ctx context.Context, auth *cliproxyauth.Auth, profileARN, status string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body, err := json.Marshal(map[string]any{
+		"profileArn": profileARN,
+		"overageConfiguration": map[string]string{
+			"overageStatus": status,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, kiroSetUserPreferenceURL(auth), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("kiro overage: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+metadataString(auth, "access_token"))
+	req.Header.Set("Content-Type", "application/json")
+	applyKiroUsageLimitsHeaders(req, auth)
+	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 30*time.Second)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("kiro overage: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("kiro overage: read response: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return statusErr{code: resp.StatusCode, msg: fmt.Sprintf("kiro overage: setUserPreference status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))}
+	}
+	return nil
+}
+
 func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
-	body, originalOpenAI, from, err := buildKiroRequest(req, opts, false)
+	baseBody, originalOpenAI, from, err := buildKiroRequest(req, opts, false)
 	if err != nil {
 		return resp, err
 	}
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
-	body = applyKiroProfileARN(body, auth)
+	body := applyKiroProfileARN(baseBody, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
 	if err != nil {
 		reporter.PublishFailure(ctx, err)
@@ -213,6 +453,7 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 			return resp, errRefresh
 		}
 		auth = refreshed
+		body = applyKiroProfileARN(baseBody, auth)
 		httpResp, err = e.doKiroRequest(ctx, auth, body)
 		if err != nil {
 			reporter.PublishFailure(ctx, err)
@@ -254,12 +495,12 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 }
 
 func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
-	body, originalOpenAI, from, err := buildKiroRequest(req, opts, true)
+	baseBody, originalOpenAI, from, err := buildKiroRequest(req, opts, true)
 	if err != nil {
 		return nil, err
 	}
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
-	body = applyKiroProfileARN(body, auth)
+	body := applyKiroProfileARN(baseBody, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
 	if err != nil {
 		reporter.PublishFailure(ctx, err)
@@ -273,6 +514,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 			return nil, errRefresh
 		}
 		auth = refreshed
+		body = applyKiroProfileARN(baseBody, auth)
 		httpResp, err = e.doKiroRequest(ctx, auth, body)
 		if err != nil {
 			reporter.PublishFailure(ctx, err)
@@ -1237,6 +1479,37 @@ func kiroListAvailableModelsURL(auth *cliproxyauth.Auth) string {
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+func kiroListAvailableProfilesURL(auth *cliproxyauth.Auth) string {
+	if rawURL := metadataString(auth, "profiles_url"); rawURL != "" {
+		return rawURL
+	}
+	if rawURL := metadataString(auth, "list_profiles_url"); rawURL != "" {
+		return rawURL
+	}
+	baseURL := metadataString(auth, "codewhisperer_base_url")
+	if baseURL == "" {
+		baseURL = kiroCodeWhispererUsageBaseURL
+	}
+	return strings.TrimRight(baseURL, "/") + kiroListProfilesPath
+}
+
+func kiroSetUserPreferenceURL(auth *cliproxyauth.Auth) string {
+	if rawURL := metadataString(auth, "set_user_preference_url"); rawURL != "" {
+		return rawURL
+	}
+	if rawURL := metadataString(auth, "overage_url"); rawURL != "" {
+		return rawURL
+	}
+	region := metadataString(auth, "region")
+	if region == "" {
+		region = regionFromKiroProfileARN(metadataString(auth, "profile_arn"))
+	}
+	if region == "" {
+		region = kiro.DefaultRegion
+	}
+	return fmt.Sprintf("https://q.%s.amazonaws.com%s", region, kiroSetUserPreferencePath)
 }
 
 func regionFromKiroProfileARN(profileARN string) string {

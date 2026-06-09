@@ -91,6 +91,9 @@ type KiroQuotaState struct {
 }
 
 func (q KiroQuotaState) Exhausted(now time.Time) bool {
+	if q.OverageEnabled() {
+		return false
+	}
 	if !q.ProviderQuotaAvailable || q.Current == nil || q.Limit == nil || *q.Limit <= 0 {
 		return false
 	}
@@ -98,6 +101,10 @@ func (q KiroQuotaState) Exhausted(now time.Time) bool {
 		return false
 	}
 	return *q.Current >= *q.Limit
+}
+
+func (q KiroQuotaState) OverageEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(q.OverageStatus), "ENABLED")
 }
 
 func (q KiroQuotaState) NextRecoverAt() time.Time {

@@ -450,16 +450,120 @@ func kiroProviderQuotaBlocked(auth *Auth, now time.Time) (bool, time.Time) {
 	if len(source) == 0 {
 		return false, time.Time{}
 	}
-	current, okCurrent := authQuotaNumber(source["current"])
-	limit, okLimit := authQuotaNumber(source["limit"])
-	if !okCurrent || !okLimit || limit <= 0 || current < limit {
+	if kiroQuotaOverageEnabled(source) {
 		return false, time.Time{}
 	}
-	next := authQuotaTime(firstAuthQuotaValue(source, "next_reset_at", "nextResetAt"))
+	current, limit, next, ok := kiroQuotaUsage(source)
+	if !ok || limit <= 0 || current < limit {
+		return false, time.Time{}
+	}
 	if !next.IsZero() && !next.After(now) {
 		return false, time.Time{}
 	}
 	return true, next
+}
+
+func kiroQuotaOverageEnabled(source map[string]any) bool {
+	if strings.EqualFold(strings.TrimSpace(authQuotaString(firstAuthQuotaValue(source, "overage_status", "overageStatus"))), "ENABLED") {
+		return true
+	}
+	for _, row := range kiroQuotaRows(source["quotas"]) {
+		if strings.EqualFold(strings.TrimSpace(authQuotaString(firstAuthQuotaValue(row, "overage_status", "overageStatus"))), "ENABLED") {
+			return true
+		}
+	}
+	return false
+}
+
+func kiroQuotaUsage(source map[string]any) (float64, float64, time.Time, bool) {
+	current, okCurrent := authQuotaNumber(firstAuthQuotaValue(source, "current"))
+	limit, okLimit := authQuotaNumber(firstAuthQuotaValue(source, "limit"))
+	if okCurrent && okLimit && limit > 0 {
+		next := authQuotaTime(firstAuthQuotaValue(source, "next_reset_at", "nextResetAt"))
+		return current, limit, next, true
+	}
+	if row, ok := preferredKiroQuotaRow(kiroQuotaRows(source["quotas"])); ok {
+		rowCurrent, rowCurrentOK := authQuotaNumber(firstAuthQuotaValue(row, "current", "used"))
+		rowLimit, rowLimitOK := authQuotaNumber(firstAuthQuotaValue(row, "limit", "total"))
+		if rowCurrentOK && rowLimitOK {
+			return rowCurrent, rowLimit, authQuotaTime(firstAuthQuotaValue(row, "reset_at", "resetAt", "next_reset_at", "nextResetAt")), true
+		}
+	}
+	return 0, 0, time.Time{}, false
+}
+
+func preferredKiroQuotaRow(rows []map[string]any) (map[string]any, bool) {
+	var fallback map[string]any
+	for _, row := range rows {
+		if authQuotaBool(firstAuthQuotaValue(row, "free_trial", "freeTrial")) {
+			continue
+		}
+		if fallback == nil {
+			fallback = row
+		}
+		id := strings.ToLower(strings.TrimSpace(authQuotaString(firstAuthQuotaValue(row, "id", "resource_type", "resourceType", "name"))))
+		if id == "agentic_request" {
+			return row, true
+		}
+	}
+	if fallback != nil {
+		return fallback, true
+	}
+	return nil, false
+}
+
+func kiroQuotaRows(raw any) []map[string]any {
+	if raw == nil {
+		return nil
+	}
+	var values []any
+	switch typed := raw.(type) {
+	case []any:
+		values = typed
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			value := typed[key]
+			if row, ok := value.(map[string]any); ok {
+				if row["id"] == nil {
+					row["id"] = key
+				}
+				values = append(values, row)
+			} else {
+				values = append(values, map[string]any{"id": key, "value": value})
+			}
+		}
+	default:
+		if marshaled, err := json.Marshal(raw); err == nil {
+			var decoded []any
+			if err := json.Unmarshal(marshaled, &decoded); err == nil {
+				values = decoded
+			} else {
+				var decodedMap map[string]any
+				if err := json.Unmarshal(marshaled, &decodedMap); err == nil {
+					return kiroQuotaRows(decodedMap)
+				}
+			}
+		}
+	}
+	rows := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		if row, ok := value.(map[string]any); ok {
+			rows = append(rows, row)
+			continue
+		}
+		if marshaled, err := json.Marshal(value); err == nil {
+			var row map[string]any
+			if err := json.Unmarshal(marshaled, &row); err == nil {
+				rows = append(rows, row)
+			}
+		}
+	}
+	return rows
 }
 
 func firstAuthQuotaValue(source map[string]any, keys ...string) any {
@@ -469,6 +573,31 @@ func firstAuthQuotaValue(source map[string]any, keys ...string) any {
 		}
 	}
 	return nil
+}
+
+func authQuotaString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.Number:
+		return typed.String()
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func authQuotaBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
+		return err == nil && parsed
+	default:
+		return false
+	}
 }
 
 func authQuotaNumber(value any) (float64, bool) {

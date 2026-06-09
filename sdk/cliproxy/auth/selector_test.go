@@ -155,6 +155,142 @@ func TestFillFirstSelectorPick_SkipsExhaustedKiroProviderQuota(t *testing.T) {
 	}
 }
 
+func TestFillFirstSelectorPick_AllowsExhaustedKiroQuotaWhenOverageEnabled(t *testing.T) {
+	t.Parallel()
+
+	selector := &FillFirstSelector{}
+	nextReset := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	exhaustedWithOverage := &Auth{
+		ID:       "kiro-overage",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"kiro_quota": map[string]any{
+				"provider_quota_available": true,
+				"current":                  100,
+				"limit":                    100,
+				"next_reset_at":            nextReset,
+				"overageStatus":            "ENABLED",
+			},
+		},
+	}
+	ready := &Auth{ID: "kiro-ready", Provider: "kiro"}
+
+	got, err := selector.Pick(context.Background(), "kiro", "claude-sonnet-4.5", cliproxyexecutor.Options{}, []*Auth{exhaustedWithOverage, ready})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil || got.ID != "kiro-overage" {
+		t.Fatalf("Pick() auth = %#v, want exhausted overage-enabled auth", got)
+	}
+}
+
+func TestFillFirstSelectorPick_SkipsExhaustedKiroQuotaFromRows(t *testing.T) {
+	t.Parallel()
+
+	selector := &FillFirstSelector{}
+	nextReset := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	exhausted := &Auth{
+		ID:       "kiro-exhausted-row",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"kiro_quota": map[string]any{
+				"provider_quota_available": true,
+				"quotas": []any{
+					map[string]any{
+						"id":          "credit",
+						"current":     1,
+						"limit":       100,
+						"nextResetAt": nextReset,
+					},
+					map[string]any{
+						"id":            "agentic_request",
+						"current":       10,
+						"limit":         10,
+						"next_reset_at": nextReset,
+					},
+				},
+			},
+		},
+	}
+	ready := &Auth{ID: "kiro-ready", Provider: "kiro"}
+
+	got, err := selector.Pick(context.Background(), "kiro", "claude-sonnet-4.5", cliproxyexecutor.Options{}, []*Auth{exhausted, ready})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil || got.ID != "kiro-ready" {
+		t.Fatalf("Pick() auth = %#v, want fallback auth", got)
+	}
+}
+
+func TestFillFirstSelectorPick_PrefersAvailableTopLevelKiroQuotaOverRows(t *testing.T) {
+	t.Parallel()
+
+	selector := &FillFirstSelector{}
+	nextReset := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	available := &Auth{
+		ID:       "kiro-available",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"kiro_quota": map[string]any{
+				"provider_quota_available": true,
+				"current":                  1,
+				"limit":                    100,
+				"next_reset_at":            nextReset,
+				"quotas": []any{
+					map[string]any{
+						"id":            "agentic_request",
+						"current":       10,
+						"limit":         10,
+						"next_reset_at": nextReset,
+					},
+				},
+			},
+		},
+	}
+	ready := &Auth{ID: "kiro-ready", Provider: "kiro"}
+
+	got, err := selector.Pick(context.Background(), "kiro", "claude-sonnet-4.5", cliproxyexecutor.Options{}, []*Auth{available, ready})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil || got.ID != "kiro-available" {
+		t.Fatalf("Pick() auth = %#v, want top-level available auth", got)
+	}
+}
+
+func TestFillFirstSelectorPick_LegacyKiroQuotaMapRowsRespectOverage(t *testing.T) {
+	t.Parallel()
+
+	selector := &FillFirstSelector{}
+	nextReset := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	exhaustedWithOverage := &Auth{
+		ID:       "kiro-legacy-overage",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"kiro_quota": map[string]any{
+				"provider_quota_available": true,
+				"quotas": map[string]any{
+					"agentic_request": map[string]any{
+						"used":          10,
+						"total":         10,
+						"resetAt":       nextReset,
+						"overageStatus": "ENABLED",
+					},
+				},
+			},
+		},
+	}
+
+	got, err := selector.Pick(context.Background(), "kiro", "claude-sonnet-4.5", cliproxyexecutor.Options{}, []*Auth{exhaustedWithOverage})
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil || got.ID != "kiro-legacy-overage" {
+		t.Fatalf("Pick() auth = %#v, want legacy overage auth", got)
+	}
+}
+
 func TestRoundRobinSelectorPick_Concurrent(t *testing.T) {
 	selector := &RoundRobinSelector{}
 	auths := []*Auth{

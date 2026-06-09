@@ -150,3 +150,88 @@ func TestRefreshKiroQuota_QuotaRefreshErrorDoesNotMarkAuthError(t *testing.T) {
 		t.Fatalf("quota message = %q, want status detail", quota.Message)
 	}
 }
+
+func TestSetKiroOverage_UpdatesAuthRuntimeState(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	var setCalls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/setUserPreference":
+			setCalls++
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want access-token", got)
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode overage payload: %v", err)
+			}
+			if payload["profileArn"] != "arn:aws:codewhisperer:us-east-1:123:profile/MGMT" {
+				t.Fatalf("profileArn = %#v", payload["profileArn"])
+			}
+			config, ok := payload["overageConfiguration"].(map[string]any)
+			if !ok || config["overageStatus"] != "ENABLED" {
+				t.Fatalf("overageConfiguration = %#v, want ENABLED", payload["overageConfiguration"])
+			}
+			_, _ = w.Write([]byte(`{}`))
+		case "/getUsageLimits":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"usageBreakdownList":[{"resourceType":"AGENTIC_REQUEST","currentUsage":100,"usageLimit":100}],
+				"overageConfiguration":{"overageStatus":"DISABLED"},
+				"nextDateReset":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"
+			}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	store := &memoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	record := &coreauth.Auth{
+		ID:       "kiro-auth.json",
+		FileName: "kiro-auth.json",
+		Provider: "kiro",
+		Status:   coreauth.StatusActive,
+		Metadata: map[string]any{
+			"type":                    "kiro",
+			"access_token":            "access-token",
+			"profile_arn":             "arn:aws:codewhisperer:us-east-1:123:profile/MGMT",
+			"set_user_preference_url": strings.TrimRight(upstream.URL, "/") + "/setUserPreference",
+			"quota_url":               strings.TrimRight(upstream.URL, "/") + "/getUsageLimits",
+		},
+	}
+	if _, err := manager.Register(context.Background(), record); err != nil {
+		t.Fatalf("register auth: %v", err)
+	}
+
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, manager)
+	rec := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(rec)
+	ginCtx.Request = httptest.NewRequest(http.MethodPost, "/v0/management/auth-files/kiro/overage", strings.NewReader(`{"name":"kiro-auth.json","enabled":true}`))
+
+	h.SetKiroOverage(ginCtx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if setCalls != 1 {
+		t.Fatalf("set calls = %d, want 1", setCalls)
+	}
+	updated, ok := manager.GetByID("kiro-auth.json")
+	if !ok {
+		t.Fatal("updated auth not found")
+	}
+	quota, ok := updated.Metadata["kiro_quota"].(runtimeexecutor.KiroQuotaState)
+	if !ok {
+		t.Fatalf("kiro_quota = %#v, want KiroQuotaState", updated.Metadata["kiro_quota"])
+	}
+	if quota.OverageStatus != "ENABLED" {
+		t.Fatalf("OverageStatus = %q, want ENABLED", quota.OverageStatus)
+	}
+	if updated.Quota.Exceeded {
+		t.Fatalf("auth quota exceeded = true, want false when upstream overage enabled")
+	}
+}

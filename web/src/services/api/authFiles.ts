@@ -46,6 +46,9 @@ type AuthFileBatchDeleteResult = {
 type KiroQuotaRefreshResponse = {
   quota?: KiroProviderQuotaState;
 };
+type KiroOverageResponse = {
+  quota?: KiroProviderQuotaState;
+};
 
 export const AUTH_FILE_INVALID_JSON_OBJECT_ERROR = 'AUTH_FILE_INVALID_JSON_OBJECT';
 
@@ -467,6 +470,24 @@ export const authFilesApi = {
     });
     if (!data.quota) {
       throw new Error('Kiro quota response missing quota');
+    }
+    return data.quota;
+  },
+
+  async setKiroOverage(params: {
+    name?: string;
+    id?: string;
+    authIndex?: string;
+    enabled: boolean;
+  }): Promise<KiroProviderQuotaState> {
+    const data = await apiClient.post<KiroOverageResponse>('/auth-files/kiro/overage', {
+      name: params.name,
+      id: params.id,
+      auth_index: params.authIndex,
+      enabled: params.enabled,
+    });
+    if (!data.quota) {
+      throw new Error('Kiro overage response missing quota');
     }
     return data.quota;
   },

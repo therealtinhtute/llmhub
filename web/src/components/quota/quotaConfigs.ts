@@ -1626,6 +1626,21 @@ const buildKiroRuntimeState = (file: AuthFileItem): KiroQuotaState => {
   };
 };
 
+export const buildKiroQuotaStateFromProvider = (
+  file: AuthFileItem,
+  rawQuota: KiroProviderQuotaState | unknown
+): KiroQuotaState => {
+  const providerQuota = normalizeKiroProviderQuota(rawQuota) ?? (rawQuota as KiroProviderQuotaState);
+  const providerQuotaAvailable = Boolean(providerQuota?.providerQuotaAvailable);
+  return {
+    ...buildKiroRuntimeState(file),
+    status: providerQuotaAvailable ? 'success' : 'runtime-only',
+    providerQuotaAvailable,
+    providerQuota,
+    overageUpdating: false,
+  };
+};
+
 const fetchKiroQuota = async (file: AuthFileItem): Promise<KiroQuotaState> => {
   const rawAuthIndex = file['auth_index'] ?? file.authIndex;
   const authIndex = normalizeAuthIndex(rawAuthIndex);
@@ -1633,14 +1648,7 @@ const fetchKiroQuota = async (file: AuthFileItem): Promise<KiroQuotaState> => {
     name: file.name,
     authIndex: authIndex ?? undefined,
   });
-  const providerQuota = normalizeKiroProviderQuota(quota) ?? quota;
-  const providerQuotaAvailable = Boolean(providerQuota?.providerQuotaAvailable);
-  return {
-    ...buildKiroRuntimeState(file),
-    status: providerQuotaAvailable ? 'success' : 'runtime-only',
-    providerQuotaAvailable,
-    providerQuota,
-  };
+  return buildKiroQuotaStateFromProvider(file, quota);
 };
 
 const renderKiroRuntimeStatusBadge = (
@@ -1908,15 +1916,48 @@ const renderKiroItems = (
             })
           : null,
       ].filter(Boolean);
+      const overageEnabled =
+        providerQuota.overageStatus?.trim().toUpperCase() === 'ENABLED';
+      const canToggleOverage =
+        Boolean(helpers.item) &&
+        Boolean(helpers.onSetKiroOverage) &&
+        quota.status !== 'loading' &&
+        !quota.disabled &&
+        !helpers.quotaDisabled &&
+        Boolean(providerQuota.providerQuotaAvailable) &&
+        Boolean(providerQuota.overageStatus);
       nodes.push(
         h(
           'div',
           { key: 'overage', className: styleMap.codexPlan },
           h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.overage')),
           h(
-            'span',
-            { className: styleMap.codexPlanValue },
-            [providerQuota.overageStatus, ...overageParts].filter(Boolean).join(' / ')
+            'div',
+            { className: styleMap.overagePlanValue },
+            h(
+              'span',
+              { className: styleMap.codexPlanValue },
+              [providerQuota.overageStatus, ...overageParts].filter(Boolean).join(' / ')
+            ),
+            canToggleOverage
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: styleMap.overageToggle,
+                    disabled: quota.overageUpdating,
+                    onClick: () => {
+                      if (!helpers.item || !helpers.onSetKiroOverage) return;
+                      void helpers.onSetKiroOverage(helpers.item, !overageEnabled);
+                    },
+                  },
+                  quota.overageUpdating
+                    ? t('kiro_quota.overage_updating')
+                    : overageEnabled
+                      ? t('kiro_quota.overage_disable')
+                      : t('kiro_quota.overage_enable')
+                )
+              : null
           )
         )
       );

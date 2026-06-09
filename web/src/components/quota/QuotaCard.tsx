@@ -52,6 +52,9 @@ export function QuotaProgressBar({ percent }: QuotaProgressBarProps) {
 export interface QuotaRenderHelpers {
   styles: QuotaStyleMap;
   QuotaProgressBar: (props: QuotaProgressBarProps) => ReactElement;
+  item?: AuthFileItem;
+  quotaDisabled?: boolean;
+  onSetKiroOverage?: (item: AuthFileItem, enabled: boolean) => void | Promise<void>;
 }
 
 interface QuotaCardProps<TState extends QuotaStatusState> {
@@ -64,6 +67,7 @@ interface QuotaCardProps<TState extends QuotaStatusState> {
   defaultType: string;
   canRefresh?: boolean;
   onRefresh?: () => void;
+  onSetKiroOverage?: (item: AuthFileItem, enabled: boolean) => void | Promise<void>;
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
 
@@ -77,6 +81,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
   defaultType,
   canRefresh = false,
   onRefresh,
+  onSetKiroOverage,
   renderQuotaItems,
 }: QuotaCardProps<TState>) {
   const { t } = useTranslation();
@@ -142,7 +147,13 @@ export function QuotaCard<TState extends QuotaStatusState>({
             })}
           </div>
         ) : quota ? (
-          renderQuotaItems(quota, t, { styles, QuotaProgressBar })
+          renderQuotaItems(quota, t, {
+            styles,
+            QuotaProgressBar,
+            item,
+            quotaDisabled: item.disabled,
+            onSetKiroOverage,
+          })
         ) : (
           <div className={styles.quotaMessage}>{t(idleMessageKey)}</div>
         )}

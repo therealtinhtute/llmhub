@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,51 +31,63 @@ const (
 
 // KiroQuotaRow is one normalized provider quota bucket from Kiro getUsageLimits.
 type KiroQuotaRow struct {
-	ID                string     `json:"id"`
-	ResourceType      string     `json:"resource_type"`
-	Name              string     `json:"name"`
-	Current           *float64   `json:"current,omitempty"`
-	Limit             *float64   `json:"limit,omitempty"`
-	Used              *float64   `json:"used,omitempty"`
-	Total             *float64   `json:"total,omitempty"`
-	Remaining         *float64   `json:"remaining,omitempty"`
-	Percent           *float64   `json:"percent,omitempty"`
-	RemainingPercent  *float64   `json:"remaining_percent,omitempty"`
-	ResetAt           *time.Time `json:"reset_at,omitempty"`
-	Unlimited         bool       `json:"unlimited"`
-	FreeTrial         bool       `json:"free_trial,omitempty"`
-	TrialStatus       string     `json:"trial_status,omitempty"`
-	SubscriptionTitle string     `json:"subscription_title,omitempty"`
-	SubscriptionType  string     `json:"subscription_type,omitempty"`
-	OverageStatus     string     `json:"overage_status,omitempty"`
-	OverageCap        *float64   `json:"overage_cap,omitempty"`
-	OverageRate       *float64   `json:"overage_rate,omitempty"`
-	CurrentOverages   *float64   `json:"current_overages,omitempty"`
+	ID                          string     `json:"id"`
+	ResourceType                string     `json:"resource_type"`
+	Name                        string     `json:"name"`
+	DisplayNamePlural           string     `json:"display_name_plural,omitempty"`
+	Currency                    string     `json:"currency,omitempty"`
+	Unit                        string     `json:"unit,omitempty"`
+	Current                     *float64   `json:"current,omitempty"`
+	Limit                       *float64   `json:"limit,omitempty"`
+	Used                        *float64   `json:"used,omitempty"`
+	Total                       *float64   `json:"total,omitempty"`
+	Remaining                   *float64   `json:"remaining,omitempty"`
+	Percent                     *float64   `json:"percent,omitempty"`
+	RemainingPercent            *float64   `json:"remaining_percent,omitempty"`
+	ResetAt                     *time.Time `json:"reset_at,omitempty"`
+	Unlimited                   bool       `json:"unlimited"`
+	FreeTrial                   bool       `json:"free_trial,omitempty"`
+	TrialStatus                 string     `json:"trial_status,omitempty"`
+	SubscriptionTitle           string     `json:"subscription_title,omitempty"`
+	SubscriptionType            string     `json:"subscription_type,omitempty"`
+	OverageStatus               string     `json:"overage_status,omitempty"`
+	OverageCap                  *float64   `json:"overage_cap,omitempty"`
+	OverageRate                 *float64   `json:"overage_rate,omitempty"`
+	CurrentOverages             *float64   `json:"current_overages,omitempty"`
+	OverageCharges              *float64   `json:"overage_charges,omitempty"`
+	OverageChargesWithPrecision *float64   `json:"overage_charges_with_precision,omitempty"`
+	Bonuses                     any        `json:"bonuses,omitempty"`
 }
 
 // KiroQuotaState is the normalized account quota snapshot persisted on auth metadata.
 type KiroQuotaState struct {
-	ProviderQuotaAvailable bool           `json:"provider_quota_available"`
-	Message                string         `json:"message,omitempty"`
-	Plan                   string         `json:"plan,omitempty"`
-	Quotas                 []KiroQuotaRow `json:"quotas,omitempty"`
-	Current                *float64       `json:"current,omitempty"`
-	Limit                  *float64       `json:"limit,omitempty"`
-	Percent                *float64       `json:"percent,omitempty"`
-	Remaining              *float64       `json:"remaining,omitempty"`
-	NextResetAt            *time.Time     `json:"next_reset_at,omitempty"`
-	SubscriptionType       string         `json:"subscription_type,omitempty"`
-	SubscriptionTitle      string         `json:"subscription_title,omitempty"`
-	TrialCurrent           *float64       `json:"trial_current,omitempty"`
-	TrialLimit             *float64       `json:"trial_limit,omitempty"`
-	TrialPercent           *float64       `json:"trial_percent,omitempty"`
-	TrialStatus            string         `json:"trial_status,omitempty"`
-	TrialExpiresAt         *time.Time     `json:"trial_expires_at,omitempty"`
-	OverageStatus          string         `json:"overage_status,omitempty"`
-	OverageCap             *float64       `json:"overage_cap,omitempty"`
-	OverageRate            *float64       `json:"overage_rate,omitempty"`
-	CurrentOverages        *float64       `json:"current_overages,omitempty"`
-	CheckedAt              time.Time      `json:"checked_at"`
+	ProviderQuotaAvailable       bool           `json:"provider_quota_available"`
+	Message                      string         `json:"message,omitempty"`
+	Plan                         string         `json:"plan,omitempty"`
+	Quotas                       []KiroQuotaRow `json:"quotas,omitempty"`
+	Current                      *float64       `json:"current,omitempty"`
+	Limit                        *float64       `json:"limit,omitempty"`
+	Percent                      *float64       `json:"percent,omitempty"`
+	Remaining                    *float64       `json:"remaining,omitempty"`
+	NextResetAt                  *time.Time     `json:"next_reset_at,omitempty"`
+	SubscriptionType             string         `json:"subscription_type,omitempty"`
+	SubscriptionTitle            string         `json:"subscription_title,omitempty"`
+	TrialCurrent                 *float64       `json:"trial_current,omitempty"`
+	TrialLimit                   *float64       `json:"trial_limit,omitempty"`
+	TrialPercent                 *float64       `json:"trial_percent,omitempty"`
+	TrialStatus                  string         `json:"trial_status,omitempty"`
+	TrialExpiresAt               *time.Time     `json:"trial_expires_at,omitempty"`
+	OverageStatus                string         `json:"overage_status,omitempty"`
+	OverageCap                   *float64       `json:"overage_cap,omitempty"`
+	OverageRate                  *float64       `json:"overage_rate,omitempty"`
+	CurrentOverages              *float64       `json:"current_overages,omitempty"`
+	OverageCharges               *float64       `json:"overage_charges,omitempty"`
+	OverageChargesWithPrecision  *float64       `json:"overage_charges_with_precision,omitempty"`
+	OverageCapability            any            `json:"overage_capability,omitempty"`
+	SubscriptionManagementTarget string         `json:"subscription_management_target,omitempty"`
+	UpgradeCapability            any            `json:"upgrade_capability,omitempty"`
+	Raw                          map[string]any `json:"raw,omitempty"`
+	CheckedAt                    time.Time      `json:"checked_at"`
 }
 
 func (q KiroQuotaState) Exhausted(now time.Time) bool {
@@ -95,32 +108,47 @@ func (q KiroQuotaState) NextRecoverAt() time.Time {
 }
 
 type kiroUsageLimitsResponse struct {
-	UsageBreakdownList []kiroUsageBreakdown `json:"usageBreakdownList"`
-	NextDateReset      any                  `json:"nextDateReset"`
-	SubscriptionInfo   map[string]any       `json:"subscriptionInfo"`
-	UserInfo           map[string]any       `json:"userInfo"`
-	FreeTrialInfo      map[string]any       `json:"freeTrialInfo"`
-	OverageStatus      any                  `json:"overageStatus"`
-	OverageCapability  any                  `json:"overageCapability"`
-	SubscriptionTitle  any                  `json:"subscriptionTitle"`
-	OverageCap         any                  `json:"overageCap"`
-	OverageRate        any                  `json:"overageRate"`
-	CurrentOverages    any                  `json:"currentOverages"`
+	UsageBreakdownList           []kiroUsageBreakdown `json:"usageBreakdownList"`
+	NextDateReset                any                  `json:"nextDateReset"`
+	SubscriptionInfo             map[string]any       `json:"subscriptionInfo"`
+	UserInfo                     map[string]any       `json:"userInfo"`
+	FreeTrialInfo                map[string]any       `json:"freeTrialInfo"`
+	OverageConfiguration         map[string]any       `json:"overageConfiguration"`
+	OverageStatus                any                  `json:"overageStatus"`
+	OverageCapability            any                  `json:"overageCapability"`
+	SubscriptionManagementTarget any                  `json:"subscriptionManagementTarget"`
+	UpgradeCapability            any                  `json:"upgradeCapability"`
+	SubscriptionTitle            any                  `json:"subscriptionTitle"`
+	OverageCap                   any                  `json:"overageCap"`
+	OverageRate                  any                  `json:"overageRate"`
+	CurrentOverages              any                  `json:"currentOverages"`
+	OverageCharges               any                  `json:"overageCharges"`
+	OverageChargesWithPrecision  any                  `json:"overageChargesWithPrecision"`
 }
 
 type kiroUsageBreakdown struct {
-	ResourceType              any            `json:"resourceType"`
-	CurrentUsage              any            `json:"currentUsage"`
-	CurrentUsageWithPrecision any            `json:"currentUsageWithPrecision"`
-	UsageCurrent              any            `json:"usageCurrent"`
-	UsageLimit                any            `json:"usageLimit"`
-	UsageLimitWithPrecision   any            `json:"usageLimitWithPrecision"`
-	Limit                     any            `json:"limit"`
-	FreeTrialInfo             map[string]any `json:"freeTrialInfo"`
-	OverageStatus             any            `json:"overageStatus"`
-	OverageCap                any            `json:"overageCap"`
-	OverageRate               any            `json:"overageRate"`
-	CurrentOverages           any            `json:"currentOverages"`
+	ResourceType                 any            `json:"resourceType"`
+	DisplayName                  any            `json:"displayName"`
+	DisplayNamePlural            any            `json:"displayNamePlural"`
+	NextDateReset                any            `json:"nextDateReset"`
+	CurrentUsage                 any            `json:"currentUsage"`
+	CurrentUsageWithPrecision    any            `json:"currentUsageWithPrecision"`
+	UsageCurrent                 any            `json:"usageCurrent"`
+	UsageLimit                   any            `json:"usageLimit"`
+	UsageLimitWithPrecision      any            `json:"usageLimitWithPrecision"`
+	Limit                        any            `json:"limit"`
+	Currency                     any            `json:"currency"`
+	Unit                         any            `json:"unit"`
+	FreeTrialInfo                map[string]any `json:"freeTrialInfo"`
+	OverageStatus                any            `json:"overageStatus"`
+	OverageCap                   any            `json:"overageCap"`
+	OverageCapWithPrecision      any            `json:"overageCapWithPrecision"`
+	OverageRate                  any            `json:"overageRate"`
+	CurrentOverages              any            `json:"currentOverages"`
+	CurrentOveragesWithPrecision any            `json:"currentOveragesWithPrecision"`
+	OverageCharges               any            `json:"overageCharges"`
+	OverageChargesWithPrecision  any            `json:"overageChargesWithPrecision"`
+	Bonuses                      any            `json:"bonuses"`
 }
 
 func (e *KiroExecutor) FetchQuota(ctx context.Context, auth *cliproxyauth.Auth) (KiroQuotaState, *cliproxyauth.Auth, error) {
@@ -202,10 +230,16 @@ func ParseKiroUsageLimits(body []byte, checkedAt time.Time) (KiroQuotaState, err
 	if err := decoder.Decode(&payload); err != nil {
 		return KiroQuotaState{}, fmt.Errorf("kiro quota: decode response: %w", err)
 	}
+	rawDecoder := json.NewDecoder(bytes.NewReader(body))
+	rawDecoder.UseNumber()
+	var rawPayload map[string]any
+	if err := rawDecoder.Decode(&rawPayload); err != nil {
+		return KiroQuotaState{}, fmt.Errorf("kiro quota: decode raw response: %w", err)
+	}
 	if checkedAt.IsZero() {
 		checkedAt = time.Now().UTC()
 	}
-	quota := KiroQuotaState{CheckedAt: checkedAt.UTC()}
+	quota := KiroQuotaState{CheckedAt: checkedAt.UTC(), Raw: rawPayload}
 	quota.NextResetAt = timePtr(payload.NextDateReset)
 	quota.SubscriptionType = firstString(payload.SubscriptionInfo, "subscriptionType", "type", "tier", "planType")
 	quota.SubscriptionTitle = firstString(payload.SubscriptionInfo, "subscriptionTitle", "title", "planTitle", "name")
@@ -261,12 +295,51 @@ func ParseKiroUsageLimits(body []byte, checkedAt time.Time) (KiroQuotaState, err
 		}
 	}
 
-	quota.OverageStatus = kiroQuotaStringValue(firstNonNil(payload.OverageStatus, firstMapValue(payload.SubscriptionInfo, "overageStatus")))
+	quota.OverageStatus = kiroQuotaStringValue(firstNonNil(
+		payload.OverageStatus,
+		firstMapValue(payload.OverageConfiguration, "overageStatus"),
+		firstMapValue(payload.SubscriptionInfo, "overageStatus"),
+	))
 	quota.OverageCap = numberPtr(firstNonNil(payload.OverageCap, firstMapValue(payload.SubscriptionInfo, "overageCap")))
 	quota.OverageRate = numberPtr(firstNonNil(payload.OverageRate, firstMapValue(payload.SubscriptionInfo, "overageRate")))
 	quota.CurrentOverages = numberPtr(firstNonNil(payload.CurrentOverages, firstMapValue(payload.SubscriptionInfo, "currentOverages")))
+	quota.OverageCharges = numberPtr(firstNonNil(payload.OverageCharges, firstMapValue(payload.SubscriptionInfo, "overageCharges")))
+	quota.OverageChargesWithPrecision = numberPtr(firstNonNil(payload.OverageChargesWithPrecision, firstMapValue(payload.SubscriptionInfo, "overageChargesWithPrecision")))
+	quota.OverageCapability = firstNonNil(payload.OverageCapability, firstMapValue(payload.SubscriptionInfo, "overageCapability"), firstMapValue(payload.OverageConfiguration, "overageCapability"))
+	quota.SubscriptionManagementTarget = kiroQuotaStringValue(firstNonNil(payload.SubscriptionManagementTarget, firstMapValue(payload.SubscriptionInfo, "subscriptionManagementTarget")))
+	quota.UpgradeCapability = firstNonNil(payload.UpgradeCapability, firstMapValue(payload.SubscriptionInfo, "upgradeCapability"))
+	quota.applyFirstRowOverageFallback()
 
 	return quota, nil
+}
+
+func (q *KiroQuotaState) applyFirstRowOverageFallback() {
+	if q == nil {
+		return
+	}
+	for _, row := range q.Quotas {
+		if q.OverageStatus == "" {
+			q.OverageStatus = row.OverageStatus
+		}
+		if q.OverageCap == nil {
+			q.OverageCap = row.OverageCap
+		}
+		if q.OverageRate == nil {
+			q.OverageRate = row.OverageRate
+		}
+		if q.CurrentOverages == nil {
+			q.CurrentOverages = row.CurrentOverages
+		}
+		if q.OverageCharges == nil {
+			q.OverageCharges = row.OverageCharges
+		}
+		if q.OverageChargesWithPrecision == nil {
+			q.OverageChargesWithPrecision = row.OverageChargesWithPrecision
+		}
+		if q.OverageStatus != "" && q.OverageCap != nil && q.OverageRate != nil && q.CurrentOverages != nil && q.OverageCharges != nil && q.OverageChargesWithPrecision != nil {
+			return
+		}
+	}
 }
 
 func ApplyKiroQuotaToAuth(auth *cliproxyauth.Auth, quota KiroQuotaState, now time.Time) *cliproxyauth.Auth {
@@ -305,34 +378,42 @@ func normalizeKiroQuotaState(raw any) (KiroQuotaState, bool) {
 	}
 	switch typed := raw.(type) {
 	case KiroQuotaState:
+		typed.applyFirstRowOverageFallback()
 		return typed, true
 	case map[string]any:
 		quota := KiroQuotaState{
-			ProviderQuotaAvailable: boolValue(firstMapValue(typed, "provider_quota_available", "providerQuotaAvailable", "available")),
-			Current:                numberPtr(firstMapValue(typed, "current")),
-			Limit:                  numberPtr(firstMapValue(typed, "limit")),
-			Percent:                numberPtr(firstMapValue(typed, "percent")),
-			Remaining:              numberPtr(firstMapValue(typed, "remaining")),
-			Message:                kiroQuotaStringValue(firstMapValue(typed, "message")),
-			Plan:                   kiroQuotaStringValue(firstMapValue(typed, "plan")),
-			Quotas:                 normalizeKiroQuotaRows(firstMapValue(typed, "quotas")),
-			NextResetAt:            timePtr(firstMapValue(typed, "next_reset_at", "nextResetAt")),
-			SubscriptionType:       kiroQuotaStringValue(firstMapValue(typed, "subscription_type", "subscriptionType")),
-			SubscriptionTitle:      kiroQuotaStringValue(firstMapValue(typed, "subscription_title", "subscriptionTitle")),
-			TrialCurrent:           numberPtr(firstMapValue(typed, "trial_current", "trialCurrent")),
-			TrialLimit:             numberPtr(firstMapValue(typed, "trial_limit", "trialLimit")),
-			TrialPercent:           numberPtr(firstMapValue(typed, "trial_percent", "trialPercent")),
-			TrialStatus:            kiroQuotaStringValue(firstMapValue(typed, "trial_status", "trialStatus")),
-			TrialExpiresAt:         timePtr(firstMapValue(typed, "trial_expires_at", "trialExpiresAt")),
-			OverageStatus:          kiroQuotaStringValue(firstMapValue(typed, "overage_status", "overageStatus")),
-			OverageCap:             numberPtr(firstMapValue(typed, "overage_cap", "overageCap")),
-			OverageRate:            numberPtr(firstMapValue(typed, "overage_rate", "overageRate")),
-			CurrentOverages:        numberPtr(firstMapValue(typed, "current_overages", "currentOverages")),
-			CheckedAt:              timeValue(firstMapValue(typed, "checked_at", "checkedAt")),
+			ProviderQuotaAvailable:       boolValue(firstMapValue(typed, "provider_quota_available", "providerQuotaAvailable", "available")),
+			Current:                      numberPtr(firstMapValue(typed, "current")),
+			Limit:                        numberPtr(firstMapValue(typed, "limit")),
+			Percent:                      numberPtr(firstMapValue(typed, "percent")),
+			Remaining:                    numberPtr(firstMapValue(typed, "remaining")),
+			Message:                      kiroQuotaStringValue(firstMapValue(typed, "message")),
+			Plan:                         kiroQuotaStringValue(firstMapValue(typed, "plan")),
+			Quotas:                       normalizeKiroQuotaRows(firstMapValue(typed, "quotas")),
+			NextResetAt:                  timePtr(firstMapValue(typed, "next_reset_at", "nextResetAt")),
+			SubscriptionType:             kiroQuotaStringValue(firstMapValue(typed, "subscription_type", "subscriptionType")),
+			SubscriptionTitle:            kiroQuotaStringValue(firstMapValue(typed, "subscription_title", "subscriptionTitle")),
+			TrialCurrent:                 numberPtr(firstMapValue(typed, "trial_current", "trialCurrent")),
+			TrialLimit:                   numberPtr(firstMapValue(typed, "trial_limit", "trialLimit")),
+			TrialPercent:                 numberPtr(firstMapValue(typed, "trial_percent", "trialPercent")),
+			TrialStatus:                  kiroQuotaStringValue(firstMapValue(typed, "trial_status", "trialStatus")),
+			TrialExpiresAt:               timePtr(firstMapValue(typed, "trial_expires_at", "trialExpiresAt")),
+			OverageStatus:                kiroQuotaStringValue(firstMapValue(typed, "overage_status", "overageStatus")),
+			OverageCap:                   numberPtr(firstMapValue(typed, "overage_cap", "overageCap")),
+			OverageRate:                  numberPtr(firstMapValue(typed, "overage_rate", "overageRate")),
+			CurrentOverages:              numberPtr(firstMapValue(typed, "current_overages", "currentOverages")),
+			OverageCharges:               numberPtr(firstMapValue(typed, "overage_charges", "overageCharges")),
+			OverageChargesWithPrecision:  numberPtr(firstMapValue(typed, "overage_charges_with_precision", "overageChargesWithPrecision")),
+			OverageCapability:            firstMapValue(typed, "overage_capability", "overageCapability"),
+			SubscriptionManagementTarget: kiroQuotaStringValue(firstMapValue(typed, "subscription_management_target", "subscriptionManagementTarget")),
+			UpgradeCapability:            firstMapValue(typed, "upgrade_capability", "upgradeCapability"),
+			Raw:                          mapValue(firstMapValue(typed, "raw")),
+			CheckedAt:                    timeValue(firstMapValue(typed, "checked_at", "checkedAt")),
 		}
 		if quota.Current != nil || quota.Limit != nil || len(quota.Quotas) > 0 {
 			quota.ProviderQuotaAvailable = true
 		}
+		quota.applyFirstRowOverageFallback()
 		return quota, true
 	default:
 		rawJSON, err := json.Marshal(raw)
@@ -351,21 +432,10 @@ func normalizeKiroQuotaRows(raw any) []KiroQuotaRow {
 	if raw == nil {
 		return nil
 	}
-	var values []any
-	switch typed := raw.(type) {
-	case []any:
-		values = typed
-	default:
-		rawJSON, err := json.Marshal(raw)
-		if err != nil {
-			return nil
-		}
-		if err := json.Unmarshal(rawJSON, &values); err != nil {
-			return nil
-		}
-	}
-	rows := make([]KiroQuotaRow, 0, len(values))
-	for _, value := range values {
+	sources := normalizeKiroQuotaRowSources(raw)
+	rows := make([]KiroQuotaRow, 0, len(sources))
+	for _, sourceEntry := range sources {
+		value := sourceEntry.value
 		source, ok := value.(map[string]any)
 		if !ok {
 			rawJSON, err := json.Marshal(value)
@@ -377,26 +447,38 @@ func normalizeKiroQuotaRows(raw any) []KiroQuotaRow {
 			}
 		}
 		row := KiroQuotaRow{
-			ID:                kiroQuotaStringValue(firstMapValue(source, "id")),
-			ResourceType:      kiroQuotaStringValue(firstMapValue(source, "resource_type", "resourceType")),
-			Name:              kiroQuotaStringValue(firstMapValue(source, "name")),
-			Current:           numberPtr(firstMapValue(source, "current")),
-			Limit:             numberPtr(firstMapValue(source, "limit")),
-			Used:              numberPtr(firstMapValue(source, "used")),
-			Total:             numberPtr(firstMapValue(source, "total")),
-			Remaining:         numberPtr(firstMapValue(source, "remaining")),
-			Percent:           numberPtr(firstMapValue(source, "percent")),
-			RemainingPercent:  numberPtr(firstMapValue(source, "remaining_percent", "remainingPercent")),
-			ResetAt:           timePtr(firstMapValue(source, "reset_at", "resetAt")),
-			Unlimited:         boolValue(firstMapValue(source, "unlimited")),
-			FreeTrial:         boolValue(firstMapValue(source, "free_trial", "freeTrial")),
-			TrialStatus:       kiroQuotaStringValue(firstMapValue(source, "trial_status", "trialStatus")),
-			SubscriptionTitle: kiroQuotaStringValue(firstMapValue(source, "subscription_title", "subscriptionTitle")),
-			SubscriptionType:  kiroQuotaStringValue(firstMapValue(source, "subscription_type", "subscriptionType")),
-			OverageStatus:     kiroQuotaStringValue(firstMapValue(source, "overage_status", "overageStatus")),
-			OverageCap:        numberPtr(firstMapValue(source, "overage_cap", "overageCap")),
-			OverageRate:       numberPtr(firstMapValue(source, "overage_rate", "overageRate")),
-			CurrentOverages:   numberPtr(firstMapValue(source, "current_overages", "currentOverages")),
+			ID:                          kiroQuotaStringValue(firstMapValue(source, "id")),
+			ResourceType:                kiroQuotaStringValue(firstMapValue(source, "resource_type", "resourceType")),
+			Name:                        kiroQuotaStringValue(firstMapValue(source, "name", "display_name", "displayName")),
+			DisplayNamePlural:           kiroQuotaStringValue(firstMapValue(source, "display_name_plural", "displayNamePlural")),
+			Currency:                    kiroQuotaStringValue(firstMapValue(source, "currency")),
+			Unit:                        kiroQuotaStringValue(firstMapValue(source, "unit")),
+			Current:                     numberPtr(firstMapValue(source, "current")),
+			Limit:                       numberPtr(firstMapValue(source, "limit")),
+			Used:                        numberPtr(firstMapValue(source, "used")),
+			Total:                       numberPtr(firstMapValue(source, "total")),
+			Remaining:                   numberPtr(firstMapValue(source, "remaining")),
+			Percent:                     numberPtr(firstMapValue(source, "percent")),
+			RemainingPercent:            numberPtr(firstMapValue(source, "remaining_percent", "remainingPercent")),
+			ResetAt:                     timePtr(firstMapValue(source, "reset_at", "resetAt")),
+			Unlimited:                   boolValue(firstMapValue(source, "unlimited")),
+			FreeTrial:                   boolValue(firstMapValue(source, "free_trial", "freeTrial")),
+			TrialStatus:                 kiroQuotaStringValue(firstMapValue(source, "trial_status", "trialStatus")),
+			SubscriptionTitle:           kiroQuotaStringValue(firstMapValue(source, "subscription_title", "subscriptionTitle")),
+			SubscriptionType:            kiroQuotaStringValue(firstMapValue(source, "subscription_type", "subscriptionType")),
+			OverageStatus:               kiroQuotaStringValue(firstMapValue(source, "overage_status", "overageStatus")),
+			OverageCap:                  numberPtr(firstMapValue(source, "overage_cap", "overageCap")),
+			OverageRate:                 numberPtr(firstMapValue(source, "overage_rate", "overageRate")),
+			CurrentOverages:             numberPtr(firstMapValue(source, "current_overages", "currentOverages")),
+			OverageCharges:              numberPtr(firstMapValue(source, "overage_charges", "overageCharges")),
+			OverageChargesWithPrecision: numberPtr(firstMapValue(source, "overage_charges_with_precision", "overageChargesWithPrecision")),
+			Bonuses:                     firstMapValue(source, "bonuses"),
+		}
+		if row.ID == "" {
+			row.ID = sourceEntry.key
+		}
+		if row.ResourceType == "" {
+			row.ResourceType = sourceEntry.key
 		}
 		if row.ID == "" {
 			row.ID = row.ResourceType
@@ -428,6 +510,50 @@ func normalizeKiroQuotaRows(raw any) []KiroQuotaRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+type kiroQuotaRowSource struct {
+	key   string
+	value any
+}
+
+func normalizeKiroQuotaRowSources(raw any) []kiroQuotaRowSource {
+	if raw == nil {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []any:
+		sources := make([]kiroQuotaRowSource, 0, len(typed))
+		for _, value := range typed {
+			sources = append(sources, kiroQuotaRowSource{value: value})
+		}
+		return sources
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		sources := make([]kiroQuotaRowSource, 0, len(keys))
+		for _, key := range keys {
+			sources = append(sources, kiroQuotaRowSource{key: key, value: typed[key]})
+		}
+		return sources
+	default:
+		rawJSON, err := json.Marshal(raw)
+		if err != nil {
+			return nil
+		}
+		var values []any
+		if err := json.Unmarshal(rawJSON, &values); err == nil {
+			return normalizeKiroQuotaRowSources(values)
+		}
+		var valueMap map[string]any
+		if err := json.Unmarshal(rawJSON, &valueMap); err == nil {
+			return normalizeKiroQuotaRowSources(valueMap)
+		}
+		return nil
+	}
 }
 
 type kiroUsageLimitAttempt struct {
@@ -557,28 +683,42 @@ func buildKiroQuotaRow(breakdown kiroUsageBreakdown, resetAt *time.Time, subscri
 	if resourceType == "" {
 		resourceType = "unknown"
 	}
+	name := strings.TrimSpace(kiroQuotaStringValue(firstNonNil(breakdown.DisplayName, breakdown.DisplayNamePlural)))
+	if name == "" {
+		name = resourceType
+	}
 	current := numberPtr(firstNonNil(breakdown.CurrentUsageWithPrecision, breakdown.CurrentUsage, breakdown.UsageCurrent))
 	limit := numberPtr(firstNonNil(breakdown.UsageLimitWithPrecision, breakdown.UsageLimit, breakdown.Limit))
 	if current == nil && limit == nil {
 		return nil
 	}
+	rowResetAt := timePtr(breakdown.NextDateReset)
+	if rowResetAt == nil {
+		rowResetAt = resetAt
+	}
 	row := &KiroQuotaRow{
-		ID:                resourceType,
-		ResourceType:      resourceType,
-		Name:              resourceType,
-		Current:           current,
-		Limit:             limit,
-		Used:              current,
-		Total:             limit,
-		Remaining:         remainingPtr(current, limit),
-		Percent:           percentPtr(current, limit),
-		ResetAt:           resetAt,
-		SubscriptionType:  subscriptionType,
-		SubscriptionTitle: subscriptionTitle,
-		OverageStatus:     kiroQuotaStringValue(firstNonNil(breakdown.OverageStatus, payload.OverageStatus, firstMapValue(payload.SubscriptionInfo, "overageStatus"))),
-		OverageCap:        numberPtr(firstNonNil(breakdown.OverageCap, payload.OverageCap, firstMapValue(payload.SubscriptionInfo, "overageCap"))),
-		OverageRate:       numberPtr(firstNonNil(breakdown.OverageRate, payload.OverageRate, firstMapValue(payload.SubscriptionInfo, "overageRate"))),
-		CurrentOverages:   numberPtr(firstNonNil(breakdown.CurrentOverages, payload.CurrentOverages, firstMapValue(payload.SubscriptionInfo, "currentOverages"))),
+		ID:                          resourceType,
+		ResourceType:                resourceType,
+		Name:                        name,
+		DisplayNamePlural:           kiroQuotaStringValue(breakdown.DisplayNamePlural),
+		Currency:                    kiroQuotaStringValue(breakdown.Currency),
+		Unit:                        kiroQuotaStringValue(breakdown.Unit),
+		Current:                     current,
+		Limit:                       limit,
+		Used:                        current,
+		Total:                       limit,
+		Remaining:                   remainingPtr(current, limit),
+		Percent:                     percentPtr(current, limit),
+		ResetAt:                     rowResetAt,
+		SubscriptionType:            subscriptionType,
+		SubscriptionTitle:           subscriptionTitle,
+		OverageStatus:               kiroQuotaStringValue(firstNonNil(breakdown.OverageStatus, payload.OverageStatus, firstMapValue(payload.OverageConfiguration, "overageStatus"), firstMapValue(payload.SubscriptionInfo, "overageStatus"))),
+		OverageCap:                  numberPtr(firstNonNil(breakdown.OverageCapWithPrecision, breakdown.OverageCap, payload.OverageCap, firstMapValue(payload.SubscriptionInfo, "overageCap"))),
+		OverageRate:                 numberPtr(firstNonNil(breakdown.OverageRate, payload.OverageRate, firstMapValue(payload.SubscriptionInfo, "overageRate"))),
+		CurrentOverages:             numberPtr(firstNonNil(breakdown.CurrentOveragesWithPrecision, breakdown.CurrentOverages, payload.CurrentOverages, firstMapValue(payload.SubscriptionInfo, "currentOverages"))),
+		OverageCharges:              numberPtr(firstNonNil(breakdown.OverageCharges, payload.OverageCharges, firstMapValue(payload.SubscriptionInfo, "overageCharges"))),
+		OverageChargesWithPrecision: numberPtr(firstNonNil(breakdown.OverageChargesWithPrecision, payload.OverageChargesWithPrecision, firstMapValue(payload.SubscriptionInfo, "overageChargesWithPrecision"))),
+		Bonuses:                     breakdown.Bonuses,
 	}
 	row.RemainingPercent = remainingPercentPtr(row.Remaining, limit)
 	return row
@@ -600,7 +740,10 @@ func buildKiroFreeTrialQuotaRow(breakdown kiroUsageBreakdown, parent *KiroQuotaR
 	row := &KiroQuotaRow{
 		ID:                parent.ID + "_freetrial",
 		ResourceType:      parent.ResourceType,
-		Name:              parent.Name + "_freetrial",
+		Name:              parent.Name,
+		DisplayNamePlural: parent.DisplayNamePlural,
+		Currency:          parent.Currency,
+		Unit:              parent.Unit,
 		Current:           current,
 		Limit:             limit,
 		Used:              current,
@@ -635,6 +778,8 @@ func buildTopLevelKiroFreeTrialQuotaRow(info map[string]any, defaultResetAt *tim
 		ID:                "free_trial",
 		ResourceType:      "free_trial",
 		Name:              "free_trial",
+		Currency:          kiroQuotaStringValue(firstMapValue(info, "currency")),
+		Unit:              kiroQuotaStringValue(firstMapValue(info, "unit")),
 		Current:           current,
 		Limit:             limit,
 		Used:              current,
@@ -686,6 +831,24 @@ func firstString(m map[string]any, keys ...string) string {
 
 func firstNumber(m map[string]any, keys ...string) *float64 {
 	return numberPtr(firstMapValue(m, keys...))
+}
+
+func mapValue(v any) map[string]any {
+	if v == nil {
+		return nil
+	}
+	if typed, ok := v.(map[string]any); ok {
+		return typed
+	}
+	rawJSON, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(rawJSON, &decoded); err != nil {
+		return nil
+	}
+	return decoded
 }
 
 func numberPtr(v any) *float64 {

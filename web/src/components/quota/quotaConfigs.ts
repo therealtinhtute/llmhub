@@ -1370,16 +1370,36 @@ const readRuntimeBoolean = (value: unknown): boolean => {
   return false;
 };
 
-const normalizeKiroProviderQuotaRows = (raw: unknown): KiroProviderQuotaRow[] => {
-  if (!Array.isArray(raw)) return [];
+const normalizeKiroProviderQuotaRowEntries = (
+  raw: unknown
+): Array<{ key?: string; value: unknown }> => {
+  if (Array.isArray(raw)) {
+    return raw.map((value) => ({ value }));
+  }
+  if (!raw || typeof raw !== 'object') {
+    return [];
+  }
 
-  return raw
-    .map((entry, index): KiroProviderQuotaRow | null => {
-      const source = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+  return Object.keys(raw as Record<string, unknown>)
+    .sort((left, right) => left.localeCompare(right))
+    .map((key) => ({
+      key,
+      value: (raw as Record<string, unknown>)[key],
+    }));
+};
+
+const normalizeKiroProviderQuotaRows = (raw: unknown): KiroProviderQuotaRow[] => {
+  return normalizeKiroProviderQuotaRowEntries(raw)
+    .map(({ key, value }, index): KiroProviderQuotaRow | null => {
+      const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
       if (!source) return null;
       const resourceType = readRuntimeString(source.resource_type ?? source.resourceType);
-      const id = readRuntimeString(source.id) ?? resourceType ?? `quota-${index}`;
-      const name = readRuntimeString(source.name) ?? resourceType ?? id;
+      const id = readRuntimeString(source.id) ?? key ?? resourceType ?? `quota-${index}`;
+      const name =
+        readRuntimeString(source.name ?? source.display_name ?? source.displayName) ??
+        resourceType ??
+        key ??
+        id;
       const current = normalizeNumberValue(source.current);
       const limit = normalizeNumberValue(source.limit);
       const used = normalizeNumberValue(source.used) ?? current;
@@ -1394,6 +1414,11 @@ const normalizeKiroProviderQuotaRows = (raw: unknown): KiroProviderQuotaRow[] =>
         id,
         resourceType: resourceType ?? undefined,
         name,
+        displayNamePlural: readRuntimeString(
+          source.display_name_plural ?? source.displayNamePlural
+        ),
+        currency: readRuntimeString(source.currency),
+        unit: readRuntimeString(source.unit),
         current,
         limit,
         used,
@@ -1417,6 +1442,13 @@ const normalizeKiroProviderQuotaRows = (raw: unknown): KiroProviderQuotaRow[] =>
         currentOverages: normalizeNumberValue(
           source.current_overages ?? source.currentOverages
         ),
+        overageCharges: normalizeNumberValue(
+          source.overage_charges ?? source.overageCharges
+        ),
+        overageChargesWithPrecision: normalizeNumberValue(
+          source.overage_charges_with_precision ?? source.overageChargesWithPrecision
+        ),
+        bonuses: source.bonuses,
       };
     })
     .filter((row): row is KiroProviderQuotaRow => row !== null);
@@ -1433,16 +1465,6 @@ const normalizeKiroProviderQuota = (raw: unknown): KiroProviderQuotaState | null
     readRuntimeBoolean(
       source.provider_quota_available ?? source.providerQuotaAvailable ?? source.available
     ) || current !== null || limit !== null || quotas.length > 0;
-
-  if (!providerQuotaAvailable) {
-    return {
-      providerQuotaAvailable: false,
-      message: readRuntimeString(source.message),
-      plan: readRuntimeString(source.plan),
-      quotas,
-      checkedAt: readRuntimeTimestampString(source.checked_at ?? source.checkedAt),
-    };
-  }
 
   return {
     providerQuotaAvailable,
@@ -1473,6 +1495,19 @@ const normalizeKiroProviderQuota = (raw: unknown): KiroProviderQuotaState | null
     currentOverages: normalizeNumberValue(
       source.current_overages ?? source.currentOverages
     ),
+    overageCharges: normalizeNumberValue(source.overage_charges ?? source.overageCharges),
+    overageChargesWithPrecision: normalizeNumberValue(
+      source.overage_charges_with_precision ?? source.overageChargesWithPrecision
+    ),
+    overageCapability: source.overage_capability ?? source.overageCapability,
+    subscriptionManagementTarget: readRuntimeString(
+      source.subscription_management_target ?? source.subscriptionManagementTarget
+    ),
+    upgradeCapability: source.upgrade_capability ?? source.upgradeCapability,
+    raw:
+      source.raw && typeof source.raw === 'object'
+        ? (source.raw as Record<string, unknown>)
+        : undefined,
     checkedAt: readRuntimeTimestampString(source.checked_at ?? source.checkedAt),
   };
 };
@@ -1598,11 +1633,13 @@ const fetchKiroQuota = async (file: AuthFileItem): Promise<KiroQuotaState> => {
     name: file.name,
     authIndex: authIndex ?? undefined,
   });
+  const providerQuota = normalizeKiroProviderQuota(quota) ?? quota;
+  const providerQuotaAvailable = Boolean(providerQuota?.providerQuotaAvailable);
   return {
     ...buildKiroRuntimeState(file),
-    status: quota.providerQuotaAvailable ? 'success' : 'runtime-only',
-    providerQuotaAvailable: quota.providerQuotaAvailable,
-    providerQuota: normalizeKiroProviderQuota(quota) ?? quota,
+    status: providerQuotaAvailable ? 'success' : 'runtime-only',
+    providerQuotaAvailable,
+    providerQuota,
   };
 };
 
@@ -1629,6 +1666,37 @@ const formatKiroQuotaNumber = (value?: number | null): string => {
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(2).replace(/\.?0+$/, '');
 };
+
+const formatKiroQuotaMetadataValue = (value: unknown): string | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === '{}' || serialized === '[]' ? null : serialized;
+  } catch {
+    return null;
+  }
+};
+
+const formatKiroQuotaUnitSuffix = (
+  unit?: string,
+  currency?: string
+): string => {
+  const parts = [unit, currency]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+  const deduped = parts.filter((part, index) => parts.indexOf(part) === index);
+  return deduped.length > 0 ? ` ${deduped.join(' ')}` : '';
+};
+
+const formatKiroQuotaAmount = (
+  value?: number | null,
+  meta?: Pick<KiroProviderQuotaRow, 'unit' | 'currency'>
+): string => `${formatKiroQuotaNumber(value)}${formatKiroQuotaUnitSuffix(meta?.unit, meta?.currency)}`;
 
 const humanizeKiroQuotaName = (name: string, t: TFunction, freeTrial?: boolean): string => {
   const normalized = name.trim().toLowerCase();
@@ -1660,13 +1728,16 @@ const renderKiroProviderQuotaRow = (
     row.remainingPercent ?? (usedPercent === null ? null : Math.max(0, 100 - usedPercent));
   const amountLabel =
     used != null && total != null
-      ? `${formatKiroQuotaNumber(used)} / ${formatKiroQuotaNumber(total)}`
+      ? `${formatKiroQuotaAmount(used, row)} / ${formatKiroQuotaAmount(total, row)}`
       : row.remaining != null
         ? t('kiro_quota.remaining_amount', {
-            amount: formatKiroQuotaNumber(row.remaining),
+            amount: formatKiroQuotaAmount(row.remaining, row),
           })
         : undefined;
   const label = humanizeKiroQuotaName(row.name || row.resourceType || row.id, t, row.freeTrial);
+  const title = [row.resourceType ?? row.name, row.displayNamePlural, row.unit, row.currency]
+    .filter(Boolean)
+    .join(' / ');
 
   return h(
     'div',
@@ -1674,7 +1745,7 @@ const renderKiroProviderQuotaRow = (
     h(
       'div',
       { className: styleMap.quotaRowHeader },
-      h('span', { className: styleMap.quotaModel, title: row.resourceType ?? row.name }, label),
+      h('span', { className: styleMap.quotaModel, title }, label),
       h(
         'div',
         { className: styleMap.quotaMeta },
@@ -1703,12 +1774,14 @@ const renderKiroItems = (
   const providerQuota = quota.providerQuota;
 
   if (providerQuota?.providerQuotaAvailable) {
-    const planLabel =
-      providerQuota.subscriptionTitle || providerQuota.subscriptionType || providerQuota.plan
-        ? [providerQuota.subscriptionTitle || providerQuota.plan, providerQuota.subscriptionType]
-            .filter(Boolean)
-            .join(' / ')
-        : null;
+    const planParts = [
+      providerQuota.subscriptionTitle || providerQuota.plan,
+      providerQuota.subscriptionType,
+      formatKiroQuotaMetadataValue(providerQuota.overageCapability),
+      providerQuota.subscriptionManagementTarget,
+      formatKiroQuotaMetadataValue(providerQuota.upgradeCapability),
+    ].filter(Boolean);
+    const planLabel = planParts.length > 0 ? planParts.join(' / ') : null;
 
     if (planLabel) {
       nodes.push(
@@ -1796,22 +1869,42 @@ const renderKiroItems = (
       providerQuota.overageStatus ||
       providerQuota.currentOverages != null ||
       providerQuota.overageCap != null ||
-      providerQuota.overageRate != null
+      providerQuota.overageRate != null ||
+      providerQuota.overageCharges != null ||
+      providerQuota.overageChargesWithPrecision != null ||
+      providerQuota.quotas?.some(
+        (row) => row.overageCharges != null || row.overageChargesWithPrecision != null
+      )
     ) {
+      const primaryQuota =
+        providerQuota.quotas?.find((row) => !row.freeTrial) ?? providerQuota.quotas?.[0];
+      const overageCharges =
+        providerQuota.overageChargesWithPrecision ??
+        providerQuota.overageCharges ??
+        primaryQuota?.overageChargesWithPrecision ??
+        primaryQuota?.overageCharges ??
+        null;
       const overageParts = [
         providerQuota.currentOverages != null
           ? t('kiro_quota.current_overages', {
-              amount: formatKiroQuotaNumber(providerQuota.currentOverages),
+              amount: formatKiroQuotaAmount(providerQuota.currentOverages, primaryQuota),
             })
           : null,
         providerQuota.overageCap != null
           ? t('kiro_quota.overage_cap', {
-              amount: formatKiroQuotaNumber(providerQuota.overageCap),
+              amount: formatKiroQuotaAmount(providerQuota.overageCap, primaryQuota),
             })
           : null,
         providerQuota.overageRate != null
           ? t('kiro_quota.overage_rate', {
               amount: formatKiroQuotaNumber(providerQuota.overageRate),
+            })
+          : null,
+        overageCharges != null
+          ? t('kiro_quota.overage_charges', {
+              amount: formatKiroQuotaAmount(overageCharges, {
+                currency: primaryQuota?.currency,
+              }),
             })
           : null,
       ].filter(Boolean);

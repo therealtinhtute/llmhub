@@ -345,6 +345,12 @@ export interface KiroProviderQuotaState {
   overageCap?: number | null;
   overageRate?: number | null;
   currentOverages?: number | null;
+  overageCharges?: number | null;
+  overageChargesWithPrecision?: number | null;
+  overageCapability?: unknown;
+  subscriptionManagementTarget?: string;
+  upgradeCapability?: unknown;
+  raw?: Record<string, unknown>;
   checkedAt?: string;
 }
 
@@ -352,6 +358,9 @@ export interface KiroProviderQuotaRow {
   id: string;
   resourceType?: string;
   name: string;
+  displayNamePlural?: string;
+  currency?: string;
+  unit?: string;
   current?: number | null;
   limit?: number | null;
   used?: number | null;
@@ -369,6 +378,9 @@ export interface KiroProviderQuotaRow {
   overageCap?: number | null;
   overageRate?: number | null;
   currentOverages?: number | null;
+  overageCharges?: number | null;
+  overageChargesWithPrecision?: number | null;
+  bonuses?: unknown;
 }
 
 export interface KiroRuntimeUsageStats {

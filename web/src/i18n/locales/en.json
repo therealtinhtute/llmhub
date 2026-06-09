@@ -495,6 +495,7 @@
     "current_overages": "used {{amount}}",
     "overage_cap": "cap {{amount}}",
     "overage_rate": "rate {{amount}}",
+    "overage_charges": "charges {{amount}}",
     "runtime_status": "Runtime status",
     "runtime_usage": "Runtime usage",
     "runtime_tokens": "Runtime tokens",

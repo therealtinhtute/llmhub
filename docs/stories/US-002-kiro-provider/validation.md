@@ -95,6 +95,36 @@ go test ./...
   - `go test ./...`
   - `cd web && bun run type-check`
 
+2026-06-09 Kiro quota parity follow-up:
+
+- Fixed Kiro provider quota normalization so enterprise `getUsageLimits`
+  responses keep `displayName`, per-row `nextDateReset`, and
+  `overageConfiguration.overageStatus`; per-row overage amount, cap, and rate
+  now also feed the provider-level UI summary.
+- Added compatibility for legacy/9router-style `quotas` object maps so saved
+  Kiro quota snapshots no longer drop 2-3 quota rows when the data is not an
+  array yet.
+- Fixed the web refresh path to normalize snake_case Kiro quota responses
+  before deriving `providerQuotaAvailable`.
+- Verification passed:
+  - `go test ./internal/runtime/executor ./internal/api/handlers/management ./sdk/cliproxy/auth`
+  - `go test $(rg --files -g '*.go' | sed '/^data\\//d' | xargs -n1 dirname | sort -u | sed 's#^#./#')`
+  - `cd web && bun run type-check`
+
+2026-06-09 Kiro quota field-preservation follow-up:
+
+- Extended normalized Kiro quota snapshots to keep raw `/getUsageLimits`
+  payloads plus row metadata for `currency`, `unit`, `displayNamePlural`,
+  `overageCharges`, `overageChargesWithPrecision`, and `bonuses`.
+- Extended subscription metadata to keep `overageCapability`,
+  `subscriptionManagementTarget`, and `upgradeCapability`; the quota UI now
+  includes those compactly with plan/overage metadata and displays quota units
+  or currency beside relevant amounts.
+- Verification passed:
+  - `go test ./internal/runtime/executor ./internal/api/handlers/management ./sdk/cliproxy/auth`
+  - `go test $(rg --files -g '*.go' | sed '/^data\\//d' | xargs -n1 dirname | sort -u | sed 's#^#./#')`
+  - `cd web && bun run type-check`
+
 2026-06-04 investigation note:
 
 - Reviewed `jwadow/kiro-gateway` issue `#41` and cached the upstream evidence in

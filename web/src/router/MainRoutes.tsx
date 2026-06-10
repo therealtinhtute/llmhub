@@ -10,12 +10,13 @@ import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { ModelsPage } from '@/pages/ModelsPage';
 import { SystemPage } from '@/pages/SystemPage';
+import { ApiKeysPage } from '@/pages/ApiKeysPage';
 
 const mainRoutes = [
   { path: '/', element: <DashboardPage /> },
   { path: '/dashboard', element: <DashboardPage /> },
   { path: '/settings', element: <Navigate to="/config" replace /> },
-  { path: '/api-keys', element: <Navigate to="/config" replace /> },
+  { path: '/api-keys', element: <ApiKeysPage /> },
   { path: '/ai-providers', element: <ProvidersWorkbenchPage /> },
   { path: '/ai-providers/*', element: <Navigate to="/ai-providers" replace /> },
   { path: '/auth-files', element: <AuthFilesPage /> },

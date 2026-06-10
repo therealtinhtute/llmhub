@@ -10,6 +10,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MainRoutes } from '@/router/MainRoutes';
 import {
+  IconSidebarApiKeys,
   IconSidebarAuthFiles,
   IconSidebarConfig,
   IconSidebarDashboard,
@@ -61,6 +62,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   dashboard: <IconSidebarDashboard size={18} />,
   aiProviders: <IconSidebarProviders size={18} />,
   authFiles: <IconSidebarAuthFiles size={18} />,
+  apiKeys: <IconSidebarApiKeys size={18} />,
   oauth: <IconSidebarOauth size={18} />,
   models: <IconSidebarModels size={18} />,
   quota: <IconSidebarQuota size={18} />,
@@ -216,6 +218,7 @@ export function MainLayout() {
       items: [
         { path: '/ai-providers', labelKey: 'nav.ai_providers', metaKey: 'nav_meta.ai_providers', icon: sidebarIcons.aiProviders },
         { path: '/auth-files', labelKey: 'nav.auth_files', metaKey: 'nav_meta.auth_files', icon: sidebarIcons.authFiles },
+        { path: '/api-keys', labelKey: 'nav.api_keys', metaKey: 'nav_meta.api_keys', icon: sidebarIcons.apiKeys },
         { path: '/oauth', labelKey: 'nav.oauth', metaKey: 'nav_meta.oauth', icon: sidebarIcons.oauth },
         { path: '/models', labelKey: 'nav.models', metaKey: 'nav_meta.models', icon: sidebarIcons.models },
       ],

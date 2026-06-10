@@ -7,6 +7,7 @@ export type AuthFilesUiState = {
   problemOnly?: boolean;
   disabledOnly?: boolean;
   compactMode?: boolean;
+  searchPanelCollapsed?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;

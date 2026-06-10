@@ -1,6 +1,5 @@
 import {
   useCallback,
-  type CSSProperties,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -10,7 +9,6 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { animate } from 'motion/mini';
 import type { AnimationPlaybackControlsWithThen } from 'motion-dom';
 import { useInterval } from '@/hooks/useInterval';
@@ -19,34 +17,24 @@ import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
 import { FormInput as Input } from '@/components/ui/FormInput';
 import { FormSelect as Select } from '@/components/ui/FormSelect';
-import { IconFilterAll, IconSearch } from '@/components/ui/icons';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { IconChevronDown, IconChevronUp, IconFilterAll, IconSearch } from '@/components/ui/icons';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import { copyToClipboard } from '@/utils/clipboard';
 import {
   MAX_CARD_PAGE_SIZE,
   MIN_CARD_PAGE_SIZE,
-  QUOTA_PROVIDER_TYPES,
   clampCardPageSize,
   getAuthFileIcon,
-  getTypeColor,
   getTypeLabel,
   hasAuthFileStatusMessage,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   parsePriorityValue,
-  type QuotaProviderType,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
 import { AuthFileCard } from '@/features/authFiles/components/AuthFileCard';
-import { AuthFileModelsModal } from '@/features/authFiles/components/AuthFileModelsModal';
-import { AuthFilesPrefixProxyEditorModal } from '@/features/authFiles/components/AuthFilesPrefixProxyEditorModal';
-import { OAuthExcludedCard } from '@/features/authFiles/components/OAuthExcludedCard';
-import { OAuthModelAliasCard } from '@/features/authFiles/components/OAuthModelAliasCard';
 import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
-import { useAuthFilesModels } from '@/features/authFiles/hooks/useAuthFilesModels';
-import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth';
-import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import {
   isAuthFilesSortMode,
@@ -56,7 +44,6 @@ import {
   writePersistedAuthFilesCompactMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
-import { toast } from 'sonner';
 import { useAuthStore, useThemeStore } from '@/stores';
 
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
@@ -79,12 +66,12 @@ export function AuthFilesPage() {
   const { t } = useTranslation();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
-  const navigate = useNavigate();
 
   const [filter, setFilter] = useState<'all' | string>('all');
   const [problemOnly, setProblemOnly] = useState(false);
   const [disabledOnly, setDisabledOnly] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
+  const [searchPanelCollapsed, setSearchPanelCollapsed] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSizeByMode, setPageSizeByMode] = useState({
@@ -92,7 +79,6 @@ export function AuthFilesPage() {
     compact: DEFAULT_COMPACT_PAGE_SIZE,
   });
   const [pageSizeInput, setPageSizeInput] = useState('9');
-  const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
   const [sortMode, setSortMode] = useState<AuthFilesSortMode>('default');
   const [batchActionBarVisible, setBatchActionBarVisible] = useState(false);
   const [uiStateHydrated, setUiStateHydrated] = useState(false);
@@ -131,54 +117,8 @@ export function AuthFilesPage() {
 
   const statusBarCache = useAuthFilesStatusBarCache(files);
 
-  const {
-    excluded,
-    excludedError,
-    modelAlias,
-    modelAliasError,
-    allProviderModels,
-    loadExcluded,
-    loadModelAlias,
-    deleteExcluded,
-    deleteModelAlias,
-    handleMappingUpdate,
-    handleDeleteLink,
-    handleToggleFork,
-    handleRenameAlias,
-    handleDeleteAlias,
-  } = useAuthFilesOauth({ viewMode, files });
-
-  const {
-    modelsModalOpen,
-    modelsLoading,
-    modelsList,
-    modelsFileName,
-    modelsFileType,
-    modelsError,
-    showModels,
-    closeModelsModal,
-  } = useAuthFilesModels();
-
-  const {
-    prefixProxyEditor,
-    prefixProxyUpdatedText,
-    prefixProxyDirty,
-    openPrefixProxyEditor,
-    closePrefixProxyEditor,
-    handlePrefixProxyChange,
-    handlePrefixProxySave,
-  } = useAuthFilesPrefixProxyEditor({
-    disableControls: connectionStatus !== 'connected',
-    loadFiles,
-  });
-
   const disableControls = connectionStatus !== 'connected';
   const normalizedFilter = normalizeProviderKey(String(filter));
-  const quotaFilterType: QuotaProviderType | null = QUOTA_PROVIDER_TYPES.has(
-    normalizedFilter as QuotaProviderType
-  )
-    ? (normalizedFilter as QuotaProviderType)
-    : null;
   const pageSize = compactMode ? pageSizeByMode.compact : pageSizeByMode.regular;
 
   useEffect(() => {
@@ -206,6 +146,9 @@ export function AuthFilesPage() {
       }
       if (typeof persisted.search === 'string') {
         setSearch(persisted.search);
+      }
+      if (typeof persisted.searchPanelCollapsed === 'boolean') {
+        setSearchPanelCollapsed(persisted.searchPanelCollapsed);
       }
       if (typeof persisted.page === 'number' && Number.isFinite(persisted.page)) {
         setPage(Math.max(1, Math.round(persisted.page)));
@@ -242,6 +185,7 @@ export function AuthFilesPage() {
       problemOnly,
       disabledOnly,
       compactMode,
+      searchPanelCollapsed,
       search,
       page,
       pageSize,
@@ -258,6 +202,7 @@ export function AuthFilesPage() {
     pageSize,
     pageSizeByMode,
     problemOnly,
+    searchPanelCollapsed,
     search,
     sortMode,
     uiStateHydrated,
@@ -323,16 +268,14 @@ export function AuthFilesPage() {
   );
 
   const handleHeaderRefresh = useCallback(async () => {
-    await Promise.all([loadFiles(), loadExcluded(), loadModelAlias()]);
-  }, [loadFiles, loadExcluded, loadModelAlias]);
+    await loadFiles();
+  }, [loadFiles]);
 
   useHeaderRefresh(handleHeaderRefresh);
 
   useEffect(() => {
     loadFiles();
-    loadExcluded();
-    loadModelAlias();
-  }, [loadFiles, loadExcluded, loadModelAlias]);
+  }, [loadFiles]);
 
   useInterval(
     () => {
@@ -342,13 +285,13 @@ export function AuthFilesPage() {
   );
 
   const existingTypes = useMemo(() => {
-    const types = new Set<string>(['all']);
+    const types = new Set<string>();
     files.forEach((file) => {
       const type = normalizeProviderKey(String(file.type ?? file.provider ?? ''));
       if (type) types.add(type);
     });
-    return Array.from(types);
-  }, [files]);
+    return Array.from(types).sort((a, b) => getTypeLabel(t, a).localeCompare(getTypeLabel(t, b)));
+  }, [files, t]);
 
   const filesMatchingStatusFilters = useMemo(
     () =>
@@ -378,6 +321,26 @@ export function AuthFilesPage() {
     });
     return counts;
   }, [filesMatchingStatusFilters]);
+
+  const providerTabs = useMemo(
+    () =>
+      existingTypes
+        .map((type) => ({
+          type,
+          count: typeCounts[type] ?? 0,
+          label: getTypeLabel(t, type),
+          iconSrc: getAuthFileIcon(type, resolvedTheme),
+        }))
+        .filter(({ count }) => count > 0),
+    [existingTypes, resolvedTheme, t, typeCounts]
+  );
+
+  useEffect(() => {
+    if (normalizedFilter === 'all') return;
+    if (providerTabs.some((tab) => tab.type === normalizedFilter)) return;
+    setFilter('all');
+    setPage(1);
+  }, [normalizedFilter, providerTabs]);
 
   const normalizedSearch = search.trim();
   const wildcardSearch = useMemo(() => buildWildcardSearch(normalizedSearch), [normalizedSearch]);
@@ -444,48 +407,6 @@ export function AuthFilesPage() {
     selectedNames.length === 0 ||
     batchStatusUpdating ||
     selectedHasStatusUpdating;
-
-  const copyTextWithNotification = useCallback(
-    async (text: string) => {
-      const copied = await copyToClipboard(text);
-      if (copied) {
-        toast.success(t('notification.link_copied', { defaultValue: 'Copied to clipboard' }));
-      } else {
-        toast.error(t('notification.copy_failed', { defaultValue: 'Copy failed' }));
-      }
-    },
-    [t]
-  );
-
-  const openExcludedEditor = useCallback(
-    (provider?: string) => {
-      const providerValue = (provider || (filter !== 'all' ? String(filter) : '')).trim();
-      const params = new URLSearchParams();
-      if (providerValue) {
-        params.set('provider', providerValue);
-      }
-      const nextSearch = params.toString();
-      navigate(`/auth-files/oauth-excluded${nextSearch ? `?${nextSearch}` : ''}`, {
-        state: { fromAuthFiles: true },
-      });
-    },
-    [filter, navigate]
-  );
-
-  const openModelAliasEditor = useCallback(
-    (provider?: string) => {
-      const providerValue = (provider || (filter !== 'all' ? String(filter) : '')).trim();
-      const params = new URLSearchParams();
-      if (providerValue) {
-        params.set('provider', providerValue);
-      }
-      const nextSearch = params.toString();
-      navigate(`/auth-files/oauth-model-alias${nextSearch ? `?${nextSearch}` : ''}`, {
-        state: { fromAuthFiles: true },
-      });
-    },
-    [filter, navigate]
-  );
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
@@ -577,58 +498,6 @@ export function AuthFilesPage() {
     []
   );
 
-  const renderFilterTags = () => (
-    <div className="flex flex-col gap-[10px] p-3 border border-border/60 bg-muted/60">
-      <div className="flex flex-row flex-wrap gap-2">
-        {existingTypes.map((type) => {
-          const isActive = normalizedFilter === type;
-          const iconSrc = getAuthFileIcon(type, resolvedTheme);
-          const color =
-            type === 'all'
-              ? { bg: 'hsl(var(--secondary))', text: 'hsl(var(--foreground))' }
-              : getTypeColor(type, resolvedTheme);
-          const buttonStyle = {
-            '--filter-color': color.text,
-            '--filter-surface': color.bg,
-            '--filter-active-text': resolvedTheme === 'dark' ? '#111827' : '#ffffff',
-          } as CSSProperties;
-
-          return (
-            <button
-              key={type}
-              className={`inline-flex items-center gap-2 py-[7px] pr-3 pl-2 text-[13px] font-semibold leading-[1.2] border border-border/60 bg-muted/70 text-muted-foreground cursor-pointer whitespace-nowrap ${isActive ? 'border-[color-mix(in_srgb,var(--filter-color)_50%,hsl(var(--border)))] bg-[color-mix(in_srgb,var(--filter-surface)_22%,hsl(var(--muted)))] text-foreground' : ''}`}
-              style={buttonStyle}
-              onClick={() => {
-                setFilter(type);
-                setPage(1);
-              }}
-            >
-              <span className="inline-flex items-center gap-[10px] min-w-0">
-                {type === 'all' ? (
-                  <span className="relative w-6 h-6 shrink-0 inline-flex items-center justify-content-center border border-primary/20 bg-[linear-gradient(145deg,color-mix(in_srgb,hsl(var(--muted))_94%,hsl(var(--primary))_8%),color-mix(in_srgb,hsl(var(--background))_92%,hsl(var(--primary))_5%))]">
-                    <IconFilterAll className="relative z-[1] block text-primary/70" size={16} />
-                  </span>
-                ) : (
-                  <span className="w-6 h-6 shrink-0 inline-flex items-center justify-center border border-border/50 bg-secondary/60">
-                    {iconSrc ? (
-                      <img src={iconSrc} alt="" className="w-4 h-4 shrink-0 object-contain" />
-                    ) : (
-                      <span className="text-[var(--filter-color)] text-[14px] font-bold leading-none">
-                        {getTypeLabel(t, type).slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
-                  </span>
-                )}
-                <span className="min-w-0 text-inherit overflow-hidden text-ellipsis whitespace-nowrap">{getTypeLabel(t, type)}</span>
-              </span>
-              <span className={`inline-grid place-items-center min-w-[20px] h-5 px-[6px] bg-[color-mix(in_srgb,var(--filter-color)_12%,transparent)] text-muted-foreground/60 text-[11px] font-bold tabular-nums shrink-0 leading-none text-center ${isActive ? 'bg-[color-mix(in_srgb,var(--filter-color)_22%,transparent)] text-[var(--filter-color)]' : ''}`}>{typeCounts[type] ?? 0}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
   const titleNode = (
     <div className="flex items-center gap-2 leading-6">
       <span>{t('auth_files.title_section')}</span>
@@ -706,101 +575,175 @@ export function AuthFilesPage() {
         {error && <div className="p-[10px_14px] mb-2 bg-destructive/10 border border-destructive/35 text-destructive text-sm leading-[1.5]">{error}</div>}
 
         <div className="flex flex-col gap-3 mb-4">
-          {renderFilterTags()}
+          <Tabs
+            value={normalizedFilter}
+            onValueChange={(value) => {
+              setFilter(value);
+              setPage(1);
+            }}
+          >
+            <TabsList className="flex justify-start items-start gap-0 p-0 border-b border-border bg-transparent overflow-x-auto max-w-full">
+              <TabsTrigger
+                value="all"
+                className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <IconFilterAll data-icon="inline-start" />
+                  {t('auth_files.filter_all')}
+                </span>
+                {typeCounts.all > 0 && (
+                  <span className="inline-flex min-w-5 items-center justify-center bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+                    {typeCounts.all}
+                  </span>
+                )}
+              </TabsTrigger>
+              {providerTabs.map(({ type, count, label, iconSrc }) => (
+                <TabsTrigger
+                  key={type}
+                  value={type}
+                  className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    {iconSrc ? (
+                      <img src={iconSrc} alt="" className="size-4 shrink-0 object-contain" />
+                    ) : (
+                      <span className="inline-flex size-4 items-center justify-center text-[11px] font-bold leading-none">
+                        {label.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="truncate">{label}</span>
+                  </span>
+                  <span className="inline-flex min-w-5 items-center justify-center bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+                    {count}
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
           <div className="flex flex-col gap-3 min-w-0">
             <div className="relative overflow-hidden p-4 border border-border/60 bg-[linear-gradient(135deg,color-mix(in_srgb,hsl(var(--primary))_8%,transparent),transparent_46%),color-mix(in_srgb,hsl(var(--muted))_56%,transparent)] max-md:p-3">
-              <div className="grid gap-3 items-end [grid-template-columns:minmax(260px,1fr)_minmax(108px,0.35fr)_minmax(148px,0.45fr)] max-md:[grid-template-columns:1fr]">
-                <div className="flex flex-col gap-[6px] min-w-0">
-                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.search_label')}</label>
-                  <Input
-                    className="pr-10"
-                    value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                      setPage(1);
-                    }}
-                    placeholder={t('auth_files.search_placeholder')}
-                    rightElement={<IconSearch className="block text-muted-foreground/60 pointer-events-none" size={18} />}
-                  />
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground/60">
+                    {t('auth_files.search_label')}
+                  </div>
+                  <div className="text-[13px] font-semibold text-foreground">
+                    {t('auth_files.display_options_label')}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-[6px] min-w-0">
-                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.page_size_label')}</label>
-                  <input
-                    className="w-full px-3 py-2 border border-border/70 bg-muted text-foreground text-[14px] cursor-text h-[42px] box-border focus:outline-none focus:border-primary"
-                    type="number"
-                    min={MIN_CARD_PAGE_SIZE}
-                    max={MAX_CARD_PAGE_SIZE}
-                    step={1}
-                    value={pageSizeInput}
-                    onChange={handlePageSizeChange}
-                    onBlur={(e) => commitPageSizeInput(e.currentTarget.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.currentTarget.blur();
-                      }
-                    }}
-                  />
-                </div>
-                <div className="flex flex-col gap-[6px] min-w-0">
-                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.sort_label')}</label>
-                  <Select
-                    className="w-full min-w-0"
-                    value={sortMode}
-                    options={sortOptions}
-                    onChange={handleSortModeChange}
-                    ariaLabel={t('auth_files.sort_label')}
-                    fullWidth
-                  />
-                </div>
-                <div className="flex flex-col gap-[6px] min-w-0 [grid-column:1_/_-1]">
-                  <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.display_options_label')}</label>
-                  <div className="grid [grid-template-columns:repeat(3,minmax(0,1fr))] gap-2 min-h-[42px] max-md:[grid-template-columns:1fr]">
-                    <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
-                      <ToggleSwitch
-                        checked={problemOnly}
-                        onChange={(value) => {
-                          setProblemOnly(value);
-                          setPage(1);
-                        }}
-                        ariaLabel={t('auth_files.problem_filter_only')}
-                        label={
-                          <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
-                            {t('auth_files.problem_filter_only')}
-                          </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSearchPanelCollapsed((value) => !value)}
+                  aria-expanded={!searchPanelCollapsed}
+                  title={
+                    searchPanelCollapsed ? t('common.expand') : t('common.collapse')
+                  }
+                >
+                  {searchPanelCollapsed ? (
+                    <IconChevronDown data-icon="inline-end" />
+                  ) : (
+                    <IconChevronUp data-icon="inline-end" />
+                  )}
+                  {searchPanelCollapsed ? t('common.expand') : t('common.collapse')}
+                </Button>
+              </div>
+
+              {!searchPanelCollapsed && (
+                <div className="mt-4 grid gap-3 items-end [grid-template-columns:minmax(260px,1fr)_minmax(108px,0.35fr)_minmax(148px,0.45fr)] max-md:[grid-template-columns:1fr]">
+                  <div className="flex flex-col gap-[6px] min-w-0">
+                    <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.search_label')}</label>
+                    <Input
+                      className="pr-10"
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        setPage(1);
+                      }}
+                      placeholder={t('auth_files.search_placeholder')}
+                      rightElement={<IconSearch className="block text-muted-foreground/60 pointer-events-none" size={18} />}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-[6px] min-w-0">
+                    <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.page_size_label')}</label>
+                    <input
+                      className="w-full px-3 py-2 border border-border/70 bg-muted text-foreground text-[14px] cursor-text h-[42px] box-border focus:outline-none focus:border-primary"
+                      type="number"
+                      min={MIN_CARD_PAGE_SIZE}
+                      max={MAX_CARD_PAGE_SIZE}
+                      step={1}
+                      value={pageSizeInput}
+                      onChange={handlePageSizeChange}
+                      onBlur={(e) => commitPageSizeInput(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur();
                         }
-                      />
-                    </div>
-                    <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
-                      <ToggleSwitch
-                        checked={disabledOnly}
-                        onChange={(value) => {
-                          setDisabledOnly(value);
-                          setPage(1);
-                        }}
-                        ariaLabel={t('auth_files.disabled_filter_only')}
-                        label={
-                          <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
-                            {t('auth_files.disabled_filter_only')}
-                          </span>
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
-                      <ToggleSwitch
-                        checked={compactMode}
-                        onChange={(value) => setCompactMode(value)}
-                        ariaLabel={t('auth_files.compact_mode_label')}
-                        label={
-                          <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
-                            {t('auth_files.compact_mode_label')}
-                          </span>
-                        }
-                      />
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-[6px] min-w-0">
+                    <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.sort_label')}</label>
+                    <Select
+                      className="w-full min-w-0"
+                      value={sortMode}
+                      options={sortOptions}
+                      onChange={handleSortModeChange}
+                      ariaLabel={t('auth_files.sort_label')}
+                      fullWidth
+                    />
+                  </div>
+                  <div className="flex flex-col gap-[6px] min-w-0 [grid-column:1_/_-1]">
+                    <label className="text-[11px] text-muted-foreground/60 font-bold whitespace-nowrap">{t('auth_files.display_options_label')}</label>
+                    <div className="grid [grid-template-columns:repeat(3,minmax(0,1fr))] gap-2 min-h-[42px] max-md:[grid-template-columns:1fr]">
+                      <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
+                        <ToggleSwitch
+                          checked={problemOnly}
+                          onChange={(value) => {
+                            setProblemOnly(value);
+                            setPage(1);
+                          }}
+                          ariaLabel={t('auth_files.problem_filter_only')}
+                          label={
+                            <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
+                              {t('auth_files.problem_filter_only')}
+                            </span>
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
+                        <ToggleSwitch
+                          checked={disabledOnly}
+                          onChange={(value) => {
+                            setDisabledOnly(value);
+                            setPage(1);
+                          }}
+                          ariaLabel={t('auth_files.disabled_filter_only')}
+                          label={
+                            <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
+                              {t('auth_files.disabled_filter_only')}
+                            </span>
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center min-w-0 min-h-[42px] px-[10px] border border-border/60 bg-background/56 [&>label]:w-full [&>label]:min-w-0">
+                        <ToggleSwitch
+                          checked={compactMode}
+                          onChange={(value) => setCompactMode(value)}
+                          ariaLabel={t('auth_files.compact_mode_label')}
+                          label={
+                            <span className="inline-flex items-center text-foreground text-[13px] font-semibold leading-[1.25]">
+                              {t('auth_files.compact_mode_label')}
+                            </span>
+                          }
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {loading ? (
@@ -812,7 +755,7 @@ export function AuthFilesPage() {
               />
             ) : (
               <div
-                className={`grid gap-3 ${quotaFilterType ? '[grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))]' : compactMode ? '[grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]' : '[grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]'}`}
+                className={`grid gap-3 ${compactMode ? '[grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]' : '[grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]'}`}
               >
                 {pageItems.map((file) => (
                   <AuthFileCard
@@ -824,11 +767,8 @@ export function AuthFilesPage() {
                     disableControls={disableControls}
                     deleting={deleting}
                     statusUpdating={statusUpdating}
-                    quotaFilterType={quotaFilterType}
                     statusBarCache={statusBarCache}
-                    onShowModels={showModels}
                     onDownload={handleDownload}
-                    onOpenPrefixProxyEditor={openPrefixProxyEditor}
                     onDelete={handleDelete}
                     onToggleStatus={handleStatusToggle}
                     onToggleSelect={toggleSelect}
@@ -867,55 +807,6 @@ export function AuthFilesPage() {
           </div>
         </div>
       </Card>
-
-      <OAuthExcludedCard
-        disableControls={disableControls}
-        excludedError={excludedError}
-        excluded={excluded}
-        onAdd={() => openExcludedEditor()}
-        onEdit={openExcludedEditor}
-        onDelete={deleteExcluded}
-      />
-
-      <OAuthModelAliasCard
-        disableControls={disableControls}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onAdd={() => openModelAliasEditor()}
-        onEditProvider={openModelAliasEditor}
-        onDeleteProvider={deleteModelAlias}
-        modelAliasError={modelAliasError}
-        modelAlias={modelAlias}
-        allProviderModels={allProviderModels}
-        onUpdate={handleMappingUpdate}
-        onDeleteLink={handleDeleteLink}
-        onToggleFork={handleToggleFork}
-        onRenameAlias={handleRenameAlias}
-        onDeleteAlias={handleDeleteAlias}
-      />
-
-      <AuthFileModelsModal
-        open={modelsModalOpen}
-        fileName={modelsFileName}
-        fileType={modelsFileType}
-        loading={modelsLoading}
-        error={modelsError}
-        models={modelsList}
-        excluded={excluded}
-        onClose={closeModelsModal}
-        onCopyText={copyTextWithNotification}
-      />
-
-      <AuthFilesPrefixProxyEditorModal
-        disableControls={disableControls}
-        editor={prefixProxyEditor}
-        updatedText={prefixProxyUpdatedText}
-        dirty={prefixProxyDirty}
-        onClose={closePrefixProxyEditor}
-        onCopyText={copyTextWithNotification}
-        onSave={handlePrefixProxySave}
-        onChange={handlePrefixProxyChange}
-      />
 
       {batchActionBarVisible && typeof document !== 'undefined'
         ? createPortal(

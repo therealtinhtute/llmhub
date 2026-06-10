@@ -8,7 +8,6 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconCode,
   IconDiamond,
-  IconKey,
   IconSatellite,
   IconSettings,
   IconTimer,
@@ -25,12 +24,11 @@ import type {
   VisualConfigValues,
 } from '@/types/visualConfig';
 import {
-  ApiKeysCardEditor,
   PayloadFilterRulesEditor,
   PayloadRulesEditor,
 } from './VisualConfigEditorBlocks';
 
-type VisualSectionId = 'server' | 'auth' | 'system' | 'quota' | 'streaming' | 'payload';
+type VisualSectionId = 'server' | 'system' | 'quota' | 'streaming' | 'payload';
 
 type VisualSection = {
   id: VisualSectionId;
@@ -211,10 +209,6 @@ export function VisualConfigEditor({
     validationErrors?.['streaming.nonstreamKeepaliveInterval']
   );
 
-  const handleApiKeysTextChange = useCallback(
-    (apiKeysText: string) => onChange({ apiKeysText }),
-    [onChange]
-  );
   const handlePayloadDefaultRulesChange = useCallback(
     (payloadDefaultRules: PayloadRule[]) => onChange({ payloadDefaultRules }),
     [onChange]
@@ -266,12 +260,6 @@ export function VisualConfigEditor({
         title: t('config_management.visual.sections.server.title'),
         icon: IconSettings,
         errorCount: countErrors(['port']),
-      },
-      {
-        id: 'auth',
-        title: t('config_management.visual.sections.auth.title'),
-        icon: IconKey,
-        errorCount: 0,
       },
       {
         id: 'system',
@@ -476,37 +464,10 @@ export function VisualConfigEditor({
               </SectionStack>
             </ConfigSection>
           </TabsContent>
-          <TabsContent value="auth">
-            <ConfigSection
-              id="auth"
-              indexLabel="02"
-              icon={<IconKey size={16} />}
-              title={t('config_management.visual.sections.auth.title')}
-              description={t('config_management.visual.sections.auth.description')}
-            >
-              <SectionStack>
-                <Input
-                  label={t('config_management.visual.sections.auth.auth_dir')}
-                  placeholder="~/.llmhub"
-                  value={values.authDir}
-                  onChange={(e) => onChange({ authDir: e.target.value })}
-                  disabled={disabled}
-                  hint={t('config_management.visual.sections.auth.auth_dir_hint')}
-                />
-                <div className="flex flex-col gap-3 p-4 border border-border bg-transparent">
-                  <ApiKeysCardEditor
-                    value={values.apiKeysText}
-                    disabled={disabled}
-                    onChange={handleApiKeysTextChange}
-                  />
-                </div>
-              </SectionStack>
-            </ConfigSection>
-          </TabsContent>
           <TabsContent value="system">
             <ConfigSection
               id="system"
-              indexLabel="03"
+              indexLabel="02"
               icon={<IconDiamond size={16} />}
               title={t('config_management.visual.sections.system.title')}
               description={t('config_management.visual.sections.system.description')}
@@ -883,7 +844,7 @@ export function VisualConfigEditor({
           <TabsContent value="quota">
             <ConfigSection
               id="quota"
-              indexLabel="04"
+              indexLabel="03"
               icon={<IconTimer size={16} />}
               title={t('config_management.visual.sections.quota.title')}
               description={t('config_management.visual.sections.quota.description')}
@@ -917,7 +878,7 @@ export function VisualConfigEditor({
           <TabsContent value="streaming">
             <ConfigSection
               id="streaming"
-              indexLabel="05"
+              indexLabel="04"
               icon={<IconSatellite size={16} />}
               title={t('config_management.visual.sections.streaming.title')}
               description={t('config_management.visual.sections.streaming.description')}
@@ -1014,7 +975,7 @@ export function VisualConfigEditor({
           <TabsContent value="payload">
             <ConfigSection
               id="payload"
-              indexLabel="06"
+              indexLabel="05"
               icon={<IconCode size={16} />}
               title={t('config_management.visual.sections.payload.title')}
               description={t('config_management.visual.sections.payload.description')}

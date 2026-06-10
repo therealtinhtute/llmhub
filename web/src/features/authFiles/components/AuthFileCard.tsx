@@ -6,13 +6,10 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconDownload,
   IconInfo,
-  IconModelCluster,
-  IconSettings,
   IconTrash2,
 } from '@/components/ui/icons';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import type { AuthFileItem } from '@/types';
-import { resolveAuthProvider } from '@/utils/quota';
 import {
   normalizeRecentRequestAuthIndex,
   normalizeRecentRequestBuckets,
@@ -21,7 +18,6 @@ import {
 } from '@/utils/recentRequests';
 import { formatFileSize } from '@/utils/format';
 import {
-  QUOTA_PROVIDER_TYPES,
   formatModified,
   getAuthFileIcon,
   getAuthFileStatusMessage,
@@ -30,11 +26,9 @@ import {
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   parsePriorityValue,
-  type QuotaProviderType,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
 import type { AuthFileStatusBarData } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
-import { AuthFileQuotaSection } from '@/features/authFiles/components/AuthFileQuotaSection';
 
 const HEALTHY_STATUS_MESSAGES = new Set(['ok', 'healthy', 'ready', 'success', 'available']);
 
@@ -46,20 +40,11 @@ export type AuthFileCardProps = {
   disableControls: boolean;
   deleting: string | null;
   statusUpdating: Record<string, boolean>;
-  quotaFilterType: QuotaProviderType | null;
   statusBarCache: Map<string, AuthFileStatusBarData>;
-  onShowModels: (file: AuthFileItem) => void;
   onDownload: (name: string) => void;
-  onOpenPrefixProxyEditor: (file: AuthFileItem) => void;
   onDelete: (name: string) => void;
   onToggleStatus: (file: AuthFileItem, enabled: boolean) => void;
   onToggleSelect: (name: string) => void;
-};
-
-const resolveQuotaType = (file: AuthFileItem): QuotaProviderType | null => {
-  const provider = resolveAuthProvider(file);
-  if (!QUOTA_PROVIDER_TYPES.has(provider as QuotaProviderType)) return null;
-  return provider as QuotaProviderType;
 };
 
 export function AuthFileCard(props: AuthFileCardProps) {
@@ -72,11 +57,8 @@ export function AuthFileCard(props: AuthFileCardProps) {
     disableControls,
     deleting,
     statusUpdating,
-    quotaFilterType,
     statusBarCache,
-    onShowModels,
     onDownload,
-    onOpenPrefixProxyEditor,
     onDelete,
     onToggleStatus,
     onToggleSelect,
@@ -89,31 +71,24 @@ export function AuthFileCard(props: AuthFileCardProps) {
   };
   const isRuntimeOnly = isRuntimeOnlyAuthFile(file);
   const providerKey = normalizeProviderKey(String(file.type ?? file.provider ?? 'unknown'));
-  const isAistudio = providerKey === 'aistudio';
-  const showModelsButton = !isRuntimeOnly || isAistudio;
   const typeColor = getTypeColor(providerKey, resolvedTheme);
   const typeLabel = getTypeLabel(t, providerKey);
   const providerIcon = getAuthFileIcon(providerKey, resolvedTheme);
 
-  const quotaType =
-    quotaFilterType && resolveQuotaType(file) === quotaFilterType ? quotaFilterType : null;
-
-  const showQuotaLayout = Boolean(quotaType) && !isRuntimeOnly && !compact;
-
   const providerCardBgImage =
-    quotaType === 'antigravity'
+    providerKey === 'antigravity'
       ? 'linear-gradient(180deg,rgba(224,247,250,0.06),transparent)'
-      : quotaType === 'claude'
+      : providerKey === 'claude'
         ? 'linear-gradient(180deg,rgba(251,236,228,0.08),transparent)'
-        : quotaType === 'codex'
+        : providerKey === 'codex'
           ? 'linear-gradient(180deg,rgba(234,231,255,0.08),transparent)'
-          : quotaType === 'gemini-cli'
+          : providerKey === 'gemini-cli'
             ? 'linear-gradient(180deg,rgba(224,232,255,0.08),transparent)'
-            : quotaType === 'kiro'
+            : providerKey === 'kiro'
               ? 'linear-gradient(180deg,rgba(239,231,255,0.08),transparent)'
-              : quotaType === 'kimi'
+              : providerKey === 'kimi'
                 ? 'linear-gradient(180deg,rgba(220,232,255,0.08),transparent)'
-                : quotaType === 'xai'
+                : providerKey === 'xai'
                   ? 'linear-gradient(180deg,rgba(243,244,246,0.08),transparent)'
                   : undefined;
 
@@ -319,76 +294,39 @@ export function AuthFileCard(props: AuthFileCardProps) {
               )}
               <ProviderStatusBar statusData={statusData} />
             </div>
-
-            {showQuotaLayout && quotaType && (
-              <AuthFileQuotaSection
-                file={file}
-                quotaType={quotaType}
-                disableControls={disableControls}
-              />
-            )}
           </div>
 
           <div
             className={`flex items-center justify-between gap-2 mt-auto pt-2 border-t border-border/50 max-md:flex-wrap`}
           >
             <div className="flex items-center gap-[6px] min-w-0 flex-1 max-md:flex-wrap max-md:w-full">
-              {showModelsButton && (
+              {!isRuntimeOnly && (
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => onShowModels(file)}
-                  className="min-w-0 px-[10px] bg-primary/10 border-primary/20 hover:border-primary/35 hover:bg-primary/14 max-md:flex-1 max-md:min-w-0"
-                  title={t('auth_files.models_button', { defaultValue: '模型' })}
+                  onClick={() => onDownload(file.name)}
+                  className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
+                  title={t('auth_files.download_button')}
                   disabled={disableControls}
                 >
-                  <>
-                    <span className="w-[22px] h-[22px] shrink-0 inline-flex items-center justify-center bg-primary/16">
-                      <IconModelCluster className="block" size={16} />
-                    </span>
-                    <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-                      {t('auth_files.models_button', { defaultValue: '模型' })}
-                    </span>
-                  </>
+                  <IconDownload className="block" size={16} />
                 </Button>
               )}
               {!isRuntimeOnly && (
-                <div className="flex items-center gap-[3px] p-[2px] bg-secondary/50">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onDownload(file.name)}
-                    className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
-                    title={t('auth_files.download_button')}
-                    disabled={disableControls}
-                  >
-                    <IconDownload className="block" size={16} />
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onOpenPrefixProxyEditor(file)}
-                    className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
-                    title={t('auth_files.prefix_proxy_button')}
-                    disabled={disableControls}
-                  >
-                    <IconSettings className="block" size={16} />
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => onDelete(file.name)}
-                    className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
-                    title={t('auth_files.delete_button')}
-                    disabled={disableControls || deleting === file.name}
-                  >
-                    {deleting === file.name ? (
-                      <LoadingSpinner size={14} />
-                    ) : (
-                      <IconTrash2 className="block" size={16} />
-                    )}
-                  </Button>
-                </div>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => onDelete(file.name)}
+                  className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
+                  title={t('auth_files.delete_button')}
+                  disabled={disableControls || deleting === file.name}
+                >
+                  {deleting === file.name ? (
+                    <LoadingSpinner size={14} />
+                  ) : (
+                    <IconTrash2 className="block" size={16} />
+                  )}
+                </Button>
               )}
             </div>
             {!isRuntimeOnly && (

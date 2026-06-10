@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
 import { FormInput as Input } from '@/components/ui/FormInput';
+import { IconPlus } from '@/components/ui/icons';
 import { toast } from 'sonner';
 import { useThemeStore } from '@/stores';
 import { oauthApi, type OAuthProvider } from '@/services/api/oauth';
-import { vertexApi, type VertexImportResponse } from '@/services/api/vertex';
 import { copyToClipboard } from '@/utils/clipboard';
 import iconCodex from '@/assets/icons/codex.svg';
 import iconClaude from '@/assets/icons/claude.svg';
@@ -15,7 +15,6 @@ import iconAntigravity from '@/assets/icons/antigravity.svg';
 import iconGemini from '@/assets/icons/gemini.svg';
 import iconKimiLight from '@/assets/icons/kimi-light.svg';
 import iconKimiDark from '@/assets/icons/kimi-dark.svg';
-import iconVertex from '@/assets/icons/vertex.svg';
 import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
 
@@ -31,22 +30,6 @@ interface ProviderState {
   callbackSubmitting?: boolean;
   callbackStatus?: 'success' | 'error';
   callbackError?: string;
-}
-
-interface VertexImportResult {
-  projectId?: string;
-  email?: string;
-  location?: string;
-  authFile?: string;
-}
-
-interface VertexImportState {
-  file?: File;
-  fileName: string;
-  location: string;
-  loading: boolean;
-  error?: string;
-  result?: VertexImportResult;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -166,14 +149,8 @@ export function OAuthPage() {
   const navigate = useNavigate();
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const [states, setStates] = useState<Record<OAuthProvider, ProviderState>>({} as Record<OAuthProvider, ProviderState>);
-  const [vertexState, setVertexState] = useState<VertexImportState>({
-    fileName: '',
-    location: '',
-    loading: false
-  });
   const pollingTimers = useRef<Partial<Record<OAuthProvider, number>>>({});
   const successResetTimers = useRef<Partial<Record<OAuthProvider, number>>>({});
-  const vertexFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const clearTimers = useCallback(() => {
     Object.values(pollingTimers.current).forEach((timer) => {
@@ -383,104 +360,60 @@ export function OAuthPage() {
     }
   };
 
-  const handleVertexFilePick = () => {
-    vertexFileInputRef.current?.click();
-  };
-
-  const handleVertexFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.name.endsWith('.json')) {
-      toast.warning(t('vertex_import.file_required'));
-      event.target.value = '';
-      return;
-    }
-    setVertexState((prev) => ({
-      ...prev,
-      file,
-      fileName: file.name,
-      error: undefined,
-      result: undefined
-    }));
-    event.target.value = '';
-  };
-
-  const handleVertexImport = async () => {
-    if (!vertexState.file) {
-      const message = t('vertex_import.file_required');
-      setVertexState((prev) => ({ ...prev, error: message }));
-      toast.warning(message);
-      return;
-    }
-    const location = vertexState.location.trim();
-    setVertexState((prev) => ({ ...prev, loading: true, error: undefined, result: undefined }));
-    try {
-      const res: VertexImportResponse = await vertexApi.importCredential(
-        vertexState.file,
-        location || undefined
-      );
-      const result: VertexImportResult = {
-        projectId: res.project_id,
-        email: res.email,
-        location: res.location,
-        authFile: res['auth-file'] ?? res.auth_file
-      };
-      setVertexState((prev) => ({ ...prev, loading: false, result }));
-      toast.success(t('vertex_import.success'));
-    } catch (err: unknown) {
-      const message = getErrorMessage(err);
-      setVertexState((prev) => ({
-        ...prev,
-        loading: false,
-        error: message || t('notification.upload_failed')
-      }));
-      const notification = message
-        ? `${t('notification.upload_failed')}: ${message}`
-        : t('notification.upload_failed');
-      toast.error(notification);
-    }
-  };
-
   return (
     <div className="w-full">
       <h1 className="text-[28px] font-bold text-foreground mb-6">{t('nav.oauth', { defaultValue: 'OAuth' })}</h1>
 
       <div className="flex flex-col gap-6">
-        {PROVIDERS.map((provider) => {
-          const state = states[provider.id] || {};
-          const canSubmitCallback = CALLBACK_SUPPORTED.includes(provider.id) && Boolean(state.url);
-          const loginButtonLabel =
-            state.status === 'success'
-              ? t('auth_login.login_another_account')
-              : t(getAuthKey(provider.id, 'oauth_button'));
-          const statusBadgeClassName = [
-            'inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border border-border text-muted-foreground bg-muted leading-[1.5] rounded-sm',
-            state.status === 'success' ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40' : '',
-            state.status === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : ''
-          ]
-            .filter(Boolean)
-            .join(' ');
-          return (
-            <div key={provider.id}>
-              <Card
-                title={
-                  <span className="flex items-center gap-2">
-                    <img
-                      src={getIcon(provider.icon, resolvedTheme)}
-                      alt=""
-                      className="w-6 h-6"
-                    />
-                    {t(provider.titleKey)}
-                  </span>
-                }
-                extra={
-                  <Button onClick={() => startAuth(provider.id)} loading={state.polling}>
-                    {loginButtonLabel}
-                  </Button>
-                }
-              >
-                <div className="flex flex-col gap-3">
-                  <div className="text-[13px] leading-relaxed text-muted-foreground">{t(provider.hintKey)}</div>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+          {PROVIDERS.map((provider) => {
+            const state = states[provider.id] || {};
+            const canSubmitCallback = CALLBACK_SUPPORTED.includes(provider.id) && Boolean(state.url);
+            const loginButtonLabel =
+              state.status === 'success'
+                ? t('auth_login.login_another_account')
+                : t(getAuthKey(provider.id, 'oauth_button'));
+            const statusBadgeClassName = [
+              'inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border border-border text-muted-foreground bg-muted leading-[1.5] rounded-sm',
+              state.status === 'success' ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40' : '',
+              state.status === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : ''
+            ]
+              .filter(Boolean)
+              .join(' ');
+            return (
+              <Card key={provider.id} className="h-full border-border/70 bg-card/95 shadow-xs">
+                <div className="flex h-full flex-col gap-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3 pr-2">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/55">
+                        <img
+                          src={getIcon(provider.icon, resolvedTheme)}
+                          alt=""
+                          className="h-5 w-5 shrink-0"
+                        />
+                      </span>
+                      <span className="flex min-w-0 flex-col gap-1">
+                        <span className="truncate text-sm font-semibold text-foreground">
+                          {t(provider.titleKey)}
+                        </span>
+                        <span className="text-[12px] leading-[1.5] text-muted-foreground">
+                          {t(provider.hintKey)}
+                        </span>
+                      </span>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="icon-sm"
+                      onClick={() => startAuth(provider.id)}
+                      loading={state.polling}
+                      className="shrink-0 rounded-full border-border/80 bg-background/90 text-foreground shadow-none"
+                      title={loginButtonLabel}
+                      aria-label={loginButtonLabel}
+                    >
+                      {!state.polling ? <IconPlus size={14} /> : null}
+                    </Button>
+                  </div>
+
                   {provider.id === 'gemini-cli' && (
                     <div className="flex flex-col gap-2">
                       <Input
@@ -499,11 +432,14 @@ export function OAuthPage() {
                       />
                     </div>
                   )}
+
                   {state.url && (
-                    <div className="bg-muted border border-dashed border-border p-3 flex flex-col gap-1">
-                      <div className="text-muted-foreground text-sm">{t(provider.urlLabelKey)}</div>
-                      <div className="font-bold text-foreground break-all overflow-wrap-anywhere leading-relaxed max-w-full">{state.url}</div>
-                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <div className="flex flex-col gap-1 border border-dashed border-border bg-muted p-3">
+                      <div className="text-sm text-muted-foreground">{t(provider.urlLabelKey)}</div>
+                      <div className="max-w-full break-all font-bold leading-relaxed text-foreground">
+                        {state.url}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <Button variant="secondary" size="sm" onClick={() => copyLink(state.url!)}>
                           {t(getAuthKey(provider.id, 'copy_link'))}
                         </Button>
@@ -517,6 +453,7 @@ export function OAuthPage() {
                       </div>
                     </div>
                   )}
+
                   {canSubmitCallback && (
                     <div className="flex flex-col gap-2">
                       <Input
@@ -555,17 +492,18 @@ export function OAuthPage() {
                         </Button>
                       </div>
                       {state.callbackStatus === 'success' && state.status === 'waiting' && (
-                        <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-emerald-700 bg-emerald-100 border-emerald-400/40 leading-[1.5]">
+                        <div className="inline-flex items-center rounded-sm border border-emerald-400/40 bg-emerald-100 px-[10px] py-[2px] text-[0.8125rem] font-medium leading-[1.5] text-emerald-700">
                           {t('auth_login.oauth_callback_status_success')}
                         </div>
                       )}
                       {state.callbackStatus === 'error' && (
-                        <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-destructive bg-destructive/10 border-destructive/30 leading-[1.5]">
+                        <div className="inline-flex items-center rounded-sm border border-destructive/30 bg-destructive/10 px-[10px] py-[2px] text-[0.8125rem] font-medium leading-[1.5] text-destructive">
                           {t('auth_login.oauth_callback_status_error')} {state.callbackError || ''}
                         </div>
                       )}
                     </div>
                   )}
+
                   {state.status && state.status !== 'idle' && (
                     <div className={statusBadgeClassName}>
                       {state.status === 'success'
@@ -575,8 +513,9 @@ export function OAuthPage() {
                           : t(getAuthKey(provider.id, 'oauth_status_waiting'))}
                     </div>
                   )}
+
                   {state.status === 'success' && (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="mt-auto flex flex-wrap items-center gap-2">
                       <Button variant="secondary" size="sm" onClick={() => navigate('/auth-files')}>
                         {t('auth_login.view_auth_files')}
                       </Button>
@@ -584,97 +523,9 @@ export function OAuthPage() {
                   )}
                 </div>
               </Card>
-            </div>
-          );
-        })}
-
-        {/* Vertex JSON 登录 */}
-        <Card
-          title={
-            <span className="flex items-center gap-2">
-              <img src={iconVertex} alt="" className="w-6 h-6" />
-              {t('vertex_import.title')}
-            </span>
-          }
-          extra={
-            <Button onClick={handleVertexImport} loading={vertexState.loading}>
-              {t('vertex_import.import_button')}
-            </Button>
-          }
-        >
-          <div className="flex flex-col gap-3">
-            <div className="text-[13px] leading-relaxed text-muted-foreground">{t('vertex_import.description')}</div>
-            <Input
-              label={t('vertex_import.location_label')}
-              hint={t('vertex_import.location_hint')}
-              value={vertexState.location}
-              onChange={(e) =>
-                setVertexState((prev) => ({
-                  ...prev,
-                  location: e.target.value
-                }))
-              }
-              placeholder={t('vertex_import.location_placeholder')}
-            />
-            <div className="flex flex-col gap-1">
-              <label className="font-semibold text-foreground">{t('vertex_import.file_label')}</label>
-              <div className="flex items-center gap-2 flex-wrap">
-                <Button variant="secondary" size="sm" onClick={handleVertexFilePick}>
-                  {t('vertex_import.choose_file')}
-                </Button>
-                <div
-                  className={`flex-1 min-w-[220px] px-3 py-2.5 border border-border bg-background text-sm ${vertexState.fileName ? 'text-foreground' : 'text-muted-foreground'}`}
-                >
-                  {vertexState.fileName || t('vertex_import.file_placeholder')}
-                </div>
-              </div>
-              <div className="text-xs leading-snug text-muted-foreground/70">{t('vertex_import.file_hint')}</div>
-              <input
-                ref={vertexFileInputRef}
-                type="file"
-                accept=".json,application/json"
-                style={{ display: 'none' }}
-                onChange={handleVertexFileChange}
-              />
-            </div>
-            {vertexState.error && (
-              <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-destructive bg-destructive/10 border-destructive/30 leading-[1.5]">
-                {vertexState.error}
-              </div>
-            )}
-            {vertexState.result && (
-              <div className="bg-muted border border-border p-3 flex flex-col gap-2">
-                <div className="text-sm font-semibold text-foreground">{t('vertex_import.result_title')}</div>
-                <div className="flex flex-col gap-1.5">
-                  {vertexState.result.projectId && (
-                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
-                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_project')}</span>
-                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.projectId}</span>
-                    </div>
-                  )}
-                  {vertexState.result.email && (
-                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
-                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_email')}</span>
-                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.email}</span>
-                    </div>
-                  )}
-                  {vertexState.result.location && (
-                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
-                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_location')}</span>
-                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.location}</span>
-                    </div>
-                  )}
-                  {vertexState.result.authFile && (
-                    <div className="grid grid-cols-[140px_1fr] gap-2.5 items-start max-md:grid-cols-1 max-md:gap-0.5">
-                      <span className="text-muted-foreground text-[13px]">{t('vertex_import.result_file')}</span>
-                      <span className="text-foreground break-all overflow-wrap-anywhere">{vertexState.result.authFile}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

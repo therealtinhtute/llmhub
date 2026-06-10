@@ -125,6 +125,24 @@ go test ./...
   - `go test $(rg --files -g '*.go' | sed '/^data\\//d' | xargs -n1 dirname | sort -u | sed 's#^#./#')`
   - `cd web && bun run type-check`
 
+2026-06-09 Kiro-Go overage parity follow-up:
+
+- Added runtime profile ARN resolution through Kiro-Go style
+  `ListAvailableProfiles` with transient retry and refresh-token fallback.
+- Updated quota exhaustion and selector routing so `overageStatus=ENABLED`
+  keeps an exhausted Kiro auth routable, while disabled, unknown, or missing
+  overage still blocks exhausted accounts.
+- Added management-only
+  `POST /v0/management/auth-files/kiro/overage` with UI toggle support in Kiro
+  quota cards and auth-file quota sections.
+- Fixed Kiro non-stream and stream retry paths so a 401 token refresh reapplies
+  refreshed `profile_arn` to the upstream request body.
+- Verification passed:
+  - `go test ./internal/runtime/executor ./internal/api/handlers/management ./sdk/cliproxy/auth ./sdk/cliproxy`
+  - `go test ./...`
+  - `cd web && bun run type-check && bun run build`
+  - `git diff --check`
+
 2026-06-04 investigation note:
 
 - Reviewed `jwadow/kiro-gateway` issue `#41` and cached the upstream evidence in

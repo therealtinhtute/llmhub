@@ -183,6 +183,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @layer base {
@@ -193,6 +199,12 @@
     @apply bg-background text-foreground;
     font-size: 14px;
     letter-spacing: var(--tracking-normal);
+  }
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
   }
 }
 

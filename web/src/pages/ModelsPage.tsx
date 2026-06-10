@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppCard as Card } from '@/components/ui/AppCard';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,7 @@ import { authFilesApi } from '@/services/api';
 import { apiKeysApi } from '@/services/api/apiKeys';
 import { useAuthStore, useConfigStore, useModelsStore, useThemeStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
+import { copyToClipboard } from '@/utils/clipboard';
 import { classifyModels } from '@/utils/models';
 import iconClaude from '@/assets/icons/claude.svg';
 import iconDeepseek from '@/assets/icons/deepseek.svg';
@@ -118,7 +120,8 @@ export function ModelsPage() {
     const query = search.trim().toLowerCase();
     if (!query) return models;
     return models.filter((model) => {
-      const haystack = `${model.name} ${model.alias ?? ''} ${model.description ?? ''}`.toLowerCase();
+      const haystack =
+        `${model.name} ${model.alias ?? ''} ${model.description ?? ''}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [models, search]);
@@ -206,13 +209,7 @@ export function ModelsPage() {
         });
       }
     },
-    [
-      auth.apiBase,
-      auth.connectionStatus,
-      fetchModelsFromStore,
-      resolveApiKeysForModels,
-      t,
-    ]
+    [auth.apiBase, auth.connectionStatus, fetchModelsFromStore, resolveApiKeysForModels, t]
   );
 
   const loadAliasData = useCallback(async () => {
@@ -239,6 +236,18 @@ export function ModelsPage() {
       });
     },
     [navigate]
+  );
+
+  const handleCopyModelName = useCallback(
+    async (modelName: string) => {
+      const copied = await copyToClipboard(modelName);
+      if (copied) {
+        toast.success(t('notification.link_copied', { defaultValue: 'Copied to clipboard' }));
+      } else {
+        toast.error(t('notification.copy_failed', { defaultValue: 'Copy failed' }));
+      }
+    },
+    [t]
   );
 
   useEffect(() => {
@@ -352,10 +361,8 @@ export function ModelsPage() {
                   >
                     <div className="flex min-w-0 flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        {iconSrc && <img src={iconSrc} alt="" className="size-[18px] shrink-0" />}
-                        <span className="text-sm font-semibold text-foreground">
-                          {group.label}
-                        </span>
+                        {iconSrc && <img src={iconSrc} alt="" className="size-[12px] shrink-0" />}
+                        <span className="text-sm font-semibold text-foreground">{group.label}</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {t('models_management.models_count', { count: group.items.length })}
@@ -366,17 +373,30 @@ export function ModelsPage() {
                         <Badge
                           key={`${model.name}-${model.alias ?? 'default'}`}
                           variant="outline"
-                          className="max-w-full gap-1 rounded-md bg-muted px-2.5 py-1 font-mono"
+                          className="group relative h-5 max-w-full rounded-md bg-muted px-2 py-0 pr-6 text-[11px] leading-none font-mono"
                           title={model.description || model.alias || model.name}
                         >
-                          <span className="truncate font-semibold text-foreground">
-                            {model.name}
-                          </span>
-                          {model.alias && (
-                            <span className="truncate text-xs text-muted-foreground">
-                              {model.alias}
+                          <span className="flex min-w-0 items-center justify-center gap-1 text-center">
+                            <span className="truncate text-[11px] font-semibold leading-none text-foreground">
+                              {model.name}
                             </span>
-                          )}
+                            {model.alias && (
+                              <span className="truncate text-[11px] leading-none text-muted-foreground">
+                                {model.alias}
+                              </span>
+                            )}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0.5 top-1/2 h-4 w-4 min-w-4 -translate-y-1/2 p-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground"
+                            aria-label={t('common.copy', { defaultValue: 'Copy' })}
+                            title={t('common.copy', { defaultValue: 'Copy' })}
+                            onClick={() => void handleCopyModelName(model.name)}
+                          >
+                            <Copy size={12} />
+                          </Button>
                         </Badge>
                       ))}
                     </div>

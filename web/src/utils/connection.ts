@@ -17,6 +17,16 @@ export const computeApiUrl = (base: string): string => {
   return `${normalized}${MANAGEMENT_API_PREFIX}`;
 };
 
+export const readDevDefaultApiBase = (): string => {
+  const raw =
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    typeof import.meta.env.VITE_DEFAULT_API_BASE === 'string'
+      ? import.meta.env.VITE_DEFAULT_API_BASE
+      : '';
+  return normalizeApiBase(raw);
+};
+
 export const detectApiBaseFromLocation = (): string => {
   try {
     const { protocol, hostname, port } = window.location;
@@ -27,6 +37,9 @@ export const detectApiBaseFromLocation = (): string => {
     return normalizeApiBase(`http://localhost:${DEFAULT_API_PORT}`);
   }
 };
+
+export const resolvePreferredApiBase = (): string =>
+  readDevDefaultApiBase() || detectApiBaseFromLocation();
 
 export const isLocalhost = (hostname: string): boolean => {
   const value = (hostname || '').toLowerCase();

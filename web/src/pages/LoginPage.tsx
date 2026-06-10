@@ -8,7 +8,7 @@ import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { IconEye, IconEyeOff } from '@/components/ui/icons';
 import { toast } from 'sonner';
 import { useAuthStore, useLanguageStore } from '@/stores';
-import { detectApiBaseFromLocation, normalizeApiBase } from '@/utils/connection';
+import { normalizeApiBase, resolvePreferredApiBase } from '@/utils/connection';
 import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
@@ -110,7 +110,7 @@ export function LoginPage() {
   const [autoLoginSuccess, setAutoLoginSuccess] = useState(false);
   const [error, setError] = useState('');
 
-  const detectedBase = useMemo(() => detectApiBaseFromLocation(), []);
+  const detectedBase = useMemo(() => resolvePreferredApiBase(), []);
   const languageOptions = useMemo(
     () =>
       LANGUAGE_ORDER.map((lang) => ({

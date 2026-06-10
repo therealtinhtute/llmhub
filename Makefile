@@ -8,8 +8,9 @@ BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X 'main.Version=$(VERSION)' -X 'main.Commit=$(COMMIT)' -X 'main.BuildDate=$(BUILD_DATE)'
 GORELEASER_VERSION ?= v2.16.0
 GORELEASER ?= $(shell command -v goreleaser 2>/dev/null || echo "go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)")
+DEV_WEB_API_BASE ?= http://localhost:9090
 
-.PHONY: help build-web embed build dev dev-pg release-check release-snapshot release-preflight release download-latest install-latest install-local clean
+.PHONY: help build-web dev-web embed build dev dev-pg release-check release-snapshot release-preflight release download-latest install-latest install-local clean
 
 help:
 	@echo "Available commands:"
@@ -17,6 +18,7 @@ help:
 	@echo "  make dev               Build web assets and run the server"
 	@echo "  make dev-pg            Build web assets and run the server with .env/Postgres enabled"
 	@echo "  make build-web         Build the React management panel"
+	@echo "  make dev-web           Run the React management panel with Vite hot reload (DEV_WEB_API_BASE=$(DEV_WEB_API_BASE))"
 	@echo "  make embed             Build and embed the management panel"
 	@echo "  make release-check     Validate .goreleaser.yml with $(GORELEASER)"
 	@echo "  make release-snapshot  Build local GoReleaser snapshot archives"
@@ -29,6 +31,9 @@ help:
 
 build-web:
 	cd web && bun install && bun run build
+
+dev-web:
+	cd web && bun install && VITE_DEFAULT_API_BASE="$(DEV_WEB_API_BASE)" bun run dev
 
 embed: build-web
 	mkdir -p internal/managementasset/static

@@ -97,6 +97,9 @@ interface QuotaSectionProps<TState extends QuotaStatusState, TData> {
   files: AuthFileItem[];
   loading: boolean;
   disabled: boolean;
+  viewMode?: 'paged' | 'all';
+  onViewModeChange?: (mode: 'paged' | 'all') => void;
+  refreshSignal?: number;
 }
 
 export function QuotaSection<TState extends QuotaStatusState, TData>({
@@ -104,6 +107,9 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   files,
   loading,
   disabled,
+  viewMode: externalViewMode,
+  onViewModeChange,
+  refreshSignal,
 }: QuotaSectionProps<TState, TData>) {
   const { t } = useTranslation();
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -113,8 +119,19 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
 
   /* Removed useRef */
   const [columns, gridRef] = useGridColumns(380); // Min card width 380px matches SCSS
-  const [viewMode, setViewMode] = useState<ViewMode>('paged');
+  const [internalViewMode, setInternalViewMode] = useState<ViewMode>('paged');
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
+  const viewMode = externalViewMode ?? internalViewMode;
+  const setViewMode = useCallback(
+    (mode: ViewMode) => {
+      if (externalViewMode !== undefined) {
+        onViewModeChange?.(mode);
+      } else {
+        setInternalViewMode(mode);
+      }
+    },
+    [externalViewMode, onViewModeChange]
+  );
 
   const filteredFiles = useMemo(
     () => files.filter((file) => config.filterFn(file)),
@@ -149,7 +166,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     return () => {
       cancelled = true;
     };
-  }, [showAllAllowed, viewMode]);
+  }, [showAllAllowed, viewMode, setViewMode]);
 
   // Update page size based on view mode and columns
   useEffect(() => {
@@ -165,6 +182,16 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
 
   const pendingQuotaRefreshRef = useRef(false);
   const prevFilesLoadingRef = useRef(loading);
+  const prevRefreshSignalRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (refreshSignal === undefined) return;
+    if (prevRefreshSignalRef.current === refreshSignal) return;
+    const isFirst = prevRefreshSignalRef.current === undefined;
+    prevRefreshSignalRef.current = refreshSignal;
+    if (isFirst) return;
+    pendingQuotaRefreshRef.current = true;
+  }, [refreshSignal]);
 
   const handleRefresh = useCallback(() => {
     pendingQuotaRefreshRef.current = true;
@@ -251,49 +278,51 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     <Card
       title={titleNode}
       extra={
-        <div className={styles.headerActions}>
-          <div className={styles.viewModeToggle}>
+        externalViewMode === undefined ? (
+          <div className={styles.headerActions}>
+            <div className={styles.viewModeToggle}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className={`${styles.viewModeButton} ${
+                  effectiveViewMode === 'paged' ? styles.viewModeButtonActive : ''
+                }`}
+                onClick={() => setViewMode('paged')}
+              >
+                {t('auth_files.view_mode_paged')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className={`${styles.viewModeButton} ${
+                  effectiveViewMode === 'all' ? styles.viewModeButtonActive : ''
+                }`}
+                onClick={() => {
+                  if (filteredFiles.length > MAX_SHOW_ALL_THRESHOLD) {
+                    setShowTooManyWarning(true);
+                  } else {
+                    setViewMode('all');
+                  }
+                }}
+              >
+                {t('auth_files.view_mode_all')}
+              </Button>
+            </div>
             <Button
               variant="secondary"
               size="sm"
-              className={`${styles.viewModeButton} ${
-                effectiveViewMode === 'paged' ? styles.viewModeButtonActive : ''
-              }`}
-              onClick={() => setViewMode('paged')}
+              className={styles.refreshAllButton}
+              onClick={handleRefresh}
+              disabled={disabled || isRefreshing}
+              loading={isRefreshing}
+              title={t('quota_management.refresh_all_credentials')}
+              aria-label={t('quota_management.refresh_all_credentials')}
             >
-              {t('auth_files.view_mode_paged')}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              className={`${styles.viewModeButton} ${
-                effectiveViewMode === 'all' ? styles.viewModeButtonActive : ''
-              }`}
-              onClick={() => {
-                if (filteredFiles.length > MAX_SHOW_ALL_THRESHOLD) {
-                  setShowTooManyWarning(true);
-                } else {
-                  setViewMode('all');
-                }
-              }}
-            >
-              {t('auth_files.view_mode_all')}
+              {!isRefreshing && <IconRefreshCw size={16} />}
+              {t('quota_management.refresh_all_credentials')}
             </Button>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            className={styles.refreshAllButton}
-            onClick={handleRefresh}
-            disabled={disabled || isRefreshing}
-            loading={isRefreshing}
-            title={t('quota_management.refresh_all_credentials')}
-            aria-label={t('quota_management.refresh_all_credentials')}
-          >
-            {!isRefreshing && <IconRefreshCw size={16} />}
-            {t('quota_management.refresh_all_credentials')}
-          </Button>
-        </div>
+        ) : undefined
       }
     >
       {filteredFiles.length === 0 ? (

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/shallow';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { toast } from 'sonner';
 import { useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, KiroQuotaState, ResolvedTheme } from '@/types';
@@ -14,7 +13,6 @@ import { QuotaCard } from './QuotaCard';
 import type { QuotaStatusState } from './QuotaCard';
 import { buildKiroQuotaStateFromProvider, type QuotaConfig, type QuotaStore } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
-import { IconRefreshCw } from '@/components/ui/icons';
 import { quotaStyles as styles } from './quotaStyles';
 
 type ViewMode = 'paged' | 'all';
@@ -34,6 +32,9 @@ export interface AllQuotaSectionProps {
   files: AuthFileItem[];
   loading: boolean;
   disabled: boolean;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
+  refreshSignal?: number;
 }
 
 type QuotaUpdater<T> = T | ((prev: T) => T);
@@ -89,7 +90,7 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6) => {
   };
 };
 
-export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaSectionProps) {
+export function AllQuotaSection({ configs, files, loading, disabled, viewMode: externalViewMode, onViewModeChange, refreshSignal }: AllQuotaSectionProps) {
   const { t } = useTranslation();
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
 
@@ -114,8 +115,19 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
   );
 
   const [columns, gridRef] = useGridColumns(380);
-  const [viewMode, setViewMode] = useState<ViewMode>('paged');
+  const [internalViewMode, setInternalViewMode] = useState<ViewMode>('paged');
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
+  const viewMode = externalViewMode ?? internalViewMode;
+  const setViewMode = useCallback(
+    (mode: ViewMode) => {
+      if (externalViewMode !== undefined) {
+        onViewModeChange?.(mode);
+      } else {
+        setInternalViewMode(mode);
+      }
+    },
+    [externalViewMode, onViewModeChange]
+  );
 
   const allItems = useMemo(() => {
     const seen = new Set<string>();
@@ -142,7 +154,6 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
     setPageSize,
     goToPrev,
     goToNext,
-    loading: sectionLoading,
     setLoading,
   } = useQuotaPagination(allItems);
 
@@ -160,7 +171,7 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
     return () => {
       cancelled = true;
     };
-  }, [showAllAllowed, viewMode]);
+  }, [showAllAllowed, viewMode, setViewMode]);
 
   useEffect(() => {
     if (effectiveViewMode === 'all') {
@@ -191,11 +202,16 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
 
   const pendingQuotaRefreshRef = useRef(false);
   const prevFilesLoadingRef = useRef(loading);
+  const prevRefreshSignalRef = useRef<number | undefined>(undefined);
 
-  const handleRefresh = useCallback(() => {
+  useEffect(() => {
+    if (refreshSignal === undefined) return;
+    if (prevRefreshSignalRef.current === refreshSignal) return;
+    const isFirst = prevRefreshSignalRef.current === undefined;
+    prevRefreshSignalRef.current = refreshSignal;
+    if (isFirst) return;
     pendingQuotaRefreshRef.current = true;
-    void triggerHeaderRefresh();
-  }, []);
+  }, [refreshSignal]);
 
   useEffect(() => {
     const wasLoading = prevFilesLoadingRef.current;
@@ -326,8 +342,6 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
     [disabled, t]
   );
 
-  const isRefreshing = sectionLoading || loading;
-
   if (allItems.length === 0) {
     return (
       <EmptyState
@@ -339,49 +353,6 @@ export function AllQuotaSection({ configs, files, loading, disabled }: AllQuotaS
 
   return (
     <div className="flex flex-col gap-3">
-      <div className={styles.headerActions}>
-        <div className={styles.viewModeToggle}>
-          <Button
-            variant="secondary"
-            size="sm"
-            className={`${styles.viewModeButton} ${
-              effectiveViewMode === 'paged' ? styles.viewModeButtonActive : ''
-            }`}
-            onClick={() => setViewMode('paged')}
-          >
-            {t('auth_files.view_mode_paged')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            className={`${styles.viewModeButton} ${
-              effectiveViewMode === 'all' ? styles.viewModeButtonActive : ''
-            }`}
-            onClick={() => {
-              if (allItems.length > MAX_SHOW_ALL_THRESHOLD) {
-                setShowTooManyWarning(true);
-              } else {
-                setViewMode('all');
-              }
-            }}
-          >
-            {t('auth_files.view_mode_all')}
-          </Button>
-        </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.refreshAllButton}
-          onClick={handleRefresh}
-          disabled={disabled || isRefreshing}
-          loading={isRefreshing}
-          title={t('quota_management.refresh_all_credentials')}
-          aria-label={t('quota_management.refresh_all_credentials')}
-        >
-          {!isRefreshing && <IconRefreshCw size={16} />}
-          {t('quota_management.refresh_all_credentials')}
-        </Button>
-      </div>
       <div ref={gridRef} className={styles.quotaGrid}>
         {pageItems.map(({ item, config }) => (
           <QuotaCard

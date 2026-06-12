@@ -1706,6 +1706,17 @@ const formatKiroQuotaAmount = (
   meta?: Pick<KiroProviderQuotaRow, 'unit' | 'currency'>
 ): string => `${formatKiroQuotaNumber(value)}${formatKiroQuotaUnitSuffix(meta?.unit, meta?.currency)}`;
 
+const humanizeKiroEnumValue = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const result = value
+    .trim()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+  return result || null;
+};
+
 const humanizeKiroQuotaName = (name: string, t: TFunction, freeTrial?: boolean): string => {
   const normalized = name.trim().toLowerCase();
   const base =
@@ -1734,9 +1745,13 @@ const renderKiroProviderQuotaRow = (
     row.percent ?? (used != null && total && total > 0 ? (used / total) * 100 : null);
   const remainingPercent =
     row.remainingPercent ?? (usedPercent === null ? null : Math.max(0, 100 - usedPercent));
+  const unitLabel =
+    row.displayNamePlural?.trim().toLowerCase() ||
+    (row.unit ? humanizeKiroEnumValue(row.unit)?.toLowerCase() : null) ||
+    null;
   const amountLabel =
     used != null && total != null
-      ? `${formatKiroQuotaAmount(used, row)} / ${formatKiroQuotaAmount(total, row)}`
+      ? `${formatKiroQuotaNumber(used)}/${formatKiroQuotaNumber(total)}${unitLabel ? ` ${unitLabel}` : ''}`
       : row.remaining != null
         ? t('kiro_quota.remaining_amount', {
             amount: formatKiroQuotaAmount(row.remaining, row),
@@ -1744,6 +1759,7 @@ const renderKiroProviderQuotaRow = (
         : undefined;
   const label = humanizeKiroQuotaName(row.name || row.resourceType || row.id, t, row.freeTrial);
   const title = [row.resourceType ?? row.name, row.displayNamePlural, row.unit, row.currency]
+    .map((v) => (v ? humanizeKiroEnumValue(v) ?? v : v))
     .filter(Boolean)
     .join(' / ');
 
@@ -1757,7 +1773,7 @@ const renderKiroProviderQuotaRow = (
       h(
         'div',
         { className: styleMap.quotaMeta },
-        row.trialStatus ? h('span', { className: styleMap.quotaAmount }, row.trialStatus) : null,
+        row.trialStatus ? h('span', { className: styleMap.quotaAmount }, humanizeKiroEnumValue(row.trialStatus) ?? row.trialStatus) : null,
         h(
           'span',
           { className: styleMap.quotaPercent },
@@ -1783,11 +1799,11 @@ const renderKiroItems = (
 
   if (providerQuota?.providerQuotaAvailable) {
     const planParts = [
-      providerQuota.subscriptionTitle || providerQuota.plan,
-      providerQuota.subscriptionType,
-      formatKiroQuotaMetadataValue(providerQuota.overageCapability),
-      providerQuota.subscriptionManagementTarget,
-      formatKiroQuotaMetadataValue(providerQuota.upgradeCapability),
+      humanizeKiroEnumValue(providerQuota.subscriptionTitle || providerQuota.plan),
+      humanizeKiroEnumValue(providerQuota.subscriptionType),
+      humanizeKiroEnumValue(formatKiroQuotaMetadataValue(providerQuota.overageCapability)),
+      humanizeKiroEnumValue(providerQuota.subscriptionManagementTarget),
+      humanizeKiroEnumValue(formatKiroQuotaMetadataValue(providerQuota.upgradeCapability)),
     ].filter(Boolean);
     const planLabel = planParts.length > 0 ? planParts.join(' / ') : null;
 
@@ -1847,7 +1863,7 @@ const renderKiroItems = (
               'div',
               { className: styleMap.quotaMeta },
               providerQuota.trialStatus
-                ? h('span', { className: styleMap.quotaAmount }, providerQuota.trialStatus)
+                ? h('span', { className: styleMap.quotaAmount }, humanizeKiroEnumValue(providerQuota.trialStatus) ?? providerQuota.trialStatus)
                 : null,
               h(
                 'span',
@@ -1857,7 +1873,7 @@ const renderKiroItems = (
               h(
                 'span',
                 { className: styleMap.quotaAmount },
-                `${formatKiroQuotaNumber(providerQuota.trialCurrent)} / ${formatKiroQuotaNumber(providerQuota.trialLimit)}`
+                `${formatKiroQuotaNumber(providerQuota.trialCurrent)}/${formatKiroQuotaNumber(providerQuota.trialLimit)}`
               ),
               h(
                 'span',
@@ -1892,15 +1908,21 @@ const renderKiroItems = (
         primaryQuota?.overageChargesWithPrecision ??
         primaryQuota?.overageCharges ??
         null;
+      const overageUnitLabel =
+        primaryQuota?.displayNamePlural?.trim().toLowerCase() ||
+        (primaryQuota?.unit ? humanizeKiroEnumValue(primaryQuota.unit)?.toLowerCase() : null) ||
+        null;
+      const fmtCount = (v: number) =>
+        `${formatKiroQuotaNumber(v)}${overageUnitLabel ? ` ${overageUnitLabel}` : ''}`;
       const overageParts = [
         providerQuota.currentOverages != null
           ? t('kiro_quota.current_overages', {
-              amount: formatKiroQuotaAmount(providerQuota.currentOverages, primaryQuota),
+              amount: fmtCount(providerQuota.currentOverages),
             })
           : null,
         providerQuota.overageCap != null
           ? t('kiro_quota.overage_cap', {
-              amount: formatKiroQuotaAmount(providerQuota.overageCap, primaryQuota),
+              amount: fmtCount(providerQuota.overageCap),
             })
           : null,
         providerQuota.overageRate != null
@@ -1937,7 +1959,7 @@ const renderKiroItems = (
             h(
               'span',
               { className: styleMap.codexPlanValue },
-              [providerQuota.overageStatus, ...overageParts].filter(Boolean).join(' / ')
+              [humanizeKiroEnumValue(providerQuota.overageStatus), ...overageParts].filter(Boolean).join(' / ')
             ),
             canToggleOverage
               ? h(

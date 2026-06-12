@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useAuthStore } from '@/stores';
+import { useAuthStore, useThemeStore } from '@/stores';
 import { authFilesApi, configFileApi } from '@/services/api';
 import {
   AllQuotaSection,
@@ -15,8 +15,12 @@ import {
   XAI_CONFIG,
 } from '@/components/quota';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import type { AuthFileItem } from '@/types';
+import { IconRefreshCw, IconFilterAll } from '@/components/ui/icons';
+import { getAuthFileIcon } from '@/features/authFiles/constants';
+import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { quotaStyles as styles } from '@/components/quota/quotaStyles';
+
+type ViewMode = 'paged' | 'all';
 
 const ALL_CONFIGS = [
   CLAUDE_CONFIG,
@@ -31,11 +35,14 @@ const ALL_CONFIGS = [
 export function QuotaPage() {
   const { t } = useTranslation();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('paged');
+  const [refreshSignal, setRefreshSignal] = useState(0);
 
   const disableControls = connectionStatus !== 'connected';
 
@@ -66,6 +73,11 @@ export function QuotaPage() {
     await Promise.all([loadConfig(), loadFiles()]);
   }, [loadConfig, loadFiles]);
 
+  const handleTabRefresh = useCallback(async () => {
+    setRefreshSignal((prev) => prev + 1);
+    await handleHeaderRefresh();
+  }, [handleHeaderRefresh]);
+
   useHeaderRefresh(handleHeaderRefresh);
 
   useEffect(() => {
@@ -89,8 +101,9 @@ export function QuotaPage() {
       ALL_CONFIGS.map((config) => ({
         config,
         count: files.filter(config.filterFn).length,
+        iconSrc: getAuthFileIcon(config.type, resolvedTheme),
       })).filter(({ count }) => count > 0),
-    [files]
+    [files, resolvedTheme]
   );
 
   return (
@@ -103,25 +116,76 @@ export function QuotaPage() {
       {error && <div className={styles.errorBox}>{error}</div>}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex justify-start items-start gap-0 p-0 border-b border-border bg-transparent">
-          <TabsTrigger
-            value="all"
-            className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
-          >
-            {t('quota_management.tab_all')}
-            {allCount > 0 && <span className={styles.tabCountBadge}>{allCount}</span>}
-          </TabsTrigger>
-          {providerTabs.map(({ config, count }) => (
+        <div className="flex items-end gap-2 border-b border-border">
+          <TabsList className="flex justify-start items-start gap-0 p-0 bg-transparent overflow-x-auto flex-1 min-w-0">
             <TabsTrigger
-              key={config.type}
-              value={config.type}
+              value="all"
               className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
             >
-              {t(`${config.i18nPrefix}.title`)}
-              <span className={styles.tabCountBadge}>{count}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <IconFilterAll data-icon="inline-start" />
+                {t('quota_management.tab_all')}
+              </span>
+              {allCount > 0 && <span className={styles.tabCountBadge}>{allCount}</span>}
             </TabsTrigger>
-          ))}
-        </TabsList>
+            {providerTabs.map(({ config, count, iconSrc }) => (
+              <TabsTrigger
+                key={config.type}
+                value={config.type}
+                className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  {iconSrc ? (
+                    <img src={iconSrc} alt="" className="size-4 shrink-0 object-contain" />
+                  ) : (
+                    <span className="inline-flex size-4 items-center justify-center text-[11px] font-bold leading-none">
+                      {t(`${config.i18nPrefix}.title`).slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="truncate">{t(`${config.i18nPrefix}.title`)}</span>
+                </span>
+                <span className={styles.tabCountBadge}>{count}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <div className="flex items-center gap-1 shrink-0 pb-px mb-1">
+            <div className="inline-flex items-center border border-border/70 bg-muted/60 overflow-hidden">
+              <button
+                type="button"
+                className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  viewMode === 'paged'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => setViewMode('paged')}
+              >
+                {t('auth_files.view_mode_paged')}
+              </button>
+              <button
+                type="button"
+                className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  viewMode === 'all'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => setViewMode('all')}
+              >
+                {t('auth_files.view_mode_all')}
+              </button>
+            </div>
+            <button
+              type="button"
+              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              onClick={() => void handleTabRefresh()}
+              disabled={loading}
+              title={t('quota_management.refresh_all_credentials')}
+              aria-label={t('quota_management.refresh_all_credentials')}
+            >
+              <IconRefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
 
         <TabsContent value="all">
           <AllQuotaSection
@@ -129,6 +193,9 @@ export function QuotaPage() {
             files={files}
             loading={loading}
             disabled={disableControls}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            refreshSignal={refreshSignal}
           />
         </TabsContent>
 
@@ -140,6 +207,9 @@ export function QuotaPage() {
               files={files}
               loading={loading}
               disabled={disableControls}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              refreshSignal={refreshSignal}
             />
           </TabsContent>
         ))}

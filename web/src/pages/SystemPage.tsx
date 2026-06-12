@@ -205,7 +205,7 @@ export function SystemPage() {
       <div className="flex flex-col gap-6">
         <Card className="overflow-hidden">
           <div className="flex flex-col items-center justify-center w-full gap-3 py-4 px-0 pb-6">
-            <img src={INLINE_LOGO_JPEG} alt="CPAMC" className="w-[108px] h-[108px] object-cover shadow-[0_12px_32px_rgba(0,0,0,0.16)]" />
+            <img src={INLINE_LOGO_JPEG} alt="LLMHUB" className="w-[108px] h-[108px] object-cover shadow-[0_12px_32px_rgba(0,0,0,0.16)]" />
             <div className="w-[min(100%,920px)] text-[clamp(28px,4.2vw,44px)] font-extrabold leading-tight text-foreground tracking-tight text-center text-balance break-words">{t('system_info.about_title')}</div>
           </div>
 

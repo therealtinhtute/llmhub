@@ -59,7 +59,7 @@
   "title": {
     "main": "LLMHub Management Center",
     "login": "LLMHub Management Center",
-    "abbr": "CPAMC"
+    "abbr": "LLMHUB"
   },
   "splash": {
     "title": "LLMHub",
@@ -859,6 +859,10 @@
     "status_saved": "Configuration saved",
     "status_save_failed": "Save failed",
     "save_success": "Configuration saved successfully",
+    "unsaved_dialog_title": "Thay đổi chưa lưu",
+    "unsaved_dialog_message": "Bạn có thay đổi cấu hình chưa được lưu. Rời đi mà không lưu?",
+    "unsaved_dialog_confirm": "Rời đi",
+    "unsaved_dialog_cancel": "Ở lại và lưu",
     "error_yaml_not_supported": "Server did not return YAML. Verify the /config.yaml endpoint is available.",
     "visual_mode_unavailable": "Visual editor unavailable until YAML syntax is fixed",
     "visual_mode_unavailable_short": "YAML issue",

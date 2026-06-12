@@ -59,7 +59,7 @@
   "title": {
     "main": "LLMHub Management Center",
     "login": "LLMHub Management Center",
-    "abbr": "CPAMC"
+    "abbr": "LLMHUB"
   },
   "splash": {
     "title": "LLMHub",
@@ -859,6 +859,10 @@
     "status_saved": "Configuration saved",
     "status_save_failed": "Save failed",
     "save_success": "Configuration saved successfully",
+    "unsaved_dialog_title": "Unsaved changes",
+    "unsaved_dialog_message": "You have unsaved changes to the config. Leave without saving?",
+    "unsaved_dialog_confirm": "Leave without saving",
+    "unsaved_dialog_cancel": "Stay and save",
     "error_yaml_not_supported": "Server did not return YAML. Verify the /config.yaml endpoint is available.",
     "visual_mode_unavailable": "Visual editor unavailable until YAML syntax is fixed",
     "visual_mode_unavailable_short": "YAML issue",

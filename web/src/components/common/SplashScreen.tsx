@@ -35,7 +35,7 @@ export function SplashScreen({ onFinish, fadeOut = false }: SplashScreenProps) {
       <div className="flex flex-col items-center gap-3">
         <img
           src={INLINE_LOGO_JPEG}
-          alt="CPAMC"
+          alt="LLMHUB"
           className="h-20 w-auto shadow-lg"
         />
         <h1 className="text-[28px] font-extrabold text-foreground m-0 tracking-[-0.5px]">

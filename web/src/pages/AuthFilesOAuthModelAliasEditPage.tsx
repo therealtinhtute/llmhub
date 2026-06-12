@@ -405,7 +405,7 @@ export function AuthFilesOAuthModelAliasEditPage() {
                       <button
                         key={option}
                         type="button"
-                        className={`inline-flex items-center px-[10px] py-1 border text-[12px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-primary border-primary text-white hover:bg-primary hover:border-primary hover:text-white' : 'border-border bg-muted text-muted-foreground hover:border-primary hover:text-foreground hover:bg-secondary'}`}
+                        className={`inline-flex items-center px-[10px] py-1 border text-[12px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-primary border-primary text-primary-foreground hover:bg-primary hover:border-primary hover:text-primary-foreground' : 'border-border bg-muted text-muted-foreground hover:border-primary hover:text-foreground hover:bg-secondary'}`}
                         onClick={() => updateProvider(option)}
                         disabled={disableControls || saving}
                       >

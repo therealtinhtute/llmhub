@@ -75,6 +75,7 @@ export const useAuthStore = create<AuthStoreState>()(
               });
               return true;
             } catch (error) {
+              restoreSessionPromise = null;
               console.warn('Auto login failed:', error);
               return false;
             }

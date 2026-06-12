@@ -16,6 +16,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VisualConfigEditor } from '@/components/config/VisualConfigEditor';
 import { DiffModal } from '@/components/config/DiffModal';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useVisualConfig } from '@/hooks/useVisualConfig';
 import { toast } from 'sonner';
 import { useNotificationStore, useAuthStore, useThemeStore, useConfigStore } from '@/stores';
@@ -89,6 +90,18 @@ export function ConfigPage() {
 
   const disableControls = connectionStatus !== 'connected';
   const isDirty = dirty || visualDirty;
+
+  const { allowNextNavigation } = useUnsavedChangesGuard({
+    shouldBlock: isDirty,
+    dialog: {
+      title: t('config_management.unsaved_dialog_title'),
+      message: t('config_management.unsaved_dialog_message'),
+      confirmText: t('config_management.unsaved_dialog_confirm'),
+      cancelText: t('config_management.unsaved_dialog_cancel'),
+      variant: 'danger',
+    },
+  });
+
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
     activeTab === 'visual' &&
@@ -158,6 +171,7 @@ export function ConfigPage() {
       }
 
       toast.success(t('config_management.save_success'));
+      allowNextNavigation();
       if (commercialModeChanged) {
         toast.warning(t('notification.commercial_mode_restart_required'));
       }

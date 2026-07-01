@@ -25,19 +25,19 @@ export const quotaStyles = {
 
   // Grid layouts (all providers share the same pattern)
   antigravityGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
   claudeGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
   codexGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
   geminiCliGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
   kimiGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
   xaiGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
   quotaGrid:
-    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(380px,1fr))] max-md:[grid-template-columns:1fr]',
+    'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))] max-md:[grid-template-columns:1fr]',
 
   // View-mode toggle
   viewModeToggle:

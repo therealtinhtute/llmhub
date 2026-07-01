@@ -114,7 +114,7 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
     }))
   );
 
-  const [columns, gridRef] = useGridColumns(380);
+  const [columns, gridRef] = useGridColumns(300);
   const [internalViewMode, setInternalViewMode] = useState<ViewMode>('paged');
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
   const viewMode = externalViewMode ?? internalViewMode;

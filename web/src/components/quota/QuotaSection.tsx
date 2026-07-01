@@ -118,7 +118,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   >;
 
   /* Removed useRef */
-  const [columns, gridRef] = useGridColumns(380); // Min card width 380px matches SCSS
+  const [columns, gridRef] = useGridColumns(300);
   const [internalViewMode, setInternalViewMode] = useState<ViewMode>('paged');
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
   const viewMode = externalViewMode ?? internalViewMode;

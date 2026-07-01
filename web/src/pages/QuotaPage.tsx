@@ -15,6 +15,7 @@ import {
   XAI_CONFIG,
 } from '@/components/quota';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/Button';
 import { IconRefreshCw, IconFilterAll } from '@/components/ui/icons';
 import { getAuthFileIcon } from '@/features/authFiles/constants';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
@@ -150,29 +151,23 @@ export function QuotaPage() {
           </TabsList>
 
           <div className="flex items-center gap-1 shrink-0 pb-px mb-1">
-            <div className="inline-flex items-center border border-border/70 bg-muted/60 overflow-hidden">
-              <button
-                type="button"
-                className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                  viewMode === 'paged'
-                    ? 'bg-background text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+            <div className={styles.viewModeToggle}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className={`${styles.viewModeButton} ${viewMode === 'paged' ? styles.viewModeButtonActive : ''}`}
                 onClick={() => setViewMode('paged')}
               >
                 {t('auth_files.view_mode_paged')}
-              </button>
-              <button
-                type="button"
-                className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                  viewMode === 'all'
-                    ? 'bg-background text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className={`${styles.viewModeButton} ${viewMode === 'all' ? styles.viewModeButtonActive : ''}`}
                 onClick={() => setViewMode('all')}
               >
                 {t('auth_files.view_mode_all')}
-              </button>
+              </Button>
             </div>
             <button
               type="button"
@@ -187,7 +182,7 @@ export function QuotaPage() {
           </div>
         </div>
 
-        <TabsContent value="all">
+        <TabsContent value="all" className="mt-3">
           <AllQuotaSection
             configs={ALL_CONFIGS}
             files={files}
@@ -200,7 +195,7 @@ export function QuotaPage() {
         </TabsContent>
 
         {providerTabs.map(({ config }) => (
-          <TabsContent key={config.type} value={config.type}>
+          <TabsContent key={config.type} value={config.type} className="mt-3">
             <QuotaSection
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               config={config as any}

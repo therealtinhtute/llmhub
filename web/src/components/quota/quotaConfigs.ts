@@ -1660,12 +1660,12 @@ const renderKiroRuntimeStatusBadge = (
   const label = t(`kiro_quota.status_${status}`);
   const className =
     status === 'active'
-      ? `${helpers.styles.codexPlanValue} text-emerald-700`
+      ? helpers.styles.kiroChipSuccess
       : status === 'disabled'
-        ? `${helpers.styles.codexPlanValue} text-muted-foreground`
+        ? helpers.styles.kiroChipMuted
         : status === 'error'
-          ? `${helpers.styles.codexPlanValue} text-destructive`
-          : `${helpers.styles.codexPlanValue} text-amber-700`;
+          ? `${helpers.styles.kiroChip} border-destructive/25 bg-destructive/10 text-destructive`
+          : `${helpers.styles.kiroChip} border-amber-500/25 bg-amber-500/10 text-amber-700`;
   return h('span', { className }, label);
 };
 
@@ -1721,16 +1721,37 @@ const humanizeKiroQuotaName = (name: string, t: TFunction, freeTrial?: boolean):
   const normalized = name.trim().toLowerCase();
   const base =
     normalized === 'agentic_request'
-      ? t('kiro_quota.provider_quota')
+      ? t('kiro_quota.monthly_credits')
       : normalized === 'free_trial'
-        ? t('kiro_quota.trial_quota')
+        ? t('kiro_quota.trial_credits')
         : name
             .split('_')
             .filter(Boolean)
             .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
             .join(' ');
-  return freeTrial && normalized !== 'free_trial' ? `${base} (${t('kiro_quota.trial')})` : base;
+  return freeTrial && normalized !== 'free_trial' ? t('kiro_quota.trial_credits') : base;
 };
+
+const resolveKiroSubscriptionChip = (providerQuota: KiroProviderQuotaState): string | null => {
+  const rawCandidates = [
+    providerQuota.subscriptionTitle,
+    providerQuota.plan,
+    providerQuota.subscriptionType,
+  ]
+    .map(formatKiroQuotaMetadataValue)
+    .filter((value): value is string => Boolean(value));
+  if (rawCandidates.some((value) => /\bfree\b/i.test(value))) return 'Free';
+  const labels = rawCandidates
+    .map(humanizeKiroEnumValue)
+    .filter((value): value is string => Boolean(value));
+  return labels.sort((left, right) => left.length - right.length)[0] ?? null;
+};
+
+const isKiroExpired = (value: string | null | undefined): boolean =>
+  value?.trim().toUpperCase() === 'EXPIRED';
+
+const joinCompactParts = (parts: Array<string | null | undefined>): string =>
+  parts.filter((part): part is string => Boolean(part)).join(' · ');
 
 const renderKiroProviderQuotaRow = (
   row: KiroProviderQuotaRow,
@@ -1751,13 +1772,18 @@ const renderKiroProviderQuotaRow = (
     null;
   const amountLabel =
     used != null && total != null
-      ? `${formatKiroQuotaNumber(used)}/${formatKiroQuotaNumber(total)}${unitLabel ? ` ${unitLabel}` : ''}`
+      ? `${formatKiroQuotaNumber(used)} / ${formatKiroQuotaNumber(total)}${unitLabel ? ` ${unitLabel}` : ''}`
       : row.remaining != null
         ? t('kiro_quota.remaining_amount', {
             amount: formatKiroQuotaAmount(row.remaining, row),
           })
         : undefined;
   const label = humanizeKiroQuotaName(row.name || row.resourceType || row.id, t, row.freeTrial);
+  const statusLabel = row.trialStatus
+    ? humanizeKiroEnumValue(row.trialStatus) ?? row.trialStatus
+    : null;
+  const expired = isKiroExpired(row.trialStatus);
+  const resetLabel = formatQuotaResetTime(row.resetAt);
   const title = [row.resourceType ?? row.name, row.displayNamePlural, row.unit, row.currency]
     .map((v) => (v ? humanizeKiroEnumValue(v) ?? v : v))
     .filter(Boolean)
@@ -1773,17 +1799,21 @@ const renderKiroProviderQuotaRow = (
       h(
         'div',
         { className: styleMap.quotaMeta },
-        row.trialStatus ? h('span', { className: styleMap.quotaAmount }, humanizeKiroEnumValue(row.trialStatus) ?? row.trialStatus) : null,
-        h(
-          'span',
-          { className: styleMap.quotaPercent },
-          usedPercent === null ? '-' : `${Math.round(usedPercent)}%`
-        ),
+        statusLabel
+          ? h('span', { className: expired ? styleMap.kiroChipMuted : styleMap.kiroChip }, statusLabel)
+          : null,
+        usedPercent === null
+          ? null
+          : h(
+              'span',
+              { className: styleMap.quotaPercent },
+              t('kiro_quota.percent_used', { percent: Math.round(usedPercent) })
+            ),
         amountLabel ? h('span', { className: styleMap.quotaAmount }, amountLabel) : null,
-        h('span', { className: styleMap.quotaReset }, formatQuotaResetTime(row.resetAt))
+        resetLabel ? h('span', { className: styleMap.quotaReset }, resetLabel) : null
       )
     ),
-    h(QuotaProgressBar, { percent: remainingPercent })
+    h(QuotaProgressBar, { percent: remainingPercent, muted: expired })
   );
 };
 
@@ -1798,22 +1828,19 @@ const renderKiroItems = (
   const providerQuota = quota.providerQuota;
 
   if (providerQuota?.providerQuotaAvailable) {
-    const planParts = [
-      humanizeKiroEnumValue(providerQuota.subscriptionTitle || providerQuota.plan),
-      humanizeKiroEnumValue(providerQuota.subscriptionType),
-      humanizeKiroEnumValue(formatKiroQuotaMetadataValue(providerQuota.overageCapability)),
-      humanizeKiroEnumValue(providerQuota.subscriptionManagementTarget),
-      humanizeKiroEnumValue(formatKiroQuotaMetadataValue(providerQuota.upgradeCapability)),
-    ].filter(Boolean);
-    const planLabel = planParts.length > 0 ? planParts.join(' / ') : null;
+    const planChip = resolveKiroSubscriptionChip(providerQuota);
 
-    if (planLabel) {
+    if (planChip) {
       nodes.push(
         h(
           'div',
-          { key: 'subscription', className: styleMap.codexPlan },
+          { key: 'subscription', className: styleMap.kiroInfoRow },
           h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.subscription')),
-          h('span', { className: styleMap.codexPlanValue }, planLabel)
+          h(
+            'div',
+            { className: styleMap.kiroInfoValue },
+            h('span', { className: styleMap.kiroChip }, planChip)
+          )
         )
       );
     }
@@ -1851,6 +1878,11 @@ const renderKiroItems = (
         (providerQuota.trialCurrent != null && providerQuota.trialLimit
           ? (providerQuota.trialCurrent / providerQuota.trialLimit) * 100
           : null);
+      const trialExpired = isKiroExpired(providerQuota.trialStatus);
+      const trialStatusLabel = providerQuota.trialStatus
+        ? humanizeKiroEnumValue(providerQuota.trialStatus) ?? providerQuota.trialStatus
+        : null;
+      const trialExpiresLabel = formatQuotaResetTime(providerQuota.trialExpiresAt);
       nodes.push(
         h(
           'div',
@@ -1858,86 +1890,43 @@ const renderKiroItems = (
           h(
             'div',
             { className: styleMap.quotaRowHeader },
-            h('span', { className: styleMap.quotaModel }, t('kiro_quota.trial_quota')),
+            h('span', { className: styleMap.quotaModel }, t('kiro_quota.trial_credits')),
             h(
               'div',
               { className: styleMap.quotaMeta },
-              providerQuota.trialStatus
-                ? h('span', { className: styleMap.quotaAmount }, humanizeKiroEnumValue(providerQuota.trialStatus) ?? providerQuota.trialStatus)
+              trialStatusLabel
+                ? h(
+                    'span',
+                    { className: trialExpired ? styleMap.kiroChipMuted : styleMap.kiroChip },
+                    trialStatusLabel
+                  )
                 : null,
-              h(
-                'span',
-                { className: styleMap.quotaPercent },
-                trialUsedPercent === null ? '-' : `${Math.round(trialUsedPercent)}%`
-              ),
+              trialUsedPercent === null
+                ? null
+                : h(
+                    'span',
+                    { className: styleMap.quotaPercent },
+                    t('kiro_quota.percent_used', { percent: Math.round(trialUsedPercent) })
+                  ),
               h(
                 'span',
                 { className: styleMap.quotaAmount },
-                `${formatKiroQuotaNumber(providerQuota.trialCurrent)}/${formatKiroQuotaNumber(providerQuota.trialLimit)}`
+                `${formatKiroQuotaNumber(providerQuota.trialCurrent)} / ${formatKiroQuotaNumber(providerQuota.trialLimit)}`
               ),
-              h(
-                'span',
-                { className: styleMap.quotaReset },
-                formatQuotaResetTime(providerQuota.trialExpiresAt)
-              )
+              trialExpiresLabel
+                ? h('span', { className: styleMap.quotaReset }, trialExpiresLabel)
+                : null
             )
           ),
           h(QuotaProgressBar, {
             percent: trialUsedPercent === null ? null : Math.max(0, 100 - trialUsedPercent),
+            muted: trialExpired,
           })
         )
       );
     }
 
-    if (
-      providerQuota.overageStatus ||
-      providerQuota.currentOverages != null ||
-      providerQuota.overageCap != null ||
-      providerQuota.overageRate != null ||
-      providerQuota.overageCharges != null ||
-      providerQuota.overageChargesWithPrecision != null ||
-      providerQuota.quotas?.some(
-        (row) => row.overageCharges != null || row.overageChargesWithPrecision != null
-      )
-    ) {
-      const primaryQuota =
-        providerQuota.quotas?.find((row) => !row.freeTrial) ?? providerQuota.quotas?.[0];
-      const overageCharges =
-        providerQuota.overageChargesWithPrecision ??
-        providerQuota.overageCharges ??
-        primaryQuota?.overageChargesWithPrecision ??
-        primaryQuota?.overageCharges ??
-        null;
-      const overageUnitLabel =
-        primaryQuota?.displayNamePlural?.trim().toLowerCase() ||
-        (primaryQuota?.unit ? humanizeKiroEnumValue(primaryQuota.unit)?.toLowerCase() : null) ||
-        null;
-      const fmtCount = (v: number) =>
-        `${formatKiroQuotaNumber(v)}${overageUnitLabel ? ` ${overageUnitLabel}` : ''}`;
-      const overageParts = [
-        providerQuota.currentOverages != null
-          ? t('kiro_quota.current_overages', {
-              amount: fmtCount(providerQuota.currentOverages),
-            })
-          : null,
-        providerQuota.overageCap != null
-          ? t('kiro_quota.overage_cap', {
-              amount: fmtCount(providerQuota.overageCap),
-            })
-          : null,
-        providerQuota.overageRate != null
-          ? t('kiro_quota.overage_rate', {
-              amount: formatKiroQuotaNumber(providerQuota.overageRate),
-            })
-          : null,
-        overageCharges != null
-          ? t('kiro_quota.overage_charges', {
-              amount: formatKiroQuotaAmount(overageCharges, {
-                currency: primaryQuota?.currency,
-              }),
-            })
-          : null,
-      ].filter(Boolean);
+    if (providerQuota.overageStatus) {
       const overageEnabled =
         providerQuota.overageStatus?.trim().toUpperCase() === 'ENABLED';
       const canToggleOverage =
@@ -1951,15 +1940,15 @@ const renderKiroItems = (
       nodes.push(
         h(
           'div',
-          { key: 'overage', className: styleMap.codexPlan },
+          { key: 'overage', className: styleMap.kiroOverageRow },
           h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.overage')),
           h(
-            'div',
-            { className: styleMap.overagePlanValue },
+            'span',
+            { className: styleMap.kiroInfoValue },
             h(
               'span',
-              { className: styleMap.codexPlanValue },
-              [humanizeKiroEnumValue(providerQuota.overageStatus), ...overageParts].filter(Boolean).join(' / ')
+              { className: overageEnabled ? styleMap.kiroChipSuccess : styleMap.kiroChipMuted },
+              overageEnabled ? t('kiro_quota.overage_on') : t('kiro_quota.overage_off')
             ),
             canToggleOverage
               ? h(
@@ -2007,19 +1996,19 @@ const renderKiroItems = (
     nodes.push(
       h(
         'div',
-        { key: 'runtime-usage-requests', className: styleMap.codexPlan },
+        { key: 'runtime-usage-requests', className: styleMap.kiroInfoRow },
         h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_usage')),
         h(
           'span',
-          { className: styleMap.codexPlanValue },
+          { className: styleMap.quotaAmount },
           t('kiro_quota.requests', { count: stats.requests })
         )
       ),
       h(
         'div',
-        { key: 'runtime-usage-tokens', className: styleMap.codexPlan },
+        { key: 'runtime-usage-tokens', className: styleMap.kiroInfoRow },
         h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_tokens')),
-        h('span', { className: styleMap.codexPlanValue }, tokenParts.join(' / '))
+        h('span', { className: styleMap.quotaAmount }, joinCompactParts(tokenParts))
       )
     );
     if (stats.lastModel || stats.lastUsedAt) {
@@ -2030,12 +2019,12 @@ const renderKiroItems = (
       nodes.push(
         h(
           'div',
-          { key: 'runtime-usage-last', className: styleMap.codexPlan },
+          { key: 'runtime-usage-last', className: styleMap.kiroInfoRow },
           h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.last_used')),
           h(
             'span',
-            { className: styleMap.codexPlanValue },
-            lastUsedParts.join(' / ')
+            { className: styleMap.quotaAmount },
+            joinCompactParts(lastUsedParts)
           )
         )
       );
@@ -2045,8 +2034,8 @@ const renderKiroItems = (
   nodes.push(
     h(
       'div',
-      { key: 'runtime-status', className: styleMap.codexPlan },
-      h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_status')),
+      { key: 'runtime-status', className: styleMap.kiroRuntimeFooter },
+      h('span', { className: styleMap.codexPlanLabel }, t('kiro_quota.runtime_compact')),
       renderKiroRuntimeStatusBadge(quota.runtimeStatus, t, helpers)
     ),
   );
@@ -2063,6 +2052,7 @@ const renderKiroItems = (
   }
 
   if (quota.quota.exceeded || quota.quota.reason || quota.quota.nextRecoverAt) {
+    const runtimeResetLabel = formatQuotaResetTime(quota.quota.nextRecoverAt);
     nodes.push(
       h(
         'div',
@@ -2082,11 +2072,9 @@ const renderKiroItems = (
             quota.quota.reason
               ? h('span', { className: styleMap.quotaAmount }, quota.quota.reason)
               : null,
-            h(
-              'span',
-              { className: styleMap.quotaReset },
-              formatQuotaResetTime(quota.quota.nextRecoverAt)
-            )
+            runtimeResetLabel
+              ? h('span', { className: styleMap.quotaReset }, runtimeResetLabel)
+              : null
           )
         )
       )

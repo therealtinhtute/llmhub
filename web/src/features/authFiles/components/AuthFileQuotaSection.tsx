@@ -37,7 +37,7 @@ const quotaStyleMap = {
   quotaRowHeader: 'flex items-center justify-between gap-2 min-w-0',
   quotaModel:
     'text-[13px] font-semibold text-foreground whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0',
-  quotaBar: 'h-2 bg-secondary overflow-hidden',
+  quotaBar: 'h-1 bg-secondary rounded-full overflow-hidden',
   quotaBarFill: 'h-full',
   quotaMeta: 'flex items-center gap-2 text-[12px] text-muted-foreground whitespace-nowrap',
   quotaPercent: 'font-semibold text-foreground',

@@ -7,6 +7,7 @@ import type { ReactElement, ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import type { AuthFileItem, ResolvedTheme, ThemeColors } from '@/types';
 import { TYPE_COLORS } from '@/utils/quota';
+import { Skeleton } from '@/components/ui/skeleton';
 import { quotaStyles as styles } from './quotaStyles';
 import type { QuotaStyleMap } from './quotaStyles';
 
@@ -20,13 +21,16 @@ export interface QuotaStatusState {
 
 export interface QuotaProgressBarProps {
   percent: number | null;
+  muted?: boolean;
 }
 
-export function QuotaProgressBar({ percent }: QuotaProgressBarProps) {
+export function QuotaProgressBar({ percent, muted = false }: QuotaProgressBarProps) {
   const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
   const normalized = percent === null ? null : clamp(percent, 0, 100);
   const fillClass =
-    normalized === null
+    muted
+      ? 'bg-muted-foreground/25'
+      : normalized === null
       ? 'bg-amber-500'
       : normalized > 80
         ? 'bg-green-500'
@@ -126,7 +130,17 @@ export function QuotaCard<TState extends QuotaStatusState>({
 
       <div className={styles.quotaSection}>
         {quotaStatus === 'loading' ? (
-          <div className={styles.quotaMessage}>{t(`${i18nPrefix}.loading`)}</div>
+          <div className="flex flex-col gap-2" role="status" aria-label={t(`${i18nPrefix}.loading`)}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-3 w-10" />
+                </div>
+                <Skeleton className="h-1 w-full rounded-full" />
+              </div>
+            ))}
+          </div>
         ) : quotaStatus === 'idle' ? (
           onRefresh ? (
             <button

@@ -37,6 +37,3 @@ export const LANGUAGE_LABEL_KEYS: Record<Language, string> = {
   vi: 'language.vietnamese'
 };
 export const SUPPORTED_LANGUAGES = LANGUAGE_ORDER;
-
-// 通知持续时间
-export const NOTIFICATION_DURATION_MS = 3000;

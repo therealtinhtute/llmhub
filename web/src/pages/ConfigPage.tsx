@@ -19,7 +19,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useVisualConfig } from '@/hooks/useVisualConfig';
 import { toast } from 'sonner';
-import { useNotificationStore, useAuthStore, useThemeStore, useConfigStore } from '@/stores';
+import { useConfirmationStore, useAuthStore, useThemeStore, useConfigStore } from '@/stores';
 import { configFileApi } from '@/services/api/configFile';
 
 type ConfigEditorTab = 'visual' | 'source';
@@ -47,7 +47,7 @@ function normalizeYamlForVisualDiff(yamlContent: string): string {
 
 export function ConfigPage() {
   const { t } = useTranslation();
-  const showConfirmation = useNotificationStore((state) => state.showConfirmation);
+  const showConfirmation = useConfirmationStore((state) => state.showConfirmation);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isMobile = useMediaQuery('(max-width: 768px)');

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
 import { toast } from 'sonner';
-import { useNotificationStore } from '@/stores';
+import { useConfirmationStore } from '@/stores';
 import type { AuthFileItem, OAuthModelAliasEntry } from '@/types';
 import type { AuthFileModelItem } from '@/features/authFiles/constants';
 import { normalizeProviderKey } from '@/features/authFiles/constants';
@@ -41,7 +41,7 @@ export type UseAuthFilesOauthOptions = {
 export function useAuthFilesOauth(options: UseAuthFilesOauthOptions): UseAuthFilesOauthResult {
   const { viewMode, files } = options;
   const { t } = useTranslation();
-  const { showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useConfirmationStore();
 
   const [excluded, setExcluded] = useState<Record<string, string[]>>({});
   const [excludedError, setExcludedError] = useState<UnsupportedError>(null);

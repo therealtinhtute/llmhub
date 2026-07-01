@@ -1,13 +1,21 @@
 import { useTranslation } from 'react-i18next';
-import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
-import { useNotificationStore } from '@/stores';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useConfirmationStore } from '@/stores';
 
 export function ConfirmationModal() {
   const { t } = useTranslation();
-  const confirmation = useNotificationStore((state) => state.confirmation);
-  const hideConfirmation = useNotificationStore((state) => state.hideConfirmation);
-  const setConfirmationLoading = useNotificationStore((state) => state.setConfirmationLoading);
+  const confirmation = useConfirmationStore((state) => state.confirmation);
+  const hideConfirmation = useConfirmationStore((state) => state.hideConfirmation);
+  const setConfirmationLoading = useConfirmationStore((state) => state.setConfirmationLoading);
 
   const { isOpen, isLoading, options } = confirmation;
 
@@ -24,7 +32,7 @@ export function ConfirmationModal() {
       hideConfirmation();
     } catch (error) {
       console.error('Confirmation action failed:', error);
-      // Optional: show error notification here if needed, 
+      // Optional: show error notification here if needed,
       // but usually the calling component handles specific errors.
     } finally {
       setConfirmationLoading(false);
@@ -42,24 +50,47 @@ export function ConfirmationModal() {
   };
 
   return (
-    <Modal open={isOpen} onClose={handleCancel} title={title} closeDisabled={isLoading}>
-      {typeof message === 'string' ? (
-        <p style={{ margin: '1rem 0' }}>{message}</p>
-      ) : (
-        <div style={{ margin: '1rem 0' }}>{message}</div>
-      )}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-        <Button variant="ghost" onClick={handleCancel} disabled={isLoading}>
-          {cancelText || t('common.cancel')}
-        </Button>
-        <Button 
-          variant={variant} 
-          onClick={handleConfirm} 
-          loading={isLoading}
-        >
-          {confirmText || t('common.confirm')}
-        </Button>
-      </div>
-    </Modal>
+    <AlertDialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          handleCancel();
+        }
+      }}
+    >
+      <AlertDialogContent
+        onEscapeKeyDown={isLoading ? (event) => event.preventDefault() : undefined}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title || t('common.confirm')}</AlertDialogTitle>
+          {typeof message === 'string' ? (
+            <AlertDialogDescription>{message}</AlertDialogDescription>
+          ) : (
+            <div className="text-sm text-muted-foreground">{message}</div>
+          )}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            onClick={(event) => {
+              event.preventDefault();
+              handleCancel();
+            }}
+            disabled={isLoading}
+          >
+            {cancelText || t('common.cancel')}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant={variant === 'danger' ? 'destructive' : variant}
+            onClick={(event) => {
+              event.preventDefault();
+              void handleConfirm();
+            }}
+            disabled={isLoading}
+          >
+            {isLoading ? t('common.loading') : confirmText || t('common.confirm')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

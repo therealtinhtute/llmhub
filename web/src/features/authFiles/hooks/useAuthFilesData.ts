@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
 import { apiClient } from '@/services/api/client';
 import { toast } from 'sonner';
-import { useNotificationStore } from '@/stores';
+import { useConfirmationStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
 import { formatFileSize } from '@/utils/format';
 import { MAX_AUTH_FILE_SIZE } from '@/utils/constants';
@@ -54,7 +54,7 @@ export type UseAuthFilesDataResult = {
 
 export function useAuthFilesData(): UseAuthFilesDataResult {
   const { t } = useTranslation();
-  const { showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useConfirmationStore();
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);

@@ -6,15 +6,6 @@ export type Theme = 'light' | 'dark';
 
 export type Language = 'en' | 'vi';
 
-export type NotificationType = 'info' | 'success' | 'warning' | 'error';
-
-export interface Notification {
-  id: string;
-  message: string;
-  type: NotificationType;
-  duration?: number;
-}
-
 export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;

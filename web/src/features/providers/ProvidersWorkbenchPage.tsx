@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { AppSkeleton as Skeleton } from '@/components/ui/AppSkeleton';
 import { toast } from 'sonner';
-import { useAuthStore, useNotificationStore } from '@/stores';
+import { useAuthStore, useConfirmationStore } from '@/stores';
 import { useProviderRecentRequests } from '@/components/providers/hooks/useProviderRecentRequests';
 import { getOpenAIProviderRecentWindowStats } from '@/components/providers/utils';
 import type { OpenAIProviderConfig } from '@/types';
@@ -61,7 +61,7 @@ const matchesFilter = (r: ProviderResource, normalized: string): boolean => {
 export function ProvidersWorkbenchPage() {
   const { t, i18n } = useTranslation();
   const connectionStatus = useAuthStore((s) => s.connectionStatus);
-  const { showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useConfirmationStore();
 
   const workbench = useProviderWorkbench();
   const [activeBrand, setActiveBrand] = useState<ProviderBrand>('gemini');

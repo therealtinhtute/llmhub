@@ -11,7 +11,7 @@ import { useLanguageStore, useThemeStore } from '@/stores';
 function RootShell() {
   return (
     <>
-      <Toaster position="top-right" richColors closeButton />
+      <Toaster position="top-right" richColors />
       <ConfirmationModal />
       <Outlet />
     </>

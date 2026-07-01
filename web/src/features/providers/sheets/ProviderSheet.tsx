@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AppSheet as Sheet } from '@/components/ui/AppSheet';
 import { IconLoader2, IconPencil } from '@/components/ui/icons';
 import type { ProviderRecentUsageMap } from '@/components/providers/utils';
-import { useNotificationStore } from '@/stores';
+import { useConfirmationStore } from '@/stores';
 import { PROVIDER_DESCRIPTORS } from '../descriptors';
 import type {
   ProviderBrand,
@@ -50,7 +50,7 @@ export function ProviderSheet({
   ref,
 }: ProviderSheetProps) {
   const { t } = useTranslation();
-  const { showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useConfirmationStore();
   const formId = useId();
   const [submitting, setSubmitting] = useState(false);
   const [isDirty, setIsDirty] = useState(false);

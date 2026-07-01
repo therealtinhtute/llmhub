@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import {
   useAuthStore,
   useConfigStore,
-  useNotificationStore,
+  useConfirmationStore,
 } from '@/stores';
 import { configApi, versionApi } from '@/services/api';
 import { STORAGE_KEY_AUTH } from '@/utils/constants';
@@ -46,7 +46,7 @@ const compareVersions = (latest?: string | null, current?: string | null) => {
 
 export function SystemPage() {
   const { t, i18n } = useTranslation();
-  const { showConfirmation } = useNotificationStore();
+  const { showConfirmation } = useConfirmationStore();
   const auth = useAuthStore();
   const config = useConfigStore((state) => state.config);
   const fetchConfig = useConfigStore((state) => state.fetchConfig);

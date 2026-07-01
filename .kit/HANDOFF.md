@@ -1,141 +1,113 @@
 ---
-session-date: 2026-05-30
+session-date: 2026-06-12
 branch: master
 status: approved-uncommitted
-continuity-mode: ad-hoc (two consecutive sessions outside harness phases)
-active-phase: none (prior: remove-page-transition — complete)
-last-updated: 2026-05-30 (end of quota-progress-bar-multi-status session)
+continuity-mode: mixed (.kit pipeline done; plans/ pipeline active — plans 004-006 TODO)
+active-phase: none
+last-updated: 2026-06-12
 ---
 
 # Session Handoff — master
 
 ## Current State
 
-**Branch**: `master` (no new commits — everything uncommitted on top of `82dc2ef`)
-**Upstream**: in sync with `origin/master` at `82dc2ef`
-**Uncommitted files**: 40+ modified/deleted + 7 untracked
-**Gate**: ✅ PASS — `tsc --noEmit` clean, `vite build` clean (2,102 kB / 328ms)
-**Prior check verdict**: APPROVE (`check-20260530-1220-web-ui-cleanup`) — 0 critical, 0 major, 2 minor unswept siblings still open
+**Branch**: `master` (no new commits — all changes uncommitted on top of `5f81cee`)
+**Upstream**: in sync with `origin/master` at `5f81cee`
+**Gate**: ✅ PASS — `bun run type-check` exit 0 (silent), lint 0 errors
 
 ---
 
-## What Happened This Session (2026-05-30 afternoon)
+## What Happened This Session (2026-06-12)
 
-### Quota Progress Bar — Bug Fix + 5-Band Color Scale
+### Completed (earlier sub-session): .kit sweep-handoff-siblings
+- `AuthFilesOAuthModelAliasEditPage.tsx:408` — `text-white` → `text-primary-foreground`
+- `AuthFilesOAuthExcludedEditPage.tsx:359` — same
+- `Select.tsx:35` — added `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`
+- Run artifact: `.kit/runs/work/20260612-2042-sweep-handoff-siblings.md`
 
-**Root cause found**: `bg-success` was used across 6 files but `--color-success` was never registered in Tailwind v4's `@theme inline`. All `bg-success` usages silently produced no background — bars showed only the gray `bg-secondary` container.
+### Completed (earlier sub-session): plans/ 001-003
+- **Plan 001** — `useAuthStore.ts`: null-reset `restoreSessionPromise` in catch block (+1 line)
+- **Plan 002** — Vitest infra: `vitest.config.ts`, `package.json` scripts, 4 test files (60/60 pass)
+- **Plan 003** — `ConfigPage.tsx`: wire `useUnsavedChangesGuard`, add 4 i18n keys (en+vi)
 
-**Fix applied**:
-- `web/src/index.css` — added `--success: oklch(0.6 0.18 145)` to `:root`, `oklch(0.65 0.17 145)` to `.dark`, and `--color-success: var(--success)` to `@theme inline`. Unblocks `bg-success` app-wide (also used in DashboardPage, DiffModal, ProviderStatusBar).
-- `web/src/components/quota/QuotaCard.tsx` — `QuotaProgressBar`: removed `highThreshold`/`mediumThreshold` props, hardcoded 5-band logic.
-- `web/src/features/authFiles/components/QuotaProgressBar.tsx` — same.
-- `web/src/components/quota/quotaConfigs.ts` — removed threshold props from all 6 `h(QuotaProgressBar, {...})` call sites, deleted `QUOTA_PROGRESS_HIGH_THRESHOLD`/`QUOTA_PROGRESS_MEDIUM_THRESHOLD` constants.
-- `web/src/components/quota/quotaStyles.ts` — removed dead `quotaBarFillHigh`/`quotaBarFillMedium`/`quotaBarFillLow` keys.
-- `web/src/features/authFiles/components/AuthFileQuotaSection.tsx` — removed same dead keys from local `quotaStyleMap`.
+### Completed (this sub-session): Quota Management tab bar redesign
+**Goal**: Provider logos on tabs + viewMode toggle + icon-only refresh button, all on the same line as the tab row.
 
-**Color scale (percent remaining):**
-| Range | Color |
-|---|---|
-| >80% | `bg-green-500` |
-| >50% | `bg-lime-500` |
-| >20% | `bg-amber-500` |
-| >10% | `bg-orange-500` |
-| ≤10% | `bg-destructive` |
-| null | `bg-amber-500` |
+**Files changed:**
+- `web/src/pages/QuotaPage.tsx` — lifted `viewMode` + `refreshSignal` state; tab bar is now a `flex items-end` row with tabs (left, `flex-1`) and controls (right); each provider tab shows a 16×16 provider icon + label + count badge; "All" tab shows `IconFilterAll`; controls are a compact `Paged|All` border pill (11px) + icon-only `↻` button (13px); `viewMode`/`onViewModeChange`/`refreshSignal` passed to sections
+- `web/src/components/quota/AllQuotaSection.tsx` — added optional `viewMode?`, `onViewModeChange?`, `refreshSignal?` props; `setViewMode` is now a `useCallback` delegating to parent when controlled; added `prevRefreshSignalRef` + effect to set `pendingQuotaRefreshRef.current = true` when signal increments; removed standalone controls header row
+- `web/src/components/quota/QuotaSection.tsx` — same prop additions + signal effect; Card `extra` hidden when parent provides `viewMode` (backward-compat fallback kept for standalone use)
 
-**Tradeoff**: `--quota-medium-color` CSS variable theming hook is gone. If per-deployment quota color customization is needed, restore the CSS var in `index.css` and use `bg-[var(--quota-medium-color)]` in both `QuotaProgressBar` components.
+**Refresh mechanism**: Tab-bar `↻` calls `handleTabRefresh` → increments `refreshSignal` + calls `handleHeaderRefresh` (reloads files). Sections detect signal change → set pending flag → when files finish loading, fetch quota for current page items.
 
 ---
 
-## Carried Over — From Prior Session (still open)
-
-### 1. Shadcn Tabs Header Migration
-New file: `web/src/components/ui/tabs.tsx` (untracked). `ConfigPage.tsx`, `LogsPage.tsx`, `VisualConfigEditor.tsx` migrated. Underline style, no rounded corners.
-
-### 2. Design Token Consistency — Phase A + B
-Fixed 8 files (badge, overlays, LogsPage cyan, SystemPage hex, quota amber). Added focus rings to Button, checkbox, switch, sidebar (4 sub-components).
-
-**Known tradeoff**: `bg-foreground/50` overlay is lighter in dark mode. Visual check needed once app runs.
-
----
-
-## Unresolved — Must Fix Before Merge
-
-### From prior check report (still open):
-
-**1. `text-white` → `text-primary-foreground` siblings:**
-- `web/src/pages/AuthFilesOAuthModelAliasEditPage.tsx:404` — `bg-primary text-white` → `bg-primary text-primary-foreground`
-- `web/src/pages/AuthFilesOAuthExcludedEditPage.tsx:359` — same
-
-**2. `Select.tsx:35` missing focus ring:**
-- `web/src/components/ui/Select.tsx` — SelectTrigger has `focus:outline-none` with no ring. Add: `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`
-
-Both 🟡 Minor — not blockers, requested before merge.
-
----
-
-## Untracked Files (new, not yet committed)
+## All Uncommitted Changes (vs 5f81cee)
 
 ```
-web/src/components/ui/tabs.tsx               ← new shadcn Tabs wrapper
-.kit/HANDOFF.md                              ← this file
-.kit/planning/phases/config-tabs-layout/     ← prior harness phase artifacts
-.kit/planning/phases/remove-page-transition/ ← prior harness phase artifacts
-.kit/reports/check/20260530-1220-web-ui-cleanup.md
-.kit/runs/work/20260530-1200-config-tabs-layout.md
-.kit/runs/work/20260530-1210-remove-page-transition.md
+.kit/HANDOFF.md                                    ← this file
+.kit/workflow-state.yml                            ← updated last_updated
+CLAUDE.md                                          ← skill/rule updates (unrelated)
+skills-lock.json                                   ← skill lock (unrelated)
+web/bun.lock                                       ← vitest/jsdom install
+web/package.json                                   ← vitest scripts + devDeps
+web/src/components/quota/AllQuotaSection.tsx       ← quota tab bar redesign
+web/src/components/quota/QuotaSection.tsx          ← quota tab bar redesign
+web/src/components/ui/Select.tsx                   ← focus-visible ring
+web/src/i18n/locales/en.json                       ← unsaved_dialog_* keys
+web/src/i18n/locales/vi.json                       ← unsaved_dialog_* keys (vi)
+web/src/pages/AuthFilesOAuthExcludedEditPage.tsx   ← text-primary-foreground
+web/src/pages/AuthFilesOAuthModelAliasEditPage.tsx ← text-primary-foreground
+web/src/pages/ConfigPage.tsx                       ← useUnsavedChangesGuard wiring
+web/src/pages/QuotaPage.tsx                        ← quota tab bar redesign
+web/src/stores/useAuthStore.ts                     ← restoreSessionPromise null-reset
 ```
+
+Untracked (new files):
+```
+.claude/skills/improve/
+.kit/runs/work/20260612-2042-sweep-handoff-siblings.md
+plans/                          (001-006 plan files + README + implementation-notes.md)
+web/src/utils/__tests__/        (4 vitest test files — 60/60 pass)
+web/vitest.config.ts
+```
+
+---
+
+## Open Work
+
+### plans/ pipeline — Plans 004-006 (not started)
+
+- **Plan 004** — `plans/004-fix-login-double-error.md` — fix double error display on login failure
+- **Plan 005** — `plans/005-dark-mode-status-colors.md` — dark mode status color corrections
+- **Plan 006** — `plans/006-formInput-aria-describedby.md` — FormInput `aria-describedby` accessibility fix
+
+All three are small, self-contained. No blockers. No drift check needed (written this session).
+
+---
+
+## Blockers
+
+None. Gate is green.
 
 ---
 
 ## Next Steps
 
-1. **→ START HERE: Fix 3 unswept siblings** — same pattern as this session's work:
-   - `AuthFilesOAuthModelAliasEditPage.tsx:404` — `text-white` → `text-primary-foreground`
-   - `AuthFilesOAuthExcludedEditPage.tsx:359` — same
-   - `web/src/components/ui/Select.tsx:35` — add focus-visible ring after `focus:outline-none`
-
-2. **Run `/check gate`** — confirm tsc + build still clean after fixes.
-
-3. **Commit via `/git cm`** — all sessions' work in one commit (or split by scope). Include untracked: `web/src/components/ui/tabs.tsx`. Scope covers: tabs migration, design token consistency, focus ring audit, quota bar 5-band color fix + `--color-success` registration.
-
-4. **Visual verify overlay** — once app runs (`make dev`), open any dialog/sheet/alert in dark mode. If overlay looks too light, add to `index.css`:
-   ```css
-   --overlay: oklch(0 0 0);
-   ```
-   and replace `bg-foreground/50` with `bg-[var(--overlay)]/50` in alert-dialog.tsx, sheet.tsx, dialog.tsx.
-
-5. **Visual verify quota bars** — open `http://localhost:9090/management.html#/quota`, load quota for any credential, confirm bars show colored fill at correct thresholds (>80% green, >50% lime, >20% amber, >10% orange, ≤10% red).
+1. **START HERE** — Run `/git` to commit all changes in logical groups and push:
+   - Commit A: plans/ pipeline 001-003 (auth store fix, vitest infra, config page guard)
+   - Commit B: .kit sweep siblings (Select focus-visible, OAuthExcluded, OAuthModelAlias text color)
+   - Commit C: quota tab bar redesign (QuotaPage + AllQuotaSection + QuotaSection)
+   - Include untracked files (plans/, vitest.config.ts, test files, run artifact)
+2. Execute plans 004-006 via `/work` — each is ~5 lines, one file each.
+3. Run `/check` after all plans are applied before pushing.
+4. Optional: `/verify` or `/run` on the Quota page to confirm logos + controls render correctly in browser.
 
 ---
 
-## Key Files Changed (Both Sessions Combined)
+## Key Decisions
 
-```
-web/src/index.css                                  --color-success fix
-web/src/components/ui/tabs.tsx                     NEW — shadcn Tabs wrapper
-web/src/components/ui/badge.tsx                    text-destructive-foreground
-web/src/components/ui/alert-dialog.tsx             bg-foreground/50
-web/src/components/ui/sheet.tsx                    bg-foreground/50
-web/src/components/ui/dialog.tsx                   bg-foreground/50
-web/src/components/ui/Button.tsx                   focus ring
-web/src/components/ui/checkbox.tsx                 focus ring
-web/src/components/ui/switch.tsx                   focus ring
-web/src/components/ui/sidebar.tsx                  focus ring × 4
-web/src/components/config/VisualConfigEditor.tsx   tabs migration
-web/src/pages/ConfigPage.tsx                       tabs migration
-web/src/pages/LogsPage.tsx                         tabs + color fix
-web/src/pages/SystemPage.tsx                       emerald-500
-web/src/components/quota/QuotaCard.tsx             5-band QuotaProgressBar
-web/src/components/quota/quotaConfigs.ts           removed threshold props × 6
-web/src/components/quota/quotaStyles.ts            removed dead fill keys
-web/src/features/authFiles/components/AuthFileQuotaSection.tsx  dead keys removed
-web/src/features/authFiles/components/QuotaProgressBar.tsx      5-band logic
-.kit/implementation-notes.md                       all decisions documented
-```
-
-(Plus prior-session deletions: PageTransition.tsx, PageTransitionLayer.ts, MainLayout cleanup, 4 locale files)
-
----
-
-*Generated by /handoff — 2026-05-30*
+- `viewMode` lifted to `QuotaPage` — allows tab-bar controls; sections remain backward-compatible (fallback to internal state when no prop provided)
+- `refreshSignal` counter pattern — avoids inverting control; React batching ensures the signal effect fires before the async file reload starts
+- `handleRefresh` removed from `AllQuotaSection` (no longer needed); kept in `QuotaSection` as the controlled/uncontrolled fallback
+- Plans 004-006 deferred intentionally — small isolated changes, best committed in a separate batch

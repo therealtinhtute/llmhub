@@ -7,4 +7,4 @@ active_plan: .kit/planning/phases/remove-page-transition/remove-page-transition-
 latest_cook_run: .kit/runs/work/20260530-1210-remove-page-transition.md
 latest_check_report: .kit/reports/check/20260603-2119-auth-postgres-persistence.md
 handoff: .kit/HANDOFF.md
-last_updated: 2026-06-03 (check: auth-postgres-persistence)
+last_updated: 2026-06-12 (handoff: sweep-handoff-siblings + plans 001-003 + quota-tab-redesign)

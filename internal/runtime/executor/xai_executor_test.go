@@ -1,10 +1,12 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -332,6 +334,112 @@ func TestXAIExecutorExecuteStreamFiltersToolSearchTool(t *testing.T) {
 	}
 	if !foundNamespaceCustom {
 		t.Fatalf("namespace custom tool was not moved to top-level tools; body=%s", string(gotBody))
+	}
+}
+
+func TestXAIExecutorExecuteStreamNormalizesReasoningTextEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_item.added\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"status\":\"in_progress\",\"summary\":[]}}\n\n"))
+		_, _ = w.Write([]byte("event: response.content_part.added\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.content_part.added\",\"sequence_number\":2,\"item_id\":\"rs_1\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"reasoning_text\",\"text\":\"\"}}\n\n"))
+		_, _ = w.Write([]byte("event: response.reasoning_text.delta\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.reasoning_text.delta\",\"sequence_number\":3,\"item_id\":\"rs_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"thinking\"}\n\n"))
+		_, _ = w.Write([]byte("event: response.reasoning_text.done\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.reasoning_text.done\",\"sequence_number\":4,\"item_id\":\"rs_1\",\"output_index\":0,\"content_index\":0,\"text\":\"thinking\"}\n\n"))
+		_, _ = w.Write([]byte("event: response.output_item.done\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.done\",\"sequence_number\":5,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"content\":[{\"type\":\"reasoning_text\",\"text\":\"thinking\"}]}}\n\n"))
+		_, _ = w.Write([]byte("event: response.completed\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"sequence_number\":6,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":0,\"status\":\"completed\",\"model\":\"grok-4.3\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"))
+	}))
+	defer server.Close()
+
+	exec := NewXAIExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Provider:   "xai",
+		Attributes: map[string]string{"base_url": server.URL},
+		Metadata:   map[string]any{"access_token": "xai-token"},
+	}
+
+	result, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "grok-4.3",
+		Payload: []byte(`{"model":"grok-4.3","input":"hello"}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+
+	var streamed bytes.Buffer
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream chunk error = %v", chunk.Err)
+		}
+		streamed.Write(chunk.Payload)
+	}
+	output := streamed.String()
+	if strings.Contains(output, "reasoning_text") {
+		t.Fatalf("stream contains xAI reasoning_text shape: %s", output)
+	}
+	for _, want := range []string{
+		"event: response.reasoning_summary_part.added",
+		"event: response.reasoning_summary_text.delta",
+		"event: response.reasoning_summary_text.done",
+		"event: response.reasoning_summary_part.done",
+		`"type":"response.reasoning_summary_part.added"`,
+		`"type":"response.reasoning_summary_text.delta"`,
+		`"type":"response.reasoning_summary_text.done"`,
+		`"type":"response.reasoning_summary_part.done"`,
+		`"part":{"type":"summary_text","text":"thinking"}`,
+		`"summary_index":0`,
+		`"summary":[{"type":"summary_text","text":"thinking"}]`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stream missing %q: %s", want, output)
+		}
+	}
+	textDoneIndex := strings.Index(output, `"type":"response.reasoning_summary_text.done"`)
+	partDoneIndex := strings.Index(output, `"type":"response.reasoning_summary_part.done"`)
+	if textDoneIndex < 0 || partDoneIndex < 0 || textDoneIndex > partDoneIndex {
+		t.Fatalf("reasoning done events are out of order: %s", output)
+	}
+}
+
+func TestXAIExecutorExecuteNormalizesReasoningOutputForNonStreamTranslation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.done\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"content\":[{\"type\":\"reasoning_text\",\"text\":\"thinking\"}]}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":0,\"status\":\"completed\",\"model\":\"grok-4.3\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"))
+	}))
+	defer server.Close()
+
+	exec := NewXAIExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Provider:   "xai",
+		Attributes: map[string]string{"base_url": server.URL},
+		Metadata:   map[string]any{"access_token": "xai-token"},
+	}
+
+	resp, err := exec.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "grok-4.3",
+		Payload: []byte(`{"model":"grok-4.3","input":"hello"}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       false,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := string(resp.Payload)
+	if strings.Contains(output, "reasoning_text") {
+		t.Fatalf("nonstream output contains xAI reasoning_text shape: %s", output)
+	}
+	if !strings.Contains(output, "thinking") {
+		t.Fatalf("nonstream output missing reasoning summary text: %s", output)
 	}
 }
 

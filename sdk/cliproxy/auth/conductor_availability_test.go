@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -133,4 +134,84 @@ func TestManager_ResetQuotaClearsRuntimeAndRegistryState(t *testing.T) {
 	if count := reg.GetModelCount(model); count != 1 {
 		t.Fatalf("registry model count after reset = %d, want 1", count)
 	}
+}
+
+func TestManager_ModelCooldownPersistsThroughStore(t *testing.T) {
+	ctx := context.Background()
+	store := &captureStore{}
+	manager := NewManager(store, nil, nil)
+	authID := "cooldown-persist-auth"
+	model := "cooldown-persist-model"
+
+	if _, errRegister := manager.Register(ctx, &Auth{
+		ID:       authID,
+		Provider: "gemini",
+		Metadata: map[string]any{
+			"type": "gemini",
+		},
+	}); errRegister != nil {
+		t.Fatalf("register auth: %v", errRegister)
+	}
+
+	manager.MarkResult(ctx, Result{
+		AuthID:   authID,
+		Provider: "gemini",
+		Model:    model,
+		Success:  false,
+		Error:    &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota exhausted"},
+	})
+
+	updated, ok := store.Get(authID)
+	if !ok {
+		t.Fatalf("expected store to capture auth %q", authID)
+	}
+	state := updated.ModelStates[model]
+	if state == nil {
+		t.Fatalf("expected persisted model state for %q", model)
+	}
+	if !state.Quota.Exceeded || state.Quota.Reason != "quota" || state.Quota.BackoffLevel == 0 || state.NextRetryAfter.IsZero() {
+		t.Fatalf("persisted state quota = %+v next=%v, want quota cooldown", state.Quota, state.NextRetryAfter)
+	}
+	if !updated.Quota.Exceeded || updated.Quota.Reason != "quota" {
+		t.Fatalf("persisted auth quota = %+v, want aggregate quota", updated.Quota)
+	}
+}
+
+type captureStore struct {
+	auths map[string]*Auth
+}
+
+func (s *captureStore) List(context.Context) ([]*Auth, error) {
+	if s == nil || len(s.auths) == 0 {
+		return nil, nil
+	}
+	out := make([]*Auth, 0, len(s.auths))
+	for _, auth := range s.auths {
+		out = append(out, auth.Clone())
+	}
+	return out, nil
+}
+
+func (s *captureStore) Save(_ context.Context, auth *Auth) (string, error) {
+	if s.auths == nil {
+		s.auths = make(map[string]*Auth)
+	}
+	s.auths[auth.ID] = auth.Clone()
+	return auth.ID, nil
+}
+
+func (s *captureStore) Delete(_ context.Context, id string) error {
+	delete(s.auths, id)
+	return nil
+}
+
+func (s *captureStore) Get(id string) (*Auth, bool) {
+	if s == nil {
+		return nil, false
+	}
+	auth, ok := s.auths[id]
+	if !ok {
+		return nil, false
+	}
+	return auth.Clone(), true
 }

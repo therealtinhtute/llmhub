@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/therealtinhtute/llmhub/internal/util"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/util"
 )
 
 // aiAPIPrefixes defines path prefixes for AI API requests that should have request ID tracking.
@@ -22,6 +22,8 @@ var aiAPIPrefixes = []string{
 	"/v1/completions",
 	"/v1/images",
 	"/v1/videos",
+	"/openai/v1/videos",
+	"/backend-api/codex/",
 	"/v1/messages",
 	"/v1/responses",
 	"/v1beta/models/",

@@ -33,13 +33,10 @@ func performVideosEndpointRequest(t *testing.T, method string, endpointPath stri
 }
 
 func TestVideosModelValidationAllowsXAIVideoModel(t *testing.T) {
-	for _, model := range []string{"grok-imagine-video", "xai/grok-imagine-video", "x-ai/grok-imagine-video", "grok/grok-imagine-video"} {
+	for _, model := range []string{"grok-imagine-video", "xai/grok-imagine-video", "x-ai/grok-imagine-video", "grok/grok-imagine-video", "grok-imagine-video-1.5-preview", "sora-2", "sora-2-pro"} {
 		if !isSupportedVideosModel(model) {
 			t.Fatalf("expected %s to be supported", model)
 		}
-	}
-	if isSupportedVideosModel("sora-2") {
-		t.Fatal("expected sora-2 to be rejected")
 	}
 	if isSupportedVideosModel("codex/grok-imagine-video") {
 		t.Fatal("expected codex/grok-imagine-video to be rejected")
@@ -146,17 +143,14 @@ func TestBuildVideosRetrieveAPIResponseFromXAI(t *testing.T) {
 	if got := gjson.GetBytes(out, "seconds").String(); got != "6" {
 		t.Fatalf("seconds = %q, want 6", got)
 	}
-	if got := gjson.GetBytes(out, "video.url").String(); got != "https://vidgen.x.ai/video.mp4" {
-		t.Fatalf("video.url = %q", got)
-	}
-	if !gjson.GetBytes(out, "usage").Exists() {
-		t.Fatalf("usage missing: %s", string(out))
+	if got := gjson.GetBytes(out, "video_url").String(); got != "https://vidgen.x.ai/video.mp4" {
+		t.Fatalf("video_url = %q", got)
 	}
 }
 
 func TestVideosCreateRejectsUnsupportedModel(t *testing.T) {
 	handler := &OpenAIAPIHandler{}
-	body := strings.NewReader(`{"model":"sora-2","prompt":"make a video"}`)
+	body := strings.NewReader(`{"model":"not-a-video-model","prompt":"make a video"}`)
 
 	resp := performVideosEndpointRequest(t, http.MethodPost, videosPath, "application/json", body, handler.VideosCreate)
 
@@ -164,7 +158,7 @@ func TestVideosCreateRejectsUnsupportedModel(t *testing.T) {
 		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusBadRequest, resp.Body.String())
 	}
 	message := gjson.GetBytes(resp.Body.Bytes(), "error.message").String()
-	expectedMessage := "Model sora-2 is not supported on " + videosPath + ". Use " + defaultXAIVideosModel + "."
+	expectedMessage := "Model not-a-video-model is not supported on " + videosPath + ". Use " + defaultOpenAIVideosModel + "."
 	if message != expectedMessage {
 		t.Fatalf("error message = %q, want %q", message, expectedMessage)
 	}

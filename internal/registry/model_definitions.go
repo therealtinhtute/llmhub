@@ -7,10 +7,12 @@ import (
 )
 
 const (
+	codexBuiltinImage15ModelID    = "gpt-image-1.5"
 	codexBuiltinImageModelID      = "gpt-image-2"
 	xaiBuiltinImageModelID        = "grok-imagine-image"
 	xaiBuiltinImageQualityModelID = "grok-imagine-image-quality"
 	xaiBuiltinVideoModelID        = "grok-imagine-video"
+	xaiBuiltinVideo15ModelID      = "grok-imagine-video-1.5-preview"
 	kiroBuiltinAutoModelID        = "auto"
 	kiroBuiltinSonnetModelID      = "claude-sonnet-4.5"
 )
@@ -101,13 +103,13 @@ func GetKiroModels() []*ModelInfo {
 // not depend on remote models.json updates. Built-ins replace any matching IDs
 // already present in the provided slice.
 func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
-	return upsertModelInfos(models, codexBuiltinImageModelInfo())
+	return upsertModelInfos(models, codexBuiltinImage15ModelInfo(), codexBuiltinImageModelInfo())
 }
 
 // WithXAIBuiltins injects hard-coded xAI image/video model definitions that should
 // not depend on remote models.json updates.
 func WithXAIBuiltins(models []*ModelInfo) []*ModelInfo {
-	return upsertModelInfos(models, xaiBuiltinImageModelInfo(), xaiBuiltinImageQualityModelInfo(), xaiBuiltinVideoModelInfo())
+	return upsertModelInfos(models, xaiBuiltinImageModelInfo(), xaiBuiltinImageQualityModelInfo(), xaiBuiltinVideoModelInfo(), xaiBuiltinVideo15ModelInfo())
 }
 
 // WithKiroBuiltins injects hard-coded Kiro fallback models so startup remote
@@ -121,6 +123,18 @@ func WithKiroBuiltins(models []*ModelInfo) []*ModelInfo {
 		kiroBuiltinSonnetModelInfo("claude-sonnet-4.5-agentic", "Kiro Claude Sonnet 4.5 Agentic", "Claude Sonnet 4.5 through Kiro with agentic coding prompt injection.", nil),
 		kiroBuiltinSonnetModelInfo("claude-sonnet-4.5-thinking-agentic", "Kiro Claude Sonnet 4.5 Thinking Agentic", "Claude Sonnet 4.5 through Kiro with thinking and agentic prompt injection.", []string{"low", "medium", "high"}),
 	)
+}
+
+func codexBuiltinImage15ModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:          codexBuiltinImage15ModelID,
+		Object:      "model",
+		Created:     1704067200, // 2024-01-01
+		OwnedBy:     "openai",
+		Type:        "openai",
+		DisplayName: "GPT Image 1.5",
+		Version:     codexBuiltinImage15ModelID,
+	}
 }
 
 func codexBuiltinImageModelInfo() *ModelInfo {
@@ -171,6 +185,19 @@ func xaiBuiltinVideoModelInfo() *ModelInfo {
 		DisplayName: "Grok Imagine Video",
 		Name:        xaiBuiltinVideoModelID,
 		Description: "xAI Grok video generation model.",
+	}
+}
+
+func xaiBuiltinVideo15ModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:          xaiBuiltinVideo15ModelID,
+		Object:      "model",
+		Created:     1735689600, // 2025-01-01
+		OwnedBy:     "xai",
+		Type:        "xai",
+		DisplayName: "Grok Imagine Video 1.5 Preview",
+		Name:        xaiBuiltinVideo15ModelID,
+		Description: "xAI Grok video generation preview model.",
 	}
 }
 

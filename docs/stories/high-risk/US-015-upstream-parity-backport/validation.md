@@ -62,6 +62,18 @@ go test ./internal/runtime/executor ./internal/translator/antigravity/... ./inte
 ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	5.170s
 ok  	github.com/therealtinhtute/llmhub/internal/translator/antigravity/...
 ok  	github.com/therealtinhtute/llmhub/internal/auth/...
+
+go test ./sdk/cliproxy/auth ./internal/store
+ok  	github.com/therealtinhtute/llmhub/sdk/cliproxy/auth
+ok  	github.com/therealtinhtute/llmhub/internal/store
+
+go test ./internal/runtime/executor -run 'TestXAIExecutor(ExecuteStreamNormalizesReasoningTextEvents|ExecuteNormalizesReasoningOutputForNonStreamTranslation|ExecuteShapesResponsesRequest|ExecuteStreamFiltersToolSearchTool)'
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor
+
+go test ./internal/runtime/executor ./sdk/cliproxy/auth ./internal/store
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor
+ok  	github.com/therealtinhtute/llmhub/sdk/cliproxy/auth
+ok  	github.com/therealtinhtute/llmhub/internal/store
 ```
 
 ```text

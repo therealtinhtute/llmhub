@@ -216,6 +216,13 @@ Completed in `US-015-upstream-parity-backport`:
 - Added `Manager.ResetQuota` to clear auth/model quota state, persist through
   the existing manager store, resume registry routing, and update scheduler
   state.
+- Added tests proving cooldown/runtime auth state persists through the existing
+  Postgres-backed auth payload path; no upstream file-backed cooldown store was
+  introduced.
+- Added xAI/Grok reasoning event normalization for `response.reasoning_text.*`
+  replay into `response.reasoning_summary*` SSE/JSON events.
+- Confirmed auth removal already unschedules local auths through
+  `Manager.Forget` and management `DELETE /auth-files`.
 - Kept Amp, Kiro, Gemini CLI, Postgres runtime, embedded web, installer/release
   flow, and branding untouched.
 
@@ -226,12 +233,17 @@ go test ./sdk/api/handlers/openai ./internal/registry ./internal/api ./internal/
 go test ./internal/api/handlers/management ./sdk/cliproxy/auth ./internal/store ./internal/redisqueue
 go test ./sdk/api/handlers/openai ./sdk/cliproxy/auth ./internal/translator/...
 go test ./internal/runtime/executor ./internal/translator/antigravity/... ./internal/auth/...
+go test ./internal/runtime/executor ./sdk/cliproxy/auth ./internal/store
 ```
 
 Deferred:
 
 - Upstream `pluginhost/pluginstore`: still a separate high-risk initiative.
-- XAI websocket executor and broad upstream `internal/signature` subsystem:
-  not imported wholesale because local runtime/executor tests already pass and
-  the upstream change touches many provider paths. Backport only with a separate
-  focused story if live XAI websocket mode is required.
+- XAI websocket executor: not imported in this parity slice because upstream's
+  implementation is a large transport/session subsystem coupled to Codex-style
+  websocket session reuse, request logging, compaction replay, and response ID
+  mapping. Backport as a separate focused story if live xAI websocket mode is
+  required.
+- Broad upstream `internal/signature` subsystem: still separate high-risk work;
+  bring in only the minimal provider-specific helpers when a concrete failing
+  Antigravity/XAI/Codex case requires it.

@@ -24,15 +24,21 @@ At runtime the Kiro executor refreshes expired or unauthorized credentials,
 translates OpenAI chat-completions payloads to Kiro `conversationState`, calls
 `GenerateAssistantResponse`, and emits OpenAI-compatible responses.
 
+Generation requests use Kiro-compatible endpoint fallback for reliability:
+Kiro Q, CodeWhisperer, then Amazon Q. Retryable upstream failures such as 429
+and 5xx can fall through to the next endpoint, while auth/payment failures do
+not fan out. Generation URLs are regionalized from `profile_arn` or `region`
+when the account is outside `us-east-1`.
+
 ## Interface Contract
 
 Kiro is available as provider key `kiro`. Existing model alias and excluded
 model configuration accepts the `kiro` channel.
 
 Kiro upstream also imposes a hard 64-character limit on tool names inside
-`toolSpecification.name` and `toolUses[].name`. The current llmhub executor
-forwards tool names unchanged, so long MCP/Codex-style names must be rejected
-or shortened before sending Kiro requests.
+`toolSpecification.name` and `toolUses[].name`. LLMHub shortens long
+MCP/Codex-style names before sending Kiro requests and restores the original
+names in client-visible tool calls.
 
 ## Data Model
 
@@ -64,6 +70,9 @@ when provider quota is missing or stale.
 Kiro stream `metricsEvent`, `contextUsageEvent`, and `meteringEvent` are parsed
 for runtime usage accounting. Per-auth request/token stats are stored in auth
 metadata as `kiro_usage_stats` and shown below provider quota in the quota UI.
+When metrics are absent, context-usage estimates use the live model context
+length when available, otherwise 1M tokens for Claude 4.6+ and 200K for older
+Kiro models.
 
 ## Observability
 

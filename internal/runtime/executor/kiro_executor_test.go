@@ -86,7 +86,7 @@ func TestBuildKiroPayloadFromOpenAI_MessagesToolsAndSuffixes(t *testing.T) {
 	}
 }
 
-func TestBuildKiroPayloadFromOpenAI_RejectsLongToolDefinitionName(t *testing.T) {
+func TestBuildKiroPayloadFromOpenAI_ShortensLongToolDefinitionName(t *testing.T) {
 	longName := "mcp__GitHub__check_if_a_repository_is_starred_by_the_authenticated_user"
 	payload := []byte(`{
 		"model":"claude-sonnet-4.5",
@@ -94,26 +94,28 @@ func TestBuildKiroPayloadFromOpenAI_RejectsLongToolDefinitionName(t *testing.T) 
 		"tools":[{"type":"function","function":{"name":"` + longName + `","description":"tool","parameters":{"type":"object"}}}]
 	}`)
 
-	_, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
-	if err == nil {
-		t.Fatal("buildKiroPayloadFromOpenAI() error = nil, want bad request")
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
 	}
-	status, ok := err.(interface{ StatusCode() int })
-	if !ok {
-		t.Fatalf("error %T does not expose StatusCode()", err)
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
 	}
-	if got := status.StatusCode(); got != http.StatusBadRequest {
-		t.Fatalf("StatusCode() = %d, want %d", got, http.StatusBadRequest)
+	current := got["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	ctx := current["userInputMessageContext"].(map[string]any)
+	spec := ctx["tools"].([]any)[0].(map[string]any)["toolSpecification"].(map[string]any)
+	shortName := spec["name"].(string)
+	if shortName == longName || len(shortName) > kiroToolNameMaxLength {
+		t.Fatalf("short tool name = %q, want shortened under %d", shortName, kiroToolNameMaxLength)
 	}
-	if !strings.Contains(err.Error(), longName) {
-		t.Fatalf("error = %q, want long tool name", err.Error())
-	}
-	if !strings.Contains(err.Error(), "64") {
-		t.Fatalf("error = %q, want Kiro limit detail", err.Error())
+	nameMap := got[kiroInternalToolNameMap].(map[string]any)
+	if got := nameMap[shortName]; got != longName {
+		t.Fatalf("tool name map[%q] = %#v, want original name", shortName, got)
 	}
 }
 
-func TestBuildKiroPayloadFromOpenAI_RejectsLongAssistantToolCallName(t *testing.T) {
+func TestBuildKiroPayloadFromOpenAI_ShortensLongAssistantToolCallName(t *testing.T) {
 	longName := "mcp__GitHub__check_if_a_person_is_followed_by_the_authenticated_user"
 	payload := []byte(`{
 		"model":"claude-sonnet-4.5",
@@ -124,19 +126,23 @@ func TestBuildKiroPayloadFromOpenAI_RejectsLongAssistantToolCallName(t *testing.
 		]
 	}`)
 
-	_, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
-	if err == nil {
-		t.Fatal("buildKiroPayloadFromOpenAI() error = nil, want bad request")
+	body, err := buildKiroPayloadFromOpenAI(payload, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
 	}
-	status, ok := err.(interface{ StatusCode() int })
-	if !ok {
-		t.Fatalf("error %T does not expose StatusCode()", err)
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
 	}
-	if got := status.StatusCode(); got != http.StatusBadRequest {
-		t.Fatalf("StatusCode() = %d, want %d", got, http.StatusBadRequest)
+	history := got["conversationState"].(map[string]any)["history"].([]any)
+	assistant := history[len(history)-1].(map[string]any)["assistantResponseMessage"].(map[string]any)
+	shortName := assistant["toolUses"].([]any)[0].(map[string]any)["name"].(string)
+	if shortName == longName || len(shortName) > kiroToolNameMaxLength {
+		t.Fatalf("short tool call name = %q, want shortened under %d", shortName, kiroToolNameMaxLength)
 	}
-	if !strings.Contains(err.Error(), longName) {
-		t.Fatalf("error = %q, want long tool call name", err.Error())
+	nameMap := got[kiroInternalToolNameMap].(map[string]any)
+	if got := nameMap[shortName]; got != longName {
+		t.Fatalf("tool name map[%q] = %#v, want original name", shortName, got)
 	}
 }
 
@@ -399,6 +405,53 @@ func TestBuildKiroPayloadFromOpenAI_FlattensOrphanCurrentToolResults(t *testing.
 	}
 }
 
+func TestBuildKiroPayloadFromOpenAI_CompactsOversizedHistory(t *testing.T) {
+	large := strings.Repeat("x", 120*1024)
+	var b strings.Builder
+	b.WriteString(`{"model":"claude-sonnet-4.5","messages":[`)
+	for i := 0; i < 10; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"role":"user","content":"`)
+		b.WriteString(large)
+		b.WriteString(`"}`)
+		b.WriteString(`,{"role":"assistant","content":"old answer"}`)
+	}
+	b.WriteString(`,{"role":"user","content":"Final user turn"}]}`)
+
+	body, err := buildKiroPayloadFromOpenAI([]byte(b.String()), "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatalf("buildKiroPayloadFromOpenAI() error = %v", err)
+	}
+	if len(body) > kiroMaxPayloadBytes {
+		t.Fatalf("payload size = %d, want <= %d", len(body), kiroMaxPayloadBytes)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	state := got["conversationState"].(map[string]any)
+	history := state["history"].([]any)
+	foundPlaceholder := false
+	for _, raw := range history {
+		entry, _ := raw.(map[string]any)
+		if user, ok := entry["userInputMessage"].(map[string]any); ok {
+			if strings.Contains(user["content"].(string), "history was truncated") {
+				foundPlaceholder = true
+				break
+			}
+		}
+	}
+	if !foundPlaceholder {
+		t.Fatalf("history = %#v, want truncation placeholder", history)
+	}
+	current := state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+	if !strings.Contains(current["content"].(string), "Final user turn") {
+		t.Fatalf("current content = %q, want final user turn preserved", current["content"])
+	}
+}
+
 func TestKiroExecutorExecute_HeadersBodyAndEventStream(t *testing.T) {
 	var sawAuth, sawTarget string
 	var sawBody map[string]any
@@ -438,6 +491,156 @@ func TestKiroExecutorExecute_HeadersBodyAndEventStream(t *testing.T) {
 	}
 	if !bytes.Contains(resp.Payload, []byte(`"content":"hello"`)) {
 		t.Fatalf("response payload = %s, want content hello", resp.Payload)
+	}
+}
+
+func TestKiroExecutorExecute_FallsBackGenerationEndpointsOnRetryableStatus(t *testing.T) {
+	var paths []string
+	var targets []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		targets = append(targets, r.Header.Get("X-Amz-Target"))
+		switch r.URL.Path {
+		case "/kiro":
+			http.Error(w, "quota", http.StatusTooManyRequests)
+		case "/codewhisperer":
+			http.Error(w, "temporary", http.StatusServiceUnavailable)
+		case "/amazonq":
+			_, _ = io.WriteString(w, `{"content":"ok"}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-fallback",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"type":                       "kiro",
+			"access_token":               "access-1",
+			"refresh_token":              "refresh-1",
+			"profile_arn":                "arn:aws:codewhisperer:us-east-1:123:profile/ABC",
+			"kiro_generate_url":          server.URL + "/kiro",
+			"codewhisperer_generate_url": server.URL + "/codewhisperer",
+			"amazon_q_generate_url":      server.URL + "/amazonq",
+		},
+	}
+
+	resp, err := NewKiroExecutor(&config.Config{}).Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "claude-sonnet-4.5",
+		Payload: []byte(`{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("openai")})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := strings.Join(paths, ","); got != "/kiro,/codewhisperer,/amazonq" {
+		t.Fatalf("paths = %s, want ordered fallback", got)
+	}
+	if targets[0] != "" {
+		t.Fatalf("kiro target = %q, want empty", targets[0])
+	}
+	if targets[1] != kiroAMZTarget {
+		t.Fatalf("codewhisperer target = %q, want %q", targets[1], kiroAMZTarget)
+	}
+	if targets[2] != kiroAmazonQTarget {
+		t.Fatalf("amazonq target = %q, want %q", targets[2], kiroAmazonQTarget)
+	}
+	if !bytes.Contains(resp.Payload, []byte(`"content":"ok"`)) {
+		t.Fatalf("response payload = %s, want ok", resp.Payload)
+	}
+}
+
+func TestKiroExecutorExecute_DoesNotFallbackGenerationEndpointsOnAuthOrPaymentStatus(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "payment required", http.StatusPaymentRequired)
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{
+		ID:       "kiro-no-fallback",
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"type":                       "kiro",
+			"access_token":               "access-1",
+			"refresh_token":              "refresh-1",
+			"profile_arn":                "arn:aws:codewhisperer:us-east-1:123:profile/ABC",
+			"kiro_generate_url":          server.URL + "/kiro",
+			"codewhisperer_generate_url": server.URL + "/codewhisperer",
+			"amazon_q_generate_url":      server.URL + "/amazonq",
+		},
+	}
+
+	_, err := NewKiroExecutor(&config.Config{}).Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "claude-sonnet-4.5",
+		Payload: []byte(`{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("openai")})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want payment error")
+	}
+	status, ok := err.(interface{ StatusCode() int })
+	if !ok || status.StatusCode() != http.StatusPaymentRequired {
+		t.Fatalf("error = %T %v, want 402 status", err, err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want no endpoint fallback", calls)
+	}
+}
+
+func TestKiroGenerationEndpoints_RegionalizesFromProfileARN(t *testing.T) {
+	auth := &cliproxyauth.Auth{
+		Provider: "kiro",
+		Metadata: map[string]any{
+			"profile_arn": "arn:aws:codewhisperer:eu-central-1:123:profile/ABC",
+		},
+	}
+	endpoints := kiroGenerationEndpoints(auth)
+	if len(endpoints) != 3 {
+		t.Fatalf("endpoints len = %d, want 3", len(endpoints))
+	}
+	for _, endpoint := range endpoints {
+		if !strings.Contains(endpoint.rawURL, "q.eu-central-1.amazonaws.com") {
+			t.Fatalf("endpoint %s URL = %q, want regional q host", endpoint.name, endpoint.rawURL)
+		}
+	}
+}
+
+func TestKiroExecutorExecute_RestoresShortenedToolNames(t *testing.T) {
+	longName := "mcp__GitHub__check_if_a_repository_is_starred_by_the_authenticated_user"
+	var upstreamToolName string
+	var sawBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sawBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		current := sawBody["conversationState"].(map[string]any)["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)
+		ctx := current["userInputMessageContext"].(map[string]any)
+		upstreamToolName = ctx["tools"].([]any)[0].(map[string]any)["toolSpecification"].(map[string]any)["name"].(string)
+		_, _ = w.Write(kiroTestEventFrame("toolUseEvent", `{"toolUseId":"tool_1","name":"`+upstreamToolName+`","input":{"owner":"therealtinhtute"}}`))
+	}))
+	defer server.Close()
+
+	resp, err := NewKiroExecutor(&config.Config{}).Execute(context.Background(), testKiroAuth(server.URL, "access-1"), cliproxyexecutor.Request{
+		Model: "claude-sonnet-4.5",
+		Payload: []byte(`{
+			"model":"claude-sonnet-4.5",
+			"messages":[{"role":"user","content":"hi"}],
+			"tools":[{"type":"function","function":{"name":"` + longName + `","description":"tool","parameters":{"type":"object"}}}]
+		}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("openai")})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if _, ok := sawBody[kiroInternalToolNameMap]; ok {
+		t.Fatalf("upstream body leaked internal tool map: %#v", sawBody[kiroInternalToolNameMap])
+	}
+	if upstreamToolName == longName || len(upstreamToolName) > kiroToolNameMaxLength {
+		t.Fatalf("upstream tool name = %q, want shortened", upstreamToolName)
+	}
+	if !bytes.Contains(resp.Payload, []byte(`"name":"`+longName+`"`)) {
+		t.Fatalf("response payload = %s, want restored original tool name", resp.Payload)
 	}
 }
 
@@ -503,6 +706,24 @@ func TestKiroEventUsageEstimatesFromContextAndMeteringEvents(t *testing.T) {
 	}
 	if detail.TotalTokens != detail.InputTokens+detail.OutputTokens {
 		t.Fatalf("total tokens = %d, want input+output", detail.TotalTokens)
+	}
+}
+
+func TestKiroEventUsageEstimatesUseLargeContextForClaude46(t *testing.T) {
+	parser := newKiroEventParser()
+	events := parser.Feed(kiroTestEventFrame("assistantResponseEvent", `{"content":"hello world"}`))
+	events = append(events, parser.Feed(kiroTestEventFrame("contextUsageEvent", `{"contextUsagePercentage":0.5}`))...)
+	events = append(events, parser.Feed(kiroTestEventFrame("meteringEvent", `{}`))...)
+
+	detail, ok, estimated := kiroUsageFromEventsForModel(events, "claude-sonnet-4-6")
+	if !ok {
+		t.Fatal("kiroUsageFromEventsForModel() ok = false, want true")
+	}
+	if !estimated {
+		t.Fatal("estimated = false, want true")
+	}
+	if detail.InputTokens != 5000 {
+		t.Fatalf("input tokens = %d, want 5000 from 1M context", detail.InputTokens)
 	}
 }
 

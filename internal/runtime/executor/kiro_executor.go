@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,13 +37,21 @@ const (
 	kiroListProfilesPath      = "/ListAvailableProfiles"
 	kiroSetUserPreferencePath = "/setUserPreference"
 	kiroAMZTarget             = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
+	kiroAmazonQTarget         = "AmazonQDeveloperStreamingService.SendMessage"
 	kiroDefaultContextLength  = 200000
+	kiroLargeContextLength    = 1000000
 	kiroDefaultMaxOutputToken = 64000
 	kiroToolNameMaxLength     = 64
 	kiroToolResultsPrefix     = "Tool results:"
 	kiroUsageDetailMetadata   = "kiro_usage_detail"
 	kiroUsageEstimatedMeta    = "kiro_usage_estimated"
+	kiroInternalToolNameMap   = "__llmhub_tool_name_map"
+	kiroMaxPayloadBytes       = 900 * 1024
+	kiroTruncationPlaceholder = "[Earlier conversation history was truncated to fit Kiro's input limit. Older messages and tool activity have been omitted.]"
+	kiroMinRecentHistoryTurns = 4
 )
+
+var kiroClaudeVersionPattern = regexp.MustCompile(`claude-(?:opus|sonnet|haiku)-(\d+)[.-](\d+)`)
 
 type KiroExecutor struct {
 	cfg *config.Config
@@ -438,6 +448,7 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	if err != nil {
 		return resp, err
 	}
+	toolNameMap := extractKiroToolNameMap(baseBody)
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
 	body := applyKiroProfileARN(baseBody, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
@@ -477,15 +488,16 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 		return resp, err
 	}
 	events := newKiroEventParser().Feed(data)
-	detail, hasUsage, estimated := kiroUsageFromEvents(events)
+	detail, hasUsage, estimated := kiroUsageFromEventsForModel(events, req.Model)
 	if hasUsage {
 		reporter.Publish(ctx, detail)
 	} else {
 		reporter.EnsurePublished(ctx)
 	}
-	openaiPayload := kiroEventsToOpenAINonStream(req.Model, events, detail, hasUsage)
+	openaiPayload := kiroEventsToOpenAINonStream(req.Model, events, detail, hasUsage, toolNameMap)
 	var param any
-	out := sdktranslator.TranslateNonStream(ctx, sdktranslator.FromString("openai"), from, req.Model, originalOpenAI, body, openaiPayload, &param)
+	translatedBody := stripKiroInternalFields(body)
+	out := sdktranslator.TranslateNonStream(ctx, sdktranslator.FromString("openai"), from, req.Model, originalOpenAI, translatedBody, openaiPayload, &param)
 	metadata := map[string]any{}
 	if hasUsage {
 		metadata[kiroUsageDetailMetadata] = kiroUsageDetailMap(detail)
@@ -499,6 +511,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	if err != nil {
 		return nil, err
 	}
+	toolNameMap := extractKiroToolNameMap(baseBody)
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
 	body := applyKiroProfileARN(baseBody, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
@@ -540,10 +553,11 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		created := time.Now().Unix()
 		buf := make([]byte, 8192)
 		var param any
+		translatedBody := stripKiroInternalFields(body)
 		first := true
 		toolIndexes := map[string]int{}
 		nextToolIndex := 0
-		usageAcc := newKiroUsageAccumulator()
+		usageAcc := newKiroUsageAccumulatorForModel(req.Model)
 		for {
 			n, readErr := httpResp.Body.Read(buf)
 			if n > 0 {
@@ -568,13 +582,13 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 						if len(event.ToolCalls) == 0 {
 							continue
 						}
-						chunks = kiroToolCallEventToOpenAIStream(completionID, req.Model, created, event.ToolCalls, first, toolIndexes, &nextToolIndex)
+						chunks = kiroToolCallEventToOpenAIStream(completionID, req.Model, created, event.ToolCalls, first, toolIndexes, &nextToolIndex, toolNameMap)
 						first = false
 					default:
 						continue
 					}
 					for _, chunk := range chunks {
-						outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, body, chunk, &param)
+						outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, translatedBody, chunk, &param)
 						for i := range outChunks {
 							select {
 							case <-ctx.Done():
@@ -600,7 +614,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 						finishReason = "tool_calls"
 					}
 					finish := kiroOpenAIStreamFinishPayload(completionID, req.Model, created, finishReason, detail)
-					outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, body, finish, &param)
+					outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, translatedBody, finish, &param)
 					metadata := map[string]any{
 						kiroUsageDetailMetadata: kiroUsageDetailMap(detail),
 						kiroUsageEstimatedMeta:  estimated,
@@ -612,7 +626,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 					reporter.EnsurePublished(ctx)
 				}
 				done := []byte("data: [DONE]\n\n")
-				outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, body, done, &param)
+				outChunks := translateKiroStreamChunk(ctx, from, req.Model, originalOpenAI, translatedBody, done, &param)
 				for i := range outChunks {
 					out <- cliproxyexecutor.StreamChunk{Payload: outChunks[i]}
 				}
@@ -635,43 +649,66 @@ func (e *KiroExecutor) CountTokens(context.Context, *cliproxyauth.Auth, cliproxy
 }
 
 func (e *KiroExecutor) doKiroRequest(ctx context.Context, auth *cliproxyauth.Auth, body []byte) (*http.Response, error) {
-	baseURL := metadataString(auth, "base_url")
-	if baseURL == "" {
-		baseURL = kiro.DefaultAPIBaseURL
-	}
-	url := strings.TrimSuffix(baseURL, "/") + kiroGeneratePath
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	if err := e.PrepareRequest(httpReq, auth); err != nil {
-		return nil, err
-	}
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
 		authLabel = auth.Label
 		authType, authValue = auth.AccountInfo()
 	}
-	helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
-		URL:       url,
-		Method:    http.MethodPost,
-		Headers:   httpReq.Header.Clone(),
-		Body:      body,
-		Provider:  e.Identifier(),
-		AuthID:    authID,
-		AuthLabel: authLabel,
-		AuthType:  authType,
-		AuthValue: authValue,
-	})
 	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
-	httpResp, err := httpClient.Do(httpReq)
-	if err != nil {
-		helps.RecordAPIResponseError(ctx, e.cfg, err)
-		return nil, err
+	sendBody := stripKiroInternalFields(body)
+	var lastErr error
+	for _, endpoint := range kiroGenerationEndpoints(auth) {
+		attemptBody := applyKiroEndpointOrigin(sendBody, endpoint.origin)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.rawURL, bytes.NewReader(attemptBody))
+		if err != nil {
+			lastErr = err
+			if !endpoint.fallback {
+				return nil, err
+			}
+			continue
+		}
+		if err := e.PrepareRequest(httpReq, auth); err != nil {
+			return nil, err
+		}
+		if endpoint.amzTarget != "" {
+			httpReq.Header.Set("X-Amz-Target", endpoint.amzTarget)
+		} else {
+			httpReq.Header.Del("X-Amz-Target")
+		}
+		helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
+			URL:       endpoint.rawURL,
+			Method:    http.MethodPost,
+			Headers:   httpReq.Header.Clone(),
+			Body:      attemptBody,
+			Provider:  e.Identifier(),
+			AuthID:    authID,
+			AuthLabel: authLabel,
+			AuthType:  authType,
+			AuthValue: authValue,
+		})
+		httpResp, err := httpClient.Do(httpReq)
+		if err != nil {
+			helps.RecordAPIResponseError(ctx, e.cfg, err)
+			lastErr = err
+			if !endpoint.fallback {
+				return nil, err
+			}
+			continue
+		}
+		helps.RecordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
+		if shouldFallbackKiroEndpoint(httpResp.StatusCode) && endpoint.fallback {
+			data, _ := io.ReadAll(httpResp.Body)
+			_ = httpResp.Body.Close()
+			lastErr = statusErr{code: httpResp.StatusCode, msg: strings.TrimSpace(string(data))}
+			continue
+		}
+		return httpResp, nil
 	}
-	helps.RecordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
-	return httpResp, nil
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("kiro executor: no generation endpoints configured")
 }
 
 func applyKiroProfileARN(body []byte, auth *cliproxyauth.Auth) []byte {
@@ -689,6 +726,140 @@ func applyKiroProfileARN(body []byte, auth *cliproxyauth.Auth) []byte {
 		return body
 	}
 	return raw
+}
+
+func kiroGenerationEndpoints(auth *cliproxyauth.Auth) []kiroGenerationEndpoint {
+	if rawURL := firstMetadataString(auth, "generation_url", "generate_url"); rawURL != "" {
+		return []kiroGenerationEndpoint{{name: "custom", rawURL: rawURL, origin: "AI_EDITOR", amzTarget: kiroAMZTarget}}
+	}
+	if baseURL := firstMetadataString(auth, "base_url", "generation_base_url"); baseURL != "" {
+		return []kiroGenerationEndpoint{{
+			name:      "codewhisperer",
+			rawURL:    strings.TrimRight(baseURL, "/") + kiroGeneratePath,
+			origin:    "AI_EDITOR",
+			amzTarget: kiroAMZTarget,
+		}}
+	}
+	region := kiroRegion(auth)
+	qBase := fmt.Sprintf("https://q.%s.amazonaws.com", region)
+	codeWhispererBase := kiro.DefaultAPIBaseURL
+	if region != kiro.DefaultRegion {
+		codeWhispererBase = qBase
+	}
+	kiroURL := firstMetadataString(auth, "kiro_generate_url", "kiro_q_generate_url")
+	if kiroURL == "" {
+		kiroURL = qBase + kiroGeneratePath
+	}
+	codeWhispererURL := firstMetadataString(auth, "codewhisperer_generate_url")
+	if codeWhispererURL == "" {
+		codeWhispererURL = codeWhispererBase + kiroGeneratePath
+	}
+	amazonQURL := firstMetadataString(auth, "amazon_q_generate_url", "amazonq_generate_url")
+	if amazonQURL == "" {
+		amazonQURL = qBase + kiroGeneratePath
+	}
+	return []kiroGenerationEndpoint{
+		{name: "kiro", rawURL: kiroURL, origin: "AI_EDITOR", fallback: true},
+		{name: "codewhisperer", rawURL: codeWhispererURL, origin: "AI_EDITOR", amzTarget: kiroAMZTarget, fallback: true},
+		{name: "amazonq", rawURL: amazonQURL, origin: "AI_EDITOR", amzTarget: kiroAmazonQTarget},
+	}
+}
+
+func firstMetadataString(auth *cliproxyauth.Auth, keys ...string) string {
+	for _, key := range keys {
+		if value := metadataString(auth, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func kiroRegion(auth *cliproxyauth.Auth) string {
+	if region := regionFromKiroProfileARN(metadataString(auth, "profile_arn")); region != "" {
+		return region
+	}
+	if region := metadataString(auth, "region"); region != "" {
+		return region
+	}
+	return kiro.DefaultRegion
+}
+
+func shouldFallbackKiroEndpoint(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func applyKiroEndpointOrigin(body []byte, origin string) []byte {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return body
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	state, _ := payload["conversationState"].(map[string]any)
+	current, _ := state["currentMessage"].(map[string]any)
+	userInput, _ := current["userInputMessage"].(map[string]any)
+	if userInput == nil {
+		return body
+	}
+	userInput["origin"] = origin
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return raw
+}
+
+func stripKiroInternalFields(body []byte) []byte {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	if _, ok := payload[kiroInternalToolNameMap]; !ok {
+		return body
+	}
+	delete(payload, kiroInternalToolNameMap)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return raw
+}
+
+func extractKiroToolNameMap(body []byte) map[string]string {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	raw, ok := payload[kiroInternalToolNameMap]
+	if !ok {
+		return nil
+	}
+	out := map[string]string{}
+	switch typed := raw.(type) {
+	case map[string]any:
+		for k, v := range typed {
+			if original := strings.TrimSpace(kiroStringValue(v)); original != "" {
+				out[k] = original
+			}
+		}
+	case map[string]string:
+		for k, v := range typed {
+			if original := strings.TrimSpace(v); original != "" {
+				out[k] = original
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func applyKiroHeaders(req *http.Request, auth *cliproxyauth.Auth) {
@@ -758,13 +929,10 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 	if len(unified) == 0 {
 		return nil, fmt.Errorf("kiro translator: messages are required")
 	}
-	if err := validateKiroMessageToolCalls(unified); err != nil {
-		return nil, err
-	}
 	tools = synthesizeKiroToolsFromHistory(tools, unified)
-	if err := validateKiroToolDefinitions(tools); err != nil {
-		return nil, err
-	}
+	toolNameMap := map[string]string{}
+	tools = shortenKiroToolDefinitions(tools, toolNameMap)
+	unified = shortenKiroMessageToolCalls(unified, toolNameMap)
 	unified = ensureKiroUserFirst(unified)
 	current := unified[len(unified)-1]
 	history := unified[:len(unified)-1]
@@ -837,12 +1005,16 @@ func buildKiroPayloadFromOpenAI(openaiPayload []byte, requestedModel string) ([]
 			"maxTokens": 32000,
 		},
 	}
+	if len(toolNameMap) > 0 {
+		out[kiroInternalToolNameMap] = toolNameMap
+	}
 	if temperature, ok := payload["temperature"]; ok {
 		out["inferenceConfig"].(map[string]any)["temperature"] = temperature
 	}
 	if topP, ok := payload["top_p"]; ok {
 		out["inferenceConfig"].(map[string]any)["topP"] = topP
 	}
+	compactKiroPayload(out)
 	raw, err := json.Marshal(out)
 	if err != nil {
 		return nil, err
@@ -992,6 +1164,171 @@ func synthesizeKiroToolsFromHistory(tools []any, messages []kiroMessage) []any {
 		}
 	}
 	return out
+}
+
+func shortenKiroToolDefinitions(tools []any, nameMap map[string]string) []any {
+	if len(tools) == 0 {
+		return tools
+	}
+	out := make([]any, 0, len(tools))
+	for _, raw := range tools {
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			out = append(out, raw)
+			continue
+		}
+		fn, ok := tool["function"].(map[string]any)
+		if !ok {
+			out = append(out, raw)
+			continue
+		}
+		name := strings.TrimSpace(stringFromMap(fn, "name"))
+		short := shortenKiroToolName(name, nameMap)
+		if short != name {
+			tool = cloneStringAnyMap(tool)
+			fn = cloneStringAnyMap(fn)
+			fn["name"] = short
+			tool["function"] = fn
+		}
+		out = append(out, tool)
+	}
+	return out
+}
+
+func shortenKiroMessageToolCalls(messages []kiroMessage, nameMap map[string]string) []kiroMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]kiroMessage, len(messages))
+	copy(out, messages)
+	for i := range out {
+		if len(out[i].ToolCalls) == 0 {
+			continue
+		}
+		calls := make([]map[string]any, len(out[i].ToolCalls))
+		for j, call := range out[i].ToolCalls {
+			calls[j] = call
+			fn, ok := call["function"].(map[string]any)
+			if !ok {
+				continue
+			}
+			name := strings.TrimSpace(stringFromMap(fn, "name"))
+			short := shortenKiroToolName(name, nameMap)
+			if short == name {
+				continue
+			}
+			updatedCall := cloneStringAnyMap(call)
+			updatedFn := cloneStringAnyMap(fn)
+			updatedFn["name"] = short
+			updatedCall["function"] = updatedFn
+			calls[j] = updatedCall
+		}
+		out[i].ToolCalls = calls
+	}
+	return out
+}
+
+func shortenKiroToolName(name string, nameMap map[string]string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) <= kiroToolNameMaxLength {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	suffix := hex.EncodeToString(sum[:6])
+	prefixLimit := kiroToolNameMaxLength - len(suffix) - 2
+	if prefixLimit < 1 {
+		prefixLimit = 1
+	}
+	short := strings.TrimRight(name[:prefixLimit], "_-. ")
+	if short == "" {
+		short = "tool"
+	}
+	short = short + "__" + suffix
+	if nameMap != nil {
+		nameMap[short] = name
+	}
+	return short
+}
+
+func cloneStringAnyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func restoreKiroToolName(name string, nameMap map[string]string) string {
+	if nameMap == nil {
+		return name
+	}
+	if original := strings.TrimSpace(nameMap[name]); original != "" {
+		return original
+	}
+	return name
+}
+
+func compactKiroPayload(payload map[string]any) {
+	if len(payload) == 0 || kiroPayloadSize(payload) <= kiroMaxPayloadBytes {
+		return
+	}
+	state, _ := payload["conversationState"].(map[string]any)
+	history, _ := state["history"].([]any)
+	if len(history) == 0 {
+		return
+	}
+	removed := false
+	for kiroPayloadSize(payload) > kiroMaxPayloadBytes && len(history) > kiroMinRecentHistoryTurns+1 {
+		history = append(history[:1], history[2:]...)
+		removed = true
+		state["history"] = history
+	}
+	for kiroPayloadSize(payload) > kiroMaxPayloadBytes && len(history) > kiroMinRecentHistoryTurns {
+		history = history[1:]
+		removed = true
+		state["history"] = history
+	}
+	if !removed {
+		return
+	}
+	placeholder := map[string]any{
+		"userInputMessage": map[string]any{
+			"content": kiroTruncationPlaceholder,
+			"origin":  "AI_EDITOR",
+		},
+	}
+	insertAt := 0
+	if len(history) > 0 {
+		if first, ok := history[0].(map[string]any); ok {
+			if _, ok := first["userInputMessage"]; ok {
+				insertAt = 1
+			}
+		}
+	}
+	if insertAt >= len(history) {
+		history = append(history, placeholder)
+	} else {
+		history = append(history[:insertAt], append([]any{placeholder}, history[insertAt:]...)...)
+	}
+	state["history"] = history
+	for kiroPayloadSize(payload) > kiroMaxPayloadBytes && len(history) > kiroMinRecentHistoryTurns {
+		history = append(history[:insertAt], history[insertAt+1:]...)
+		state["history"] = history
+		if len(history) == 0 {
+			break
+		}
+		if insertAt >= len(history) {
+			insertAt = len(history) - 1
+		}
+	}
+}
+
+func kiroPayloadSize(payload map[string]any) int {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return 0
+	}
+	return len(raw)
 }
 
 func validateKiroToolDefinitions(tools []any) error {
@@ -1520,6 +1857,31 @@ func regionFromKiroProfileARN(profileARN string) string {
 	return ""
 }
 
+func kiroContextWindowSize(model string) int {
+	baseModel := stripKiroModelSuffix(strings.TrimSpace(model))
+	if info := registry.LookupModelInfo(baseModel, kiro.Provider); info != nil && info.ContextLength > 0 &&
+		(strings.EqualFold(info.OwnedBy, kiro.Provider) || strings.EqualFold(info.Type, kiro.Provider)) {
+		return info.ContextLength
+	}
+	lower := strings.ToLower(baseModel)
+	if match := kiroClaudeVersionPattern.FindStringSubmatch(lower); match != nil {
+		major, errMajor := strconv.Atoi(match[1])
+		minor, errMinor := strconv.Atoi(match[2])
+		if errMajor == nil && errMinor == nil {
+			if major > 4 || (major == 4 && minor >= 6) {
+				return kiroLargeContextLength
+			}
+			return kiroDefaultContextLength
+		}
+	}
+	for _, marker := range []string{"4.6", "4-6", "4.7", "4-7", "4.8", "4-8", "4.9", "4-9"} {
+		if strings.Contains(lower, marker) {
+			return kiroLargeContextLength
+		}
+	}
+	return kiroDefaultContextLength
+}
+
 func normalizeKiroModelID(model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -1565,6 +1927,7 @@ type kiroUsageAccumulator struct {
 	detail                 coreusage.Detail
 	hasUsage               bool
 	estimated              bool
+	contextLength          int
 	contextUsagePercentage float64
 	hasContextUsage        bool
 	hasMetering            bool
@@ -1588,9 +1951,23 @@ type kiroEventParser struct {
 	lastContent string
 }
 
+type kiroGenerationEndpoint struct {
+	name      string
+	rawURL    string
+	origin    string
+	amzTarget string
+	fallback  bool
+}
+
 func newKiroEventParser() *kiroEventParser { return &kiroEventParser{} }
 
-func newKiroUsageAccumulator() *kiroUsageAccumulator { return &kiroUsageAccumulator{} }
+func newKiroUsageAccumulator() *kiroUsageAccumulator {
+	return &kiroUsageAccumulator{contextLength: kiroDefaultContextLength}
+}
+
+func newKiroUsageAccumulatorForModel(model string) *kiroUsageAccumulator {
+	return &kiroUsageAccumulator{contextLength: kiroContextWindowSize(model)}
+}
 
 func (a *kiroUsageAccumulator) Observe(event kiroParsedEvent) {
 	if a == nil {
@@ -1631,7 +2008,11 @@ func (a *kiroUsageAccumulator) Detail() (coreusage.Detail, bool, bool) {
 	}
 	inputTokens := int64(0)
 	if a.contextUsagePercentage > 0 {
-		inputTokens = int64((a.contextUsagePercentage * float64(kiroDefaultContextLength)) / 100)
+		contextLength := a.contextLength
+		if contextLength <= 0 {
+			contextLength = kiroDefaultContextLength
+		}
+		inputTokens = int64((a.contextUsagePercentage * float64(contextLength)) / 100)
 	}
 	detail := normalizeKiroUsageDetail(coreusage.Detail{
 		InputTokens:  inputTokens,
@@ -1645,7 +2026,11 @@ func (a *kiroUsageAccumulator) Detail() (coreusage.Detail, bool, bool) {
 }
 
 func kiroUsageFromEvents(events []kiroParsedEvent) (coreusage.Detail, bool, bool) {
-	acc := newKiroUsageAccumulator()
+	return kiroUsageFromEventsForModel(events, "")
+}
+
+func kiroUsageFromEventsForModel(events []kiroParsedEvent, model string) (coreusage.Detail, bool, bool) {
+	acc := newKiroUsageAccumulatorForModel(model)
 	for _, event := range events {
 		acc.Observe(event)
 	}
@@ -1901,7 +2286,7 @@ func findKiroJSONEnd(raw []byte, start int) int {
 	return -1
 }
 
-func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent, detail coreusage.Detail, hasUsage bool) []byte {
+func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent, detail coreusage.Detail, hasUsage bool, toolNameMap map[string]string) []byte {
 	var content strings.Builder
 	toolCalls := make([]any, 0)
 	toolAccumulators := map[string]*kiroToolCallAccumulator{}
@@ -1919,7 +2304,7 @@ func kiroEventsToOpenAINonStream(model string, events []kiroParsedEvent, detail 
 					toolOrder = append(toolOrder, call.ID)
 				}
 				if call.Name != "" {
-					acc.Name = call.Name
+					acc.Name = restoreKiroToolName(call.Name, toolNameMap)
 				}
 				switch call.Arguments {
 				case "":
@@ -2121,7 +2506,7 @@ func kiroReasoningEventToOpenAIStream(id, model string, created int64, content s
 	return [][]byte{append(append([]byte("data: "), raw...), []byte("\n\n")...)}
 }
 
-func kiroToolCallEventToOpenAIStream(id, model string, created int64, calls []kiroToolCall, first bool, indexes map[string]int, nextIndex *int) [][]byte {
+func kiroToolCallEventToOpenAIStream(id, model string, created int64, calls []kiroToolCall, first bool, indexes map[string]int, nextIndex *int, toolNameMap map[string]string) [][]byte {
 	chunks := make([][]byte, 0, len(calls)*2)
 	for _, call := range calls {
 		index, ok := indexes[call.ID]
@@ -2135,7 +2520,7 @@ func kiroToolCallEventToOpenAIStream(id, model string, created int64, calls []ki
 					"id":    call.ID,
 					"type":  "function",
 					"function": map[string]any{
-						"name":      call.Name,
+						"name":      restoreKiroToolName(call.Name, toolNameMap),
 						"arguments": "",
 					},
 				}},

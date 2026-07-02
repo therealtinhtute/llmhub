@@ -216,3 +216,18 @@ go test ./...
 - Conclusion: llmhub now handles Kiro tool calls correctly on the real
   Anthropic-compatible path, while rejecting unsupported long tool names
   locally with a clear validation error.
+
+2026-07-02 Kiro-Go reliability parity follow-up:
+
+- Added mocked Kiro generation endpoint fallback proof for Kiro Q,
+  CodeWhisperer, and Amazon Q ordering; retryable 429/5xx statuses fall
+  through, while 402 auth/payment-style failures do not fan out.
+- Added regional generation URL proof from `profile_arn`, oversized payload
+  compaction proof with final user turn preservation, long tool-name
+  shortening/restoration proof, and 1M context estimate proof for Claude 4.6+.
+- Verification passed:
+  - `go test ./internal/runtime/executor -run 'TestKiro|TestBuildKiro'`
+  - `go test ./internal/runtime/executor ./internal/auth/kiro ./sdk/auth ./sdk/cliproxy/auth ./sdk/cliproxy ./internal/api/handlers/management`
+  - `go test ./...`
+  - `go build -o /tmp/llmhub-kiro-build ./cmd/server`
+  - `git diff --check`

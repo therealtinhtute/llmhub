@@ -110,12 +110,18 @@ scripts/bin/harness-cli story   add --id <id> --title <text> --lane <lane>
 scripts/bin/harness-cli story   update --id <id> --status <status>
 scripts/bin/harness-cli story   update --id <id> --unit 1 --integration 1 --e2e 0 --platform 0
 scripts/bin/harness-cli story   verify <id>
+scripts/bin/harness-cli story   verify-all
 scripts/bin/harness-cli decision add --id <id> --title <text> --doc docs/decisions/<file>.md
 scripts/bin/harness-cli trace   --summary <text> --outcome <outcome>
 scripts/bin/harness-cli score-trace
+scripts/bin/harness-cli score-context <trace-id>
+scripts/bin/harness-cli audit
+scripts/bin/harness-cli propose
 scripts/bin/harness-cli query   matrix
 scripts/bin/harness-cli query   matrix --numeric
 scripts/bin/harness-cli query   backlog
+scripts/bin/harness-cli query   tools --summary
+scripts/bin/harness-cli query   interventions
 scripts/bin/harness-cli query   stats
 scripts/bin/harness-cli --version
 ```
@@ -252,6 +258,11 @@ scripts/bin/harness-cli story verify US-012
 When `trace --story <id>` links to a story whose verification command has never
 passed, the trace still records but prints an advisory warning before close.
 
+Use `story verify-all` before merges, maturity claims, and benchmark runs. It
+runs every configured story verification command, prints one result per story,
+skips stories without `verify_command`, and exits 1 if any configured story
+fails.
+
 `story verify` accepts only the story id. Configure the command with
 `story add --verify` or `story update --verify`. Record proof booleans with
 `story update`, using numeric values: `1` means yes and `0` means no. The Rust
@@ -260,6 +271,48 @@ CLI rejects text values such as `yes` and `no`.
 Use `scripts/bin/harness-cli query matrix --numeric` when copying proof values
 back into `story update`. The default matrix output is human-readable
 `yes`/`no`; the numeric output mirrors CLI input.
+
+## Phase 5 Evolution Commands
+
+Tool discovery:
+
+```bash
+scripts/bin/harness-cli query tools --summary
+scripts/bin/harness-cli query tools --json
+scripts/bin/harness-cli tool register --name <name> --command <cmd> --description <text> --responsibility Verification
+```
+
+Context and drift checks:
+
+```bash
+scripts/bin/harness-cli score-context <trace-id>
+scripts/bin/harness-cli audit
+```
+
+`score-context` is advisory; it reports context-rule coverage without changing
+the trace. `audit` reports drift categories and an entropy score documented in
+`docs/HARNESS_AUDIT.md`.
+
+Interventions are separate from traces:
+
+```bash
+scripts/bin/harness-cli intervention add --trace <id> --type correction --description <text> --source human
+scripts/bin/harness-cli query interventions --story US-024
+```
+
+Record an intervention when a human, reviewer, CI system, or another agent
+corrects, overrides, escalates, or approves work.
+
+Improvement proposals:
+
+```bash
+scripts/bin/harness-cli propose
+scripts/bin/harness-cli propose --commit
+```
+
+`propose` prints deterministic proposals from repeated friction, interventions,
+and audit drift. `--commit` creates proposed backlog items only; it does not
+edit policy docs or approve the proposal.
 
 ## Decision Records
 

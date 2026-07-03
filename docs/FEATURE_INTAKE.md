@@ -59,6 +59,8 @@ smoke proof, not a public contract escalation by itself.
 
 Requirements:
 
+- Record the intake row before implementation; tiny work skips story packet
+  overhead, not durable task classification.
 - Patch directly.
 - Keep affected docs current.
 - Run available quick checks.

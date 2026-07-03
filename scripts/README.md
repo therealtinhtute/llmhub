@@ -5,8 +5,8 @@ This directory contains harness automation tools.
 ## Harness CLI
 
 The Rust Harness CLI is the primary interface for the durable layer. Installed
-projects use the prebuilt binary at `scripts/bin/harness-cli` for normal
-Harness work.
+projects use the prebuilt binary at `scripts/bin/harness-cli` on macOS/Linux or
+`scripts/bin/harness-cli.exe` on Windows for normal Harness work.
 
 ```bash
 scripts/bin/harness-cli init          # Create the database
@@ -24,7 +24,9 @@ scripts/bin/harness-cli migrate       # Apply pending schema migrations
 scripts/bin/harness-cli --version     # Print the installed CLI version
 ```
 
-Run `scripts/bin/harness-cli help` or `scripts/bin/harness-cli query help` for full usage.
+Run `scripts/bin/harness-cli help` or `scripts/bin/harness-cli query help` for
+full usage. On Windows, use the same commands through
+`.\scripts\bin\harness-cli.exe`.
 
 Proof flags on `story update` are numeric booleans: use `1` for yes and `0` for
 no. `story verify <id>` runs the configured `verify_command`; it does not accept
@@ -39,7 +41,8 @@ human-readable `yes`/`no`; use `query matrix --numeric` when copying values into
 The schema lives in `scripts/schema/` and is version-controlled. The database
 file (`harness.db`) is `.gitignore`d.
 
-Requires: the prebuilt Rust CLI at `scripts/bin/harness-cli`.
+Requires: the prebuilt Rust CLI at `scripts/bin/harness-cli` on macOS/Linux or
+`scripts/bin/harness-cli.exe` on Windows.
 
 Direct database inspection may still use SQLite tools, but normal Harness use
 should go through the Rust CLI.
@@ -94,15 +97,27 @@ shim. Use `--override` only when replacing the protected Harness surface is
 intentional.
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/hoangnb24/harness-experimental/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --yes
+curl -fsSL "https://raw.githubusercontent.com/hoangnb24/repository-harness/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --yes
+```
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/hoangnb24/repository-harness/main/scripts/install-harness.ps1"))) -Yes
 ```
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/hoangnb24/harness-experimental/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --merge --yes
+curl -fsSL "https://raw.githubusercontent.com/hoangnb24/repository-harness/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --merge --yes
+```
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/hoangnb24/repository-harness/main/scripts/install-harness.ps1"))) -Merge -Yes
 ```
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/hoangnb24/harness-experimental/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --merge --refresh-agent-shim --yes
+curl -fsSL "https://raw.githubusercontent.com/hoangnb24/repository-harness/main/scripts/install-harness.sh?$(date +%s)" | bash -s -- --merge --refresh-agent-shim --yes
+```
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/hoangnb24/repository-harness/main/scripts/install-harness.ps1"))) -Merge -RefreshAgentShim -Yes
 ```
 
 `--refresh-agent-shim` backs up `AGENTS.md` before changing it. If the existing
@@ -117,13 +132,13 @@ validation commands. The installer script is not part of the installed project
 payload.
 
 By default the installer also downloads the prebuilt Rust Harness CLI for the
-current platform into `scripts/bin/harness-cli` and verifies its `.sha256`
-checksum before making it executable. A source branch can pin the release used
-by the installer through `scripts/harness-cli-release-tag`; Phase 4 pins
-`harness-cli-v0.1.7` so branch installs receive a Phase 4-built CLI. Set
-`HARNESS_CLI_RELEASE_TAG` to override that tag, or set `HARNESS_CLI_BASE_URL` to
-point at an alternate artifact directory, such as a local `file:///.../dist`
-directory created by `scripts/build-harness-cli-release.sh`.
+current platform into `scripts/bin/harness-cli` on macOS/Linux or
+`scripts/bin/harness-cli.exe` on Windows, then verifies its `.sha256` checksum.
+A source branch can pin the release used by the installer through
+`scripts/harness-cli-release-tag` in the upstream Harness source repository.
+Set `HARNESS_CLI_RELEASE_TAG` to override that tag, or set
+`HARNESS_CLI_BASE_URL` to point at an alternate artifact directory, such as a
+local `file:///.../dist` directory created by the upstream release build script.
 
 ## Schema Migrations
 
@@ -152,21 +167,23 @@ test:release
   full suite, log checks, and performance smoke
 ```
 
-## Release Packaging
+## Upstream Release Packaging
 
-Build the current-platform Rust CLI release artifact from the source repo:
+Build the current-platform Rust CLI release artifact from the upstream Harness
+source repo:
 
 ```bash
 scripts/build-harness-cli-release.sh
 ```
 
-The script writes `dist/harness-cli-<platform>` and
-`dist/harness-cli-<platform>.sha256`. Supported labels are:
+The script writes `dist/harness-cli-<platform>` plus `.sha256` checksums. The
+Windows artifact includes the `.exe` suffix. Supported labels are:
 
 - `macos-arm64`
 - `macos-x64`
 - `linux-x64`
 - `linux-arm64`
+- `windows-x64`
 
 For cross-compilation, pass a Cargo target triple:
 
@@ -174,10 +191,8 @@ For cross-compilation, pass a Cargo target triple:
 scripts/build-harness-cli-release.sh --target x86_64-unknown-linux-gnu
 ```
 
-GitHub releases are produced by
-`.github/workflows/harness-cli-release.yml`. Push a tag matching `v*` or
-`harness-cli-v*` to run the verification job, build all supported targets on
-native hosted runners, and upload these release assets:
+GitHub releases in the upstream Harness source repo build all supported targets
+on native hosted runners and upload these release assets:
 
 - `harness-cli-macos-arm64`
 - `harness-cli-macos-arm64.sha256`
@@ -187,3 +202,5 @@ native hosted runners, and upload these release assets:
 - `harness-cli-linux-x64.sha256`
 - `harness-cli-linux-arm64`
 - `harness-cli-linux-arm64.sha256`
+- `harness-cli-windows-x64.exe`
+- `harness-cli-windows-x64.exe.sha256`

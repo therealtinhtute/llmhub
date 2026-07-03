@@ -4,7 +4,7 @@ Date: 2026-05-23
 
 ## Status
 
-Accepted, amended 2026-05-31
+Accepted, amended 2026-05-31, amended 2026-06-09
 
 ## Context
 
@@ -29,6 +29,12 @@ The command path for users and agents is the installed Rust binary:
 scripts/bin/harness-cli <command>
 ```
 
+On Windows, the repository-local binary is installed as:
+
+```powershell
+.\scripts\bin\harness-cli.exe <command>
+```
+
 The installer should download, verify, and install the platform-specific Rust
 binary directly at that path. There should be no shell wrapper command contract.
 
@@ -39,6 +45,13 @@ The Rust CLI should follow the existing architecture rules:
   queries.
 - Infrastructure: SQLite repositories and schema migrations.
 - Interface: command-line parsing, terminal output, and installer integration.
+
+Release automation now follows the same distribution contract. After a PR is
+merged to `main`, the post-merge maintenance workflow updates `CHANGELOG.md`.
+When the merged PR changed the Rust CLI source, schema, Cargo metadata, or CLI
+release packaging, it also bumps the CLI patch version, updates the installer
+release tag pin, creates a `harness-cli-v*` tag, and invokes the reusable
+Harness CLI release workflow for that tag.
 
 ## Alternatives Considered
 
@@ -59,7 +72,8 @@ Positive:
 
 - The durable-layer CLI can move to typed command parsing and tested use cases.
 - Target projects do not need a Rust toolchain just to use Harness.
-- The `scripts/bin/harness-cli` command is the stable entrypoint for agents.
+- The `scripts/bin/harness-cli` command is the stable entrypoint for agents on
+  macOS/Linux; Windows uses the same repo-local path with the `.exe` suffix.
 - Prebuilt releases can include a known SQLite linkage strategy.
 
 Tradeoffs:

@@ -205,6 +205,16 @@ func TestVideosCreateFormRequest(t *testing.T) {
 	}
 }
 
+func TestVideoContentHTTPClientUsesBoundedTimeout(t *testing.T) {
+	handler := &OpenAIAPIHandler{}
+
+	client := handler.videoContentHTTPClient(nil)
+
+	if client.Timeout != defaultVideoContentDownloadLimit {
+		t.Fatalf("client timeout = %v, want %v", client.Timeout, defaultVideoContentDownloadLimit)
+	}
+}
+
 func videosCreateRequestFromFormContext(body string) ([]byte, error) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

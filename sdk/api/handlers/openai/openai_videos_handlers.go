@@ -40,7 +40,10 @@ const (
 	maxXAIVideoReferences    = 7
 )
 
-const defaultVideoAuthBindingTTL = 3 * time.Hour
+const (
+	defaultVideoAuthBindingTTL       = 3 * time.Hour
+	defaultVideoContentDownloadLimit = 30 * time.Minute
+)
 
 var videoAuthBindings = newVideoAuthBindingStore()
 
@@ -910,7 +913,7 @@ func (h *OpenAIAPIHandler) videoContentHTTPClient(c *gin.Context) *http.Client {
 	if h != nil && h.BaseAPIHandler != nil && h.Cfg != nil {
 		cfg = &internalconfig.Config{SDKConfig: *h.Cfg}
 	}
-	return helps.NewProxyAwareHTTPClient(ctx, cfg, h.videoContentDownloadAuth(c), 0)
+	return helps.NewProxyAwareHTTPClient(ctx, cfg, h.videoContentDownloadAuth(c), defaultVideoContentDownloadLimit)
 }
 
 func (h *OpenAIAPIHandler) videoContentDownloadAuth(c *gin.Context) *coreauth.Auth {

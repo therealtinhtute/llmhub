@@ -160,22 +160,26 @@ func (s *FileBodySource) Paths() []string {
 }
 
 // WriteTo merges all ordered parts into w.
-func (s *FileBodySource) WriteTo(w io.Writer) error {
+func (s *FileBodySource) WriteTo(w io.Writer) (int64, error) {
 	if s == nil || w == nil {
-		return nil
+		return 0, nil
 	}
 	paths := s.Paths()
+	var total int64
 	for i, path := range paths {
 		if i > 0 {
-			if _, errWrite := io.WriteString(w, "\n"); errWrite != nil {
-				return errWrite
+			n, errWrite := io.WriteString(w, "\n")
+			total += int64(n)
+			if errWrite != nil {
+				return total, errWrite
 			}
 		}
 		file, errOpen := os.Open(path)
 		if errOpen != nil {
-			return errOpen
+			return total, errOpen
 		}
-		_, errCopy := io.Copy(w, file)
+		n, errCopy := io.Copy(w, file)
+		total += n
 		if errClose := file.Close(); errClose != nil {
 			log.WithError(errClose).Warn("failed to close log part file")
 			if errCopy == nil {
@@ -183,16 +187,16 @@ func (s *FileBodySource) WriteTo(w io.Writer) error {
 			}
 		}
 		if errCopy != nil {
-			return errCopy
+			return total, errCopy
 		}
 	}
-	return nil
+	return total, nil
 }
 
 // Bytes merges all ordered parts into memory.
 func (s *FileBodySource) Bytes() ([]byte, error) {
 	var buf bytes.Buffer
-	if errWrite := s.WriteTo(&buf); errWrite != nil {
+	if _, errWrite := s.WriteTo(&buf); errWrite != nil {
 		return nil, errWrite
 	}
 	return buf.Bytes(), nil
@@ -1182,7 +1186,7 @@ func writeAPISectionWithSource(w io.Writer, sectionHeader string, sectionPrefix 
 		}
 	}
 	tracker := &trailingNewlineTrackingWriter{writer: w}
-	if errWrite := source.WriteTo(tracker); errWrite != nil {
+	if _, errWrite := source.WriteTo(tracker); errWrite != nil {
 		return errWrite
 	}
 	if errWrite := writeSectionSpacing(w, tracker.trailingNewlines); errWrite != nil {

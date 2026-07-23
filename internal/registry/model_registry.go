@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	misc "github.com/therealtinhtute/llmhub/internal/misc"
 	log "github.com/sirupsen/logrus"
+	misc "github.com/therealtinhtute/llmhub/internal/misc"
 )
 
 // OpenAIImageModelType marks models that are callable through OpenAI-compatible image endpoints.
@@ -1160,10 +1160,12 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		}
 		if model.DisplayName != "" {
 			result["display_name"] = model.DisplayName
+		} else {
+			result["display_name"] = model.ID
 		}
 		return result
 
-	case "gemini":
+	case "gemini", "gemini-cli":
 		result := map[string]any{}
 		if model.Name != "" {
 			result["name"] = model.Name

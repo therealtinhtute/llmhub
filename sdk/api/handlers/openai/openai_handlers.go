@@ -67,7 +67,7 @@ func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 	// Get all available models
 	allModels := h.Models()
 
-	// Filter to only include the 4 required fields: id, object, created, owned_by
+	// Filter to the standard fields plus the optional presentation-only display name.
 	filteredModels := make([]map[string]any, len(allModels))
 	for i, model := range allModels {
 		filteredModel := map[string]any{
@@ -83,6 +83,11 @@ func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 		// Add owned_by field if it exists
 		if ownedBy, exists := model["owned_by"]; exists {
 			filteredModel["owned_by"] = ownedBy
+		}
+
+		// Add display_name field if it exists
+		if displayName, exists := model["display_name"]; exists {
+			filteredModel["display_name"] = displayName
 		}
 
 		filteredModels[i] = filteredModel

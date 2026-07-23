@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	. "github.com/therealtinhtute/llmhub/internal/constant"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -44,7 +45,8 @@ func (h *GeminiCLIAPIHandler) HandlerType() string {
 
 // Models returns a list of models supported by this handler.
 func (h *GeminiCLIAPIHandler) Models() []map[string]any {
-	return make([]map[string]any, 0)
+	modelRegistry := registry.GetGlobalRegistry()
+	return modelRegistry.GetAvailableModels("gemini-cli")
 }
 
 // CLIHandler handles CLI-specific requests for Gemini API operations.

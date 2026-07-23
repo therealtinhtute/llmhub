@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S3-codex-claude-output-indices",
+  "revision": "r04",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T04:02:48Z",
+  "base_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "result_tree": "5039052c3c4c4d67808b2f9a6754f00234824231",
+  "changed_files": [
+    "internal/translator/codex/claude/codex_claude_response.go",
+    "internal/translator/codex/claude/codex_claude_response_test.go"
+  ],
+  "result_sha256": {
+    "internal/translator/codex/claude/codex_claude_response.go": "acba30173622230551986510133c1df026573edb4bfadcfb27b4a41ea05e1057",
+    "internal/translator/codex/claude/codex_claude_response_test.go": "cf3dc3ae8f861f17bedff62da51ea5aa26bd4735e197e9864c92bb6b2d82cf25"
+  },
+  "patch_sha256": "9e1e4ccd0ef3a03b83b1726448f11cb53819eb56e874765eef46ec14faec62cc",
+  "verification": [
+    {
+      "command": "go test ./internal/translator/codex/claude -run Test.*(OutputIndex|ProviderIndex|Interleaved|Reasoning|FunctionCall|RetainsProviderIndex|SignatureOnly) -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/translator/codex/claude -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/translator/codex/claude -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    }
+  ],
+  "application_proof": {
+    "prepared_tree_matches": true,
+    "forward_matches_isolated_result": true,
+    "reverse_matches_base_tree": true,
+    "whitespace_check": true,
+    "prepared_tree": "98d750898d239533918d092276faf9520a64adb1",
+    "result_tree": "5039052c3c4c4d67808b2f9a6754f00234824231"
+  },
+  "notes": "Corrects r03 delayed stale reasoning completion duplication while retaining prior lifecycle fixes; independent review pending."
+}

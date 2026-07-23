@@ -1,0 +1,9 @@
+{
+  "prepared_base_hashes_match": true,
+  "worktree_scope_matches": true,
+  "forward_matches_isolated_result": true,
+  "reverse_matches_base_tree": true,
+  "whitespace_check": true,
+  "prepared_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "result_tree": "7fa63d91f072c7d324f9ea15bf2a3bf6fbabcb1c"
+}

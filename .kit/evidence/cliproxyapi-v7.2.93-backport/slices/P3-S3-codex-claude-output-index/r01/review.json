@@ -1,0 +1,66 @@
+{
+  "slice_id": "P3-S3-codex-claude-output-index",
+  "revision": "r01",
+  "patch_sha256": "e78813433aeb5b084050b1e4a92aee0f88e3374915c5055027ccfa2c26184430",
+  "verdict": "CHANGES_REQUESTED",
+  "reconciliation": "The frozen r01 patch is the corrected replacement for the stale run wording about emitting sequential indices: it directly emits the selected provider output_index, including explicit zero. That earlier defect is not present in e7881343. This review rejects r01 for a different defect: lifecycle state is still kind-wide rather than per provider output item, so same-kind interleaving violates the locked contract.",
+  "scope_check": {
+    "allowlist": [
+      "internal/translator/codex/claude/codex_claude_response.go",
+      "internal/translator/codex/claude/codex_claude_response_test.go"
+    ],
+    "changed_paths": [
+      "internal/translator/codex/claude/codex_claude_response.go",
+      "internal/translator/codex/claude/codex_claude_response_test.go"
+    ],
+    "unexpected_paths": []
+  },
+  "verified": {
+    "patch_sha256_matches": true,
+    "baseline_tar_sha256_matches": true,
+    "base_tree_reconstructed": "98d750898d239533918d092276faf9520a64adb1",
+    "result_tree_reconstructed": "08ad6fabffa9bed6d69883d38b14b60a3d63d14a",
+    "forward_application_matches_result": true,
+    "reverse_application_matches_base": true,
+    "baseline_hashes_match": true,
+    "result_hashes_match": true,
+    "exact_two_file_allowlist": true
+  },
+  "tests_reviewed": [
+    "go test ./internal/translator/codex/claude -run 'Test.*(OutputIndex|Interleav|ContentBlock)' -count=1 on independently reconstructed result (pass)",
+    "go test ./internal/translator/codex/claude -count=1 on independently reconstructed result (pass)",
+    "independent adversarial same-kind lifecycle tests on the reconstructed result (fail as documented in findings)",
+    "nonstream conversion code has no patch hunk and existing package nonstream regressions pass"
+  ],
+  "findings": [
+    {
+      "rank": 1,
+      "severity": "Major",
+      "file": "internal/translator/codex/claude/codex_claude_response.go",
+      "lines": [31, 40, 109, 151, 228, 250],
+      "claim": "Text and function-call lifecycle indices are stored in one scalar slot per kind. Two active items of the same kind therefore collapse onto the first slot, and a missing done event leaves that slot stale so the next provider output_index does not win.",
+      "proof": "Independent reconstructed-result probes produced function-call indices [4,4,4,4,4,4,4,7] instead of [4,4,7,7,4,7,4,7], text indices [2,2,2,2,2,5] instead of [2,5,2,5,2,5], and a second function-call start at provider index 9 emitted [3,3] after an earlier index-3 item omitted done.",
+      "required_fix": "Track selected index and related lifecycle state per provider output item using stable item identity/output_index rather than one kind-wide slot. Explicit provider indices, including zero, must remain independent; use sequential fallback only for an item whose provider index is absent; reset only that item's state. Add two-function-call, two-text-item, explicit-zero-under-interleaving, missing-start, and missing-done regressions."
+    },
+    {
+      "rank": 2,
+      "severity": "Major",
+      "file": "internal/translator/codex/claude/codex_claude_response.go",
+      "lines": [172, 178, 235, 247, 541, 562],
+      "claim": "A later reasoning output_item.added directly overwrites the single active ThinkingBlockIndex and ThinkingSignature. Final signature_delta/content_block_stop events for the earlier reasoning item can therefore be emitted with the later item's index.",
+      "proof": "With reasoning item 4 open, adding reasoning item 6 changed the emitted sequence to [4,4,6,6,6]; the first item's final signature and stop should have retained index 4. This also shows reasoning finalization is not item-owned.",
+      "required_fix": "Make reasoning summary/signature/open/pending/finalization state item-scoped and finalize each reasoning lifecycle with its own selected index. Add same-kind reasoning interleaving and finalization tests, including absent summary-part start/done events."
+    },
+    {
+      "rank": 3,
+      "severity": "Moderate",
+      "file": "internal/translator/codex/claude/codex_claude_response_test.go",
+      "lines": [707, 805],
+      "claim": "The added interleaving test covers only one reasoning, one function call, and one text lifecycle. Its flattened index list cannot establish ownership when two items share a kind, so it misses both blocking defects and reset leakage.",
+      "required_fix": "Assert event type plus item/lifecycle identity and index for concurrent same-kind items; cover both completion orders, missing start/done events, explicit zero after another active item, reasoning finalization, and sequential fallback only when output_index is absent."
+    }
+  ],
+  "test_limitations": [
+    "A broad go test ./... from the immutable tree cannot compile packages importing internal/managementasset because generated static/management.html is absent from the tree; this is unrelated to the two-file patch and is not treated as a patch finding."
+  ]
+}

@@ -160,11 +160,18 @@ func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req 
 
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte
+	responseFilter := newXAIInternalXSearchResponseFilter(prepared.declarations)
+	responseRestorer := newXAIToolResponseRestorer(prepared.declarations)
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if !bytes.HasPrefix(line, xaiDataTag) {
 			continue
 		}
 		eventData := xaiNormalizeReasoningSummaryData(bytes.TrimSpace(line[len(xaiDataTag):]))
+		eventData = responseFilter.apply(eventData)
+		if len(eventData) == 0 {
+			continue
+		}
+		eventData = responseRestorer.apply(eventData)
 		switch gjson.GetBytes(eventData, "type").String() {
 		case "response.output_item.done":
 			xaiCollectOutputItemDone(eventData, outputItemsByIndex, &outputItemsFallback)
@@ -349,6 +356,8 @@ func (e *XAIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth
 		var param any
 		outputItemsByIndex := make(map[int64][]byte)
 		var outputItemsFallback [][]byte
+		responseFilter := newXAIInternalXSearchResponseFilter(prepared.declarations)
+		responseRestorer := newXAIToolResponseRestorer(prepared.declarations)
 		var pendingEventLine []byte
 		emitTranslatedLine := func(translatedLine []byte) bool {
 			chunks := sdktranslator.TranslateStream(ctx, prepared.to, prepared.from, req.Model, prepared.originalPayload, prepared.body, translatedLine, &param)
@@ -377,6 +386,14 @@ func (e *XAIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth
 				eventDataList := xaiNormalizeReasoningSummaryDataEvents(bytes.TrimSpace(line[len(xaiDataTag):]))
 				hasPendingEventLine := pendingEventLine != nil
 				for i, eventData := range eventDataList {
+					eventData = responseFilter.apply(eventData)
+					if len(eventData) == 0 {
+						if hasPendingEventLine && i == 0 {
+							pendingEventLine = nil
+						}
+						continue
+					}
+					eventData = responseRestorer.apply(eventData)
 					normalizedEventName := gjson.GetBytes(eventData, "type").String()
 					switch normalizedEventName {
 					case "response.output_item.done":
@@ -520,6 +537,7 @@ type xaiPreparedRequest struct {
 	to              sdktranslator.Format
 	originalPayload []byte
 	body            []byte
+	declarations    *xaiToolDeclarations
 	sessionID       string
 }
 
@@ -550,7 +568,24 @@ func (e *XAIExecutor) prepareResponsesRequest(ctx context.Context, req cliproxye
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	body, _ = sjson.DeleteBytes(body, "stream_options")
-	body = normalizeXAITools(body)
+	declarationSource := body
+	if from == sdktranslator.FormatOpenAIResponse {
+		declarationSource = originalPayload
+	}
+	declarations, err := buildXAIToolDeclarations(declarationSource)
+	if err != nil {
+		return nil, err
+	}
+	if from == sdktranslator.FormatOpenAIResponse {
+		translatedDeclarations, errTranslated := buildXAIToolDeclarations(body)
+		if errTranslated != nil {
+			return nil, errTranslated
+		}
+		declarations = mergeXAIToolDeclarations(declarations, translatedDeclarations)
+	}
+	body = normalizeXAIToolsWithDeclarations(body, declarations)
+	body = promoteXAIAdditionalTools(body)
+	body = normalizeXAIToolChoices(body, declarations)
 	body = normalizeXAIInputReasoningItems(body)
 	body = normalizeCodexInstructions(body)
 	body = sanitizeXAIResponsesBody(body, baseModel)
@@ -566,6 +601,7 @@ func (e *XAIExecutor) prepareResponsesRequest(ctx context.Context, req cliproxye
 		to:              to,
 		originalPayload: originalPayload,
 		body:            body,
+		declarations:    declarations,
 		sessionID:       sessionID,
 	}, nil
 }
@@ -705,62 +741,232 @@ func sanitizeXAIResponsesBody(body []byte, model string) []byte {
 	return body
 }
 
-func normalizeXAITools(body []byte) []byte {
-	tools := gjson.GetBytes(body, "tools")
-	if !tools.Exists() || !tools.IsArray() {
-		return body
-	}
+type xaiToolIdentity struct {
+	namespace string
+	name      string
+	toolType  string
+}
 
-	changed := false
-	filtered := []byte(`[]`)
+type xaiToolDeclaration struct {
+	original      xaiToolIdentity
+	effectiveName string
+	effectiveType string
+}
+
+type xaiToolDeclarations struct {
+	byOriginal      map[xaiToolIdentity]xaiToolDeclaration
+	byEffectiveName map[string]xaiToolDeclaration
+}
+
+func buildXAIToolDeclarations(body []byte) (*xaiToolDeclarations, error) {
+	declarations := &xaiToolDeclarations{
+		byOriginal:      make(map[xaiToolIdentity]xaiToolDeclaration),
+		byEffectiveName: make(map[string]xaiToolDeclaration),
+	}
+	collect := func(tools gjson.Result, namespace string) error {
+		return collectXAIToolDeclarations(tools, namespace, declarations)
+	}
+	if err := collect(gjson.GetBytes(body, "tools"), ""); err != nil {
+		return nil, err
+	}
+	input := gjson.GetBytes(body, "input")
+	if input.IsArray() {
+		for _, item := range input.Array() {
+			if item.Get("type").String() != "additional_tools" {
+				continue
+			}
+			if err := collect(item.Get("tools"), ""); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return declarations, nil
+}
+
+func mergeXAIToolDeclarations(primary, fallback *xaiToolDeclarations) *xaiToolDeclarations {
+	if primary == nil {
+		return fallback
+	}
+	if fallback == nil {
+		return primary
+	}
+	for effectiveName, declaration := range fallback.byEffectiveName {
+		if _, exists := primary.byEffectiveName[effectiveName]; exists {
+			continue
+		}
+		primary.byEffectiveName[effectiveName] = declaration
+		primary.byOriginal[declaration.original] = declaration
+	}
+	return primary
+}
+
+func collectXAIToolDeclarations(tools gjson.Result, namespace string, declarations *xaiToolDeclarations) error {
+	if declarations == nil || !tools.IsArray() {
+		return nil
+	}
 	for _, tool := range tools.Array() {
 		toolType := tool.Get("type").String()
 		if toolType == xaiNamespaceToolType {
+			if err := collectXAIToolDeclarations(tool.Get("tools"), tool.Get("name").String(), declarations); err != nil {
+				return err
+			}
+			continue
+		}
+		if toolType != xaiFunctionToolType && toolType != xaiCustomToolType {
+			continue
+		}
+		name := tool.Get("name").String()
+		if name == "" || (toolType == xaiCustomToolType && name == "apply_patch") {
+			continue
+		}
+		identity := xaiToolIdentity{namespace: namespace, name: name, toolType: toolType}
+		effectiveName := name
+		if namespace != "" {
+			effectiveName = qualifyXAINamespaceToolName(namespace, name)
+		}
+		declaration := xaiToolDeclaration{
+			original:      identity,
+			effectiveName: effectiveName,
+			effectiveType: xaiFunctionToolType,
+		}
+		if existing, ok := declarations.byEffectiveName[effectiveName]; ok && existing.original != identity {
+			return newXAIToolNameCollisionError(existing, declaration)
+		}
+		declarations.byOriginal[identity] = declaration
+		declarations.byEffectiveName[effectiveName] = declaration
+	}
+	return nil
+}
+
+func newXAIToolNameCollisionError(existing, incoming xaiToolDeclaration) error {
+	message := fmt.Sprintf("tool declarations %s and %s resolve to the same outbound name %q", xaiToolIdentityLabel(existing.original), xaiToolIdentityLabel(incoming.original), incoming.effectiveName)
+	payload, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"message": message,
+			"type":    "invalid_request_error",
+			"code":    "tool_name_collision",
+		},
+	})
+	return statusErr{code: http.StatusBadRequest, msg: string(payload)}
+}
+
+func xaiToolIdentityLabel(identity xaiToolIdentity) string {
+	name := identity.name
+	if identity.namespace != "" {
+		name = identity.namespace + "." + name
+	}
+	return fmt.Sprintf("%q (%s)", name, identity.toolType)
+}
+
+func qualifyXAINamespaceToolName(namespace, name string) string {
+	if namespace == "" || name == "" || strings.HasPrefix(name, "mcp__") {
+		return name
+	}
+	prefix := namespace
+	if !strings.HasSuffix(prefix, "__") {
+		prefix += "__"
+	}
+	if strings.HasPrefix(name, prefix) {
+		return name
+	}
+	return prefix + name
+}
+
+func normalizeXAITools(body []byte) []byte {
+	declarations, _ := buildXAIToolDeclarations(body)
+	return normalizeXAIToolsWithDeclarations(body, declarations)
+}
+
+func normalizeXAIToolsWithDeclarations(body []byte, declarations *xaiToolDeclarations) []byte {
+	original := body
+	normalizeAtPath := func(path string) bool {
+		tools := gjson.GetBytes(body, path)
+		if !tools.IsArray() {
+			return true
+		}
+		filtered, changed, ok := normalizeXAIToolArray(tools, "", declarations)
+		if !ok {
+			return false
+		}
+		if !changed {
+			return true
+		}
+		updated, errSet := sjson.SetRawBytes(body, path, filtered)
+		if errSet != nil {
+			return false
+		}
+		body = updated
+		return true
+	}
+	if !normalizeAtPath("tools") {
+		return original
+	}
+	input := gjson.GetBytes(body, "input")
+	if input.IsArray() {
+		for index, item := range input.Array() {
+			if item.Get("type").String() != "additional_tools" {
+				continue
+			}
+			if !normalizeAtPath(fmt.Sprintf("input.%d.tools", index)) {
+				return original
+			}
+		}
+	}
+	return body
+}
+
+func normalizeXAIToolArray(tools gjson.Result, namespace string, declarations *xaiToolDeclarations) ([]byte, bool, bool) {
+	filtered := make([][]byte, 0, len(tools.Array()))
+	changed := false
+	for _, tool := range tools.Array() {
+		if tool.Get("type").String() == xaiNamespaceToolType {
 			changed = true
-			if namespaceTools := tool.Get("tools"); namespaceTools.IsArray() {
-				for _, nestedTool := range namespaceTools.Array() {
-					nestedRaw, nestedChanged, ok := normalizeXAITool(nestedTool)
-					if !ok {
-						return body
-					}
-					changed = changed || nestedChanged
-					if len(nestedRaw) == 0 {
-						continue
-					}
-					updated, errSet := sjson.SetRawBytes(filtered, "-1", nestedRaw)
-					if errSet != nil {
-						return body
-					}
-					filtered = updated
+			nestedNamespace := tool.Get("name").String()
+			for _, nestedTool := range tool.Get("tools").Array() {
+				raw, nestedChanged, ok := normalizeXAIToolWithDeclaration(nestedTool, nestedNamespace, declarations)
+				if !ok {
+					return nil, false, false
+				}
+				changed = changed || nestedChanged
+				if len(raw) > 0 {
+					filtered = append(filtered, raw)
 				}
 			}
 			continue
 		}
-		raw, toolChanged, ok := normalizeXAITool(tool)
+		raw, toolChanged, ok := normalizeXAIToolWithDeclaration(tool, namespace, declarations)
 		if !ok {
-			return body
+			return nil, false, false
 		}
 		changed = changed || toolChanged
-		if len(raw) == 0 {
-			continue
+		if len(raw) > 0 {
+			filtered = append(filtered, raw)
 		}
-		updated, errSet := sjson.SetRawBytes(filtered, "-1", raw)
-		if errSet != nil {
-			return body
-		}
-		filtered = updated
 	}
 	if !changed {
-		return body
+		return nil, false, true
 	}
-	updated, errSet := sjson.SetRawBytes(body, "tools", filtered)
-	if errSet != nil {
-		return body
+	return xaiJoinRawJSONArray(filtered), true, true
+}
+
+func xaiJoinRawJSONArray(items [][]byte) []byte {
+	var joined bytes.Buffer
+	joined.WriteByte('[')
+	for index, item := range items {
+		if index > 0 {
+			joined.WriteByte(',')
+		}
+		joined.Write(item)
 	}
-	return updated
+	joined.WriteByte(']')
+	return joined.Bytes()
 }
 
 func normalizeXAITool(tool gjson.Result) ([]byte, bool, bool) {
+	return normalizeXAIToolWithDeclaration(tool, "", nil)
+}
+
+func normalizeXAIToolWithDeclaration(tool gjson.Result, namespace string, declarations *xaiToolDeclarations) ([]byte, bool, bool) {
 	toolType := tool.Get("type").String()
 	changed := false
 	if toolType == xaiToolSearchType || toolType == xaiImageGenerationToolType {
@@ -795,7 +1001,368 @@ func normalizeXAITool(tool gjson.Result) ([]byte, bool, bool) {
 		raw = updatedTool
 		changed = true
 	}
+	originalType := tool.Get("type").String()
+	if declarations != nil && (originalType == xaiFunctionToolType || originalType == xaiCustomToolType) {
+		identity := xaiToolIdentity{namespace: namespace, name: tool.Get("name").String(), toolType: originalType}
+		if declaration, ok := declarations.byOriginal[identity]; ok && declaration.effectiveName != identity.name {
+			updatedTool, errSet := sjson.SetBytes(raw, "name", declaration.effectiveName)
+			if errSet != nil {
+				return nil, false, false
+			}
+			raw = updatedTool
+			changed = true
+		}
+	}
 	return raw, changed, true
+}
+
+func promoteXAIAdditionalTools(body []byte) []byte {
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return body
+	}
+	inputItems := input.Array()
+	remainingInput := make([]json.RawMessage, 0, len(inputItems))
+	promotedTools := make([]json.RawMessage, 0)
+	for _, item := range inputItems {
+		if item.Get("type").String() != "additional_tools" {
+			remainingInput = append(remainingInput, json.RawMessage(item.Raw))
+			continue
+		}
+		for _, tool := range item.Get("tools").Array() {
+			promotedTools = append(promotedTools, json.RawMessage(tool.Raw))
+		}
+	}
+	if len(remainingInput) == len(inputItems) {
+		return body
+	}
+	rawInput, errMarshal := json.Marshal(remainingInput)
+	if errMarshal != nil {
+		return body
+	}
+	updated, errSet := sjson.SetRawBytes(body, "input", rawInput)
+	if errSet != nil || len(promotedTools) == 0 {
+		return updated
+	}
+	tools := make([]json.RawMessage, 0, len(gjson.GetBytes(updated, "tools").Array())+len(promotedTools))
+	for _, tool := range gjson.GetBytes(updated, "tools").Array() {
+		tools = append(tools, json.RawMessage(tool.Raw))
+	}
+	tools = append(tools, promotedTools...)
+	rawTools, errMarshal := json.Marshal(tools)
+	if errMarshal != nil {
+		return body
+	}
+	updated, errSet = sjson.SetRawBytes(updated, "tools", rawTools)
+	if errSet != nil {
+		return body
+	}
+	return updated
+}
+
+func normalizeXAIToolChoices(body []byte, declarations *xaiToolDeclarations) []byte {
+	body = normalizeXAIToolChoiceAtPath(body, "tool_choice", declarations)
+	for index := range gjson.GetBytes(body, "tool_choice.tools").Array() {
+		body = normalizeXAIToolChoiceAtPath(body, fmt.Sprintf("tool_choice.tools.%d", index), declarations)
+	}
+	return body
+}
+
+func normalizeXAIToolChoiceAtPath(body []byte, path string, declarations *xaiToolDeclarations) []byte {
+	if declarations == nil {
+		return body
+	}
+	choice := gjson.GetBytes(body, path)
+	if !choice.IsObject() {
+		return body
+	}
+	identity := xaiToolIdentity{
+		namespace: choice.Get("namespace").String(),
+		name:      choice.Get("name").String(),
+		toolType:  choice.Get("type").String(),
+	}
+	declaration, ok := declarations.byOriginal[identity]
+	if !ok && identity.namespace == "" {
+		candidate, found := declarations.byEffectiveName[identity.name]
+		if found && (identity.toolType == candidate.original.toolType || identity.toolType == candidate.effectiveType) {
+			declaration, ok = candidate, true
+		}
+	}
+	if !ok {
+		return body
+	}
+	updated, errSet := sjson.SetBytes(body, path+".name", declaration.effectiveName)
+	if errSet != nil {
+		return body
+	}
+	updated, errSet = sjson.SetBytes(updated, path+".type", declaration.effectiveType)
+	if errSet != nil {
+		return body
+	}
+	updated, errSet = sjson.DeleteBytes(updated, path+".namespace")
+	if errSet != nil {
+		return body
+	}
+	return updated
+}
+
+type xaiToolResponseRestorer struct {
+	declarations    *xaiToolDeclarations
+	declarationByID map[string]xaiToolDeclaration
+}
+
+func newXAIToolResponseRestorer(declarations *xaiToolDeclarations) *xaiToolResponseRestorer {
+	return &xaiToolResponseRestorer{
+		declarations:    declarations,
+		declarationByID: make(map[string]xaiToolDeclaration),
+	}
+}
+
+func (r *xaiToolResponseRestorer) apply(eventData []byte) []byte {
+	if r == nil || r.declarations == nil || len(eventData) == 0 || !gjson.ValidBytes(eventData) {
+		return eventData
+	}
+	if item := gjson.GetBytes(eventData, "item"); item.IsObject() {
+		eventData = r.restoreItemAtPath(eventData, "item")
+	}
+	for index := range gjson.GetBytes(eventData, "response.output").Array() {
+		eventData = r.restoreItemAtPath(eventData, fmt.Sprintf("response.output.%d", index))
+	}
+	return r.restoreCustomToolInputEvent(eventData)
+}
+
+func (r *xaiToolResponseRestorer) restoreItemAtPath(eventData []byte, path string) []byte {
+	item := gjson.GetBytes(eventData, path)
+	declaration, ok := r.declarations.matchResponseItem(item)
+	if !ok {
+		return eventData
+	}
+	if id := item.Get("id").String(); id != "" {
+		r.declarationByID[id] = declaration
+	}
+	updated, errSet := sjson.SetBytes(eventData, path+".name", declaration.original.name)
+	if errSet != nil {
+		return eventData
+	}
+	if declaration.original.namespace != "" {
+		updated, errSet = sjson.SetBytes(updated, path+".namespace", declaration.original.namespace)
+		if errSet != nil {
+			return eventData
+		}
+	}
+	if declaration.original.toolType != xaiCustomToolType {
+		return updated
+	}
+	updated, errSet = sjson.SetBytes(updated, path+".type", "custom_tool_call")
+	if errSet != nil {
+		return eventData
+	}
+	if arguments := gjson.GetBytes(updated, path+".arguments"); arguments.Exists() {
+		updated, errSet = sjson.SetBytes(updated, path+".input", arguments.String())
+		if errSet != nil {
+			return eventData
+		}
+		updated, errSet = sjson.DeleteBytes(updated, path+".arguments")
+		if errSet != nil {
+			return eventData
+		}
+	}
+	return updated
+}
+
+func (r *xaiToolResponseRestorer) restoreCustomToolInputEvent(eventData []byte) []byte {
+	eventType := gjson.GetBytes(eventData, "type").String()
+	if eventType != "response.function_call_arguments.delta" && eventType != "response.function_call_arguments.done" {
+		return eventData
+	}
+	declaration, ok := r.declarationByID[gjson.GetBytes(eventData, "item_id").String()]
+	if !ok || declaration.original.toolType != xaiCustomToolType {
+		return eventData
+	}
+	if eventType == "response.function_call_arguments.delta" {
+		updated, errSet := sjson.SetBytes(eventData, "type", "response.custom_tool_call_input.delta")
+		if errSet != nil {
+			return eventData
+		}
+		return updated
+	}
+	updated, errSet := sjson.SetBytes(eventData, "type", "response.custom_tool_call_input.done")
+	if errSet != nil {
+		return eventData
+	}
+	if arguments := gjson.GetBytes(updated, "arguments"); arguments.Exists() {
+		updated, errSet = sjson.SetBytes(updated, "input", arguments.String())
+		if errSet != nil {
+			return eventData
+		}
+		updated, errSet = sjson.DeleteBytes(updated, "arguments")
+		if errSet != nil {
+			return eventData
+		}
+	}
+	return updated
+}
+
+func (d *xaiToolDeclarations) matchResponseItem(item gjson.Result) (xaiToolDeclaration, bool) {
+	if d == nil || item.Get("type").String() != "function_call" {
+		return xaiToolDeclaration{}, false
+	}
+	name := item.Get("name").String()
+	if namespace := item.Get("namespace").String(); namespace != "" {
+		for _, toolType := range []string{xaiFunctionToolType, xaiCustomToolType} {
+			if declaration, ok := d.byOriginal[xaiToolIdentity{namespace: namespace, name: name, toolType: toolType}]; ok {
+				return declaration, true
+			}
+		}
+		return xaiToolDeclaration{}, false
+	}
+	declaration, ok := d.byEffectiveName[name]
+	if !ok || declaration.effectiveType != xaiFunctionToolType {
+		return xaiToolDeclaration{}, false
+	}
+	return declaration, true
+}
+
+type xaiInternalXSearchResponseFilter struct {
+	declarations         *xaiToolDeclarations
+	droppedOutputIndexes map[int64]struct{}
+	droppedItemIDs       map[string]struct{}
+}
+
+func newXAIInternalXSearchResponseFilter(declarations *xaiToolDeclarations) *xaiInternalXSearchResponseFilter {
+	return &xaiInternalXSearchResponseFilter{
+		declarations:         declarations,
+		droppedOutputIndexes: make(map[int64]struct{}),
+		droppedItemIDs:       make(map[string]struct{}),
+	}
+}
+
+func xaiIsInternalXSearchToolName(name string) bool {
+	switch name {
+	case "x_user_search", "x_semantic_search", "x_keyword_search", "x_thread_fetch":
+		return true
+	default:
+		return false
+	}
+}
+
+func xaiIsInternalXSearchCallID(callID string) bool {
+	return strings.HasPrefix(callID, "xs_call")
+}
+
+func (f *xaiInternalXSearchResponseFilter) isInternalCall(item gjson.Result) bool {
+	itemType := item.Get("type").String()
+	if itemType != "function_call" && itemType != "custom_tool_call" {
+		return false
+	}
+	if !xaiIsInternalXSearchToolName(item.Get("name").String()) {
+		return false
+	}
+	if f != nil && f.declarations != nil && item.Get("namespace").String() != "" {
+		if _, declared := f.declarations.matchResponseItem(item); declared {
+			return false
+		}
+	}
+	if xaiIsInternalXSearchCallID(item.Get("call_id").String()) {
+		return true
+	}
+	if f != nil && f.declarations != nil {
+		if _, declared := f.declarations.matchResponseItem(item); declared {
+			return false
+		}
+	}
+	return true
+}
+
+func (f *xaiInternalXSearchResponseFilter) apply(eventData []byte) []byte {
+	if f == nil || len(eventData) == 0 || !gjson.ValidBytes(eventData) {
+		return eventData
+	}
+	if item := gjson.GetBytes(eventData, "item"); f.isInternalCall(item) {
+		f.recordDroppedItem(eventData, item)
+		return nil
+	}
+	eventData = f.filterCompletedOutput(eventData)
+	if f.referencesDroppedItem(eventData) {
+		return nil
+	}
+	return f.compactOutputIndex(eventData)
+}
+
+func (f *xaiInternalXSearchResponseFilter) recordDroppedItem(eventData []byte, item gjson.Result) {
+	if outputIndex := gjson.GetBytes(eventData, "output_index"); outputIndex.Exists() {
+		f.droppedOutputIndexes[outputIndex.Int()] = struct{}{}
+	}
+	for _, path := range []string{"id", "call_id"} {
+		if id := item.Get(path).String(); id != "" {
+			f.droppedItemIDs[id] = struct{}{}
+		}
+	}
+}
+
+func (f *xaiInternalXSearchResponseFilter) referencesDroppedItem(eventData []byte) bool {
+	if outputIndex := gjson.GetBytes(eventData, "output_index"); outputIndex.Exists() {
+		if _, dropped := f.droppedOutputIndexes[outputIndex.Int()]; dropped {
+			return true
+		}
+	}
+	for _, path := range []string{"item_id", "call_id"} {
+		id := gjson.GetBytes(eventData, path).String()
+		if _, dropped := f.droppedItemIDs[id]; id != "" && dropped {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *xaiInternalXSearchResponseFilter) compactOutputIndex(eventData []byte) []byte {
+	outputIndex := gjson.GetBytes(eventData, "output_index")
+	if !outputIndex.Exists() {
+		return eventData
+	}
+	original := outputIndex.Int()
+	removedBefore := int64(0)
+	for dropped := range f.droppedOutputIndexes {
+		if dropped < original {
+			removedBefore++
+		}
+	}
+	if removedBefore == 0 {
+		return eventData
+	}
+	updated, errSet := sjson.SetBytes(eventData, "output_index", original-removedBefore)
+	if errSet != nil {
+		return eventData
+	}
+	return updated
+}
+
+func (f *xaiInternalXSearchResponseFilter) filterCompletedOutput(eventData []byte) []byte {
+	output := gjson.GetBytes(eventData, "response.output")
+	if !output.IsArray() {
+		return eventData
+	}
+	items := make([]json.RawMessage, 0, len(output.Array()))
+	changed := false
+	for _, item := range output.Array() {
+		if f.isInternalCall(item) {
+			changed = true
+			continue
+		}
+		items = append(items, json.RawMessage(item.Raw))
+	}
+	if !changed {
+		return eventData
+	}
+	rawOutput, errMarshal := json.Marshal(items)
+	if errMarshal != nil {
+		return eventData
+	}
+	updated, errSet := sjson.SetRawBytes(eventData, "response.output", rawOutput)
+	if errSet != nil {
+		return eventData
+	}
+	return updated
 }
 
 func normalizeXAIInputReasoningItems(body []byte) []byte {

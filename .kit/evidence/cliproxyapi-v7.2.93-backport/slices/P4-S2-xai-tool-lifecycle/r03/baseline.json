@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S2-xai-tool-lifecycle",
+  "revision": "r03",
+  "supersedes_revision": "r02",
+  "supersession_reason": "r02 let xs_call prefix override an exact declared namespaced client identity",
+  "created_at_utc": "2026-07-23T05:20:50Z",
+  "worktree_start_head": "2960b690bf89232b8a23c5b8823fbe0ca831347f",
+  "prepared_base_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "phase_base_manifest": "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/phases/P4-BASE/r01/baseline.json",
+  "allowlist": [
+    "internal/runtime/executor/xai_executor.go",
+    "internal/runtime/executor/xai_executor_test.go"
+  ],
+  "baseline_sha256": {
+    "internal/runtime/executor/xai_executor.go": "01080df177aef91b1f6280c31b610eea7f0b88c89ab05f3a62ed17de1af6d693",
+    "internal/runtime/executor/xai_executor_test.go": "ca983ac121b7bd7de9be84bcd0865d72988073921e77c16f04ed78114a9ffe39"
+  },
+  "baseline_tar_sha256": "4a63935247d5d15ec3ca3219d6717ea9b722f6486fe758a8bbb8361aaa39f0ac",
+  "predecessor_patches_applied_in_order": [
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P1-CLOSE/r01/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S1-cooldown-jitter/r01/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r04/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S1-file-data-normalization/r03/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r03/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S3-codex-claude-output-indices/r04/patch"
+  ],
+  "worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a1d5a7ff298455574"
+}

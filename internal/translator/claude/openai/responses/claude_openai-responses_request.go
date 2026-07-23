@@ -1,9 +1,12 @@
 package responses
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -365,10 +368,10 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 				flushPendingReasoning()
 				// Map to user tool_result
 				callID := item.Get("call_id").String()
-				outputStr := item.Get("output").String()
+				output := item.Get("output")
 				toolResult := []byte(`{"type":"tool_result","tool_use_id":"","content":""}`)
 				toolResult, _ = sjson.SetBytes(toolResult, "tool_use_id", callID)
-				toolResult, _ = sjson.SetBytes(toolResult, "content", outputStr)
+				toolResult = applyResponsesToolResultContent(toolResult, output)
 
 				usr := []byte(`{"role":"user","content":[]}`)
 				usr, _ = sjson.SetRawBytes(usr, "content.-1", toolResult)
@@ -464,6 +467,224 @@ func responsesReasoningSummaryText(item gjson.Result) string {
 		})
 	}
 	return builder.String()
+}
+
+func applyResponsesToolResultContent(toolResult []byte, output gjson.Result) []byte {
+	if output.Type == gjson.String {
+		toolResult, _ = sjson.SetBytes(toolResult, "content", output.String())
+		return toolResult
+	}
+	if output.IsArray() {
+		content := []byte(`[]`)
+		valid := true
+		output.ForEach(func(_, part gjson.Result) bool {
+			partJSON := convertResponsesToolResultContentPartToClaude(part)
+			if len(partJSON) == 0 {
+				valid = false
+				return false
+			}
+			content, _ = sjson.SetRawBytes(content, "-1", partJSON)
+			return true
+		})
+		if valid {
+			toolResult, _ = sjson.SetRawBytes(toolResult, "content", content)
+			return toolResult
+		}
+	}
+	toolResult, _ = sjson.SetBytes(toolResult, "content", compactResponsesJSONText(output))
+	return toolResult
+}
+
+func convertResponsesToolResultContentPartToClaude(part gjson.Result) []byte {
+	if !part.IsObject() {
+		return nil
+	}
+
+	switch part.Get("type").String() {
+	case "input_text", "output_text":
+		if text := part.Get("text"); text.Type == gjson.String {
+			contentPart := []byte(`{"type":"text","text":""}`)
+			contentPart, _ = sjson.SetBytes(contentPart, "text", text.String())
+			return contentPart
+		}
+	case "input_image":
+		url := part.Get("image_url").String()
+		if url == "" {
+			url = part.Get("url").String()
+		}
+		if url == "" {
+			return nil
+		}
+		if strings.HasPrefix(url, "data:") {
+			mediaType, data, ok := parseResponsesBase64DataURL(url)
+			if !ok || !validClaudeImageMediaType(mediaType) {
+				return nil
+			}
+			contentPart := []byte(`{"type":"image","source":{"type":"base64","media_type":"","data":""}}`)
+			contentPart, _ = sjson.SetBytes(contentPart, "source.media_type", mediaType)
+			contentPart, _ = sjson.SetBytes(contentPart, "source.data", data)
+			return contentPart
+		}
+		contentPart := []byte(`{"type":"image","source":{"type":"url","url":""}}`)
+		contentPart, _ = sjson.SetBytes(contentPart, "source.url", url)
+		return contentPart
+	case "input_file":
+		fileData := part.Get("file_data").String()
+		if fileData == "" {
+			return nil
+		}
+		mediaType := part.Get("media_type").String()
+		data := fileData
+		if strings.HasPrefix(fileData, "data:") {
+			var ok bool
+			mediaType, data, ok = parseResponsesBase64DataURL(fileData)
+			if !ok {
+				return nil
+			}
+		} else if mediaType == "" && strings.HasSuffix(strings.ToLower(part.Get("filename").String()), ".pdf") {
+			mediaType = "application/pdf"
+		}
+		if mediaType != "application/pdf" || !validResponsesBase64(data) {
+			return nil
+		}
+		contentPart := []byte(`{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":""}}`)
+		contentPart, _ = sjson.SetBytes(contentPart, "source.data", data)
+		return contentPart
+	case "text":
+		if part.Get("text").Type == gjson.String {
+			return compactResponsesJSON([]byte(part.Raw))
+		}
+	case "image":
+		if validClaudeToolResultImageSource(part.Get("source")) {
+			return compactResponsesJSON([]byte(part.Raw))
+		}
+	case "document":
+		if validClaudeToolResultDocumentSource(part.Get("source")) {
+			return compactResponsesJSON([]byte(part.Raw))
+		}
+	case "search_result":
+		if validClaudeToolResultSearchResult(part) {
+			return compactResponsesJSON([]byte(part.Raw))
+		}
+	case "tool_reference":
+		if part.Get("tool_name").Type == gjson.String && part.Get("tool_name").String() != "" {
+			return compactResponsesJSON([]byte(part.Raw))
+		}
+	}
+	return nil
+}
+
+func parseResponsesBase64DataURL(value string) (string, string, bool) {
+	mediaAndData := strings.SplitN(strings.TrimPrefix(value, "data:"), ";base64,", 2)
+	if len(mediaAndData) != 2 || mediaAndData[0] == "" || !validResponsesBase64(mediaAndData[1]) {
+		return "", "", false
+	}
+	return mediaAndData[0], mediaAndData[1], true
+}
+
+func validResponsesBase64(data string) bool {
+	if data == "" {
+		return false
+	}
+	_, err := base64.StdEncoding.DecodeString(data)
+	return err == nil
+}
+
+func validClaudeImageMediaType(mediaType string) bool {
+	switch mediaType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func validClaudeToolResultImageSource(source gjson.Result) bool {
+	if !source.IsObject() {
+		return false
+	}
+	switch source.Get("type").String() {
+	case "base64":
+		return validClaudeImageMediaType(source.Get("media_type").String()) &&
+			source.Get("data").Type == gjson.String && validResponsesBase64(source.Get("data").String())
+	case "url":
+		return source.Get("url").Type == gjson.String && source.Get("url").String() != ""
+	default:
+		return false
+	}
+}
+
+func validClaudeToolResultDocumentSource(source gjson.Result) bool {
+	if !source.IsObject() {
+		return false
+	}
+	switch source.Get("type").String() {
+	case "base64":
+		return source.Get("media_type").String() == "application/pdf" &&
+			source.Get("data").Type == gjson.String && validResponsesBase64(source.Get("data").String())
+	case "url":
+		return source.Get("url").Type == gjson.String && source.Get("url").String() != ""
+	case "text":
+		return source.Get("media_type").String() == "text/plain" && source.Get("data").Type == gjson.String
+	case "content":
+		content := source.Get("content")
+		return content.Type == gjson.String || validClaudeToolResultDocumentContent(content)
+	default:
+		return false
+	}
+}
+
+func validClaudeToolResultDocumentContent(content gjson.Result) bool {
+	if !content.IsArray() {
+		return false
+	}
+	valid := true
+	content.ForEach(func(_, block gjson.Result) bool {
+		switch block.Get("type").String() {
+		case "text":
+			valid = block.IsObject() && block.Get("text").Type == gjson.String
+		case "image":
+			valid = block.IsObject() && validClaudeToolResultImageSource(block.Get("source"))
+		default:
+			valid = false
+		}
+		return valid
+	})
+	return valid
+}
+
+func validClaudeToolResultSearchResult(part gjson.Result) bool {
+	return part.Get("source").Type == gjson.String && part.Get("source").String() != "" &&
+		part.Get("title").Type == gjson.String && part.Get("title").String() != "" &&
+		validClaudeToolResultTextBlocks(part.Get("content"))
+}
+
+func validClaudeToolResultTextBlocks(content gjson.Result) bool {
+	if !content.IsArray() {
+		return false
+	}
+	valid := true
+	content.ForEach(func(_, block gjson.Result) bool {
+		valid = block.IsObject() && block.Get("type").String() == "text" && block.Get("text").Type == gjson.String
+		return valid
+	})
+	return valid
+}
+
+func compactResponsesJSONText(value gjson.Result) string {
+	raw := strings.TrimSpace(value.Raw)
+	if raw == "" {
+		return value.String()
+	}
+	return string(compactResponsesJSON([]byte(raw)))
+}
+
+func compactResponsesJSON(raw []byte) []byte {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return raw
+	}
+	return compact.Bytes()
 }
 
 func convertResponsesToolToClaudeTools(tool gjson.Result, toolNameMap map[string]string) [][]byte {

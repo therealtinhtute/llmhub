@@ -1,0 +1,27 @@
+{
+  "slice_id": "P2-S2-error-classification",
+  "revision": "r01",
+  "base_slice": "P2-S1-cooldown-jitter/r01",
+  "patch_sha256": "cdfd684c7a27cabef9b15a965319d3c99c9e82ac4c220b4ff245fdabead8b777",
+  "verdict": "CHANGES_REQUESTED",
+  "scope_check": {"unexpected_paths": []},
+  "findings": [
+    {
+      "severity": "Major",
+      "file": "sdk/cliproxy/auth/conductor.go",
+      "line": 2993,
+      "claim": "Unbounded invalid_grant substring matching misclassifies longer identifiers such as invalid_grant_type.",
+      "required_fix": "Use exact structured identifiers and a bounded textual token; add negative invalid_grant_type and invalid_granted fixtures."
+    },
+    {
+      "severity": "Major",
+      "file": "sdk/cliproxy/auth/conductor.go",
+      "line": 3050,
+      "claim": "Wrapped nested model_not_found payloads are parsed only through the outer non-JSON error string and become availability-neutral.",
+      "required_fix": "Inspect matched Error message and recursively inspect wrapped errors; add wrapped nested model_not_found fixtures."
+    }
+  ],
+  "concerns": [
+    "Patch scope and reversibility passed; only the two verified classification findings block approval."
+  ]
+}

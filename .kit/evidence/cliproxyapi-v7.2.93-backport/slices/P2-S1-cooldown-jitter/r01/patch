@@ -1,0 +1,331 @@
+diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
+index 128c4d800b3c67ac4fc17c37d779fb13d400627f..d70fb05cf054dccca78a33f15461acdb509260a0 100644
+--- a/sdk/cliproxy/auth/conductor.go
++++ b/sdk/cliproxy/auth/conductor.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"io"
++	"math/rand/v2"
+ 	"net/http"
+ 	"path/filepath"
+ 	"sort"
+@@ -1293,7 +1294,7 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
+ 		if !shouldRetry {
+ 			break
+ 		}
+-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
++		if errWait := waitForCooldown(ctx, wait, maxWait); errWait != nil {
+ 			return cliproxyexecutor.Response{}, errWait
+ 		}
+ 	}
+@@ -1328,7 +1329,7 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
+ 		if !shouldRetry {
+ 			break
+ 		}
+-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
++		if errWait := waitForCooldown(ctx, wait, maxWait); errWait != nil {
+ 			return cliproxyexecutor.Response{}, errWait
+ 		}
+ 	}
+@@ -1359,7 +1360,7 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
+ 		if !shouldRetry {
+ 			break
+ 		}
+-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
++		if errWait := waitForCooldown(ctx, wait, maxWait); errWait != nil {
+ 			return nil, errWait
+ 		}
+ 	}
+@@ -2294,7 +2295,36 @@ func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []stri
+ 	return *retryAfter, true
+ }
+ 
+-func waitForCooldown(ctx context.Context, wait time.Duration) error {
++// cooldownWaitJitterCap bounds the random jitter added to cooldown waits so a
++// long wait is never extended by more than this amount.
++const cooldownWaitJitterCap = 2 * time.Second
++
++func jitteredCooldownWait(base, maxRetryInterval time.Duration) time.Duration {
++	if maxRetryInterval <= 0 {
++		return 0
++	}
++	clamped := base
++	if clamped < 0 {
++		clamped = 0
++	}
++	if clamped > maxRetryInterval {
++		clamped = maxRetryInterval
++	}
++	jitterCap := clamped / 4
++	if jitterCap > cooldownWaitJitterCap {
++		jitterCap = cooldownWaitJitterCap
++	}
++	if remaining := maxRetryInterval - clamped; jitterCap > remaining {
++		jitterCap = remaining
++	}
++	if jitterCap <= 0 {
++		return clamped
++	}
++	return clamped + rand.N(jitterCap+1)
++}
++
++func waitForCooldown(ctx context.Context, wait, maxRetryInterval time.Duration) error {
++	wait = jitteredCooldownWait(wait, maxRetryInterval)
+ 	if wait <= 0 {
+ 		return nil
+ 	}
+@@ -2408,11 +2438,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
+ 								if result.RetryAfter != nil {
+ 									next = now.Add(*result.RetryAfter)
+ 								} else {
+-									cooldown, nextLevel := nextQuotaCooldown(backoffLevel, disableCooling)
+-									if cooldown > 0 {
+-										next = now.Add(cooldown)
+-									}
+-									backoffLevel = nextLevel
++									next, backoffLevel = quotaCooldownAfterFailure(state.Quota, disableCooling, now)
+ 								}
+ 							}
+ 							state.NextRetryAfter = next
+@@ -3021,11 +3047,7 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
+ 			if retryAfter != nil {
+ 				next = now.Add(*retryAfter)
+ 			} else {
+-				cooldown, nextLevel := nextQuotaCooldown(auth.Quota.BackoffLevel, disableCooling)
+-				if cooldown > 0 {
+-					next = now.Add(cooldown)
+-				}
+-				auth.Quota.BackoffLevel = nextLevel
++				next, auth.Quota.BackoffLevel = quotaCooldownAfterFailure(auth.Quota, disableCooling, now)
+ 			}
+ 		}
+ 		auth.Quota.NextRecoverAt = next
+@@ -3044,6 +3066,25 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
+ 	}
+ }
+ 
++// quotaCooldownAfterFailure returns the recovery deadline and backoff level for
++// a quota failure observed at now. Failures inside an active recovery window
++// reuse that window instead of escalating the backoff level again.
++func quotaCooldownAfterFailure(quota QuotaState, disableCooling bool, now time.Time) (time.Time, int) {
++	if disableCooling {
++		_, nextLevel := nextQuotaCooldown(quota.BackoffLevel, disableCooling)
++		return time.Time{}, nextLevel
++	}
++	if quota.NextRecoverAt.After(now) {
++		return quota.NextRecoverAt, quota.BackoffLevel
++	}
++	cooldown, nextLevel := nextQuotaCooldown(quota.BackoffLevel, disableCooling)
++	var next time.Time
++	if cooldown > 0 {
++		next = now.Add(cooldown)
++	}
++	return next, nextLevel
++}
++
+ // nextQuotaCooldown returns the next cooldown duration and updated backoff level for repeated quota errors.
+ func nextQuotaCooldown(prevLevel int, disableCooling bool) (time.Duration, int) {
+ 	if prevLevel < 0 {
+diff --git a/sdk/cliproxy/auth/cooldown_backoff_test.go b/sdk/cliproxy/auth/cooldown_backoff_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d73616eb2a9a6d96076d0e455f0338df9349ed7
+--- /dev/null
++++ b/sdk/cliproxy/auth/cooldown_backoff_test.go
+@@ -0,0 +1,196 @@
++package auth
++
++import (
++	"context"
++	"net/http"
++	"sync"
++	"testing"
++	"time"
++)
++
++func TestManager_ModelCooldownBackoffEscalatesOncePerActiveWindow(t *testing.T) {
++	ctx := context.Background()
++	manager := NewManager(nil, nil, nil)
++	const (
++		authID       = "model-cooldown-backoff-auth"
++		model        = "model-cooldown-backoff-model"
++		backoffLevel = 3
++	)
++	deadline := time.Now().Add(time.Hour)
++
++	if _, err := manager.Register(ctx, &Auth{
++		ID:       authID,
++		Provider: "gemini",
++		ModelStates: map[string]*ModelState{
++			model: {
++				Status:         StatusError,
++				Unavailable:    true,
++				NextRetryAfter: deadline,
++				Quota: QuotaState{
++					Exceeded:      true,
++					Reason:        "quota",
++					NextRecoverAt: deadline,
++					BackoffLevel:  backoffLevel,
++				},
++			},
++		},
++	}); err != nil {
++		t.Fatalf("Register() error = %v", err)
++	}
++
++	result := Result{
++		AuthID:   authID,
++		Provider: "gemini",
++		Model:    model,
++		Error:    &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
++	}
++	manager.MarkResult(ctx, result)
++	assertModelCooldownWindow(t, manager, authID, model, deadline, backoffLevel)
++
++	const concurrentFailures = 32
++	start := make(chan struct{})
++	var wg sync.WaitGroup
++	wg.Add(concurrentFailures)
++	for range concurrentFailures {
++		go func() {
++			defer wg.Done()
++			<-start
++			manager.MarkResult(ctx, result)
++		}()
++	}
++	close(start)
++	wg.Wait()
++
++	assertModelCooldownWindow(t, manager, authID, model, deadline, backoffLevel)
++}
++
++func TestManager_AuthCooldownBackoffEscalatesOncePerActiveWindow(t *testing.T) {
++	ctx := context.Background()
++	manager := NewManager(nil, nil, nil)
++	const (
++		authID       = "auth-cooldown-backoff"
++		backoffLevel = 4
++	)
++	deadline := time.Now().Add(time.Hour)
++
++	if _, err := manager.Register(ctx, &Auth{
++		ID:             authID,
++		Provider:       "gemini",
++		Status:         StatusError,
++		Unavailable:    true,
++		NextRetryAfter: deadline,
++		Quota: QuotaState{
++			Exceeded:      true,
++			Reason:        "quota",
++			NextRecoverAt: deadline,
++			BackoffLevel:  backoffLevel,
++		},
++	}); err != nil {
++		t.Fatalf("Register() error = %v", err)
++	}
++
++	result := Result{
++		AuthID:   authID,
++		Provider: "gemini",
++		Error:    &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
++	}
++	manager.MarkResult(ctx, result)
++	manager.MarkResult(ctx, result)
++
++	auth := managerAuthSnapshot(t, manager, authID)
++	if !auth.NextRetryAfter.Equal(deadline) {
++		t.Fatalf("NextRetryAfter = %v, want %v", auth.NextRetryAfter, deadline)
++	}
++	if !auth.Quota.NextRecoverAt.Equal(deadline) {
++		t.Fatalf("Quota.NextRecoverAt = %v, want %v", auth.Quota.NextRecoverAt, deadline)
++	}
++	if auth.Quota.BackoffLevel != backoffLevel {
++		t.Fatalf("Quota.BackoffLevel = %d, want %d", auth.Quota.BackoffLevel, backoffLevel)
++	}
++}
++
++func TestQuotaCooldownBackoffDisabled(t *testing.T) {
++	now := time.Unix(1_700_000_000, 0)
++	tests := []struct {
++		name      string
++		level     int
++		wantLevel int
++	}{
++		{name: "preserves non-negative level", level: 4, wantLevel: 4},
++		{name: "clamps negative level", level: -1, wantLevel: 0},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			next, level := quotaCooldownAfterFailure(QuotaState{
++				NextRecoverAt: now.Add(time.Hour),
++				BackoffLevel:  tt.level,
++			}, true, now)
++			if !next.IsZero() {
++				t.Fatalf("quotaCooldownAfterFailure() next = %v, want zero", next)
++			}
++			if level != tt.wantLevel {
++				t.Fatalf("quotaCooldownAfterFailure() level = %d, want %d", level, tt.wantLevel)
++			}
++		})
++	}
++}
++
++func TestJitteredCooldownWait(t *testing.T) {
++	tests := []struct {
++		name string
++		base time.Duration
++		max  time.Duration
++		min  time.Duration
++		high time.Duration
++	}{
++		{name: "maximum zero", base: time.Second, max: 0, min: 0, high: 0},
++		{name: "maximum negative", base: time.Second, max: -time.Second, min: 0, high: 0},
++		{name: "base negative", base: -time.Second, max: 10 * time.Second, min: 0, high: 0},
++		{name: "base zero", base: 0, max: 10 * time.Second, min: 0, high: 0},
++		{name: "base below maximum", base: 4 * time.Second, max: 10 * time.Second, min: 4 * time.Second, high: 5 * time.Second},
++		{name: "jitter capped at two seconds", base: 20 * time.Second, max: 30 * time.Second, min: 20 * time.Second, high: 22 * time.Second},
++		{name: "base equal maximum", base: 10 * time.Second, max: 10 * time.Second, min: 10 * time.Second, high: 10 * time.Second},
++		{name: "base above maximum", base: 12 * time.Second, max: 10 * time.Second, min: 10 * time.Second, high: 10 * time.Second},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			for range 64 {
++				got := jitteredCooldownWait(tt.base, tt.max)
++				if got < tt.min || got > tt.high {
++					t.Fatalf("jitteredCooldownWait(%v, %v) = %v, want [%v, %v]", tt.base, tt.max, got, tt.min, tt.high)
++				}
++			}
++		})
++	}
++}
++
++func assertModelCooldownWindow(t *testing.T, manager *Manager, authID, model string, deadline time.Time, backoffLevel int) {
++	t.Helper()
++	auth := managerAuthSnapshot(t, manager, authID)
++	state := auth.ModelStates[model]
++	if state == nil {
++		t.Fatalf("ModelStates[%q] is nil", model)
++	}
++	if !state.NextRetryAfter.Equal(deadline) {
++		t.Fatalf("ModelStates[%q].NextRetryAfter = %v, want %v", model, state.NextRetryAfter, deadline)
++	}
++	if !state.Quota.NextRecoverAt.Equal(deadline) {
++		t.Fatalf("ModelStates[%q].Quota.NextRecoverAt = %v, want %v", model, state.Quota.NextRecoverAt, deadline)
++	}
++	if state.Quota.BackoffLevel != backoffLevel {
++		t.Fatalf("ModelStates[%q].Quota.BackoffLevel = %d, want %d", model, state.Quota.BackoffLevel, backoffLevel)
++	}
++}
++
++func managerAuthSnapshot(t *testing.T, manager *Manager, authID string) *Auth {
++	t.Helper()
++	for _, auth := range manager.List() {
++		if auth != nil && auth.ID == authID {
++			return auth
++		}
++	}
++	t.Fatalf("auth %q not found", authID)
++	return nil
++}

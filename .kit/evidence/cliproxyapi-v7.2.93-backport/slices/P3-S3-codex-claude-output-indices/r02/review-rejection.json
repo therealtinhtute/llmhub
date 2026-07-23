@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S3-codex-claude-output-indices",
+  "revision": "r02",
+  "patch_sha256": "2b2e16e5a3e9393d022e9f8a7dc5f2d9f0cf9a6d8a168111b07c3adfed8a9d35",
+  "verdict": "REJECTED",
+  "findings": [
+    {
+      "severity": "major",
+      "file": "internal/translator/codex/claude/codex_claude_response.go",
+      "line": 168,
+      "summary": "A later reasoning item overwrites the pending lifecycle's index and signature.",
+      "failure_scenario": "Reasoning index 2 starts, emits summary text, and becomes stop-pending; reasoning item index 7 is then added before the next summary event. r02 overwrites the global thinking index/signature, so the index-2 block emits signature sig_7 and stops at index 7 instead of finalizing entirely at index 2 with sig_2.",
+      "required_change": "Finalize or retain each active reasoning lifecycle before selecting a different reasoning item, and ignore stale completion events that do not belong to the active item."
+    },
+    {
+      "severity": "major",
+      "file": "internal/translator/codex/claude/codex_claude_response.go",
+      "line": 111,
+      "summary": "Function and text blocks can overlap and consecutive functions share unsafe global state.",
+      "failure_scenario": "A function block at index 9 followed by text at index 5 starts the text block without stopping the function; a delayed function done then stops index 9 after text closes. Starting a second function before the first completes also reuses one global index and emits duplicate or misindexed stops.",
+      "required_change": "Track function blocks by stable event identity, stop the active function before text, thinking, completion, or a different function starts, and make delayed done events for already-closed functions no-ops."
+    }
+  ],
+  "verification": {
+    "supplied_focused_suite_passed": true,
+    "adversarial_reasoning_transition_failed": true,
+    "adversarial_tool_to_text_transition_failed": true,
+    "adversarial_consecutive_tools_failed": true
+  },
+  "resolution": "Do not apply r02. Mint a corrected immutable revision with direct regressions for all three reproduced lifecycle failures and repeat independent review."
+}

@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KY1VRX5AQYP3SQ97PVNQQPJQ","fields":{"created_at":"2026-07-21T08:13:13Z","run_id":"01KY1TN5ZQ9YVN3BQAX935F10X","summary":"Mapped Codex WebSocket close 1009 to request-scoped message_too_big error","wave":1},"at":"2026-07-21T08:13:13Z"}

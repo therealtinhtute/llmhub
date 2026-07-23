@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
+	openairesponses "github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -40,6 +41,7 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 
 	// Convert role "system" to "developer" in input array to comply with Codex API requirements.
 	rawJSON = convertSystemRoleToDeveloper(rawJSON)
+	rawJSON = openairesponses.NormalizeResponsesToolsForCodex(rawJSON)
 	rawJSON = normalizeCodexBuiltinTools(rawJSON)
 
 	return rawJSON

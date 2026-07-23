@@ -1,0 +1,57 @@
+{
+  "slice_id": "P3-S1-file-data-normalization",
+  "revision": "r02",
+  "patch_sha256": "d9c587f4153f1e0cbebb00e5d04d4cff2ea68d346eda6422cb81cdd17aca7708",
+  "verdict": "APPROVED",
+  "base_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "tested_result_tree": "7f2dc89a1b74d6a3bd0aec0f738bfeb4cf0323af",
+  "scope_check": {
+    "expected_path_count": 8,
+    "actual_path_count": 8,
+    "unexpected_paths": [],
+    "missing_paths": [],
+    "assessment": "The Codex tool-output normalization is required because tool-role file parts are OpenAI file inputs and the locked parity reference identifies this Codex path. Reusing the helper for Gemini and Gemini CLI image data URLs is also consistent with the locked rejection of duplicate data-URL parsers; it removes parser drift without leaving the eight-file allowlist."
+  },
+  "tests_reviewed": [
+    "sha256sum r02/patch: PASS (d9c587f4153f1e0cbebb00e5d04d4cff2ea68d346eda6422cb81cdd17aca7708)",
+    "reconstructed Phase 3 base from commit 2960b690 plus accepted P1-CLOSE r01, P2-S1 r01, and P2-S2 r04 patches: PASS (98d750898d239533918d092276faf9520a64adb1)",
+    "r02 baseline archive file hashes against the prepared base: PASS",
+    "temporary-index forward application: PASS (7f2dc89a1b74d6a3bd0aec0f738bfeb4cf0323af)",
+    "all eight reconstructed result hashes match r02 baseline.json: PASS",
+    "temporary-index reverse application: PASS (98d750898d239533918d092276faf9520a64adb1)",
+    "git diff --check 98d750898d239533918d092276faf9520a64adb1 7f2dc89a1b74d6a3bd0aec0f738bfeb4cf0323af: PASS",
+    "go test ./internal/translator/common ./internal/translator/gemini/openai/chat-completions ./internal/translator/gemini-cli/openai/chat-completions ./internal/translator/codex/openai/chat-completions -count=1 on independently reconstructed r02: PASS",
+    "independent helper edge cases for exact base64 metadata fields, case/whitespace, comma-preserving payloads, supplied fallback precedence, uppercase multi-dot extensions, and non-decoding of payload characters: PASS",
+    "current completed r01 control independently reconstructs to declared e7a10e5edf0cd454e703f9024d91492b3d314fbe, reverses to the same base, matches all declared hashes, and passes focused tests"
+  ],
+  "ranked_findings": [],
+  "findings": [],
+  "minor_notes": [
+    "r02 does not separately record a named result tree or result.json; independent review computed and tested result tree 7f2dc89a1b74d6a3bd0aec0f738bfeb4cf0323af, whose eight file hashes exactly match the frozen r02 declarations.",
+    "r02 baseline.json's supersession reason is now stale because r01 was later completed. Selection should instead rest on behavior: r01 omits required Codex tool-output file_data normalization and leaves the old duplicated Gemini/Gemini CLI image data-URL parsers, while r02 completes those locked paths.",
+    "The shared helper matches the canonical upstream cached blob's parsing logic, with only the repository module import path adapted. Canonical upstream uses it for Gemini file parts; the local locked contract additionally requires Codex data-URL reconstruction and one shared data-URL parser across the selected Gemini paths."
+  ],
+  "verified": {
+    "patch_hash_matches": true,
+    "base_tree_reconstructed": true,
+    "baseline_hashes_match_base": true,
+    "exact_allowlist_matches": true,
+    "result_hashes_match": true,
+    "forward_application_matches_tested_result_tree": true,
+    "reverse_application_matches_base_tree": true,
+    "focused_tests_pass": true,
+    "empty_input_fails": true,
+    "raw_input_uses_supplied_fallback_first": true,
+    "raw_input_uses_lowercase_filename_extension_fallback": true,
+    "explicit_data_url_mime_is_authoritative": true,
+    "data_url_requires_comma_nonempty_mime_and_payload": true,
+    "base64_metadata_is_trimmed_and_equal_folded": true,
+    "payload_is_returned_without_prefix_and_not_base64_validated": true,
+    "gemini_emits_mime_and_payload": true,
+    "gemini_cli_emits_mime_and_payload": true,
+    "codex_reconstructs_canonical_data_url": true,
+    "codex_tool_output_file_data_is_normalized": true,
+    "gemini_image_data_url_parser_drift_removed": true,
+    "r01_is_minimal_but_incomplete": true
+  }
+}

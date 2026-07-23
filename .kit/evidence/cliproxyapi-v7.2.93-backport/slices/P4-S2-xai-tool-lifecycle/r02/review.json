@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S2-xai-tool-lifecycle",
+  "revision": "r02",
+  "patch_sha256": "80f3484c8d12b5337792e87f45628ec245389ab4d3f533ed21ce2d5d353d95ae",
+  "verdict": "REJECTED",
+  "findings": [
+    {
+      "severity": "high",
+      "title": "xs_call prefix overrides an exact namespaced client identity",
+      "anchor": "internal/runtime/executor/xai_executor.go:1219-1233",
+      "related_anchor": "internal/runtime/executor/xai_executor.go:1172-1183",
+      "input_state": "The request declares namespace search with function x_keyword_search. A legitimate response item arrives in exact original Responses identity form as {type:function_call, namespace:search, name:x_keyword_search, call_id:xs_call_client}.",
+      "wrong_behavior": "isInternalCall classifies the item as internal from the call_id prefix before consulting matchResponseItem. The exact namespace/name/type declaration match is never reached. The item is recorded as dropped, its associated delta/done events are suppressed, response.completed removes it through the same predicate, and later indices are compacted as though the client call never existed.",
+      "expected_behavior": "An item carrying an exact declared namespace/name/type identity must remain visible; provider-internal x_search traces are namespace-free and must be distinguished without allowing the xs_call prefix to override stronger client identity evidence.",
+      "reproduction": "A temporary review-only test on the reconstructed result passed the corrected r01 case and ordinary legitimate same-name case, but failed the exact namespaced boundary with: exact client-declared namespaced call was suppressed solely by call_id prefix.",
+      "test_gap": "internal/runtime/executor/xai_executor_test.go:457-529 and :531-618 preserve namespaced and same-name calls only with call_id values such as call_client. They do not exercise an exact namespaced declaration against the new prefix classifier."
+    }
+  ],
+  "verified": {
+    "evidence_files_read": [
+      "baseline.json",
+      "result.json",
+      "application-proof.json",
+      "patch",
+      "test.log"
+    ],
+    "patch_sha256": {
+      "expected": "80f3484c8d12b5337792e87f45628ec245389ab4d3f533ed21ce2d5d353d95ae",
+      "actual": "80f3484c8d12b5337792e87f45628ec245389ab4d3f533ed21ce2d5d353d95ae",
+      "match": true
+    },
+    "baseline_tar_sha256": {
+      "expected": "4a63935247d5d15ec3ca3219d6717ea9b722f6486fe758a8bbb8361aaa39f0ac",
+      "actual": "4a63935247d5d15ec3ca3219d6717ea9b722f6486fe758a8bbb8361aaa39f0ac",
+      "match": true
+    },
+    "baseline_file_sha256": {
+      "internal/runtime/executor/xai_executor.go": "01080df177aef91b1f6280c31b610eea7f0b88c89ab05f3a62ed17de1af6d693",
+      "internal/runtime/executor/xai_executor_test.go": "ca983ac121b7bd7de9be84bcd0865d72988073921e77c16f04ed78114a9ffe39",
+      "match_manifest": true
+    },
+    "result_file_sha256": {
+      "internal/runtime/executor/xai_executor.go": "273d88908c27d84def971b87108cd325044e966c353f2afce55b37b276130b7c",
+      "internal/runtime/executor/xai_executor_test.go": "b13504f481564b5676228b8d898d05e1e21df26143989bad31b8e6987d62a076",
+      "match_manifest": true
+    },
+    "changed_paths": {
+      "actual": [
+        "internal/runtime/executor/xai_executor.go",
+        "internal/runtime/executor/xai_executor_test.go"
+      ],
+      "exact_allowlist_match": true
+    },
+    "application": {
+      "forward_from_baseline_tar": true,
+      "forward_result_hashes_match": true,
+      "reverse_restores_baseline_hashes": true,
+      "whitespace_check": true
+    },
+    "full_tree_reconstruction": {
+      "start_commit": "2960b690bf89232b8a23c5b8823fbe0ca831347f",
+      "predecessor_patches_applied_in_manifest_order": 6,
+      "prepared_tree_expected": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+      "prepared_tree_actual": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+      "prepared_tree_match": true,
+      "result_tree_expected": "7fa63d91f072c7d324f9ea15bf2a3bf6fbabcb1c",
+      "result_tree_actual": "7fa63d91f072c7d324f9ea15bf2a3bf6fbabcb1c",
+      "result_tree_match": true
+    },
+    "tests": [
+      {
+        "command": "go test ./internal/runtime/executor -run '^TestXAIExecutorSameNameXSearchCallIdentityFiltering$' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 0.007s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -run 'Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration)' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 0.015s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 1.285s"
+      },
+      {
+        "command": "go test -race ./internal/runtime/executor -run 'Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration)' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 1.070s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -run '^TestReviewR02XSearchClassifierBoundaries$' -count=1",
+        "tree": "reconstructed result plus temporary review-only test",
+        "outcome": "FAIL_REPRODUCED",
+        "details": {
+          "r01_same_name_internal_xs_call_suppressed": true,
+          "ordinary_legitimate_same_name_call_preserved": true,
+          "exact_namespaced_call_with_xs_call_prefix_preserved": false
+        },
+        "output": "exact client-declared namespaced call was suppressed solely by call_id prefix"
+      }
+    ],
+    "r01_finding_retest": {
+      "native_x_search_and_same_name_top_level_declaration": "PASS_SUPPRESSED",
+      "internal_streaming_lifecycle": "PASS_SUPPRESSED",
+      "internal_completed_output": "PASS_SUPPRESSED",
+      "later_visible_index_compaction": "PASS",
+      "ordinary_legitimate_same_name_call": "PASS_PRESERVED"
+    }
+  },
+  "review_summary": "All immutable evidence, exact scope, forward/reverse application, six-predecessor reconstruction, prepared/result trees, permanent regression, focused/full suites, and focused race suite reproduce. The r01 leak is corrected. r02 is nevertheless rejected because the new xs_call prefix check runs before exact declaration matching and can suppress a legitimate already-namespaced client call, violating full-identity preservation."
+}

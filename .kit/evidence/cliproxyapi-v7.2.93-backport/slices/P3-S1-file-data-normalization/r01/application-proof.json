@@ -1,0 +1,49 @@
+{
+  "slice_id": "P3-S1-file-data-normalization",
+  "revision": "r01",
+  "source_worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423",
+  "scratch_index": "/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index",
+  "patch_sha256": "6f55a9f9476326ae4af95ec102f47157587a0bcc317b6761684354c229d71785",
+  "base_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "result_tree": "e7a10e5edf0cd454e703f9024d91492b3d314fbe",
+  "commands": [
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 read-tree 98d750898d239533918d092276faf9520a64adb1",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 apply --cached --check /tmp/llmhub-p3-s1-r01-rqIUEf/patch",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 apply --cached /tmp/llmhub-p3-s1-r01-rqIUEf/patch",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 write-tree",
+      "returncode": 0,
+      "stdout": "e7a10e5edf0cd454e703f9024d91492b3d314fbe\n"
+    },
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 apply --cached --reverse --check /tmp/llmhub-p3-s1-r01-rqIUEf/patch",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 apply --cached --reverse /tmp/llmhub-p3-s1-r01-rqIUEf/patch",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "env GIT_INDEX_FILE=/tmp/llmhub-p3-s1-r01-rqIUEf/proof.index git -C /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a6f1042beb06d2423 write-tree",
+      "returncode": 0,
+      "stdout": "98d750898d239533918d092276faf9520a64adb1\n"
+    }
+  ],
+  "forward_matches_result_tree": true,
+  "reverse_matches_base_tree": true,
+  "source_worktree_modified_by_proof": false
+}

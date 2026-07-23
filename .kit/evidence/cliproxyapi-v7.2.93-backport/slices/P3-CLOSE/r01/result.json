@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-CLOSE",
+  "revision": "r01",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T04:10:22Z",
+  "base_tree": "18d856e051fa531008896fb8f841a96218287c48",
+  "result_tree": "88a0d7c77f256a545a173884dcc6175ba34c9706",
+  "changed_files": [
+    "docs/decisions/0011-translator-structured-output-and-index-fidelity.md",
+    "docs/stories/high-risk/US-016-cliproxyapi-v7-2-93-targeted-parity/validation.md",
+    ".kit/reports/github/cliproxyapi-v7.2.93-parity.md"
+  ],
+  "result_sha256": {
+    "docs/decisions/0011-translator-structured-output-and-index-fidelity.md": "4408b12fd44cc7ea6dfa5f145609c847ab788a2ab7db745b5767e33d7f008a16",
+    "docs/stories/high-risk/US-016-cliproxyapi-v7-2-93-targeted-parity/validation.md": "f070c45f36731a1bd7a283012936a04b80e24edc86370f4b9696a1fab207a9d1",
+    ".kit/reports/github/cliproxyapi-v7.2.93-parity.md": "d4e7239781243a2d0d956f1d870d56597c6deb648abe0382f97660562556f7f0"
+  },
+  "patch_sha256": "3cc9f1901a0c53b71a74df7eb8a63159e18518118f55368c48c21395f5c58263",
+  "application_proof": {
+    "forward_matches_result_hashes": true,
+    "reverse_matches_baseline_hashes": true,
+    "reverse_removes_planned_new_file": true,
+    "whitespace_check": true,
+    "base_tree": "18d856e051fa531008896fb8f841a96218287c48",
+    "result_tree": "88a0d7c77f256a545a173884dcc6175ba34c9706"
+  },
+  "notes": "Documentation-only Phase 3 closure; independent review pending."
+}

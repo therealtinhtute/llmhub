@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S1-codex-tool-declarations",
+  "revision": "r05",
+  "prepared_base_hashes_match": true,
+  "baseline_verification": {
+    "existing_file_count": 9,
+    "prepared_vs_slice_manifest_match_count": 9,
+    "prepared_vs_slice_archive_match_count": 9,
+    "slice_manifest_matches_prepared": true,
+    "slice_archive_matches_prepared": true,
+    "baseline_tar_sha256_matches": true,
+    "baseline_tar_sha256": "bf6dff9b022074121ae0be9e1667d7ee64164228296b9dfad45930d953d14fc6"
+  },
+  "scope_verification": {
+    "allowlist_count": 12,
+    "actual_changed_path_count": 11,
+    "modified_existing_count": 8,
+    "planned_new_count": 3,
+    "unchanged_allowlisted_paths": [
+      "internal/translator/codex/openai/responses/codex_openai-responses_request.go"
+    ],
+    "unchanged_path_reason": "r05 intentionally restores the shared generic translator byte-for-byte to the prepared base; Codex-only namespace normalization now belongs to Codex executors.",
+    "actual_changed_files": [
+      "internal/runtime/executor/codex_executor.go",
+      "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go",
+      "internal/runtime/executor/codex_websockets_executor.go",
+      "internal/runtime/executor/codex_websockets_executor_test.go",
+      "internal/translator/codex/claude/codex_claude_request.go",
+      "internal/translator/codex/claude/codex_claude_request_test.go",
+      "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_response.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go"
+    ]
+  },
+  "lineage_verification": {
+    "prepared_tree_matches_phase_base": true,
+    "superseded_r04_preserved": true,
+    "superseded_r04_result_tree": "a04532ab00573a16269a15b25343aaa0901a1853"
+  },
+  "patch_verification": {
+    "patch_sha256_matches": true,
+    "patch_sha256": "b2ca393ea5ec36e0f8e17987c325a2a4496b09c1e98b6f1cd170f72043209b42",
+    "forward_application_succeeds": true,
+    "forward_matches_result_tree": true,
+    "reverse_application_succeeds": true,
+    "reverse_matches_prepared_tree": true,
+    "reverse_removes_planned_new_files": true
+  },
+  "combined_p4_s2_verification": {
+    "approved_revision": "r03",
+    "approved_patch_sha256": "869464e623c79acc03a143c3a1bbcca460c5fe127bc9a1654bbe61908861ba93",
+    "approved_xai_files_byte_compatible": true,
+    "xai_executor_sha256": "8a8303a4e008e2e24c47434698d963bde480eda9ff863baf266b31ed13165907",
+    "xai_executor_test_sha256": "dc6d90c482a3649233a08c5272ca236d9a28bc1ef4ad49cc0981d0bf626f4785",
+    "focused_tests": true,
+    "full_executor_tests": true,
+    "focused_race_tests": true
+  },
+  "worktree_scope_matches": true,
+  "whitespace_check": true,
+  "prepared_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "result_tree": "7b754f67c75c8932ee7b3552ef789ccf6842e31f",
+  "reverse_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241"
+}

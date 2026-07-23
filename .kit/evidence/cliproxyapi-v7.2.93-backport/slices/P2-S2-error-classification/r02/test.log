@@ -1,0 +1,30 @@
+{
+  "commands": [
+    {
+      "command": "go test ./sdk/cliproxy/auth -run 'Test.*(InvalidGrant|CountTokens|RequestScoped|Fallback)' -count=1",
+      "working_directory": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-ab1b252d42f318c06",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/sdk/cliproxy/auth\t0.009s\n"
+    },
+    {
+      "command": "go test ./internal/api/modules/amp -run 'Test.*CountTokens' -count=1",
+      "working_directory": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-ab1b252d42f318c06",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/internal/api/modules/amp\t0.006s\n"
+    },
+    {
+      "command": "go test ./sdk/cliproxy/auth -run 'Test.*(Cooldown|Jitter|Backoff)' -count=1",
+      "working_directory": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-ab1b252d42f318c06",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/sdk/cliproxy/auth\t0.007s\n"
+    },
+    {
+      "command": "git diff --check <prepared-base> plus new-file whitespace check",
+      "working_directory": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-ab1b252d42f318c06",
+      "returncode": 0,
+      "stdout": ""
+    }
+  ],
+  "source": "main-session isolated-worktree verification",
+  "git_diff_check": "pass"
+}

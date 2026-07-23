@@ -1,0 +1,2292 @@
+diff --git a/internal/runtime/executor/codex_websockets_executor.go b/internal/runtime/executor/codex_websockets_executor.go
+index e9189be5ff0cf2b848b2de8a6fe9114072d8f87a..5e785f5ece43ba0f3bfe1ca868d74feff368b0e4 100644
+--- a/internal/runtime/executor/codex_websockets_executor.go
++++ b/internal/runtime/executor/codex_websockets_executor.go
+@@ -5,6 +5,7 @@ package executor
+ import (
+ 	"bytes"
+ 	"context"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"net"
+@@ -18,6 +19,7 @@ import (
+ 	"github.com/gin-gonic/gin"
+ 	"github.com/google/uuid"
+ 	"github.com/gorilla/websocket"
++	log "github.com/sirupsen/logrus"
+ 	"github.com/therealtinhtute/llmhub/internal/config"
+ 	"github.com/therealtinhtute/llmhub/internal/misc"
+ 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
+@@ -27,7 +29,6 @@ import (
+ 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+ 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
+ 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
+-	log "github.com/sirupsen/logrus"
+ 	"github.com/tidwall/gjson"
+ 	"github.com/tidwall/sjson"
+ 	"golang.org/x/net/proxy"
+@@ -71,12 +72,17 @@ type codexWebsocketSession struct {
+ 	writeMu sync.Mutex
+ 
+ 	activeMu     sync.Mutex
++	activeConn   *websocket.Conn
+ 	activeCh     chan codexWebsocketRead
+ 	activeDone   <-chan struct{}
+ 	activeCancel context.CancelFunc
+ 
+ 	readerConn *websocket.Conn
+ 
++	upstreamDisconnectErrMu   sync.RWMutex
++	upstreamDisconnectErrConn *websocket.Conn
++	upstreamDisconnectErr     error
++
+ 	upstreamDisconnectOnce sync.Once
+ 	upstreamDisconnectCh   chan error
+ }
+@@ -95,7 +101,7 @@ type codexWebsocketRead struct {
+ 	err     error
+ }
+ 
+-func (s *codexWebsocketSession) setActive(ch chan codexWebsocketRead) {
++func (s *codexWebsocketSession) setActive(conn *websocket.Conn, ch chan codexWebsocketRead) {
+ 	if s == nil {
+ 		return
+ 	}
+@@ -105,8 +111,9 @@ func (s *codexWebsocketSession) setActive(ch chan codexWebsocketRead) {
+ 		s.activeCancel = nil
+ 		s.activeDone = nil
+ 	}
++	s.activeConn = conn
+ 	s.activeCh = ch
+-	if ch != nil {
++	if conn != nil && ch != nil {
+ 		activeCtx, activeCancel := context.WithCancel(context.Background())
+ 		s.activeDone = activeCtx.Done()
+ 		s.activeCancel = activeCancel
+@@ -114,20 +121,44 @@ func (s *codexWebsocketSession) setActive(ch chan codexWebsocketRead) {
+ 	s.activeMu.Unlock()
+ }
+ 
+-func (s *codexWebsocketSession) clearActive(ch chan codexWebsocketRead) {
++func (s *codexWebsocketSession) activate(conn *websocket.Conn) chan codexWebsocketRead {
++	if s == nil || conn == nil {
++		return nil
++	}
++	ch := make(chan codexWebsocketRead, 4096)
++	s.setActive(conn, ch)
++	return ch
++}
++
++func (s *codexWebsocketSession) activeForConn(conn *websocket.Conn) (chan codexWebsocketRead, <-chan struct{}) {
++	if s == nil || conn == nil {
++		return nil, nil
++	}
++	s.activeMu.Lock()
++	defer s.activeMu.Unlock()
++	if s.activeConn != conn {
++		return nil, nil
++	}
++	return s.activeCh, s.activeDone
++}
++
++func (s *codexWebsocketSession) clearActive(conn *websocket.Conn, ch chan codexWebsocketRead) bool {
+ 	if s == nil {
+-		return
++		return false
+ 	}
+ 	s.activeMu.Lock()
+-	if s.activeCh == ch {
+-		s.activeCh = nil
+-		if s.activeCancel != nil {
+-			s.activeCancel()
+-		}
+-		s.activeCancel = nil
+-		s.activeDone = nil
++	defer s.activeMu.Unlock()
++	if s.activeConn != conn || s.activeCh != ch {
++		return false
+ 	}
+-	s.activeMu.Unlock()
++	s.activeConn = nil
++	s.activeCh = nil
++	if s.activeCancel != nil {
++		s.activeCancel()
++	}
++	s.activeCancel = nil
++	s.activeDone = nil
++	return true
+ }
+ 
+ func (s *codexWebsocketSession) writeMessage(conn *websocket.Conn, msgType int, payload []byte) error {
+@@ -142,16 +173,97 @@ func (s *codexWebsocketSession) writeMessage(conn *websocket.Conn, msgType int,
+ 	return conn.WriteMessage(msgType, payload)
+ }
+ 
++// sendTerminalWebsocketRead reports whether it invalidated a full channel's connection before waiting.
++func sendTerminalWebsocketRead(ch chan<- codexWebsocketRead, done <-chan struct{}, event codexWebsocketRead, invalidate func()) bool {
++	select {
++	case ch <- event:
++		return false
++	case <-done:
++		return false
++	default:
++	}
++
++	invalidated := invalidate != nil
++	if invalidated {
++		invalidate()
++	}
++	select {
++	case ch <- event:
++	case <-done:
++	}
++	return invalidated
++}
++
++func detachMismatchedWebsocketSessionConn(sess *codexWebsocketSession, authID string, wsURL string) (*websocket.Conn, string, string) {
++	if sess == nil {
++		return nil, "", ""
++	}
++
++	sess.connMu.Lock()
++	defer sess.connMu.Unlock()
++	conn := sess.conn
++	if conn == nil || (strings.TrimSpace(sess.authID) == strings.TrimSpace(authID) && strings.TrimSpace(sess.wsURL) == strings.TrimSpace(wsURL)) {
++		return nil, "", ""
++	}
++
++	previousAuthID := sess.authID
++	previousWSURL := sess.wsURL
++	sess.conn = nil
++	if sess.readerConn == conn {
++		sess.readerConn = nil
++	}
++	return conn, previousAuthID, previousWSURL
++}
++
++func (s *codexWebsocketSession) resetUpstreamDisconnectError(conn *websocket.Conn) {
++	if s == nil || conn == nil {
++		return
++	}
++	s.upstreamDisconnectErrMu.Lock()
++	s.upstreamDisconnectErrConn = conn
++	s.upstreamDisconnectErr = nil
++	s.upstreamDisconnectErrMu.Unlock()
++}
++
++func (s *codexWebsocketSession) setUpstreamDisconnectError(conn *websocket.Conn, err error) {
++	if s == nil || conn == nil || err == nil {
++		return
++	}
++	s.upstreamDisconnectErrMu.Lock()
++	if s.upstreamDisconnectErrConn == conn && s.upstreamDisconnectErr == nil {
++		s.upstreamDisconnectErr = err
++	}
++	s.upstreamDisconnectErrMu.Unlock()
++}
++
++func (s *codexWebsocketSession) upstreamDisconnectError(conn *websocket.Conn) error {
++	if s == nil || conn == nil {
++		return nil
++	}
++	s.upstreamDisconnectErrMu.RLock()
++	defer s.upstreamDisconnectErrMu.RUnlock()
++	if s.upstreamDisconnectErrConn != conn {
++		return nil
++	}
++	return s.upstreamDisconnectErr
++}
++
+ func (s *codexWebsocketSession) configureConn(conn *websocket.Conn) {
+ 	if s == nil || conn == nil {
+ 		return
+ 	}
++	s.resetUpstreamDisconnectError(conn)
+ 	conn.SetPingHandler(func(appData string) error {
+ 		s.writeMu.Lock()
+ 		defer s.writeMu.Unlock()
+ 		// Reply pongs from the same write lock to avoid concurrent writes.
+ 		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(10*time.Second))
+ 	})
++	defaultCloseHandler := conn.CloseHandler()
++	conn.SetCloseHandler(func(code int, text string) error {
++		s.setUpstreamDisconnectError(conn, &websocket.CloseError{Code: code, Text: text})
++		return defaultCloseHandler(code, text)
++	})
+ }
+ 
+ func (s *codexWebsocketSession) notifyUpstreamDisconnect(err error) {
+@@ -282,22 +394,27 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
+ 		}()
+ 	}
+ 
+-	var readCh chan codexWebsocketRead
+-	if sess != nil {
+-		readCh = make(chan codexWebsocketRead, 4096)
+-		sess.setActive(readCh)
+-		defer sess.clearActive(readCh)
+-	}
++	readSess, readCh := e.activateCodexWebsocketRead(sess, conn, authID, wsURL)
++	defer func() {
++		readSess.clearActive(conn, readCh)
++	}()
+ 
+-	if errSend := writeCodexWebsocketMessage(sess, conn, wsReqBody); errSend != nil {
++	if errSend := writeCodexWebsocketMessage(readSess, conn, wsReqBody); errSend != nil {
++		errSend = mapCodexWebsocketWriteError(readSess, conn, errSend)
+ 		if sess != nil {
+ 			e.invalidateUpstreamConn(sess, conn, "send_error", errSend)
++			if !shouldRetryCodexWebsocketSend(errSend) {
++				helps.RecordAPIWebsocketError(ctx, e.cfg, "send", errSend)
++				return resp, errSend
++			}
+ 
+ 			// Retry once with a fresh websocket connection. This is mainly to handle
+ 			// upstream closing the socket between sequential requests within the same
+ 			// execution session.
+ 			connRetry, respHSRetry, errDialRetry := e.ensureUpstreamConn(ctx, auth, sess, authID, wsURL, wsHeaders)
+ 			if errDialRetry == nil && connRetry != nil {
++				conn = connRetry
++				readCh = sess.activate(conn)
+ 				wsReqBodyRetry := buildCodexWebsocketRequestBody(body)
+ 				helps.RecordAPIWebsocketRequest(ctx, e.cfg, helps.UpstreamRequestLog{
+ 					URL:       wsURL,
+@@ -311,11 +428,11 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
+ 					AuthValue: authValue,
+ 				})
+ 				recordAPIWebsocketHandshake(ctx, e.cfg, respHSRetry)
+-				if errSendRetry := writeCodexWebsocketMessage(sess, connRetry, wsReqBodyRetry); errSendRetry == nil {
+-					conn = connRetry
++				if errSendRetry := writeCodexWebsocketMessage(sess, conn, wsReqBodyRetry); errSendRetry == nil {
+ 					wsReqBody = wsReqBodyRetry
+ 				} else {
+-					e.invalidateUpstreamConn(sess, connRetry, "send_error", errSendRetry)
++					errSendRetry = mapCodexWebsocketWriteError(sess, conn, errSendRetry)
++					e.invalidateUpstreamConn(sess, conn, "send_error", errSendRetry)
+ 					helps.RecordAPIWebsocketError(ctx, e.cfg, "send_retry", errSendRetry)
+ 					return resp, errSendRetry
+ 				}
+@@ -334,10 +451,11 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
+ 		if ctx != nil && ctx.Err() != nil {
+ 			return resp, ctx.Err()
+ 		}
+-		msgType, payload, errRead := readCodexWebsocketMessage(ctx, sess, conn, readCh)
++		msgType, payload, errRead := readCodexWebsocketMessage(ctx, readSess, conn, readCh)
+ 		if errRead != nil {
+-			helps.RecordAPIWebsocketError(ctx, e.cfg, "read", errRead)
+-			return resp, errRead
++			mappedErr := mapCodexWebsocketReadError(errRead)
++			helps.RecordAPIWebsocketError(ctx, e.cfg, "read", mappedErr)
++			return resp, mappedErr
+ 		}
+ 		if msgType != websocket.TextMessage {
+ 			if msgType == websocket.BinaryMessage {
+@@ -479,26 +597,30 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
+ 		logCodexWebsocketConnected(executionSessionID, authID, wsURL)
+ 	}
+ 
+-	var readCh chan codexWebsocketRead
+-	if sess != nil {
+-		readCh = make(chan codexWebsocketRead, 4096)
+-		sess.setActive(readCh)
+-	}
++	readSess, readCh := e.activateCodexWebsocketRead(sess, conn, authID, wsURL)
+ 
+-	if errSend := writeCodexWebsocketMessage(sess, conn, wsReqBody); errSend != nil {
++	if errSend := writeCodexWebsocketMessage(readSess, conn, wsReqBody); errSend != nil {
++		errSend = mapCodexWebsocketWriteError(readSess, conn, errSend)
+ 		helps.RecordAPIWebsocketError(ctx, e.cfg, "send", errSend)
+ 		if sess != nil {
+ 			e.invalidateUpstreamConn(sess, conn, "send_error", errSend)
++			if !shouldRetryCodexWebsocketSend(errSend) {
++				sess.clearActive(conn, readCh)
++				sess.reqMu.Unlock()
++				return nil, errSend
++			}
+ 
+ 			// Retry once with a new websocket connection for the same execution session.
+ 			connRetry, respHSRetry, errDialRetry := e.ensureUpstreamConn(ctx, auth, sess, authID, wsURL, wsHeaders)
+ 			if errDialRetry != nil || connRetry == nil {
+ 				closeHTTPResponseBody(respHSRetry, "codex websockets executor: close handshake response body error")
+ 				helps.RecordAPIWebsocketError(ctx, e.cfg, "dial_retry", errDialRetry)
+-				sess.clearActive(readCh)
++				sess.clearActive(conn, readCh)
+ 				sess.reqMu.Unlock()
+ 				return nil, errDialRetry
+ 			}
++			conn = connRetry
++			readCh = sess.activate(conn)
+ 			wsReqBodyRetry := buildCodexWebsocketRequestBody(body)
+ 			helps.RecordAPIWebsocketRequest(ctx, e.cfg, helps.UpstreamRequestLog{
+ 				URL:       wsURL,
+@@ -512,14 +634,14 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
+ 				AuthValue: authValue,
+ 			})
+ 			recordAPIWebsocketHandshake(ctx, e.cfg, respHSRetry)
+-			if errSendRetry := writeCodexWebsocketMessage(sess, connRetry, wsReqBodyRetry); errSendRetry != nil {
++			if errSendRetry := writeCodexWebsocketMessage(sess, conn, wsReqBodyRetry); errSendRetry != nil {
++				errSendRetry = mapCodexWebsocketWriteError(sess, conn, errSendRetry)
+ 				helps.RecordAPIWebsocketError(ctx, e.cfg, "send_retry", errSendRetry)
+-				e.invalidateUpstreamConn(sess, connRetry, "send_error", errSendRetry)
+-				sess.clearActive(readCh)
++				e.invalidateUpstreamConn(sess, conn, "send_error", errSendRetry)
++				sess.clearActive(conn, readCh)
+ 				sess.reqMu.Unlock()
+ 				return nil, errSendRetry
+ 			}
+-			conn = connRetry
+ 			wsReqBody = wsReqBodyRetry
+ 		} else {
+ 			logCodexWebsocketDisconnected(executionSessionID, authID, wsURL, "send_error", errSend)
+@@ -537,8 +659,8 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
+ 
+ 		defer close(out)
+ 		defer func() {
++			readSess.clearActive(conn, readCh)
+ 			if sess != nil {
+-				sess.clearActive(readCh)
+ 				sess.reqMu.Unlock()
+ 				return
+ 			}
+@@ -569,7 +691,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
+ 				_ = send(cliproxyexecutor.StreamChunk{Err: ctx.Err()})
+ 				return
+ 			}
+-			msgType, payload, errRead := readCodexWebsocketMessage(ctx, sess, conn, readCh)
++			msgType, payload, errRead := readCodexWebsocketMessage(ctx, readSess, conn, readCh)
+ 			if errRead != nil {
+ 				if sess != nil && ctx != nil && ctx.Err() != nil {
+ 					terminateReason = "context_done"
+@@ -577,11 +699,12 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
+ 					_ = send(cliproxyexecutor.StreamChunk{Err: ctx.Err()})
+ 					return
+ 				}
++				mappedErr := mapCodexWebsocketReadError(errRead)
+ 				terminateReason = "read_error"
+-				terminateErr = errRead
+-				helps.RecordAPIWebsocketError(ctx, e.cfg, "read", errRead)
+-				reporter.PublishFailure(ctx, errRead)
+-				_ = send(cliproxyexecutor.StreamChunk{Err: errRead})
++				terminateErr = mappedErr
++				helps.RecordAPIWebsocketError(ctx, e.cfg, "read", mappedErr)
++				reporter.PublishFailure(ctx, mappedErr)
++				_ = send(cliproxyexecutor.StreamChunk{Err: mappedErr})
+ 				return
+ 			}
+ 			if msgType != websocket.TextMessage {
+@@ -670,6 +793,55 @@ func writeCodexWebsocketMessage(sess *codexWebsocketSession, conn *websocket.Con
+ 	return conn.WriteMessage(websocket.TextMessage, payload)
+ }
+ 
++type codexWebsocketMessageTooBigError struct {
++	statusErr
++}
++
++func (codexWebsocketMessageTooBigError) IsRequestScoped() bool {
++	return true
++}
++
++func isRequestScopedCodexWebsocketError(err error) bool {
++	if err == nil {
++		return false
++	}
++	type requestScopedError interface {
++		IsRequestScoped() bool
++	}
++	var requestErr requestScopedError
++	return errors.As(err, &requestErr) && requestErr != nil && requestErr.IsRequestScoped()
++}
++
++func mapCodexWebsocketReadError(err error) error {
++	if err == nil {
++		return nil
++	}
++	var closeErr *websocket.CloseError
++	if errors.As(err, &closeErr) && closeErr.Code == websocket.CloseMessageTooBig {
++		return codexWebsocketMessageTooBigError{statusErr: statusErr{
++			code: http.StatusRequestEntityTooLarge,
++			msg:  `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++		}}
++	}
++	return err
++}
++
++func mapCodexWebsocketWriteError(sess *codexWebsocketSession, conn *websocket.Conn, err error) error {
++	if err == nil || sess == nil || conn == nil {
++		return err
++	}
++	upstreamErr := sess.upstreamDisconnectError(conn)
++	var closeErr *websocket.CloseError
++	if !errors.As(upstreamErr, &closeErr) || closeErr.Code != websocket.CloseMessageTooBig {
++		return err
++	}
++	return mapCodexWebsocketReadError(upstreamErr)
++}
++
++func shouldRetryCodexWebsocketSend(err error) bool {
++	return err != nil && !isRequestScopedCodexWebsocketError(err)
++}
++
+ func buildCodexWebsocketRequestBody(body []byte) []byte {
+ 	if len(body) == 0 {
+ 		return nil
+@@ -687,6 +859,22 @@ func buildCodexWebsocketRequestBody(body []byte) []byte {
+ 	return fallback
+ }
+ 
++func (e *CodexWebsocketsExecutor) activateCodexWebsocketRead(sess *codexWebsocketSession, conn *websocket.Conn, authID string, wsURL string) (*codexWebsocketSession, chan codexWebsocketRead) {
++	if sess != nil {
++		return sess, sess.activate(conn)
++	}
++	readSess := &codexWebsocketSession{
++		conn:       conn,
++		readerConn: conn,
++		authID:     authID,
++		wsURL:      wsURL,
++	}
++	readSess.configureConn(conn)
++	readCh := readSess.activate(conn)
++	go e.readUpstreamLoop(readSess, conn)
++	return readSess, readCh
++}
++
+ func readCodexWebsocketMessage(ctx context.Context, sess *codexWebsocketSession, conn *websocket.Conn, readCh chan codexWebsocketRead) (int, []byte, error) {
+ 	if sess == nil {
+ 		if conn == nil {
+@@ -1261,6 +1449,13 @@ func (e *CodexWebsocketsExecutor) ensureUpstreamConn(ctx context.Context, auth *
+ 		return e.dialCodexWebsocket(ctx, auth, wsURL, headers)
+ 	}
+ 
++	if staleConn, staleAuthID, staleWSURL := detachMismatchedWebsocketSessionConn(sess, authID, wsURL); staleConn != nil {
++		logCodexWebsocketDisconnected(sess.sessionID, staleAuthID, staleWSURL, "target_changed", nil)
++		if errClose := staleConn.Close(); errClose != nil {
++			log.Errorf("codex websockets executor: close stale websocket error: %v", errClose)
++		}
++	}
++
+ 	sess.connMu.Lock()
+ 	conn := sess.conn
+ 	readerConn := sess.readerConn
+@@ -1310,49 +1505,49 @@ func (e *CodexWebsocketsExecutor) readUpstreamLoop(sess *codexWebsocketSession,
+ 		_ = conn.SetReadDeadline(time.Now().Add(codexResponsesWebsocketIdleTimeout))
+ 		msgType, payload, errRead := conn.ReadMessage()
+ 		if errRead != nil {
+-			sess.activeMu.Lock()
+-			ch := sess.activeCh
+-			done := sess.activeDone
+-			sess.activeMu.Unlock()
++			sess.setUpstreamDisconnectError(conn, errRead)
++			mappedErr := mapCodexWebsocketReadError(errRead)
++			invalidate := func() {
++				e.invalidateUpstreamConn(sess, conn, "upstream_disconnected", mappedErr)
++			}
++			invalidated := false
++			ch, done := sess.activeForConn(conn)
+ 			if ch != nil {
+-				select {
+-				case ch <- codexWebsocketRead{conn: conn, err: errRead}:
+-				case <-done:
+-				default:
++				invalidated = sendTerminalWebsocketRead(ch, done, codexWebsocketRead{conn: conn, err: mappedErr}, invalidate)
++				if sess.clearActive(conn, ch) {
++					close(ch)
+ 				}
+-				sess.clearActive(ch)
+-				close(ch)
+ 			}
+-			e.invalidateUpstreamConn(sess, conn, "upstream_disconnected", errRead)
++			if !invalidated {
++				invalidate()
++			}
+ 			return
+ 		}
+ 
+ 		if msgType != websocket.TextMessage {
+ 			if msgType == websocket.BinaryMessage {
+ 				errBinary := fmt.Errorf("codex websockets executor: unexpected binary message")
+-				sess.activeMu.Lock()
+-				ch := sess.activeCh
+-				done := sess.activeDone
+-				sess.activeMu.Unlock()
++				sess.setUpstreamDisconnectError(conn, errBinary)
++				invalidate := func() {
++					e.invalidateUpstreamConn(sess, conn, "unexpected_binary", errBinary)
++				}
++				invalidated := false
++				ch, done := sess.activeForConn(conn)
+ 				if ch != nil {
+-					select {
+-					case ch <- codexWebsocketRead{conn: conn, err: errBinary}:
+-					case <-done:
+-					default:
++					invalidated = sendTerminalWebsocketRead(ch, done, codexWebsocketRead{conn: conn, err: errBinary}, invalidate)
++					if sess.clearActive(conn, ch) {
++						close(ch)
+ 					}
+-					sess.clearActive(ch)
+-					close(ch)
+ 				}
+-				e.invalidateUpstreamConn(sess, conn, "unexpected_binary", errBinary)
++				if !invalidated {
++					invalidate()
++				}
+ 				return
+ 			}
+ 			continue
+ 		}
+ 
+-		sess.activeMu.Lock()
+-		ch := sess.activeCh
+-		done := sess.activeDone
+-		sess.activeMu.Unlock()
++		ch, done := sess.activeForConn(conn)
+ 		if ch == nil {
+ 			continue
+ 		}
+@@ -1384,7 +1579,9 @@ func (e *CodexWebsocketsExecutor) invalidateUpstreamConn(sess *codexWebsocketSes
+ 	sess.connMu.Unlock()
+ 
+ 	logCodexWebsocketDisconnected(sessionID, authID, wsURL, reason, err)
+-	sess.notifyUpstreamDisconnect(err)
++	if !isRequestScopedCodexWebsocketError(err) {
++		sess.notifyUpstreamDisconnect(err)
++	}
+ 	if errClose := conn.Close(); errClose != nil {
+ 		log.Errorf("codex websockets executor: close websocket error: %v", errClose)
+ 	}
+diff --git a/internal/runtime/executor/codex_websockets_executor_test.go b/internal/runtime/executor/codex_websockets_executor_test.go
+index 7447035af4026f4fe1c33fb0650ed679e997f7d4..efaaf11d96eef441337d84521a140ce0d4d44d0e 100644
+--- a/internal/runtime/executor/codex_websockets_executor_test.go
++++ b/internal/runtime/executor/codex_websockets_executor_test.go
+@@ -93,6 +93,285 @@ func TestCodexWebsocketsExecutePreservesPreviousResponseIDUpstream(t *testing.T)
+ 	}
+ }
+ 
++func TestCodexWebsocketsExecuteMaps1009MessageTooBig(t *testing.T) {
++	server := newCodexWebsocketCloseServer(t, websocket.CloseMessageTooBig)
++	defer server.Close()
++
++	exec := NewCodexWebsocketsExecutor(&config.Config{SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll}})
++	auth := &cliproxyauth.Auth{ID: "auth-1", Attributes: map[string]string{"api_key": "sk-test", "base_url": server.URL}}
++	req := cliproxyexecutor.Request{Model: "gpt-5-codex", Payload: []byte(`{"model":"gpt-5-codex","input":[]}`)}
++	opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("codex")}
++
++	_, err := exec.Execute(context.Background(), auth, req, opts)
++	assertCodexWebsocketMessageTooBigError(t, err)
++}
++
++func TestCodexWebsocketsExecuteStreamMaps1009MessageTooBig(t *testing.T) {
++	server := newCodexWebsocketCloseServer(t, websocket.CloseMessageTooBig)
++	defer server.Close()
++
++	exec := NewCodexWebsocketsExecutor(&config.Config{SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll}})
++	auth := &cliproxyauth.Auth{ID: "auth-1", Attributes: map[string]string{"api_key": "sk-test", "base_url": server.URL}}
++	req := cliproxyexecutor.Request{Model: "gpt-5-codex", Payload: []byte(`{"model":"gpt-5-codex","input":[]}`)}
++	sessionID := "message-too-big-stream-session"
++	disconnectCh := exec.UpstreamDisconnectChan(sessionID)
++	opts := cliproxyexecutor.Options{
++		SourceFormat: sdktranslator.FromString("codex"),
++		Metadata: map[string]any{
++			cliproxyexecutor.ExecutionSessionMetadataKey: sessionID,
++		},
++	}
++	defer exec.CloseExecutionSession(sessionID)
++
++	result, err := exec.ExecuteStream(context.Background(), auth, req, opts)
++	if err != nil {
++		t.Fatalf("ExecuteStream() error = %v", err)
++	}
++	if result == nil {
++		t.Fatal("ExecuteStream() result is nil")
++	}
++	var streamErr error
++	for chunk := range result.Chunks {
++		if chunk.Err != nil {
++			streamErr = chunk.Err
++			break
++		}
++	}
++	assertCodexWebsocketMessageTooBigError(t, streamErr)
++	select {
++	case disconnectErr, ok := <-disconnectCh:
++		t.Fatalf("request-scoped 1009 notified session disconnect: error=%v open=%v", disconnectErr, ok)
++	case <-time.After(100 * time.Millisecond):
++	}
++}
++
++func TestMapCodexWebsocketReadErrorNon1009Control(t *testing.T) {
++	original := &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "upstream failed"}
++	if got := mapCodexWebsocketReadError(original); got != original {
++		t.Fatalf("mapCodexWebsocketReadError() = %T %v, want original error", got, got)
++	}
++}
++
++func TestMapCodexWebsocketWriteErrorObserved1009(t *testing.T) {
++	sess := &codexWebsocketSession{}
++	conn := &websocket.Conn{}
++	sess.resetUpstreamDisconnectError(conn)
++	sess.setUpstreamDisconnectError(conn, &websocket.CloseError{Code: websocket.CloseMessageTooBig, Text: "upstream close"})
++
++	errMapped := mapCodexWebsocketWriteError(sess, conn, errors.New("write failed"))
++	assertCodexWebsocketMessageTooBigError(t, errMapped)
++	if shouldRetryCodexWebsocketSend(errMapped) {
++		t.Fatal("request-scoped writer error must not retry")
++	}
++}
++
++func TestMapCodexWebsocketWriteErrorObservedNon1009RetainsRetry(t *testing.T) {
++	sess := &codexWebsocketSession{}
++	conn := &websocket.Conn{}
++	sess.resetUpstreamDisconnectError(conn)
++	sess.setUpstreamDisconnectError(conn, &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "upstream failed"})
++	writeErr := errors.New("write failed")
++
++	errMapped := mapCodexWebsocketWriteError(sess, conn, writeErr)
++	if errMapped != writeErr {
++		t.Fatalf("non-1009 writer error = %v, want original %v", errMapped, writeErr)
++	}
++	if !shouldRetryCodexWebsocketSend(errMapped) {
++		t.Fatal("non-1009 writer error must retain retry behavior")
++	}
++}
++
++func TestMapCodexWebsocketWriteErrorSilentReaderReturnsImmediately(t *testing.T) {
++	sess := &codexWebsocketSession{}
++	conn := &websocket.Conn{}
++	sess.resetUpstreamDisconnectError(conn)
++	readCh := sess.activate(conn)
++	defer sess.clearActive(conn, readCh)
++	writeErr := errors.New("write failed")
++
++	mapped := make(chan error, 1)
++	go func() {
++		mapped <- mapCodexWebsocketWriteError(sess, conn, writeErr)
++	}()
++
++	select {
++	case errMapped := <-mapped:
++		if errMapped != writeErr {
++			t.Fatalf("silent-reader writer error = %v, want original %v", errMapped, writeErr)
++		}
++		if !shouldRetryCodexWebsocketSend(errMapped) {
++			t.Fatal("silent-reader writer error must retain retry behavior")
++		}
++	case <-time.After(time.Second):
++		t.Fatal("writer waited for silent reader classification")
++	}
++}
++
++func TestMapCodexWebsocketWriteErrorIgnoresPriorConnectionError(t *testing.T) {
++	sess := &codexWebsocketSession{}
++	previousConn := &websocket.Conn{}
++	currentConn := &websocket.Conn{}
++	sess.resetUpstreamDisconnectError(previousConn)
++	sess.setUpstreamDisconnectError(previousConn, &websocket.CloseError{Code: websocket.CloseMessageTooBig, Text: "upstream close"})
++	sess.resetUpstreamDisconnectError(currentConn)
++	writeErr := errors.New("write failed")
++
++	errMapped := mapCodexWebsocketWriteError(sess, currentConn, writeErr)
++	if errMapped != writeErr {
++		t.Fatalf("current connection writer error = %v, want original %v", errMapped, writeErr)
++	}
++	if !shouldRetryCodexWebsocketSend(errMapped) {
++		t.Fatal("prior connection close must not suppress current connection retry")
++	}
++}
++
++func TestDetachMismatchedWebsocketSessionConn(t *testing.T) {
++	conn := &websocket.Conn{}
++	sess := &codexWebsocketSession{
++		conn:       conn,
++		readerConn: conn,
++		authID:     "auth-a",
++		wsURL:      "wss://example.test/a",
++	}
++
++	staleConn, staleAuthID, staleWSURL := detachMismatchedWebsocketSessionConn(sess, "auth-b", "wss://example.test/b")
++	if staleConn != conn {
++		t.Fatalf("stale conn = %p, want %p", staleConn, conn)
++	}
++	if staleAuthID != "auth-a" || staleWSURL != "wss://example.test/a" {
++		t.Fatalf("stale target = (%q, %q), want auth-a and original URL", staleAuthID, staleWSURL)
++	}
++	if sess.conn != nil || sess.readerConn != nil {
++		t.Fatalf("mismatched session retained stale connection: %#v", sess)
++	}
++}
++
++func TestCodexWebsocket1009BackpressureDeliversTerminalError(t *testing.T) {
++	closeNow := make(chan struct{})
++	serverErr := make(chan error, 1)
++	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		conn, err := upgrader.Upgrade(w, r, nil)
++		if err != nil {
++			serverErr <- err
++			return
++		}
++		defer func() { _ = conn.Close() }()
++		<-closeNow
++		payload := websocket.FormatCloseMessage(websocket.CloseMessageTooBig, "upstream close")
++		serverErr <- conn.WriteControl(websocket.CloseMessage, payload, time.Now().Add(time.Second))
++	}))
++	defer server.Close()
++
++	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
++	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
++	if err != nil {
++		t.Fatalf("dial websocket: %v", err)
++	}
++	defer func() { _ = conn.Close() }()
++
++	exec := NewCodexWebsocketsExecutor(&config.Config{})
++	sessionID := "message-too-big-backpressure-session"
++	sess := exec.getOrCreateSession(sessionID)
++	defer exec.CloseExecutionSession(sessionID)
++	sess.connMu.Lock()
++	sess.conn = conn
++	sess.readerConn = conn
++	sess.wsURL = wsURL
++	sess.authID = "auth-1"
++	sess.connMu.Unlock()
++	sess.configureConn(conn)
++
++	readCh := make(chan codexWebsocketRead, 1)
++	readCh <- codexWebsocketRead{conn: conn, msgType: websocket.TextMessage, payload: []byte("queued")}
++	sess.setActive(conn, readCh)
++	go exec.readUpstreamLoop(sess, conn)
++	close(closeNow)
++
++	waitForCodexWebsocketCondition(t, func() bool {
++		sess.connMu.Lock()
++		defer sess.connMu.Unlock()
++		return sess.conn == nil
++	}, "upstream connection was not detached before terminal delivery")
++
++	queued := <-readCh
++	if string(queued.payload) != "queued" {
++		t.Fatalf("queued payload = %q, want queued", queued.payload)
++	}
++	terminal, ok := <-readCh
++	if !ok {
++		t.Fatal("terminal error was dropped when active channel was full")
++	}
++	assertCodexWebsocketMessageTooBigError(t, terminal.err)
++
++	select {
++	case errServer := <-serverErr:
++		if errServer != nil {
++			t.Fatalf("write websocket close: %v", errServer)
++		}
++	case <-time.After(5 * time.Second):
++		t.Fatal("timed out waiting for websocket close write")
++	}
++}
++
++func waitForCodexWebsocketCondition(t *testing.T, condition func() bool, message string) {
++	t.Helper()
++	deadline := time.Now().Add(5 * time.Second)
++	for time.Now().Before(deadline) {
++		if condition() {
++			return
++		}
++		time.Sleep(time.Millisecond)
++	}
++	t.Fatal(message)
++}
++
++func newCodexWebsocketCloseServer(t *testing.T, closeCode int) *httptest.Server {
++	t.Helper()
++	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
++	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		conn, err := upgrader.Upgrade(w, r, nil)
++		if err != nil {
++			t.Errorf("upgrade websocket: %v", err)
++			return
++		}
++		defer func() { _ = conn.Close() }()
++		if _, _, errRead := conn.ReadMessage(); errRead != nil {
++			t.Errorf("read websocket request: %v", errRead)
++			return
++		}
++		payload := websocket.FormatCloseMessage(closeCode, "upstream close")
++		if errWrite := conn.WriteControl(websocket.CloseMessage, payload, time.Now().Add(time.Second)); errWrite != nil {
++			t.Errorf("write websocket close: %v", errWrite)
++		}
++	}))
++}
++
++func assertCodexWebsocketMessageTooBigError(t *testing.T, err error) {
++	t.Helper()
++	if err == nil {
++		t.Fatal("expected message-too-big error")
++	}
++	statusErr, ok := err.(interface{ StatusCode() int })
++	if !ok || statusErr.StatusCode() != http.StatusRequestEntityTooLarge {
++		t.Fatalf("status = %#v, want %d", err, http.StatusRequestEntityTooLarge)
++	}
++	requestScoped, ok := err.(interface{ IsRequestScoped() bool })
++	if !ok || !requestScoped.IsRequestScoped() {
++		t.Fatalf("error = %T, want request-scoped error", err)
++	}
++	parsed := gjson.Parse(err.Error())
++	if got := parsed.Get("error.message").String(); got != "upstream websocket message too big" {
++		t.Fatalf("message = %q, want upstream websocket message too big", got)
++	}
++	if got := parsed.Get("error.type").String(); got != "invalid_request_error" {
++		t.Fatalf("type = %q, want invalid_request_error", got)
++	}
++	if got := parsed.Get("error.code").String(); got != "message_too_big" {
++		t.Fatalf("code = %q, want message_too_big", got)
++	}
++}
++
+ func TestCodexWebsocketsUpstreamDisconnectChanSignalsOnInvalidate(t *testing.T) {
+ 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+ 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+diff --git a/sdk/api/handlers/openai/openai_responses_websocket.go b/sdk/api/handlers/openai/openai_responses_websocket.go
+index 260386d10c558984678ae9eaa22f6c00bb21e22c..c41e3c4d3be3e3cae075ea845bb2da9570f5d5d2 100644
+--- a/sdk/api/handlers/openai/openai_responses_websocket.go
++++ b/sdk/api/handlers/openai/openai_responses_websocket.go
+@@ -4,6 +4,7 @@ import (
+ 	"bytes"
+ 	"context"
+ 	"encoding/json"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+@@ -14,6 +15,7 @@ import (
+ 	"github.com/gin-gonic/gin"
+ 	"github.com/google/uuid"
+ 	"github.com/gorilla/websocket"
++	log "github.com/sirupsen/logrus"
+ 	"github.com/therealtinhtute/llmhub/internal/interfaces"
+ 	requestlogging "github.com/therealtinhtute/llmhub/internal/logging"
+ 	"github.com/therealtinhtute/llmhub/internal/registry"
+@@ -22,7 +24,6 @@ import (
+ 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
+ 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+ 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+-	log "github.com/sirupsen/logrus"
+ 	"github.com/tidwall/gjson"
+ 	"github.com/tidwall/sjson"
+ )
+@@ -49,6 +50,110 @@ type websocketTimelineAppender interface {
+ 	Append(eventType string, payload []byte, timestamp time.Time)
+ }
+ 
++type responsesWebsocketToolCacheTransaction struct {
++	sessionKey     string
++	outputCache    *websocketToolOutputCache
++	callCache      *websocketToolOutputCache
++	outputBaseline map[string]json.RawMessage
++	callBaseline   map[string]json.RawMessage
++}
++
++func beginResponsesWebsocketToolCacheTransaction(sessionKey string) *responsesWebsocketToolCacheTransaction {
++	sessionKey = strings.TrimSpace(sessionKey)
++	if sessionKey == "" {
++		return nil
++	}
++	outputCache, outputBaseline := cloneResponsesWebsocketToolCacheSession(defaultWebsocketToolOutputCache, sessionKey)
++	callCache, callBaseline := cloneResponsesWebsocketToolCacheSession(defaultWebsocketToolCallCache, sessionKey)
++	return &responsesWebsocketToolCacheTransaction{
++		sessionKey:     sessionKey,
++		outputCache:    outputCache,
++		callCache:      callCache,
++		outputBaseline: outputBaseline,
++		callBaseline:   callBaseline,
++	}
++}
++
++func cloneResponsesWebsocketToolCacheSession(source *websocketToolOutputCache, sessionKey string) (*websocketToolOutputCache, map[string]json.RawMessage) {
++	if source == nil {
++		return nil, nil
++	}
++	local := newWebsocketToolOutputCache(source.ttl, source.maxPerSession)
++	baseline := make(map[string]json.RawMessage)
++	source.mu.Lock()
++	source.cleanupLocked(time.Now())
++	if session := source.sessions[sessionKey]; session != nil {
++		cloned := &websocketToolOutputSession{
++			lastSeen: session.lastSeen,
++			outputs:  make(map[string]json.RawMessage, len(session.outputs)),
++			order:    append([]string(nil), session.order...),
++		}
++		for callID, item := range session.outputs {
++			clonedItem := append(json.RawMessage(nil), item...)
++			cloned.outputs[callID] = clonedItem
++			baseline[callID] = append(json.RawMessage(nil), item...)
++		}
++		local.sessions[sessionKey] = cloned
++	}
++	source.mu.Unlock()
++	return local, baseline
++}
++
++func commitResponsesWebsocketToolCacheChanges(target, local *websocketToolOutputCache, sessionKey string, baseline map[string]json.RawMessage) {
++	if target == nil || local == nil || sessionKey == "" {
++		return
++	}
++	type cacheEntry struct {
++		callID string
++		item   json.RawMessage
++	}
++	var changed []cacheEntry
++	local.mu.Lock()
++	if session := local.sessions[sessionKey]; session != nil {
++		changed = make([]cacheEntry, 0, len(session.order))
++		for _, callID := range session.order {
++			item := session.outputs[callID]
++			if bytes.Equal(baseline[callID], item) {
++				continue
++			}
++			changed = append(changed, cacheEntry{callID: callID, item: append(json.RawMessage(nil), item...)})
++		}
++	}
++	local.mu.Unlock()
++	for _, entry := range changed {
++		target.record(sessionKey, entry.callID, entry.item)
++	}
++	if len(baseline) > 0 {
++		target.mu.Lock()
++		if session := target.sessions[sessionKey]; session != nil {
++			session.lastSeen = time.Now()
++		}
++		target.mu.Unlock()
++	}
++}
++
++func (t *responsesWebsocketToolCacheTransaction) repair(payload []byte) []byte {
++	if t == nil {
++		return repairResponsesWebsocketToolCalls("", payload)
++	}
++	return repairResponsesWebsocketToolCallsWithCaches(t.outputCache, t.callCache, t.sessionKey, payload)
++}
++
++func (t *responsesWebsocketToolCacheTransaction) record(payload []byte) {
++	if t == nil {
++		return
++	}
++	recordResponsesWebsocketToolCallsFromPayloadWithCache(t.callCache, t.sessionKey, payload)
++}
++
++func (t *responsesWebsocketToolCacheTransaction) commit() {
++	if t == nil {
++		return
++	}
++	commitResponsesWebsocketToolCacheChanges(defaultWebsocketToolOutputCache, t.outputCache, t.sessionKey, t.outputBaseline)
++	commitResponsesWebsocketToolCacheChanges(defaultWebsocketToolCallCache, t.callCache, t.sessionKey, t.callBaseline)
++}
++
+ type websocketTimelineLog struct {
+ 	enabled bool
+ 	source  *requestlogging.FileBodySource
+@@ -237,7 +342,10 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
+ 						select {
+ 						case <-wsDone:
+ 							return
+-						case <-disconnectCh:
++						case disconnectErr := <-disconnectCh:
++							if isRequestScopedResponsesWebsocketError(disconnectErr) {
++								return
++							}
+ 							_ = conn.Close()
+ 						}
+ 					}()
+@@ -380,13 +488,18 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
+ 			continue
+ 		}
+ 
+-		requestJSON = repairResponsesWebsocketToolCalls(downstreamSessionKey, requestJSON)
++		toolCacheTransaction := beginResponsesWebsocketToolCacheTransaction(downstreamSessionKey)
++		if toolCacheTransaction != nil {
++			requestJSON = toolCacheTransaction.repair(requestJSON)
++		} else {
++			requestJSON = repairResponsesWebsocketToolCalls(downstreamSessionKey, requestJSON)
++		}
+ 		updatedLastRequest = bytes.Clone(requestJSON)
+ 		previousLastRequest := bytes.Clone(lastRequest)
+ 		previousLastResponseOutput := bytes.Clone(lastResponseOutput)
+-		forcedTranscriptReplay := forceTranscriptReplayNextRequest
++		previousForceTranscriptReplay := forceTranscriptReplayNextRequest
+ 		lastRequest = updatedLastRequest
+-		if forcedTranscriptReplay {
++		if previousForceTranscriptReplay {
+ 			forceTranscriptReplayNextRequest = false
+ 		}
+ 
+@@ -413,19 +526,29 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
+ 		}
+ 		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
+ 
+-		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID)
++		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID, toolCacheTransaction)
+ 		if errForward != nil {
+ 			wsTerminateErr = errForward
+ 			log.Warnf("responses websocket: forward failed id=%s error=%v", passthroughSessionID, errForward)
+ 			return
+ 		}
+-		if shouldReleaseResponsesWebsocketPinnedAuth(forwardErrMsg) {
++		releasePinnedAuth := shouldReleaseResponsesWebsocketPinnedAuth(forwardErrMsg)
++		rollbackRequest := shouldRollbackResponsesWebsocketRequest(forwardErrMsg)
++		if releasePinnedAuth {
+ 			pinnedAuthID = ""
+ 			forceTranscriptReplayNextRequest = true
++		} else if rollbackRequest {
++			forceTranscriptReplayNextRequest = previousForceTranscriptReplay
++		}
++		if releasePinnedAuth || rollbackRequest {
++			if !rollbackRequest {
++				toolCacheTransaction.commit()
++			}
+ 			lastRequest = previousLastRequest
+ 			lastResponseOutput = previousLastResponseOutput
+ 			continue
+ 		}
++		toolCacheTransaction.commit()
+ 		lastResponseOutput = completedOutput
+ 	}
+ }
+@@ -437,6 +560,17 @@ func websocketClientAddress(c *gin.Context) string {
+ 	return strings.TrimSpace(c.ClientIP())
+ }
+ 
++func isRequestScopedResponsesWebsocketError(err error) bool {
++	if err == nil {
++		return false
++	}
++	type requestScopedError interface {
++		IsRequestScoped() bool
++	}
++	var requestErr requestScopedError
++	return errors.As(err, &requestErr) && requestErr != nil && requestErr.IsRequestScoped()
++}
++
+ func websocketUpgradeHeaders(req *http.Request) http.Header {
+ 	headers := http.Header{}
+ 	if req == nil {
+@@ -1026,6 +1160,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
+ 	errs <-chan *interfaces.ErrorMessage,
+ 	wsTimelineLog websocketTimelineAppender,
+ 	sessionID string,
++	toolCacheTransaction *responsesWebsocketToolCacheTransaction,
+ ) ([]byte, *interfaces.ErrorMessage, error) {
+ 	completed := false
+ 	completedOutput := []byte("[]")
+@@ -1033,6 +1168,28 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
+ 	if c != nil && c.Request != nil {
+ 		downstreamSessionKey = websocketDownstreamSessionKey(c.Request)
+ 	}
++	forwardError := func(errMsg *interfaces.ErrorMessage) error {
++		if errMsg != nil {
++			h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
++			markAPIResponseTimestamp(c)
++			errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
++			log.Infof(
++				"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
++				sessionID,
++				websocket.TextMessage,
++				websocketPayloadEventType(errorPayload),
++				websocketPayloadPreview(errorPayload),
++			)
++			if errWrite != nil {
++				cancel(errMsg.Error)
++				return errWrite
++			}
++			cancel(errMsg.Error)
++			return nil
++		}
++		cancel(nil)
++		return nil
++	}
+ 
+ 	for {
+ 		select {
+@@ -1044,63 +1201,28 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
+ 				errs = nil
+ 				continue
+ 			}
+-			if errMsg != nil {
+-				h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
+-				markAPIResponseTimestamp(c)
+-				errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
+-				log.Infof(
+-					"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
+-					sessionID,
+-					websocket.TextMessage,
+-					websocketPayloadEventType(errorPayload),
+-					websocketPayloadPreview(errorPayload),
+-				)
+-				if errWrite != nil {
+-					// log.Warnf(
+-					// 	"responses websocket: downstream_out write failed id=%s event=%s error=%v",
+-					// 	sessionID,
+-					// 	websocketPayloadEventType(errorPayload),
+-					// 	errWrite,
+-					// )
+-					cancel(errMsg.Error)
+-					return completedOutput, errMsg, errWrite
+-				}
+-			}
+-			if errMsg != nil {
+-				cancel(errMsg.Error)
+-			} else {
+-				cancel(nil)
+-			}
+-			return completedOutput, errMsg, nil
++			return completedOutput, errMsg, forwardError(errMsg)
+ 		case chunk, ok := <-data:
+ 			if !ok {
++				data = nil
++				if !completed && errs != nil {
++					select {
++					case pendingErr, errOK := <-errs:
++						errs = nil
++						if errOK && pendingErr != nil {
++							return completedOutput, pendingErr, forwardError(pendingErr)
++						}
++					case <-c.Request.Context().Done():
++						cancel(c.Request.Context().Err())
++						return completedOutput, nil, c.Request.Context().Err()
++					}
++				}
+ 				if !completed {
+ 					errMsg := &interfaces.ErrorMessage{
+ 						StatusCode: http.StatusRequestTimeout,
+ 						Error:      fmt.Errorf("stream closed before response.completed"),
+ 					}
+-					h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
+-					markAPIResponseTimestamp(c)
+-					errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
+-					log.Infof(
+-						"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
+-						sessionID,
+-						websocket.TextMessage,
+-						websocketPayloadEventType(errorPayload),
+-						websocketPayloadPreview(errorPayload),
+-					)
+-					if errWrite != nil {
+-						log.Warnf(
+-							"responses websocket: downstream_out write failed id=%s event=%s error=%v",
+-							sessionID,
+-							websocketPayloadEventType(errorPayload),
+-							errWrite,
+-						)
+-						cancel(errMsg.Error)
+-						return completedOutput, errMsg, errWrite
+-					}
+-					cancel(errMsg.Error)
+-					return completedOutput, errMsg, nil
++					return completedOutput, errMsg, forwardError(errMsg)
+ 				}
+ 				cancel(nil)
+ 				return completedOutput, nil, nil
+@@ -1108,7 +1230,11 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
+ 
+ 			payloads := websocketJSONPayloadsFromChunk(chunk)
+ 			for i := range payloads {
+-				recordResponsesWebsocketToolCallsFromPayload(downstreamSessionKey, payloads[i])
++				if toolCacheTransaction != nil {
++					toolCacheTransaction.record(payloads[i])
++				} else {
++					recordResponsesWebsocketToolCallsFromPayload(downstreamSessionKey, payloads[i])
++				}
+ 				eventType := gjson.GetBytes(payloads[i], "type").String()
+ 				if eventType == wsEventTypeCompleted {
+ 					completed = true
+@@ -1137,9 +1263,9 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
+ 	}
+ }
+ 
+-func shouldReleaseResponsesWebsocketPinnedAuth(errMsg *interfaces.ErrorMessage) bool {
++func responsesWebsocketErrorStatus(errMsg *interfaces.ErrorMessage) int {
+ 	if errMsg == nil {
+-		return false
++		return 0
+ 	}
+ 	status := errMsg.StatusCode
+ 	if status <= 0 && errMsg.Error != nil {
+@@ -1147,7 +1273,11 @@ func shouldReleaseResponsesWebsocketPinnedAuth(errMsg *interfaces.ErrorMessage)
+ 			status = se.StatusCode()
+ 		}
+ 	}
+-	switch status {
++	return status
++}
++
++func shouldReleaseResponsesWebsocketPinnedAuth(errMsg *interfaces.ErrorMessage) bool {
++	switch responsesWebsocketErrorStatus(errMsg) {
+ 	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
+ 		return true
+ 	default:
+@@ -1155,6 +1285,11 @@ func shouldReleaseResponsesWebsocketPinnedAuth(errMsg *interfaces.ErrorMessage)
+ 	}
+ }
+ 
++func shouldRollbackResponsesWebsocketRequest(errMsg *interfaces.ErrorMessage) bool {
++	return responsesWebsocketErrorStatus(errMsg) == http.StatusRequestEntityTooLarge &&
++		errMsg != nil && isRequestScopedResponsesWebsocketError(errMsg.Error)
++}
++
+ func responseCompletedOutputFromPayload(payload []byte) []byte {
+ 	output := gjson.GetBytes(payload, "response.output")
+ 	if output.Exists() && output.IsArray() {
+diff --git a/sdk/api/handlers/openai/openai_responses_websocket_test.go b/sdk/api/handlers/openai/openai_responses_websocket_test.go
+index 0172e15174e1fdebd2f02f57a53d8f69c28a7ff3..02c0319813f04a25ececdeb1a1a7fff74b8c82b0 100644
+--- a/sdk/api/handlers/openai/openai_responses_websocket_test.go
++++ b/sdk/api/handlers/openai/openai_responses_websocket_test.go
+@@ -25,8 +25,11 @@ import (
+ )
+ 
+ type websocketCaptureExecutor struct {
+-	streamCalls int
+-	payloads    [][]byte
++	streamCalls   int
++	payloads      [][]byte
++	streamErr     error
++	streamErrs    []error
++	streamResults [][]coreexecutor.StreamChunk
+ }
+ 
+ type websocketCompactionCaptureExecutor struct {
+@@ -71,25 +74,31 @@ type websocketAuthCaptureExecutor struct {
+ }
+ 
+ type websocketPinnedFailoverExecutor struct {
+-	mu       sync.Mutex
+-	authIDs  []string
+-	calls    map[string]int
+-	payloads map[string][][]byte
++	mu                        sync.Mutex
++	authIDs                   []string
++	calls                     map[string]int
++	payloads                  map[string][][]byte
++	messageTooBigOnAuthBFirst bool
+ }
+ 
+ type websocketPinnedFailoverStatusError struct {
+-	status int
+-	msg    string
++	status        int
++	msg           string
++	requestScoped bool
+ }
+ 
+ func (e websocketPinnedFailoverStatusError) Error() string { return e.msg }
+ 
+ func (e websocketPinnedFailoverStatusError) StatusCode() int { return e.status }
+ 
++func (e websocketPinnedFailoverStatusError) IsRequestScoped() bool { return e.requestScoped }
++
+ type websocketUpstreamDisconnectExecutor struct {
+-	mu         sync.Mutex
+-	subscribed chan string
+-	sessions   map[string]chan error
++	mu          sync.Mutex
++	subscribed  chan string
++	sessions    map[string]chan error
++	streamErr   error
++	streamCalls int
+ }
+ 
+ func (e *websocketUpstreamDisconnectExecutor) Identifier() string { return "codex" }
+@@ -144,7 +153,24 @@ func (e *websocketUpstreamDisconnectExecutor) Execute(context.Context, *coreauth
+ }
+ 
+ func (e *websocketUpstreamDisconnectExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (*coreexecutor.StreamResult, error) {
+-	return nil, errors.New("not implemented")
++	e.mu.Lock()
++	e.streamCalls++
++	streamErr := e.streamErr
++	sessionIDs := make([]string, 0, len(e.sessions))
++	for sessionID := range e.sessions {
++		sessionIDs = append(sessionIDs, sessionID)
++	}
++	e.mu.Unlock()
++	if streamErr == nil {
++		return nil, errors.New("not implemented")
++	}
++	for _, sessionID := range sessionIDs {
++		e.TriggerDisconnect(sessionID, streamErr)
++	}
++	chunks := make(chan coreexecutor.StreamChunk, 1)
++	chunks <- coreexecutor.StreamChunk{Err: streamErr}
++	close(chunks)
++	return &coreexecutor.StreamResult{Chunks: chunks}, nil
+ }
+ 
+ func (e *websocketUpstreamDisconnectExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
+@@ -230,6 +256,16 @@ func (e *websocketPinnedFailoverExecutor) ExecuteStream(_ context.Context, auth
+ 		close(chunks)
+ 		return &coreexecutor.StreamResult{Chunks: chunks}, nil
+ 	}
++	if e.messageTooBigOnAuthBFirst && authID == "auth-b" && call == 1 {
++		chunks := make(chan coreexecutor.StreamChunk, 1)
++		chunks <- coreexecutor.StreamChunk{Err: websocketPinnedFailoverStatusError{
++			status:        http.StatusRequestEntityTooLarge,
++			msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++			requestScoped: true,
++		}}
++		close(chunks)
++		return &coreexecutor.StreamResult{Chunks: chunks}, nil
++	}
+ 
+ 	chunks := make(chan coreexecutor.StreamChunk, 1)
+ 	chunks <- coreexecutor.StreamChunk{Payload: []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp-%s-%d","output":[{"type":"message","id":"out-%s-%d"}]}}`, authID, call, authID, call))}
+@@ -275,8 +311,25 @@ func (e *websocketCaptureExecutor) Execute(context.Context, *coreauth.Auth, core
+ func (e *websocketCaptureExecutor) ExecuteStream(_ context.Context, _ *coreauth.Auth, req coreexecutor.Request, _ coreexecutor.Options) (*coreexecutor.StreamResult, error) {
+ 	e.streamCalls++
+ 	e.payloads = append(e.payloads, bytes.Clone(req.Payload))
++	streamErr := e.streamErr
++	if e.streamCalls <= len(e.streamErrs) {
++		streamErr = e.streamErrs[e.streamCalls-1]
++	}
++	if e.streamCalls <= len(e.streamResults) {
++		resultChunks := e.streamResults[e.streamCalls-1]
++		chunks := make(chan coreexecutor.StreamChunk, len(resultChunks))
++		for _, chunk := range resultChunks {
++			chunks <- chunk
++		}
++		close(chunks)
++		return &coreexecutor.StreamResult{Chunks: chunks}, nil
++	}
+ 	chunks := make(chan coreexecutor.StreamChunk, 1)
+-	chunks <- coreexecutor.StreamChunk{Payload: []byte(`{"type":"response.completed","response":{"id":"resp-upstream","output":[{"type":"message","id":"out-1"}]}}`)}
++	if streamErr != nil {
++		chunks <- coreexecutor.StreamChunk{Err: streamErr}
++	} else {
++		chunks <- coreexecutor.StreamChunk{Payload: []byte(`{"type":"response.completed","response":{"id":"resp-upstream","output":[{"type":"message","id":"out-1"}]}}`)}
++	}
+ 	close(chunks)
+ 	return &coreexecutor.StreamResult{Chunks: chunks}, nil
+ }
+@@ -917,6 +970,239 @@ func TestRecordResponsesWebsocketCustomToolCallsFromOutputItemDoneWithCache(t *t
+ 	}
+ }
+ 
++func TestResponsesWebSocketPreserves1009MessageTooBigError(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	executor := &websocketUpstreamDisconnectExecutor{
++		subscribed: make(chan string, 1),
++		streamErr: websocketPinnedFailoverStatusError{
++			status:        http.StatusRequestEntityTooLarge,
++			msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++			requestScoped: true,
++		},
++	}
++	manager := coreauth.NewManager(nil, nil, nil)
++	manager.RegisterExecutor(executor)
++	auth := &coreauth.Auth{ID: "auth-message-too-big", Provider: executor.Identifier(), Status: coreauth.StatusActive}
++	if _, err := manager.Register(context.Background(), auth); err != nil {
++		t.Fatalf("Register auth: %v", err)
++	}
++	registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "message-too-big-model"}})
++	t.Cleanup(func() {
++		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
++	})
++
++	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
++	h := NewOpenAIResponsesAPIHandler(base)
++	router := gin.New()
++	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
++	server := httptest.NewServer(router)
++	defer server.Close()
++
++	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
++	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
++	if err != nil {
++		t.Fatalf("dial websocket: %v", err)
++	}
++	defer func() { _ = conn.Close() }()
++
++	request := []byte(`{"type":"response.create","model":"message-too-big-model","input":[{"type":"message","id":"msg-1"}]}`)
++	if errWrite := conn.WriteMessage(websocket.TextMessage, request); errWrite != nil {
++		t.Fatalf("write websocket request: %v", errWrite)
++	}
++	_, payload, errRead := conn.ReadMessage()
++	if errRead != nil {
++		t.Fatalf("read websocket error: %v", errRead)
++	}
++
++	if got := gjson.GetBytes(payload, "type").String(); got != wsEventTypeError {
++		t.Fatalf("type = %q, want %q: %s", got, wsEventTypeError, payload)
++	}
++	if got := int(gjson.GetBytes(payload, "status").Int()); got != http.StatusRequestEntityTooLarge {
++		t.Fatalf("status = %d, want %d: %s", got, http.StatusRequestEntityTooLarge, payload)
++	}
++	if got := gjson.GetBytes(payload, "error.message").String(); got != "upstream websocket message too big" {
++		t.Fatalf("message = %q, want upstream websocket message too big: %s", got, payload)
++	}
++	if got := gjson.GetBytes(payload, "error.type").String(); got != "invalid_request_error" {
++		t.Fatalf("error type = %q, want invalid_request_error: %s", got, payload)
++	}
++	if got := gjson.GetBytes(payload, "error.code").String(); got != "message_too_big" {
++		t.Fatalf("error code = %q, want message_too_big: %s", got, payload)
++	}
++	executor.mu.Lock()
++	streamCalls := executor.streamCalls
++	executor.mu.Unlock()
++	if streamCalls != 1 {
++		t.Fatalf("stream calls = %d, want 1", streamCalls)
++	}
++}
++
++func TestResponsesWebSocket1009MessageTooBigRollbackBeforeNextRequest(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	messageTooBigErr := websocketPinnedFailoverStatusError{
++		status:        http.StatusRequestEntityTooLarge,
++		msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++		requestScoped: true,
++	}
++	executor := &websocketCaptureExecutor{streamErrs: []error{messageTooBigErr, nil}}
++	manager := coreauth.NewManager(nil, nil, nil)
++	manager.RegisterExecutor(executor)
++	auth := &coreauth.Auth{ID: "auth-rollback", Provider: executor.Identifier(), Status: coreauth.StatusActive}
++	if _, err := manager.Register(context.Background(), auth); err != nil {
++		t.Fatalf("Register auth: %v", err)
++	}
++	registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "rollback-model"}})
++	t.Cleanup(func() {
++		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
++	})
++
++	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
++	h := NewOpenAIResponsesAPIHandler(base)
++	router := gin.New()
++	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
++	server := httptest.NewServer(router)
++	defer server.Close()
++
++	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
++	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
++	if err != nil {
++		t.Fatalf("dial websocket: %v", err)
++	}
++	defer func() { _ = conn.Close() }()
++
++	firstRequest := []byte(`{"type":"response.create","model":"rollback-model","input":[{"type":"message","id":"oversized-msg"}]}`)
++	if errWrite := conn.WriteMessage(websocket.TextMessage, firstRequest); errWrite != nil {
++		t.Fatalf("write oversized websocket request: %v", errWrite)
++	}
++	_, firstPayload, errRead := conn.ReadMessage()
++	if errRead != nil {
++		t.Fatalf("read message-too-big error: %v", errRead)
++	}
++	if got := gjson.GetBytes(firstPayload, "error.code").String(); got != "message_too_big" {
++		t.Fatalf("first error code = %q, want message_too_big: %s", got, firstPayload)
++	}
++
++	secondRequest := []byte(`{"type":"response.create","model":"rollback-model","input":[{"type":"message","id":"corrected-msg"}]}`)
++	if errWrite := conn.WriteMessage(websocket.TextMessage, secondRequest); errWrite != nil {
++		t.Fatalf("write corrected websocket request: %v", errWrite)
++	}
++	_, secondPayload, errRead := conn.ReadMessage()
++	if errRead != nil {
++		t.Fatalf("read corrected websocket response: %v", errRead)
++	}
++	if got := gjson.GetBytes(secondPayload, "type").String(); got != wsEventTypeCompleted {
++		t.Fatalf("second response type = %q, want %q: %s", got, wsEventTypeCompleted, secondPayload)
++	}
++
++	if executor.streamCalls != 2 || len(executor.payloads) != 2 {
++		t.Fatalf("stream calls = %d payloads = %d, want 2 and 2", executor.streamCalls, len(executor.payloads))
++	}
++	secondInput := gjson.GetBytes(executor.payloads[1], "input").Array()
++	if len(secondInput) != 1 || secondInput[0].Get("id").String() != "corrected-msg" {
++		t.Fatalf("corrected request replayed failed input: %s", executor.payloads[1])
++	}
++	if strings.Contains(string(executor.payloads[1]), "oversized-msg") {
++		t.Fatalf("failed oversized input leaked into corrected request: %s", executor.payloads[1])
++	}
++}
++
++func TestResponsesWebSocket1009ToolCacheRollbackIsTransactional(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	messageTooBigErr := websocketPinnedFailoverStatusError{
++		status:        http.StatusRequestEntityTooLarge,
++		msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++		requestScoped: true,
++	}
++	partialToolEvent := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","id":"fc-partial","call_id":"partial-stale","name":"tool","arguments":"{}"}}`)
++	completed := []byte(`{"type":"response.completed","response":{"id":"resp-corrected","output":[{"type":"message","id":"out-corrected"}]}}`)
++	executor := &websocketCaptureExecutor{streamResults: [][]coreexecutor.StreamChunk{
++		{
++			{Payload: partialToolEvent},
++			{Err: messageTooBigErr},
++		},
++		{
++			{Payload: completed},
++		},
++	}}
++	manager := coreauth.NewManager(nil, nil, nil)
++	manager.RegisterExecutor(executor)
++	auth := &coreauth.Auth{ID: "auth-tool-rollback", Provider: executor.Identifier(), Status: coreauth.StatusActive}
++	if _, err := manager.Register(context.Background(), auth); err != nil {
++		t.Fatalf("Register auth: %v", err)
++	}
++	registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "tool-rollback-model"}})
++	t.Cleanup(func() {
++		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
++	})
++
++	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
++	h := NewOpenAIResponsesAPIHandler(base)
++	router := gin.New()
++	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
++	server := httptest.NewServer(router)
++	defer server.Close()
++
++	sessionKey := "tool-cache-rollback-session"
++	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
++	headers := http.Header{"X-Client-Request-Id": []string{sessionKey}}
++	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
++	if err != nil {
++		t.Fatalf("dial websocket: %v", err)
++	}
++	defer func() { _ = conn.Close() }()
++
++	firstRequest := []byte(`{"type":"response.create","model":"tool-rollback-model","input":[{"type":"function_call_output","call_id":"request-stale","output":"stale-output"},{"type":"message","id":"oversized-msg"}]}`)
++	if errWrite := conn.WriteMessage(websocket.TextMessage, firstRequest); errWrite != nil {
++		t.Fatalf("write oversized tool websocket request: %v", errWrite)
++	}
++	_, partialPayload, errRead := conn.ReadMessage()
++	if errRead != nil {
++		t.Fatalf("read partial tool event: %v", errRead)
++	}
++	if got := gjson.GetBytes(partialPayload, "type").String(); got != "response.output_item.done" {
++		t.Fatalf("partial event type = %q, want response.output_item.done: %s", got, partialPayload)
++	}
++	_, errorPayload, errRead := conn.ReadMessage()
++	if errRead != nil {
++		t.Fatalf("read message-too-big error: %v", errRead)
++	}
++	if got := gjson.GetBytes(errorPayload, "error.code").String(); got != "message_too_big" {
++		t.Fatalf("error code = %q, want message_too_big: %s", got, errorPayload)
++	}
++	if _, ok := defaultWebsocketToolOutputCache.get(sessionKey, "request-stale"); ok {
++		t.Fatal("failed request output cache mutation was committed")
++	}
++	if _, ok := defaultWebsocketToolCallCache.get(sessionKey, "partial-stale"); ok {
++		t.Fatal("partial response tool-call cache mutation was committed")
++	}
++
++	secondRequest := []byte(`{"type":"response.create","model":"tool-rollback-model","input":[{"type":"function_call","id":"fc-request-stale","call_id":"request-stale","name":"tool","arguments":"{}"},{"type":"function_call_output","call_id":"partial-stale","output":"corrected-output"},{"type":"message","id":"corrected-msg"}]}`)
++	if errWrite := conn.WriteMessage(websocket.TextMessage, secondRequest); errWrite != nil {
++		t.Fatalf("write corrected tool websocket request: %v", errWrite)
++	}
++	_, secondPayload, errRead := conn.ReadMessage()
++	if errRead != nil {
++		t.Fatalf("read corrected websocket response: %v", errRead)
++	}
++	if got := gjson.GetBytes(secondPayload, "type").String(); got != wsEventTypeCompleted {
++		t.Fatalf("second response type = %q, want %q: %s", got, wsEventTypeCompleted, secondPayload)
++	}
++
++	if executor.streamCalls != 2 || len(executor.payloads) != 2 {
++		t.Fatalf("stream calls = %d payloads = %d, want 2 and 2", executor.streamCalls, len(executor.payloads))
++	}
++	secondInput := gjson.GetBytes(executor.payloads[1], "input").Array()
++	if len(secondInput) != 1 || secondInput[0].Get("id").String() != "corrected-msg" {
++		t.Fatalf("corrected request contains stale repaired tool state: %s", executor.payloads[1])
++	}
++	if strings.Contains(string(executor.payloads[1]), "request-stale") || strings.Contains(string(executor.payloads[1]), "partial-stale") {
++		t.Fatalf("stale tool cache state leaked into corrected request: %s", executor.payloads[1])
++	}
++}
++
+ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
+ 	gin.SetMode(gin.TestMode)
+ 
+@@ -952,6 +1238,7 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
+ 			errCh,
+ 			timelineLog,
+ 			"session-1",
++			nil,
+ 		)
+ 		if err != nil {
+ 			serverErrCh <- err
+@@ -1035,6 +1322,7 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
+ 			errCh,
+ 			timelineLog,
+ 			"session-1",
++			nil,
+ 		)
+ 		if err == nil {
+ 			serverErrCh <- errors.New("expected websocket write failure")
+@@ -1528,6 +1816,86 @@ func TestResponsesWebsocketReleasesPinnedAuthAfterQuotaError(t *testing.T) {
+ 	}
+ }
+ 
++func TestResponsesWebsocketRestoresForcedReplayAfter1009(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	selector := &orderedWebsocketSelector{order: []string{"auth-a", "auth-b"}}
++	executor := &websocketPinnedFailoverExecutor{messageTooBigOnAuthBFirst: true}
++	manager := coreauth.NewManager(nil, selector, nil)
++	manager.RegisterExecutor(executor)
++
++	for _, authID := range []string{"auth-a", "auth-b"} {
++		auth := &coreauth.Auth{
++			ID:         authID,
++			Provider:   executor.Identifier(),
++			Status:     coreauth.StatusActive,
++			Attributes: map[string]string{"websockets": "true"},
++		}
++		if _, err := manager.Register(context.Background(), auth); err != nil {
++			t.Fatalf("Register %s: %v", authID, err)
++		}
++		registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "replay-model"}})
++		t.Cleanup(func() { registry.GetGlobalRegistry().UnregisterClient(auth.ID) })
++	}
++
++	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
++	h := NewOpenAIResponsesAPIHandler(base)
++	router := gin.New()
++	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
++	server := httptest.NewServer(router)
++	defer server.Close()
++
++	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
++	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
++	if err != nil {
++		t.Fatalf("dial websocket: %v", err)
++	}
++	defer func() { _ = conn.Close() }()
++
++	requests := []string{
++		`{"type":"response.create","model":"replay-model","input":[{"type":"message","id":"msg-1"}]}`,
++		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-2"}]}`,
++		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-3"}]}`,
++		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-4"}]}`,
++	}
++	wantTypes := []string{wsEventTypeCompleted, wsEventTypeError, wsEventTypeError, wsEventTypeCompleted}
++	wantStatuses := []int{0, http.StatusTooManyRequests, http.StatusRequestEntityTooLarge, 0}
++	for i := range requests {
++		if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(requests[i])); errWrite != nil {
++			t.Fatalf("write websocket message %d: %v", i+1, errWrite)
++		}
++		_, payload, errRead := conn.ReadMessage()
++		if errRead != nil {
++			t.Fatalf("read websocket message %d: %v", i+1, errRead)
++		}
++		if got := gjson.GetBytes(payload, "type").String(); got != wantTypes[i] {
++			t.Fatalf("message %d payload type = %s, want %s: %s", i+1, got, wantTypes[i], payload)
++		}
++		if wantStatuses[i] != 0 && int(gjson.GetBytes(payload, "status").Int()) != wantStatuses[i] {
++			t.Fatalf("message %d status = %d, want %d: %s", i+1, gjson.GetBytes(payload, "status").Int(), wantStatuses[i], payload)
++		}
++	}
++
++	if got := executor.AuthIDs(); len(got) != 4 || got[0] != "auth-a" || got[1] != "auth-a" || got[2] != "auth-b" || got[3] != "auth-b" {
++		t.Fatalf("selected auth IDs = %v, want [auth-a auth-a auth-b auth-b]", got)
++	}
++	authBPayloads := executor.Payloads("auth-b")
++	if len(authBPayloads) != 2 {
++		t.Fatalf("auth-b payload count = %d, want 2", len(authBPayloads))
++	}
++	correctedPayload := authBPayloads[1]
++	if gjson.GetBytes(correctedPayload, "previous_response_id").Exists() {
++		t.Fatalf("previous_response_id leaked after rolled-back 1009 replay: %s", correctedPayload)
++	}
++	correctedInput := gjson.GetBytes(correctedPayload, "input").Raw
++	if !strings.Contains(correctedInput, `"id":"msg-1"`) || !strings.Contains(correctedInput, `"id":"msg-4"`) {
++		t.Fatalf("corrected replay missing transcript items: %s", correctedInput)
++	}
++	if strings.Contains(correctedInput, `"id":"msg-3"`) {
++		t.Fatalf("failed 1009 request leaked into corrected replay: %s", correctedInput)
++	}
++}
++
+ func TestNormalizeResponsesWebsocketRequestTreatsTranscriptReplacementAsReset(t *testing.T) {
+ 	lastRequest := []byte(`{"model":"test-model","stream":true,"input":[{"type":"message","id":"msg-1"},{"type":"function_call","id":"fc-1","call_id":"call-1"},{"type":"function_call_output","id":"tool-out-1","call_id":"call-1"},{"type":"message","id":"assistant-1","role":"assistant"}]}`)
+ 	lastResponseOutput := []byte(`[
+diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
+index e3e3c573e84762b2c4f227a5b4a050a2eb6cefc3..128c4d800b3c67ac4fc17c37d779fb13d400627f 100644
+--- a/sdk/cliproxy/auth/conductor.go
++++ b/sdk/cliproxy/auth/conductor.go
+@@ -113,6 +113,8 @@ type Result struct {
+ 	RetryAfter *time.Duration
+ 	// Error describes the failure when Success is false.
+ 	Error *Error
++	// RequestScoped marks failures caused by the request rather than the credential.
++	RequestScoped bool
+ 	// UsageDetail carries provider token usage for runtime account accounting.
+ 	UsageDetail coreusage.Detail
+ 	// UsageEstimated marks usage values estimated from provider runtime signals.
+@@ -835,7 +837,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
+ 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](chunk.Err); ok && se != nil {
+ 					rerr.HTTPStatus = se.StatusCode()
+ 				}
+-				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr})
++				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(chunk.Err)})
+ 			}
+ 			if detail, estimated, ok := kiroUsageResultFromMetadata(provider, chunk.Metadata); ok {
+ 				usageDetail = detail
+@@ -900,7 +902,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errStream); ok && se != nil {
+ 				rerr.HTTPStatus = se.StatusCode()
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
++			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(errStream)}
+ 			result.RetryAfter = retryAfterFromError(errStream)
+ 			m.MarkResult(ctx, result)
+ 			if isRequestInvalidError(errStream) {
+@@ -921,7 +923,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
+ 					rerr.HTTPStatus = se.StatusCode()
+ 				}
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
++				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
+ 				result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 				m.MarkResult(ctx, result)
+ 				discardStreamChunks(streamResult.Chunks)
+@@ -932,7 +934,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
+ 					rerr.HTTPStatus = se.StatusCode()
+ 				}
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
++				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
+ 				result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 				m.MarkResult(ctx, result)
+ 				discardStreamChunks(streamResult.Chunks)
+@@ -943,7 +945,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
+ 				rerr.HTTPStatus = se.StatusCode()
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
++			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
+ 			result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 			m.MarkResult(ctx, result)
+ 			discardStreamChunks(streamResult.Chunks)
+@@ -1446,6 +1448,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req
+ 					return cliproxyexecutor.Response{}, errCtx
+ 				}
+ 				result.Error = &Error{Message: errExec.Error()}
++				result.RequestScoped = isRequestScopedError(errExec)
+ 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
+ 					result.Error.HTTPStatus = se.StatusCode()
+ 				}
+@@ -2310,6 +2313,10 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
+ 	if result.AuthID == "" {
+ 		return
+ 	}
++	if !result.Success && (result.RequestScoped || isRequestScopedNotFoundResultError(result.Error)) {
++		m.hook.OnResult(ctx, result)
++		return
++	}
+ 
+ 	shouldResumeModel := false
+ 	shouldSuspendModel := false
+@@ -2346,7 +2353,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
+ 			}
+ 		} else {
+ 			if result.Model != "" {
+-				if !isRequestScopedNotFoundResultError(result.Error) {
++				if !result.RequestScoped && !isRequestScopedNotFoundResultError(result.Error) {
+ 					disableCooling := quotaCooldownDisabledForAuth(auth)
+ 					state := ensureModelState(auth, result.Model)
+ 					state.Unavailable = true
+@@ -2794,6 +2801,17 @@ func statusCodeFromError(err error) int {
+ 	return 0
+ }
+ 
++func isRequestScopedError(err error) bool {
++	if err == nil {
++		return false
++	}
++	type requestScopedError interface {
++		IsRequestScoped() bool
++	}
++	var requestErr requestScopedError
++	return errors.As(err, &requestErr) && requestErr != nil && requestErr.IsRequestScoped()
++}
++
+ func isUnauthorizedError(err error) bool {
+ 	if err == nil {
+ 		return false
+@@ -2919,15 +2937,18 @@ func isRequestScopedNotFoundResultError(err *Error) bool {
+ }
+ 
+ // isRequestInvalidError returns true if the error represents a client request
+-// error that should not be retried. Specifically, it treats 400 responses with
+-// "invalid_request_error", request-scoped 404 item misses caused by `store=false`,
+-// and all 422 responses as request-shape failures, where switching auths or
+-// pooled upstream models will not help. Model-support errors are excluded so
+-// routing can fall through to another auth or upstream.
++// error that should not be retried. Specifically, it treats typed request-scoped
++// errors, 400 responses with "invalid_request_error", request-scoped 404 item
++// misses caused by `store=false`, and all 422 responses as request-shape failures,
++// where switching auths or pooled upstream models will not help. Model-support
++// errors are excluded so routing can fall through to another auth or upstream.
+ func isRequestInvalidError(err error) bool {
+ 	if err == nil {
+ 		return false
+ 	}
++	if isRequestScopedError(err) {
++		return true
++	}
+ 	if isModelSupportError(err) {
+ 		return false
+ 	}
+diff --git a/sdk/cliproxy/auth/conductor_overrides_test.go b/sdk/cliproxy/auth/conductor_overrides_test.go
+index 9d493993311ec456a1eb2db087066b821dd5dec6..d6ebb0739c61a02938ce3f62e4b86f1ffb15b424 100644
+--- a/sdk/cliproxy/auth/conductor_overrides_test.go
++++ b/sdk/cliproxy/auth/conductor_overrides_test.go
+@@ -3,6 +3,7 @@ package auth
+ import (
+ 	"context"
+ 	"net/http"
++	"strings"
+ 	"sync"
+ 	"testing"
+ 	"time"
+@@ -157,11 +158,13 @@ func (e *credentialRetryLimitExecutor) Calls() int {
+ type authFallbackExecutor struct {
+ 	id string
+ 
+-	mu                sync.Mutex
+-	executeCalls      []string
+-	streamCalls       []string
+-	executeErrors     map[string]error
+-	streamFirstErrors map[string]error
++	mu                       sync.Mutex
++	executeCalls             []string
++	streamCalls              []string
++	refreshCalls             []string
++	executeErrors            map[string]error
++	streamFirstErrors        map[string]error
++	streamAfterPayloadErrors map[string]error
+ }
+ 
+ func (e *authFallbackExecutor) Identifier() string {
+@@ -182,21 +185,28 @@ func (e *authFallbackExecutor) Execute(_ context.Context, auth *Auth, _ cliproxy
+ func (e *authFallbackExecutor) ExecuteStream(_ context.Context, auth *Auth, _ cliproxyexecutor.Request, _ cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
+ 	e.mu.Lock()
+ 	e.streamCalls = append(e.streamCalls, auth.ID)
+-	err := e.streamFirstErrors[auth.ID]
++	firstErr := e.streamFirstErrors[auth.ID]
++	afterPayloadErr := e.streamAfterPayloadErrors[auth.ID]
+ 	e.mu.Unlock()
+ 
+-	ch := make(chan cliproxyexecutor.StreamChunk, 1)
+-	if err != nil {
+-		ch <- cliproxyexecutor.StreamChunk{Err: err}
++	ch := make(chan cliproxyexecutor.StreamChunk, 2)
++	if firstErr != nil {
++		ch <- cliproxyexecutor.StreamChunk{Err: firstErr}
+ 		close(ch)
+ 		return &cliproxyexecutor.StreamResult{Headers: http.Header{"X-Auth": {auth.ID}}, Chunks: ch}, nil
+ 	}
+ 	ch <- cliproxyexecutor.StreamChunk{Payload: []byte(auth.ID)}
++	if afterPayloadErr != nil {
++		ch <- cliproxyexecutor.StreamChunk{Err: afterPayloadErr}
++	}
+ 	close(ch)
+ 	return &cliproxyexecutor.StreamResult{Headers: http.Header{"X-Auth": {auth.ID}}, Chunks: ch}, nil
+ }
+ 
+ func (e *authFallbackExecutor) Refresh(_ context.Context, auth *Auth) (*Auth, error) {
++	e.mu.Lock()
++	e.refreshCalls = append(e.refreshCalls, auth.ID)
++	e.mu.Unlock()
+ 	return auth, nil
+ }
+ 
+@@ -224,6 +234,37 @@ func (e *authFallbackExecutor) StreamCalls() []string {
+ 	return out
+ }
+ 
++func (e *authFallbackExecutor) RefreshCalls() []string {
++	e.mu.Lock()
++	defer e.mu.Unlock()
++	out := make([]string, len(e.refreshCalls))
++	copy(out, e.refreshCalls)
++	return out
++}
++
++type requestScopedStatusError struct {
++	status  int
++	message string
++}
++
++func (e *requestScopedStatusError) Error() string {
++	if e == nil {
++		return ""
++	}
++	return e.message
++}
++
++func (e *requestScopedStatusError) StatusCode() int {
++	if e == nil {
++		return 0
++	}
++	return e.status
++}
++
++func (e *requestScopedStatusError) IsRequestScoped() bool {
++	return e != nil
++}
++
+ type retryAfterStatusError struct {
+ 	status     int
+ 	message    string
+@@ -768,6 +809,14 @@ func TestManager_MarkResult_RequestScopedNotFoundDoesNotCooldownAuth(t *testing.
+ 	if !ok || updated == nil {
+ 		t.Fatalf("expected auth to be present")
+ 	}
++	if updated.Failed != 0 {
++		t.Fatalf("expected request-scoped 404 to keep failed count at 0, got %d", updated.Failed)
++	}
++	for _, bucket := range updated.RecentRequestsSnapshot(time.Now()) {
++		if bucket.Failed != 0 {
++			t.Fatalf("expected request-scoped 404 to avoid recent failure accounting, got %#v", bucket)
++		}
++	}
+ 	if updated.Unavailable {
+ 		t.Fatalf("expected request-scoped 404 to keep auth available")
+ 	}
+@@ -779,6 +828,338 @@ func TestManager_MarkResult_RequestScopedNotFoundDoesNotCooldownAuth(t *testing.
+ 	}
+ }
+ 
++func TestManager_RequestScopedMessageTooBigStopsCredentialFallback(t *testing.T) {
++	testCases := []struct {
++		name   string
++		invoke func(*Manager, cliproxyexecutor.Request) error
++		calls  func(*authFallbackExecutor) []string
++	}{
++		{
++			name: "execute",
++			invoke: func(m *Manager, req cliproxyexecutor.Request) error {
++				_, err := m.Execute(context.Background(), []string{"codex"}, req, cliproxyexecutor.Options{})
++				return err
++			},
++			calls: func(executor *authFallbackExecutor) []string { return executor.ExecuteCalls() },
++		},
++		{
++			name: "execute_stream",
++			invoke: func(m *Manager, req cliproxyexecutor.Request) error {
++				_, err := m.ExecuteStream(context.Background(), []string{"codex"}, req, cliproxyexecutor.Options{})
++				return err
++			},
++			calls: func(executor *authFallbackExecutor) []string { return executor.StreamCalls() },
++		},
++	}
++
++	for _, tc := range testCases {
++		t.Run(tc.name, func(t *testing.T) {
++			badAuthID := "aa-" + uuid.NewString()
++			goodAuthID := "bb-" + uuid.NewString()
++			messageTooBigErr := &requestScopedStatusError{
++				status:  http.StatusRequestEntityTooLarge,
++				message: `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++			}
++			executor := &authFallbackExecutor{
++				id:                "codex",
++				executeErrors:     map[string]error{badAuthID: messageTooBigErr},
++				streamFirstErrors: map[string]error{badAuthID: messageTooBigErr},
++			}
++			m := NewManager(nil, nil, nil)
++			m.RegisterExecutor(executor)
++
++			model := "gpt-5-codex-" + uuid.NewString()
++			badAuth := &Auth{ID: badAuthID, Provider: "codex"}
++			goodAuth := &Auth{ID: goodAuthID, Provider: "codex"}
++			reg := registry.GetGlobalRegistry()
++			reg.RegisterClient(badAuth.ID, "codex", []*registry.ModelInfo{{ID: model}})
++			reg.RegisterClient(goodAuth.ID, "codex", []*registry.ModelInfo{{ID: model}})
++			t.Cleanup(func() {
++				reg.UnregisterClient(badAuth.ID)
++				reg.UnregisterClient(goodAuth.ID)
++			})
++			if _, err := m.Register(context.Background(), badAuth); err != nil {
++				t.Fatalf("register bad auth: %v", err)
++			}
++			if _, err := m.Register(context.Background(), goodAuth); err != nil {
++				t.Fatalf("register good auth: %v", err)
++			}
++
++			err := tc.invoke(m, cliproxyexecutor.Request{Model: model})
++			if err == nil {
++				t.Fatal("expected request-scoped message-too-big error")
++			}
++			if got := statusCodeFromError(err); got != http.StatusRequestEntityTooLarge {
++				t.Fatalf("status = %d, want %d", got, http.StatusRequestEntityTooLarge)
++			}
++			if !strings.Contains(err.Error(), `"code":"message_too_big"`) {
++				t.Fatalf("error = %v, want message_too_big code", err)
++			}
++			if got := tc.calls(executor); len(got) != 1 || got[0] != badAuth.ID {
++				t.Fatalf("credential calls = %v, want [%s]", got, badAuth.ID)
++			}
++
++			if got := executor.RefreshCalls(); len(got) != 0 {
++				t.Fatalf("refresh calls = %v, want none", got)
++			}
++
++			updatedBad, ok := m.GetByID(badAuth.ID)
++			if !ok || updatedBad == nil {
++				t.Fatal("expected bad auth to remain registered")
++			}
++			if updatedBad.Failed != 0 {
++				t.Fatalf("request-scoped error failed count = %d, want 0", updatedBad.Failed)
++			}
++			for _, bucket := range updatedBad.RecentRequestsSnapshot(time.Now()) {
++				if bucket.Failed != 0 {
++					t.Fatalf("request-scoped error changed recent failure accounting: %#v", bucket)
++				}
++			}
++			if updatedBad.Unavailable || !updatedBad.NextRetryAfter.IsZero() {
++				t.Fatalf("request-scoped error changed auth availability: %#v", updatedBad)
++			}
++			if state := updatedBad.ModelStates[model]; state != nil {
++				t.Fatalf("request-scoped error created model state: %#v", state)
++			}
++		})
++	}
++}
++
++func TestManager_TypedRequestScopedErrorDoesNotDependOnMessage(t *testing.T) {
++	badAuthID := "aa-" + uuid.NewString()
++	goodAuthID := "bb-" + uuid.NewString()
++	executor := &authFallbackExecutor{
++		id: "codex",
++		executeErrors: map[string]error{
++			badAuthID: &requestScopedStatusError{status: http.StatusRequestEntityTooLarge, message: "request payload rejected"},
++		},
++	}
++	m := NewManager(nil, nil, nil)
++	m.RegisterExecutor(executor)
++
++	model := "gpt-5-codex-" + uuid.NewString()
++	badAuth := &Auth{ID: badAuthID, Provider: "codex"}
++	goodAuth := &Auth{ID: goodAuthID, Provider: "codex"}
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(badAuth.ID, badAuth.Provider, []*registry.ModelInfo{{ID: model}})
++	reg.RegisterClient(goodAuth.ID, goodAuth.Provider, []*registry.ModelInfo{{ID: model}})
++	t.Cleanup(func() {
++		reg.UnregisterClient(badAuth.ID)
++		reg.UnregisterClient(goodAuth.ID)
++	})
++	if _, err := m.Register(context.Background(), badAuth); err != nil {
++		t.Fatalf("register bad auth: %v", err)
++	}
++	if _, err := m.Register(context.Background(), goodAuth); err != nil {
++		t.Fatalf("register good auth: %v", err)
++	}
++
++	_, err := m.Execute(context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
++	if err == nil || !strings.Contains(err.Error(), "request payload rejected") {
++		t.Fatalf("Execute() error = %v, want typed request-scoped error", err)
++	}
++	if got := executor.ExecuteCalls(); len(got) != 1 || got[0] != badAuth.ID {
++		t.Fatalf("credential calls = %v, want [%s]", got, badAuth.ID)
++	}
++	if got := executor.RefreshCalls(); len(got) != 0 {
++		t.Fatalf("refresh calls = %v, want none", got)
++	}
++
++	updatedBad, ok := m.GetByID(badAuth.ID)
++	if !ok || updatedBad == nil {
++		t.Fatal("expected bad auth to remain registered")
++	}
++	if updatedBad.Failed != 0 {
++		t.Fatalf("typed request-scoped error failed count = %d, want 0", updatedBad.Failed)
++	}
++	for _, bucket := range updatedBad.RecentRequestsSnapshot(time.Now()) {
++		if bucket.Failed != 0 {
++			t.Fatalf("typed request-scoped error changed recent failures: %#v", bucket)
++		}
++	}
++	if updatedBad.Unavailable || !updatedBad.NextRetryAfter.IsZero() {
++		t.Fatalf("typed request-scoped error changed auth availability: %#v", updatedBad)
++	}
++	if state := updatedBad.ModelStates[model]; state != nil {
++		t.Fatalf("typed request-scoped error created model state: %#v", state)
++	}
++}
++
++func TestManager_UntypedMessageTooBigTextRetainsCredentialFallbackAndAccounting(t *testing.T) {
++	badAuthID := "aa-" + uuid.NewString()
++	goodAuthID := "bb-" + uuid.NewString()
++	executor := &authFallbackExecutor{
++		id: "codex",
++		executeErrors: map[string]error{
++			badAuthID: &Error{
++				HTTPStatus: http.StatusRequestEntityTooLarge,
++				Message:    `{"error":{"code":"message_too_big"}}`,
++			},
++		},
++	}
++	m := NewManager(nil, nil, nil)
++	m.RegisterExecutor(executor)
++
++	model := "gpt-5-codex-" + uuid.NewString()
++	badAuth := &Auth{ID: badAuthID, Provider: "codex"}
++	goodAuth := &Auth{ID: goodAuthID, Provider: "codex"}
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(badAuth.ID, badAuth.Provider, []*registry.ModelInfo{{ID: model}})
++	reg.RegisterClient(goodAuth.ID, goodAuth.Provider, []*registry.ModelInfo{{ID: model}})
++	t.Cleanup(func() {
++		reg.UnregisterClient(badAuth.ID)
++		reg.UnregisterClient(goodAuth.ID)
++	})
++	if _, err := m.Register(context.Background(), badAuth); err != nil {
++		t.Fatalf("register bad auth: %v", err)
++	}
++	if _, err := m.Register(context.Background(), goodAuth); err != nil {
++		t.Fatalf("register good auth: %v", err)
++	}
++
++	resp, err := m.Execute(context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
++	if err != nil {
++		t.Fatalf("Execute() error = %v, want fallback success", err)
++	}
++	if string(resp.Payload) != goodAuth.ID {
++		t.Fatalf("payload = %q, want %q", resp.Payload, goodAuth.ID)
++	}
++	if got := executor.ExecuteCalls(); len(got) != 2 || got[0] != badAuth.ID || got[1] != goodAuth.ID {
++		t.Fatalf("credential calls = %v, want [%s %s]", got, badAuth.ID, goodAuth.ID)
++	}
++	if got := executor.RefreshCalls(); len(got) != 0 {
++		t.Fatalf("refresh calls = %v, want none", got)
++	}
++
++	updatedBad, ok := m.GetByID(badAuth.ID)
++	if !ok || updatedBad == nil {
++		t.Fatal("expected bad auth to remain registered")
++	}
++	if updatedBad.Failed != 1 {
++		t.Fatalf("untyped 413 failed count = %d, want 1", updatedBad.Failed)
++	}
++	recentFailures := int64(0)
++	for _, bucket := range updatedBad.RecentRequestsSnapshot(time.Now()) {
++		recentFailures += bucket.Failed
++	}
++	if recentFailures != 1 {
++		t.Fatalf("untyped 413 recent failures = %d, want 1", recentFailures)
++	}
++}
++
++func TestManager_RequestScopedMessageTooBigAfterStreamDataDoesNotMutateCredential(t *testing.T) {
++	authID := "auth-" + uuid.NewString()
++	messageTooBigErr := &requestScopedStatusError{
++		status:  http.StatusRequestEntityTooLarge,
++		message: `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
++	}
++	executor := &authFallbackExecutor{
++		id: "codex",
++		streamAfterPayloadErrors: map[string]error{
++			authID: messageTooBigErr,
++		},
++	}
++	m := NewManager(nil, nil, nil)
++	m.RegisterExecutor(executor)
++
++	model := "gpt-5-codex-" + uuid.NewString()
++	auth := &Auth{ID: authID, Provider: "codex"}
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: model}})
++	t.Cleanup(func() { reg.UnregisterClient(auth.ID) })
++	if _, err := m.Register(context.Background(), auth); err != nil {
++		t.Fatalf("register auth: %v", err)
++	}
++
++	result, err := m.ExecuteStream(context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
++	if err != nil {
++		t.Fatalf("ExecuteStream() error = %v", err)
++	}
++	var streamErr error
++	for chunk := range result.Chunks {
++		if chunk.Err != nil {
++			streamErr = chunk.Err
++		}
++	}
++	if streamErr == nil || statusCodeFromError(streamErr) != http.StatusRequestEntityTooLarge {
++		t.Fatalf("stream error = %v, want status %d", streamErr, http.StatusRequestEntityTooLarge)
++	}
++
++	updated, ok := m.GetByID(auth.ID)
++	if !ok || updated == nil {
++		t.Fatal("expected auth to remain registered")
++	}
++	if updated.Failed != 0 {
++		t.Fatalf("request-scoped stream error failed count = %d, want 0", updated.Failed)
++	}
++	for _, bucket := range updated.RecentRequestsSnapshot(time.Now()) {
++		if bucket.Failed != 0 {
++			t.Fatalf("request-scoped stream error changed recent failures: %#v", bucket)
++		}
++	}
++	if updated.Unavailable || !updated.NextRetryAfter.IsZero() {
++		t.Fatalf("request-scoped stream error changed auth availability: %#v", updated)
++	}
++	if state := updated.ModelStates[model]; state != nil {
++		t.Fatalf("request-scoped stream error created model state: %#v", state)
++	}
++}
++
++func TestManager_NonRequestScopedTransportErrorRetainsCredentialFallback(t *testing.T) {
++	badAuthID := "aa-" + uuid.NewString()
++	goodAuthID := "bb-" + uuid.NewString()
++	executor := &authFallbackExecutor{
++		id: "codex",
++		executeErrors: map[string]error{
++			badAuthID: &retryAfterStatusError{status: http.StatusBadGateway, message: "upstream transport failed"},
++		},
++	}
++	m := NewManager(nil, nil, nil)
++	m.RegisterExecutor(executor)
++
++	model := "gpt-5-codex-" + uuid.NewString()
++	badAuth := &Auth{ID: badAuthID, Provider: "codex"}
++	goodAuth := &Auth{ID: goodAuthID, Provider: "codex"}
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(badAuth.ID, "codex", []*registry.ModelInfo{{ID: model}})
++	reg.RegisterClient(goodAuth.ID, "codex", []*registry.ModelInfo{{ID: model}})
++	t.Cleanup(func() {
++		reg.UnregisterClient(badAuth.ID)
++		reg.UnregisterClient(goodAuth.ID)
++	})
++	if _, err := m.Register(context.Background(), badAuth); err != nil {
++		t.Fatalf("register bad auth: %v", err)
++	}
++	if _, err := m.Register(context.Background(), goodAuth); err != nil {
++		t.Fatalf("register good auth: %v", err)
++	}
++
++	resp, err := m.Execute(context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
++	if err != nil {
++		t.Fatalf("Execute() error = %v, want fallback success", err)
++	}
++	if string(resp.Payload) != goodAuth.ID {
++		t.Fatalf("payload = %q, want %q", resp.Payload, goodAuth.ID)
++	}
++	if got := executor.ExecuteCalls(); len(got) != 2 || got[0] != badAuth.ID || got[1] != goodAuth.ID {
++		t.Fatalf("credential calls = %v, want [%s %s]", got, badAuth.ID, goodAuth.ID)
++	}
++	updatedBad, ok := m.GetByID(badAuth.ID)
++	if !ok || updatedBad == nil {
++		t.Fatal("expected failed auth to remain registered")
++	}
++	if updatedBad.Failed != 1 {
++		t.Fatalf("normal transport error failed count = %d, want 1", updatedBad.Failed)
++	}
++	recentFailures := int64(0)
++	for _, bucket := range updatedBad.RecentRequestsSnapshot(time.Now()) {
++		recentFailures += bucket.Failed
++	}
++	if recentFailures != 1 {
++		t.Fatalf("normal transport error recent failures = %d, want 1", recentFailures)
++	}
++}
++
+ func TestManager_RequestScopedNotFoundStopsRetryWithoutSuspendingAuth(t *testing.T) {
+ 	m := NewManager(nil, nil, nil)
+ 	executor := &authFallbackExecutor{

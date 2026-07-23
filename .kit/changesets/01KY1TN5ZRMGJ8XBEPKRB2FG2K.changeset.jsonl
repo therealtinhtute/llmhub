@@ -1,0 +1,2 @@
+{"op":"create","entity":"run","id":"01KY1TN5ZQ9YVN3BQAX935F10X","fields":{"story_slug":"websocket-message-too-big","artifact_path":".kit/runs/work/20260721-1453-websocket-message-too-big.md","created_at":"2026-07-21T14:53:43+07:00"},"at":"2026-07-21T14:53:43+07:00"}
+{"op":"update","entity":"meta","id":"meta","fields":{"latest_run_id":"01KY1TN5ZQ9YVN3BQAX935F10X"},"at":"2026-07-21T14:53:43+07:00"}

@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S2-xai-tool-lifecycle",
+  "revision": "r03",
+  "patch_sha256": "869464e623c79acc03a143c3a1bbcca460c5fe127bc9a1654bbe61908861ba93",
+  "verdict": "APPROVED",
+  "findings": [],
+  "verified": {
+    "evidence_files_read": [
+      "baseline.json",
+      "result.json",
+      "application-proof.json",
+      "patch",
+      "test.log"
+    ],
+    "patch_sha256": {
+      "expected": "869464e623c79acc03a143c3a1bbcca460c5fe127bc9a1654bbe61908861ba93",
+      "actual": "869464e623c79acc03a143c3a1bbcca460c5fe127bc9a1654bbe61908861ba93",
+      "match": true
+    },
+    "baseline_tar_sha256": {
+      "expected": "4a63935247d5d15ec3ca3219d6717ea9b722f6486fe758a8bbb8361aaa39f0ac",
+      "actual": "4a63935247d5d15ec3ca3219d6717ea9b722f6486fe758a8bbb8361aaa39f0ac",
+      "match": true
+    },
+    "baseline_file_sha256": {
+      "internal/runtime/executor/xai_executor.go": "01080df177aef91b1f6280c31b610eea7f0b88c89ab05f3a62ed17de1af6d693",
+      "internal/runtime/executor/xai_executor_test.go": "ca983ac121b7bd7de9be84bcd0865d72988073921e77c16f04ed78114a9ffe39",
+      "match_manifest": true
+    },
+    "result_file_sha256": {
+      "internal/runtime/executor/xai_executor.go": "8a8303a4e008e2e24c47434698d963bde480eda9ff863baf266b31ed13165907",
+      "internal/runtime/executor/xai_executor_test.go": "dc6d90c482a3649233a08c5272ca236d9a28bc1ef4ad49cc0981d0bf626f4785",
+      "match_manifest": true
+    },
+    "changed_paths": {
+      "actual": [
+        "internal/runtime/executor/xai_executor.go",
+        "internal/runtime/executor/xai_executor_test.go"
+      ],
+      "exact_allowlist_match": true
+    },
+    "application": {
+      "forward_from_baseline_tar": true,
+      "forward_result_hashes_match": true,
+      "reverse_restores_baseline_hashes": true,
+      "whitespace_check": true
+    },
+    "full_tree_reconstruction": {
+      "start_commit": "2960b690bf89232b8a23c5b8823fbe0ca831347f",
+      "predecessor_patches_applied_in_manifest_order": 6,
+      "prepared_tree_expected": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+      "prepared_tree_actual": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+      "prepared_tree_match": true,
+      "result_tree_expected": "3490ead86db86c3a38e4d70173f012d5d948fd98",
+      "result_tree_actual": "3490ead86db86c3a38e4d70173f012d5d948fd98",
+      "result_tree_match": true
+    },
+    "tests": [
+      {
+        "command": "go test ./internal/runtime/executor -run '^TestXAIExecutorSameNameXSearchCallIdentityFiltering$' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 0.010s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -run '^TestXAIExecutor.*(SameName|Identity|XSearch).*$' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 0.008s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -run 'Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration)' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 0.015s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 1.292s"
+      },
+      {
+        "command": "go test -race ./internal/runtime/executor -run 'Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration)' -count=1",
+        "tree": "reconstructed result",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 1.071s"
+      },
+      {
+        "command": "go test ./internal/runtime/executor -run '^TestReviewR03' -count=1",
+        "tree": "reconstructed result plus temporary review-only tests",
+        "outcome": "PASS",
+        "output": "ok github.com/therealtinhtute/llmhub/internal/runtime/executor 0.008s"
+      }
+    ],
+    "boundary_matrix": {
+      "native_x_search_namespace_free_internal_function_same_name": "SUPPRESSED",
+      "namespace_free_internal_custom_same_name": "SUPPRESSED",
+      "internal_completed_output": "SUPPRESSED",
+      "internal_delta_done_output_item_lifecycle": "SUPPRESSED",
+      "later_visible_indices": "COMPACTED",
+      "ordinary_legitimate_same_name": "PRESERVED",
+      "exact_declared_namespaced_with_xs_call_prefix": "PRESERVED",
+      "exact_namespaced_stream_added_delta_done_output_item_completed": "PRESERVED",
+      "exact_namespaced_nonstream_output": "PRESERVED",
+      "flattened_declared_namespace_with_prefix": "PRESERVED_AND_RESTORABLE",
+      "undeclared_namespace_variant": "SUPPRESSED",
+      "custom_tool_call_type_cannot_impersonate_normalized_declaration": "SUPPRESSED",
+      "non_tool_response_type": "NOT_FILTERED",
+      "mcp_name_stability_and_classifier_boundary": "PASS",
+      "request_local_dropped_index_state": "PASS",
+      "direct_custom_namespaced_choice_normalization": "PASS"
+    },
+    "declaration_contract": {
+      "additional_tools_promotion": "PASS",
+      "custom_tool_normalization_and_restoration": "PASS",
+      "namespaced_identity_restoration": "PASS",
+      "tool_choice_normalization": "PASS",
+      "mcp_byte_stability": "PASS",
+      "pre_network_structured_collision": "PASS",
+      "request_scoped_state": "PASS"
+    },
+    "unrelated_xai_behavior": {
+      "existing_executor_package_suite": "PASS",
+      "focused_race_suite": "PASS",
+      "scope_outside_allowlist": "UNCHANGED"
+    }
+  },
+  "review_summary": "Approved. Patch, baseline/result hashes, exact two-file scope, whitespace-clean forward/reverse application, six-predecessor prepared tree, result tree, direct boundary regression, identity/search suite, focused/full executor suites, and focused race suite all reproduce. Independent adversarial tests confirm both prior defects are corrected without over-triggering or bypass across namespace, prefix, type, mcp, choice, collision, and request-local-state boundaries."
+}

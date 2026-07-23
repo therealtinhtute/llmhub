@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "phase": "tool-protocol-parity",
+  "revision": "r01",
+  "source_commit": "2960b690bf89232b8a23c5b8823fbe0ca831347f",
+  "predecessor_phase": "translator-content-fidelity",
+  "predecessor_closure": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-CLOSE/r01/review.json",
+  "predecessor_closure_verdict": "APPROVED",
+  "allowlist": [
+    "internal/translator/codex/claude/codex_claude_request.go",
+    "internal/translator/codex/claude/codex_claude_request_test.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go",
+    "internal/runtime/executor/codex_executor.go",
+    "internal/runtime/executor/xai_executor.go",
+    "internal/runtime/executor/xai_executor_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go"
+  ],
+  "baseline_sha256": {
+    "internal/translator/codex/claude/codex_claude_request.go": "71da78ff748cc57acf669ddae234b9e71c4b1c5fa23d5920c4c7be8cbb47db99",
+    "internal/translator/codex/claude/codex_claude_request_test.go": "f3def1e1d53fad14da5f0cd61fb50875cc25640cd1fce1713651e32ac91dea38",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go": "35b4aea1dde9090a0918a361fa9206e6ab9a5e46a483c85492c4feceaeadd87a",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go": "ad86e3fb0ed89354125bce8a97c36cc7b06eb055c8b54a14c7bb5c07391c6a42",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go": "d6217b3cf0d390b8bbf1e6155cc1c5795307a969401d7e015b69f3d47885f7db",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go": "ca9d827e8a8fb38062e7aa6fecbc753504a9c29d73f6bffd8e6734ac7769d160",
+    "internal/runtime/executor/codex_executor.go": "ab283a39fe93ae2cc7840ed279fcb61f42c650004a17f72527ee80a9502fd79a",
+    "internal/runtime/executor/xai_executor.go": "01080df177aef91b1f6280c31b610eea7f0b88c89ab05f3a62ed17de1af6d693",
+    "internal/runtime/executor/xai_executor_test.go": "ca983ac121b7bd7de9be84bcd0865d72988073921e77c16f04ed78114a9ffe39"
+  },
+  "planned_new_absent": [
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go"
+  ],
+  "baseline_tar_sha256": "4ad3275ec1ee92044a26316eae06649a551f8b8f3d62c22eb1de4206f5c5b898",
+  "allowlist_tree": "c3e3d40efc9d0144b247706af7d45b287b5c294b",
+  "cumulative_approved_patches": [
+    {
+      "slice": "P1-CLOSE/r01",
+      "path": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P1-CLOSE/r01/patch",
+      "sha256": "081c6029e14044651368ed6cc1a212148d791d0694fd7836228138c025d14427"
+    },
+    {
+      "slice": "P2-S1/r01",
+      "path": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S1-cooldown-jitter/r01/patch",
+      "sha256": "7e17ef3ab124b1fa713285fb984ac45722926121e4a2489fd4572beb068af875"
+    },
+    {
+      "slice": "P2-S2/r04",
+      "path": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r04/patch",
+      "sha256": "0f0b7c79e4627bc956a333ce64604dc4ef6a8357324be7915655cc660e0325ec"
+    },
+    {
+      "slice": "P3-S1/r03",
+      "path": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S1-file-data-normalization/r03/patch",
+      "sha256": "1e0dae5ab9290d2a16ce81727fb0040fb5a6f6eca591d02f77e9a2761dbaca7d"
+    },
+    {
+      "slice": "P3-S2/r03",
+      "path": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r03/patch",
+      "sha256": "c7c0dff343dc6af9e00ec9858258286e3c19612b25c31bd92ddfabcd0b27c2f4"
+    },
+    {
+      "slice": "P3-S3/r04",
+      "path": ".kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S3-codex-claude-output-indices/r04/patch",
+      "sha256": "9e1e4ccd0ef3a03b83b1726448f11cb53819eb56e874765eef46ec14faec62cc"
+    }
+  ],
+  "scope_status": "clean",
+  "notes": [
+    "Phase 4 slice allowlists are disjoint and parallel-safe.",
+    "Isolated worktrees start at HEAD and apply cumulative approved product patches in listed order before editing.",
+    "No Phase 4 allowlist file was modified in the main working tree at freeze time.",
+    "Three exact-touch files are intentional planned-new implementation or regression-test files."
+  ],
+  "manifest_sha256": "27e3ebe9ce630185879afe07b3b9814c69c355af0de78d08299e57ceb91c701a"
+}

@@ -1,12 +1,18 @@
 package amp
 
 import (
+	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
 )
 
 func TestRegisterManagementRoutes(t *testing.T) {
@@ -378,5 +384,73 @@ func TestLocalhostOnlyMiddleware_HotReload(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("Expected 403 after re-enabling restriction, got %d", w.Code)
+	}
+}
+
+type ampCountTokensErrorExecutor struct{}
+
+func (ampCountTokensErrorExecutor) Identifier() string { return "claude" }
+
+func (ampCountTokensErrorExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
+	return coreexecutor.Response{}, nil
+}
+
+func (ampCountTokensErrorExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (*coreexecutor.StreamResult, error) {
+	return nil, nil
+}
+
+func (ampCountTokensErrorExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
+	return auth, nil
+}
+
+func (ampCountTokensErrorExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
+	return coreexecutor.Response{}, &coreauth.Error{
+		HTTPStatus: http.StatusNotFound,
+		Message:    "Cannot POST /v1/messages/count_tokens",
+	}
+}
+
+func (ampCountTokensErrorExecutor) HttpRequest(context.Context, *coreauth.Auth, *http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+func TestAmpCountTokensInheritsAvailabilityNeutralConductorPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	model := "amp-count-tokens-neutral-model"
+	authID := "amp-count-tokens-neutral-auth"
+	reg := registry.GetGlobalRegistry()
+	reg.RegisterClient(authID, "claude", []*registry.ModelInfo{{ID: model}})
+	t.Cleanup(func() { reg.UnregisterClient(authID) })
+
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(ampCountTokensErrorExecutor{})
+	if _, errRegister := manager.Register(context.Background(), &coreauth.Auth{ID: authID, Provider: "claude"}); errRegister != nil {
+		t.Fatalf("register auth: %v", errRegister)
+	}
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	router := gin.New()
+	module := &AmpModule{}
+	module.registerProviderAliases(router, base, func(*gin.Context) {})
+
+	body := []byte(`{"model":"amp-count-tokens-neutral-model","messages":[{"role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/provider/anthropic/v1/messages/count_tokens", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("CountTokens status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	updated, ok := manager.GetByID(authID)
+	if !ok || updated == nil {
+		t.Fatal("expected auth to remain registered")
+	}
+	if state := updated.ModelStates[model]; state != nil {
+		t.Fatalf("Amp CountTokens route changed model availability: %#v", state)
+	}
+	if count := reg.GetModelCount(model); count <= 0 {
+		t.Fatalf("available model count = %d, want positive", count)
 	}
 }

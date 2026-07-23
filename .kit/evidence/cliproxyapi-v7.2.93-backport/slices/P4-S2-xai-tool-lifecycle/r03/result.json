@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S2-xai-tool-lifecycle",
+  "revision": "r03",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T05:20:50Z",
+  "base_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "result_tree": "3490ead86db86c3a38e4d70173f012d5d948fd98",
+  "changed_files": [
+    "internal/runtime/executor/xai_executor.go",
+    "internal/runtime/executor/xai_executor_test.go"
+  ],
+  "result_sha256": {
+    "internal/runtime/executor/xai_executor.go": "8a8303a4e008e2e24c47434698d963bde480eda9ff863baf266b31ed13165907",
+    "internal/runtime/executor/xai_executor_test.go": "dc6d90c482a3649233a08c5272ca236d9a28bc1ef4ad49cc0981d0bf626f4785"
+  },
+  "patch_sha256": "869464e623c79acc03a143c3a1bbcca460c5fe127bc9a1654bbe61908861ba93",
+  "verification": [
+    {
+      "command": "go test ./internal/runtime/executor -run ^TestXAIExecutorSameNameXSearchCallIdentityFiltering$ -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -run ^TestXAIExecutor.*(SameName|Identity|XSearch).*$ -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    }
+  ],
+  "application_proof": {
+    "prepared_base_hashes_match": true,
+    "worktree_scope_matches": true,
+    "forward_matches_isolated_result": true,
+    "reverse_matches_base_tree": true,
+    "whitespace_check": true,
+    "prepared_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+    "result_tree": "3490ead86db86c3a38e4d70173f012d5d948fd98"
+  },
+  "notes": "Corrects r02 classifier precedence: exact declared namespaced identity remains visible while namespace-free internal xs_call lifecycles remain suppressed; independent review pending."
+}

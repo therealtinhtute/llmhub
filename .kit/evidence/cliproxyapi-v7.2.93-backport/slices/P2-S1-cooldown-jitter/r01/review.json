@@ -1,0 +1,23 @@
+{
+  "slice_id": "P2-S1-cooldown-jitter",
+  "revision": "r01",
+  "base_check_id": "01KY66XV7KSEWT79WDQKTK47KP",
+  "patch_sha256": "7e17ef3ab124b1fa713285fb984ac45722926121e4a2489fd4572beb068af875",
+  "verdict": "APPROVED",
+  "scope_check": {
+    "unexpected_paths": []
+  },
+  "tests_reviewed": [
+    "TestManager_ModelCooldownBackoffEscalatesOncePerActiveWindow",
+    "TestManager_AuthCooldownBackoffEscalatesOncePerActiveWindow",
+    "TestQuotaCooldownBackoffDisabled",
+    "TestJitteredCooldownWait",
+    "existing persistence, scheduler, disable-cooling, and Phase 1 request-scoped regressions",
+    "Execute, ExecuteCount, and ExecuteStream retry call sites"
+  ],
+  "findings": [],
+  "concerns": [
+    "Slice evidence is intentionally focused; package/full/race coverage belongs to the Phase 2 gate.",
+    "Jitter fixtures assert repeated bounds rather than injecting a random source; source review confirms the exact clamp and cap contract."
+  ]
+}

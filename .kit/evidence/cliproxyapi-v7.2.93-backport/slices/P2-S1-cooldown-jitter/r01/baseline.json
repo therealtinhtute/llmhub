@@ -1,0 +1,24 @@
+{
+  "slice_id": "P2-S1-cooldown-jitter",
+  "revision": "r01",
+  "base_check_id": "01KY66XV7KSEWT79WDQKTK47KP",
+  "allowlist": [
+    "sdk/cliproxy/auth/conductor.go",
+    "sdk/cliproxy/auth/cooldown_backoff_test.go"
+  ],
+  "baseline_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "24486154d5709c3fc0e7e886a41863541418598b3d6de344b72910b2bed1d691"
+  },
+  "planned_new_absent": [
+    "sdk/cliproxy/auth/cooldown_backoff_test.go"
+  ],
+  "prepared_base_tree": "19f051a60975f3c9034178c21a10325ed4721fe4",
+  "patch_sha256": "7e17ef3ab124b1fa713285fb984ac45722926121e4a2489fd4572beb068af875",
+  "result_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "645bf1c3fad4b65963764769a0be5f9577b0adea2ab5944bead40bfb228082eb",
+    "sdk/cliproxy/auth/cooldown_backoff_test.go": "646820fb80d44b2cbb091b13664b1a3c717e6c98f6ea9f854f0633baa31edc83"
+  },
+  "scratch_path": "/tmp/llmhub-p2-s1-4trprq77",
+  "forward_matches_isolated_result": true,
+  "reverse_matches_phase1_base": true
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S1-codex-tool-declarations",
+  "revision": "r04",
+  "prepared_base_hashes_match": true,
+  "baseline_verification": {
+    "existing_file_count": 9,
+    "prepared_vs_slice_manifest_match_count": 9,
+    "prepared_vs_slice_archive_match_count": 9,
+    "slice_manifest_matches_prepared": true,
+    "slice_archive_matches_prepared": true,
+    "baseline_tar_sha256_matches": true,
+    "baseline_tar_sha256": "bf6dff9b022074121ae0be9e1667d7ee64164228296b9dfad45930d953d14fc6"
+  },
+  "scope_verification": {
+    "allowlist_count": 12,
+    "actual_changed_path_count": 12,
+    "modified_existing_count": 9,
+    "planned_new_count": 3,
+    "actual_changed_files": [
+      "internal/runtime/executor/codex_executor.go",
+      "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go",
+      "internal/runtime/executor/codex_websockets_executor.go",
+      "internal/runtime/executor/codex_websockets_executor_test.go",
+      "internal/translator/codex/claude/codex_claude_request.go",
+      "internal/translator/codex/claude/codex_claude_request_test.go",
+      "internal/translator/codex/openai/responses/codex_openai-responses_request.go",
+      "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_response.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+      "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go"
+    ]
+  },
+  "lineage_verification": {
+    "prepared_tree_matches_phase_base": true,
+    "rejected_r03_applied_as_starting_candidate": true,
+    "rejected_r03_result_tree": "acbe9976fd3fc8d77fc45c2c4c7a0a18f32e357e"
+  },
+  "patch_verification": {
+    "patch_sha256_matches": true,
+    "patch_sha256": "c1bddd3e590a02b1249a6ab7f7b57655a9369aa69ac6881487930eb650066300",
+    "forward_application_succeeds": true,
+    "forward_matches_result_tree": true,
+    "reverse_application_succeeds": true,
+    "reverse_matches_prepared_tree": true,
+    "reverse_removes_planned_new_files": true
+  },
+  "worktree_scope_matches": true,
+  "whitespace_check": true,
+  "prepared_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "result_tree": "a04532ab00573a16269a15b25343aaa0901a1853",
+  "reverse_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241"
+}

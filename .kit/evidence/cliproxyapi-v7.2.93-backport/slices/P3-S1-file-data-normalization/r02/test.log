@@ -1,0 +1,20 @@
+{
+  "source_worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-afbc00d2864b185f2",
+  "commands": [
+    {
+      "command": "go test ./internal/translator/common ./internal/translator/gemini/openai/chat-completions ./internal/translator/gemini-cli/openai/chat-completions ./internal/translator/codex/openai/chat-completions -count=1",
+      "returncode": 0,
+      "result": "all four packages passed"
+    },
+    {
+      "command": "git diff --check",
+      "returncode": 0,
+      "result": "pass"
+    },
+    {
+      "command": "exact changed-path allowlist check",
+      "returncode": 0,
+      "result": "pass"
+    }
+  ]
+}

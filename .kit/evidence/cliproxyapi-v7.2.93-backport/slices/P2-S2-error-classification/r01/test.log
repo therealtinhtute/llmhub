@@ -1,0 +1,21 @@
+{
+  "commands": [
+    {
+      "command": "go test ./sdk/cliproxy/auth -run 'Test.*(InvalidGrant|CountTokens|RequestScoped|Fallback)' -count=1",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/sdk/cliproxy/auth\t0.009s\n"
+    },
+    {
+      "command": "go test ./internal/api/modules/amp -run 'Test.*CountTokens' -count=1",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/internal/api/modules/amp\t0.006s\n"
+    },
+    {
+      "command": "go test ./sdk/cliproxy/auth -run 'Test.*(Cooldown|Jitter|Backoff)' -count=1",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/sdk/cliproxy/auth\t0.006s\n"
+    }
+  ],
+  "source": "isolated implementation agent",
+  "git_diff_check": "pass"
+}

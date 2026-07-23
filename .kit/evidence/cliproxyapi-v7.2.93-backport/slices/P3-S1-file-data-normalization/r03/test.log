@@ -1,0 +1,10 @@
+$ go test ./internal/translator/codex/openai/chat-completions -run TestToolOutputInvalidFileDataFallsBackDeterministically -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/translator/codex/openai/chat-completions	0.002s
+[return_code=0]
+
+$ go test ./internal/translator/common ./internal/translator/gemini/openai/chat-completions ./internal/translator/gemini-cli/openai/chat-completions ./internal/translator/codex/openai/chat-completions -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/translator/common	0.002s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/gemini/openai/chat-completions	0.003s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/gemini-cli/openai/chat-completions	0.003s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/codex/openai/chat-completions	0.004s
+[return_code=0]

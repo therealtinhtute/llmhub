@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S1-codex-tool-declarations",
+  "revision": "r04",
+  "supersedes_revision": "r03",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T07:48:27Z",
+  "worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-aeecb8973bd30f1c6",
+  "base_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "rejected_r03_result_tree": "acbe9976fd3fc8d77fc45c2c4c7a0a18f32e357e",
+  "result_tree": "a04532ab00573a16269a15b25343aaa0901a1853",
+  "changed_files": [
+    "internal/runtime/executor/codex_executor.go",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go",
+    "internal/runtime/executor/codex_websockets_executor.go",
+    "internal/runtime/executor/codex_websockets_executor_test.go",
+    "internal/translator/codex/claude/codex_claude_request.go",
+    "internal/translator/codex/claude/codex_claude_request_test.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go"
+  ],
+  "result_sha256": {
+    "internal/runtime/executor/codex_executor.go": "45f5c523ae0f20c554389f0c1e1ccbee288d6821906f7a37ee8f1e99125cd184",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go": "40301a50e25bd5255e3543694b5daa83d861186cc9079ecf42a94e78fdb1263f",
+    "internal/runtime/executor/codex_websockets_executor.go": "07e928d3cfece406f59a9f905848132ebc4f450601da2a546ad31a32fa0ee963",
+    "internal/runtime/executor/codex_websockets_executor_test.go": "5f8752df757c471eb338653308cdba0d06853fc2d92114c0f7cdac970fe10564",
+    "internal/translator/codex/claude/codex_claude_request.go": "d68d7c249d5f9be6088fc4b3c7c5099050f0035d9a4db6cfcd98e67ce0cb5507",
+    "internal/translator/codex/claude/codex_claude_request_test.go": "abe6c9140b02a5d0fa15c6ee95e5b7cd2242d31436b5608b7e8b4022ce58d790",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go": "d71b29d6e8396dcda1ccaf654ed5b5420c05ccef926e7be18746682d3f7b7dfb",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go": "f7d0a451d5d7a247938f5c00c4291ae4c116cddb77034e242acec5c6cd2ae9ef",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go": "4be67270f4f72926f24fe290c0a1ae9ea4ba0e229539c9a29ed3e1b9fea5446d",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go": "31079eab674bd1f937f6bced2a533206d21b07e2ef62f0c14a1ce14494ad92ac",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go": "42a8362157ccd3dad3f9fccc5a98613a42c9511b015c60de4cabf99c4f7d1aff",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go": "001208dde56e140c27c8936cf8db2884fc278a11b6db0b72ea81f8d4bc7719d8"
+  },
+  "patch_sha256": "c1bddd3e590a02b1249a6ab7f7b57655a9369aa69ac6881487930eb650066300",
+  "verification": [
+    {
+      "command": "go test ./internal/translator/openai/openai/responses ./internal/runtime/executor -run 'Test(ResponsesToolDeclarationTableCustomInputFidelity|ResponsesToolDeclarationTableInterleavedCustomInputState|ConvertOpenAIChatCompletionsResponseToOpenAIResponses_CustomInputFidelity|ConvertOpenAIChatCompletionsResponseToOpenAIResponses_InterleavedCustomInputState|CodexHTTPExecutorCustomInputFidelity|CodexHTTPExecutorInterleavedCustomInputState|CodexWebSocketExecutorCustomInputFidelity|CodexWebSocketExecutorInterleavedCustomInputState)$' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -run 'Test.*(Codex|WebSocket|Namespace|AdditionalTools|CustomTool|ParallelTool|Collision|Declaration|MessageTooBig|1009|Fragment)' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/runtime/executor -run 'Test.*(Codex|WebSocket|Namespace|AdditionalTools|CustomTool|ParallelTool|Collision|Declaration|MessageTooBig|1009|Fragment)' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go vet ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses ./internal/runtime/executor",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go build ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses ./internal/runtime/executor",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "outcome": "ok",
+      "return_code": 0
+    }
+  ],
+  "application_proof": {
+    "prepared_base_hashes_match": true,
+    "baseline_archive_hashes_match": true,
+    "worktree_scope_matches": true,
+    "forward_matches_result_tree": true,
+    "reverse_matches_base_tree": true,
+    "reverse_removes_planned_new_files": true,
+    "whitespace_check": true
+  },
+  "notes": "Corrected immutable r04 preserves arbitrary custom-tool input byte-for-byte unless it is exactly a one-member JSON object whose input value is a string; terminal flushing and per-call state keep direct Responses, Chat conversion, Codex HTTP, and Codex WebSocket lifecycle content and identities consistent.",
+  "remaining_blockers": []
+}

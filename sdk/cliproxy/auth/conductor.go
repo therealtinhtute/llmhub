@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -113,6 +114,8 @@ type Result struct {
 	RetryAfter *time.Duration
 	// Error describes the failure when Success is false.
 	Error *Error
+	// RequestScoped marks failures caused by the request rather than the credential.
+	RequestScoped bool
 	// UsageDetail carries provider token usage for runtime account accounting.
 	UsageDetail coreusage.Detail
 	// UsageEstimated marks usage values estimated from provider runtime signals.
@@ -835,7 +838,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](chunk.Err); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr})
+				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(chunk.Err)})
 			}
 			if detail, estimated, ok := kiroUsageResultFromMetadata(provider, chunk.Metadata); ok {
 				usageDetail = detail
@@ -900,7 +903,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errStream); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(errStream)}
 			result.RetryAfter = retryAfterFromError(errStream)
 			m.MarkResult(ctx, result)
 			if isRequestInvalidError(errStream) {
@@ -921,7 +924,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
@@ -932,7 +935,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
@@ -943,7 +946,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
 			result.RetryAfter = retryAfterFromError(bootstrapErr)
 			m.MarkResult(ctx, result)
 			discardStreamChunks(streamResult.Chunks)
@@ -1291,7 +1294,7 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		if !shouldRetry {
 			break
 		}
-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
+		if errWait := waitForCooldown(ctx, wait, maxWait); errWait != nil {
 			return cliproxyexecutor.Response{}, errWait
 		}
 	}
@@ -1326,7 +1329,7 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 		if !shouldRetry {
 			break
 		}
-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
+		if errWait := waitForCooldown(ctx, wait, maxWait); errWait != nil {
 			return cliproxyexecutor.Response{}, errWait
 		}
 	}
@@ -1357,7 +1360,7 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		if !shouldRetry {
 			break
 		}
-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
+		if errWait := waitForCooldown(ctx, wait, maxWait); errWait != nil {
 			return nil, errWait
 		}
 	}
@@ -1445,7 +1448,8 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				if errCtx := execCtx.Err(); errCtx != nil {
 					return cliproxyexecutor.Response{}, errCtx
 				}
-				result.Error = &Error{Message: errExec.Error()}
+				result.Error = resultErrorFromError(errExec)
+				result.RequestScoped = isRequestScopedError(errExec)
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
 					result.Error.HTTPStatus = se.StatusCode()
 				}
@@ -1545,14 +1549,18 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 				if errCtx := execCtx.Err(); errCtx != nil {
 					return cliproxyexecutor.Response{}, errCtx
 				}
-				result.Error = &Error{Message: errExec.Error()}
-				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
-					result.Error.HTTPStatus = se.StatusCode()
-				}
+				result.Error = resultErrorFromError(errExec)
 				if ra := retryAfterFromError(errExec); ra != nil {
 					result.RetryAfter = ra
 				}
-				m.MarkResult(execCtx, result)
+				// Some Anthropic-compatible upstreams do not implement count_tokens
+				// and return a generic endpoint 404. Keep failure accounting and hooks
+				// without suspending a model that still works for messages requests.
+				if isCountTokensEndpointNotFoundError(errExec, execReq.Model) {
+					m.recordAvailabilityNeutralResult(execCtx, result)
+				} else {
+					m.MarkResult(execCtx, result)
+				}
 				if isRequestInvalidError(errExec) {
 					return cliproxyexecutor.Response{}, errExec
 				}
@@ -2291,7 +2299,36 @@ func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []stri
 	return *retryAfter, true
 }
 
-func waitForCooldown(ctx context.Context, wait time.Duration) error {
+// cooldownWaitJitterCap bounds the random jitter added to cooldown waits so a
+// long wait is never extended by more than this amount.
+const cooldownWaitJitterCap = 2 * time.Second
+
+func jitteredCooldownWait(base, maxRetryInterval time.Duration) time.Duration {
+	if maxRetryInterval <= 0 {
+		return 0
+	}
+	clamped := base
+	if clamped < 0 {
+		clamped = 0
+	}
+	if clamped > maxRetryInterval {
+		clamped = maxRetryInterval
+	}
+	jitterCap := clamped / 4
+	if jitterCap > cooldownWaitJitterCap {
+		jitterCap = cooldownWaitJitterCap
+	}
+	if remaining := maxRetryInterval - clamped; jitterCap > remaining {
+		jitterCap = remaining
+	}
+	if jitterCap <= 0 {
+		return clamped
+	}
+	return clamped + rand.N(jitterCap+1)
+}
+
+func waitForCooldown(ctx context.Context, wait, maxRetryInterval time.Duration) error {
+	wait = jitteredCooldownWait(wait, maxRetryInterval)
 	if wait <= 0 {
 		return nil
 	}
@@ -2308,6 +2345,10 @@ func waitForCooldown(ctx context.Context, wait time.Duration) error {
 // MarkResult records an execution result and notifies hooks.
 func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	if result.AuthID == "" {
+		return
+	}
+	if !result.Success && (result.RequestScoped || isRequestScopedNotFoundResultError(result.Error)) {
+		m.hook.OnResult(ctx, result)
 		return
 	}
 
@@ -2346,7 +2387,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			}
 		} else {
 			if result.Model != "" {
-				if !isRequestScopedNotFoundResultError(result.Error) {
+				if !result.RequestScoped && !isRequestScopedNotFoundResultError(result.Error) {
 					disableCooling := quotaCooldownDisabledForAuth(auth)
 					state := ensureModelState(auth, result.Model)
 					state.Unavailable = true
@@ -2365,6 +2406,14 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 						state.NextRetryAfter = next
 						suspendReason = "model_not_supported"
 						shouldSuspendModel = true
+					} else if isInvalidGrantResultError(result.Error) {
+						if disableCooling {
+							state.NextRetryAfter = time.Time{}
+						} else {
+							state.NextRetryAfter = now.Add(30 * time.Minute)
+							suspendReason = "invalid_grant"
+							shouldSuspendModel = true
+						}
 					} else {
 						switch statusCode {
 						case 401:
@@ -2401,11 +2450,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								if result.RetryAfter != nil {
 									next = now.Add(*result.RetryAfter)
 								} else {
-									cooldown, nextLevel := nextQuotaCooldown(backoffLevel, disableCooling)
-									if cooldown > 0 {
-										next = now.Add(cooldown)
-									}
-									backoffLevel = nextLevel
+									next, backoffLevel = quotaCooldownAfterFailure(state.Quota, disableCooling, now)
 								}
 							}
 							state.NextRetryAfter = next
@@ -2461,6 +2506,27 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	} else if shouldSuspendModel {
 		registry.GetGlobalRegistry().SuspendClientModel(result.AuthID, result.Model, suspendReason)
 	}
+
+	m.hook.OnResult(ctx, result)
+}
+
+func (m *Manager) recordAvailabilityNeutralResult(ctx context.Context, result Result) {
+	if result.AuthID == "" {
+		return
+	}
+
+	m.mu.Lock()
+	if auth, ok := m.auths[result.AuthID]; ok && auth != nil {
+		now := time.Now()
+		auth.recordRecentRequest(now, result.Success)
+		if result.Success {
+			auth.Success++
+		} else {
+			auth.Failed++
+		}
+		_ = m.persist(ctx, auth)
+	}
+	m.mu.Unlock()
 
 	m.hook.OnResult(ctx, result)
 }
@@ -2794,6 +2860,28 @@ func statusCodeFromError(err error) int {
 	return 0
 }
 
+func resultErrorFromError(err error) *Error {
+	if err == nil {
+		return nil
+	}
+	var authErr *Error
+	if errors.As(err, &authErr) && authErr != nil {
+		return cloneError(authErr)
+	}
+	return &Error{Message: err.Error(), HTTPStatus: statusCodeFromError(err)}
+}
+
+func isRequestScopedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	type requestScopedError interface {
+		IsRequestScoped() bool
+	}
+	var requestErr requestScopedError
+	return errors.As(err, &requestErr) && requestErr != nil && requestErr.IsRequestScoped()
+}
+
 func isUnauthorizedError(err error) bool {
 	if err == nil {
 		return false
@@ -2901,6 +2989,99 @@ func isModelSupportResultError(err *Error) bool {
 	return isModelSupportErrorMessage(err.Message)
 }
 
+func isInvalidGrantIdentifier(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "invalid_grant")
+}
+
+func isErrorIdentifierByte(value byte) bool {
+	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
+}
+
+func containsBoundedErrorIdentifier(message, identifier string) bool {
+	message = strings.ToLower(message)
+	identifier = strings.ToLower(identifier)
+	for offset := 0; offset < len(message); {
+		index := strings.Index(message[offset:], identifier)
+		if index < 0 {
+			return false
+		}
+		index += offset
+		end := index + len(identifier)
+		if (index == 0 || !isErrorIdentifierByte(message[index-1])) && (end == len(message) || !isErrorIdentifierByte(message[end])) {
+			return true
+		}
+		offset = index + 1
+	}
+	return false
+}
+
+func containsStructuredInvalidGrant(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if text, ok := item.(string); ok {
+				switch strings.ToLower(strings.TrimSpace(key)) {
+				case "error", "code", "type":
+					if isInvalidGrantIdentifier(text) {
+						return true
+					}
+				case "message", "error_description", "description":
+					if containsBoundedErrorIdentifier(text, "invalid_grant") {
+						return true
+					}
+				}
+			}
+			switch item.(type) {
+			case map[string]any, []any:
+				if containsStructuredInvalidGrant(item) {
+					return true
+				}
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if containsStructuredInvalidGrant(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isInvalidGrantErrorMessage(message string) bool {
+	var payload any
+	if errJSON := json.Unmarshal([]byte(strings.TrimSpace(message)), &payload); errJSON == nil {
+		return containsStructuredInvalidGrant(payload)
+	}
+	return containsBoundedErrorIdentifier(message, "invalid_grant")
+}
+
+func isInvalidGrantError(err error) bool {
+	if err == nil {
+		return false
+	}
+	status := statusCodeFromError(err)
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+		return false
+	}
+	var authErr *Error
+	if errors.As(err, &authErr) && authErr != nil {
+		return isInvalidGrantIdentifier(authErr.Code) || isInvalidGrantErrorMessage(authErr.Message)
+	}
+	return isInvalidGrantErrorMessage(err.Error())
+}
+
+func isInvalidGrantResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	status := statusCodeFromResult(err)
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+		return false
+	}
+	return isInvalidGrantIdentifier(err.Code) || isInvalidGrantErrorMessage(err.Message)
+}
+
 func isRequestScopedNotFoundMessage(message string) bool {
 	if message == "" {
 		return false
@@ -2918,14 +3099,95 @@ func isRequestScopedNotFoundResultError(err *Error) bool {
 	return isRequestScopedNotFoundMessage(err.Message)
 }
 
+func isCountTokensEndpointNotFoundError(err error, _ string) bool {
+	if err == nil || statusCodeFromError(err) != http.StatusNotFound {
+		return false
+	}
+	return !isExplicitModelNotFoundError(err)
+}
+
+func isExplicitModelNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var authErr *Error
+	if errors.As(err, &authErr) && authErr != nil {
+		if isModelNotFoundIdentifier(authErr.Code) || isStructuredModelNotFoundError(authErr.Message) {
+			return true
+		}
+	}
+	if isStructuredModelNotFoundError(err.Error()) {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, nested := range wrapped.Unwrap() {
+			if isExplicitModelNotFoundError(nested) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return isExplicitModelNotFoundError(wrapped.Unwrap())
+	}
+	return false
+}
+
+func isStructuredModelNotFoundError(message string) bool {
+	var payload any
+	if errJSON := json.Unmarshal([]byte(strings.TrimSpace(message)), &payload); errJSON != nil {
+		return false
+	}
+	return containsStructuredModelNotFound(payload)
+}
+
+func containsStructuredModelNotFound(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if text, ok := item.(string); ok {
+				switch strings.ToLower(strings.TrimSpace(key)) {
+				case "code", "type", "error":
+					if isModelNotFoundIdentifier(text) {
+						return true
+					}
+				}
+			}
+			switch item.(type) {
+			case map[string]any, []any:
+				if containsStructuredModelNotFound(item) {
+					return true
+				}
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if containsStructuredModelNotFound(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isModelNotFoundIdentifier(value string) bool {
+	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(value)))
+	return normalized == "model_not_found"
+}
+
 // isRequestInvalidError returns true if the error represents a client request
-// error that should not be retried. Specifically, it treats 400 responses with
-// "invalid_request_error", request-scoped 404 item misses caused by `store=false`,
-// and all 422 responses as request-shape failures, where switching auths or
-// pooled upstream models will not help. Model-support errors are excluded so
-// routing can fall through to another auth or upstream.
+// error that should not be retried. Specifically, it treats typed request-scoped
+// errors, 400 responses with "invalid_request_error", request-scoped 404 item
+// misses caused by `store=false`, and all 422 responses as request-shape failures,
+// where switching auths or pooled upstream models will not help. Model-support
+// errors are excluded so routing can fall through to another auth or upstream.
 func isRequestInvalidError(err error) bool {
 	if err == nil {
+		return false
+	}
+	if isRequestScopedError(err) {
+		return true
+	}
+	if isInvalidGrantError(err) {
 		return false
 	}
 	if isModelSupportError(err) {
@@ -3000,11 +3262,7 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 			if retryAfter != nil {
 				next = now.Add(*retryAfter)
 			} else {
-				cooldown, nextLevel := nextQuotaCooldown(auth.Quota.BackoffLevel, disableCooling)
-				if cooldown > 0 {
-					next = now.Add(cooldown)
-				}
-				auth.Quota.BackoffLevel = nextLevel
+				next, auth.Quota.BackoffLevel = quotaCooldownAfterFailure(auth.Quota, disableCooling, now)
 			}
 		}
 		auth.Quota.NextRecoverAt = next
@@ -3021,6 +3279,25 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 			auth.StatusMessage = "request failed"
 		}
 	}
+}
+
+// quotaCooldownAfterFailure returns the recovery deadline and backoff level for
+// a quota failure observed at now. Failures inside an active recovery window
+// reuse that window instead of escalating the backoff level again.
+func quotaCooldownAfterFailure(quota QuotaState, disableCooling bool, now time.Time) (time.Time, int) {
+	if disableCooling {
+		_, nextLevel := nextQuotaCooldown(quota.BackoffLevel, disableCooling)
+		return time.Time{}, nextLevel
+	}
+	if quota.NextRecoverAt.After(now) {
+		return quota.NextRecoverAt, quota.BackoffLevel
+	}
+	cooldown, nextLevel := nextQuotaCooldown(quota.BackoffLevel, disableCooling)
+	var next time.Time
+	if cooldown > 0 {
+		next = now.Add(cooldown)
+	}
+	return next, nextLevel
 }
 
 // nextQuotaCooldown returns the next cooldown duration and updated backoff level for repeated quota errors.

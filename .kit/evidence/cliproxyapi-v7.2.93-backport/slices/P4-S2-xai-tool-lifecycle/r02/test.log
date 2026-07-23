@@ -1,0 +1,15 @@
+$ go test ./internal/runtime/executor -run ^TestXAIExecutorSameNameXSearchCallIdentityFiltering$ -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	0.007s
+[return_code=0]
+
+$ go test ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	0.016s
+[return_code=0]
+
+$ go test ./internal/runtime/executor -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	1.291s
+[return_code=0]
+
+$ go test -race ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	1.071s
+[return_code=0]

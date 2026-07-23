@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/therealtinhtute/llmhub/internal/misc"
+	log "github.com/sirupsen/logrus"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -181,30 +181,21 @@ func ConvertOpenAIRequestToGeminiCLI(modelName string, inputRawJSON []byte, _ bo
 							p++
 						case "image_url":
 							imageURL := item.Get("image_url.url").String()
-							if len(imageURL) > 5 {
-								pieces := strings.SplitN(imageURL[5:], ";", 2)
-								if len(pieces) == 2 && len(pieces[1]) > 7 {
-									mime := pieces[0]
-									data := pieces[1][7:]
-									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mime)
-									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
-									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiCLIFunctionThoughtSignature)
-									p++
-								}
+							if mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData("", "", imageURL); ok {
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiCLIFunctionThoughtSignature)
+								p++
 							}
 						case "file":
 							filename := item.Get("file.filename").String()
 							fileData := item.Get("file.file_data").String()
-							ext := ""
-							if sp := strings.Split(filename, "."); len(sp) > 1 {
-								ext = sp[len(sp)-1]
-							}
-							if mimeType, ok := misc.MimeTypes[ext]; ok {
+							if mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData(filename, "", fileData); ok {
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
-								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", fileData)
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
 								p++
 							} else {
-								log.Warnf("Unknown file name extension '%s' in user message, skip", ext)
+								log.Warn("Invalid file data or unknown file name extension in user message, skip")
 							}
 						}
 					}
@@ -227,16 +218,11 @@ func ConvertOpenAIRequestToGeminiCLI(modelName string, inputRawJSON []byte, _ bo
 						case "image_url":
 							// If the assistant returned an inline data URL, preserve it for history fidelity.
 							imageURL := item.Get("image_url.url").String()
-							if len(imageURL) > 5 { // expect data:...
-								pieces := strings.SplitN(imageURL[5:], ";", 2)
-								if len(pieces) == 2 && len(pieces[1]) > 7 {
-									mime := pieces[0]
-									data := pieces[1][7:]
-									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mime)
-									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
-									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiCLIFunctionThoughtSignature)
-									p++
-								}
+							if mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData("", "", imageURL); ok {
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiCLIFunctionThoughtSignature)
+								p++
 							}
 						}
 					}

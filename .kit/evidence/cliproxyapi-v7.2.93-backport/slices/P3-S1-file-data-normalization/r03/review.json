@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S1-file-data-normalization",
+  "revision": "r03",
+  "patch_sha256": "1e0dae5ab9290d2a16ce81727fb0040fb5a6f6eca591d02f77e9a2761dbaca7d",
+  "verdict": "APPROVED",
+  "findings": [],
+  "verified": {
+    "exact_eight_file_allowlist": true,
+    "prepared_tree": "98d750898d239533918d092276faf9520a64adb1",
+    "result_tree": "8848e25e9a5cc7e5c25dee0f80585d5bdd785384",
+    "forward_application": true,
+    "reverse_application": true,
+    "result_hashes_match": true,
+    "whitespace_check": true,
+    "focused_regressions_pass": true,
+    "four_package_suite_pass": true,
+    "invalid_file_data_with_file_id_falls_back_whole_item": true,
+    "invalid_file_data_with_file_url_falls_back_whole_item": true,
+    "valid_file_id_and_file_url_only_behavior_preserved": true
+  },
+  "review_summary": "Independent reconstruction from the accepted Phase 2 tree confirmed the r02 fallback defect is corrected without scope expansion or regression."
+}

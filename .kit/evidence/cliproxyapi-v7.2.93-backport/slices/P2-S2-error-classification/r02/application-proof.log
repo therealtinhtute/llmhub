@@ -1,0 +1,42 @@
+{
+  "commands": [
+    {
+      "command": "git apply --check /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r02/patch",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": "git apply /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r02/patch",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": "git apply --reverse --check /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r02/patch",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": "git apply --reverse /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r02/patch",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "forward_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "c3256e008f29be872cad64af366830a1d061f402bb26d8650d2b20c42055ca3d",
+    "sdk/cliproxy/auth/conductor_overrides_test.go": "00060a50f6da46bbced3222d5f79cac216d49bacd2ba9b92f34b423d4dd03178",
+    "internal/api/modules/amp/routes_test.go": "9e3d6cca309b550a91eaba79a75af583685927a98fe5bc251011ddd13abd3588",
+    "sdk/cliproxy/auth/conductor_count_tokens_test.go": "dd44135b585407a65c652fe14cb03e100b5d91f74923228ad4941667e107a763"
+  },
+  "reverse_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "645bf1c3fad4b65963764769a0be5f9577b0adea2ab5944bead40bfb228082eb",
+    "sdk/cliproxy/auth/conductor_overrides_test.go": "ce11145ff6271d0c1d74b89b344731bb037396b559a748585776083da32b5ee3",
+    "sdk/cliproxy/auth/conductor_scheduler_refresh_test.go": "763bedb0cb29fccc049d4cea82efe6550a9952ba63e5c07ac0d39a4daedbf560",
+    "internal/api/modules/amp/routes_test.go": "9862172095ecadab4cd76f156b7197497ea6b4567035bcb275d30eeddf721102"
+  },
+  "reverse_new_file_absent": true,
+  "reverse_matches_baseline": true
+}

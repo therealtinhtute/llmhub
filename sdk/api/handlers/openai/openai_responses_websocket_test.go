@@ -25,8 +25,11 @@ import (
 )
 
 type websocketCaptureExecutor struct {
-	streamCalls int
-	payloads    [][]byte
+	streamCalls   int
+	payloads      [][]byte
+	streamErr     error
+	streamErrs    []error
+	streamResults [][]coreexecutor.StreamChunk
 }
 
 type websocketCompactionCaptureExecutor struct {
@@ -71,25 +74,31 @@ type websocketAuthCaptureExecutor struct {
 }
 
 type websocketPinnedFailoverExecutor struct {
-	mu       sync.Mutex
-	authIDs  []string
-	calls    map[string]int
-	payloads map[string][][]byte
+	mu                        sync.Mutex
+	authIDs                   []string
+	calls                     map[string]int
+	payloads                  map[string][][]byte
+	messageTooBigOnAuthBFirst bool
 }
 
 type websocketPinnedFailoverStatusError struct {
-	status int
-	msg    string
+	status        int
+	msg           string
+	requestScoped bool
 }
 
 func (e websocketPinnedFailoverStatusError) Error() string { return e.msg }
 
 func (e websocketPinnedFailoverStatusError) StatusCode() int { return e.status }
 
+func (e websocketPinnedFailoverStatusError) IsRequestScoped() bool { return e.requestScoped }
+
 type websocketUpstreamDisconnectExecutor struct {
-	mu         sync.Mutex
-	subscribed chan string
-	sessions   map[string]chan error
+	mu          sync.Mutex
+	subscribed  chan string
+	sessions    map[string]chan error
+	streamErr   error
+	streamCalls int
 }
 
 func (e *websocketUpstreamDisconnectExecutor) Identifier() string { return "codex" }
@@ -144,7 +153,24 @@ func (e *websocketUpstreamDisconnectExecutor) Execute(context.Context, *coreauth
 }
 
 func (e *websocketUpstreamDisconnectExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (*coreexecutor.StreamResult, error) {
-	return nil, errors.New("not implemented")
+	e.mu.Lock()
+	e.streamCalls++
+	streamErr := e.streamErr
+	sessionIDs := make([]string, 0, len(e.sessions))
+	for sessionID := range e.sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	e.mu.Unlock()
+	if streamErr == nil {
+		return nil, errors.New("not implemented")
+	}
+	for _, sessionID := range sessionIDs {
+		e.TriggerDisconnect(sessionID, streamErr)
+	}
+	chunks := make(chan coreexecutor.StreamChunk, 1)
+	chunks <- coreexecutor.StreamChunk{Err: streamErr}
+	close(chunks)
+	return &coreexecutor.StreamResult{Chunks: chunks}, nil
 }
 
 func (e *websocketUpstreamDisconnectExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
@@ -230,6 +256,16 @@ func (e *websocketPinnedFailoverExecutor) ExecuteStream(_ context.Context, auth 
 		close(chunks)
 		return &coreexecutor.StreamResult{Chunks: chunks}, nil
 	}
+	if e.messageTooBigOnAuthBFirst && authID == "auth-b" && call == 1 {
+		chunks := make(chan coreexecutor.StreamChunk, 1)
+		chunks <- coreexecutor.StreamChunk{Err: websocketPinnedFailoverStatusError{
+			status:        http.StatusRequestEntityTooLarge,
+			msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
+			requestScoped: true,
+		}}
+		close(chunks)
+		return &coreexecutor.StreamResult{Chunks: chunks}, nil
+	}
 
 	chunks := make(chan coreexecutor.StreamChunk, 1)
 	chunks <- coreexecutor.StreamChunk{Payload: []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp-%s-%d","output":[{"type":"message","id":"out-%s-%d"}]}}`, authID, call, authID, call))}
@@ -275,8 +311,25 @@ func (e *websocketCaptureExecutor) Execute(context.Context, *coreauth.Auth, core
 func (e *websocketCaptureExecutor) ExecuteStream(_ context.Context, _ *coreauth.Auth, req coreexecutor.Request, _ coreexecutor.Options) (*coreexecutor.StreamResult, error) {
 	e.streamCalls++
 	e.payloads = append(e.payloads, bytes.Clone(req.Payload))
+	streamErr := e.streamErr
+	if e.streamCalls <= len(e.streamErrs) {
+		streamErr = e.streamErrs[e.streamCalls-1]
+	}
+	if e.streamCalls <= len(e.streamResults) {
+		resultChunks := e.streamResults[e.streamCalls-1]
+		chunks := make(chan coreexecutor.StreamChunk, len(resultChunks))
+		for _, chunk := range resultChunks {
+			chunks <- chunk
+		}
+		close(chunks)
+		return &coreexecutor.StreamResult{Chunks: chunks}, nil
+	}
 	chunks := make(chan coreexecutor.StreamChunk, 1)
-	chunks <- coreexecutor.StreamChunk{Payload: []byte(`{"type":"response.completed","response":{"id":"resp-upstream","output":[{"type":"message","id":"out-1"}]}}`)}
+	if streamErr != nil {
+		chunks <- coreexecutor.StreamChunk{Err: streamErr}
+	} else {
+		chunks <- coreexecutor.StreamChunk{Payload: []byte(`{"type":"response.completed","response":{"id":"resp-upstream","output":[{"type":"message","id":"out-1"}]}}`)}
+	}
 	close(chunks)
 	return &coreexecutor.StreamResult{Chunks: chunks}, nil
 }
@@ -917,6 +970,239 @@ func TestRecordResponsesWebsocketCustomToolCallsFromOutputItemDoneWithCache(t *t
 	}
 }
 
+func TestResponsesWebSocketPreserves1009MessageTooBigError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	executor := &websocketUpstreamDisconnectExecutor{
+		subscribed: make(chan string, 1),
+		streamErr: websocketPinnedFailoverStatusError{
+			status:        http.StatusRequestEntityTooLarge,
+			msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
+			requestScoped: true,
+		},
+	}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	auth := &coreauth.Auth{ID: "auth-message-too-big", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	if _, err := manager.Register(context.Background(), auth); err != nil {
+		t.Fatalf("Register auth: %v", err)
+	}
+	registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "message-too-big-model"}})
+	t.Cleanup(func() {
+		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
+	})
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	request := []byte(`{"type":"response.create","model":"message-too-big-model","input":[{"type":"message","id":"msg-1"}]}`)
+	if errWrite := conn.WriteMessage(websocket.TextMessage, request); errWrite != nil {
+		t.Fatalf("write websocket request: %v", errWrite)
+	}
+	_, payload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("read websocket error: %v", errRead)
+	}
+
+	if got := gjson.GetBytes(payload, "type").String(); got != wsEventTypeError {
+		t.Fatalf("type = %q, want %q: %s", got, wsEventTypeError, payload)
+	}
+	if got := int(gjson.GetBytes(payload, "status").Int()); got != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d: %s", got, http.StatusRequestEntityTooLarge, payload)
+	}
+	if got := gjson.GetBytes(payload, "error.message").String(); got != "upstream websocket message too big" {
+		t.Fatalf("message = %q, want upstream websocket message too big: %s", got, payload)
+	}
+	if got := gjson.GetBytes(payload, "error.type").String(); got != "invalid_request_error" {
+		t.Fatalf("error type = %q, want invalid_request_error: %s", got, payload)
+	}
+	if got := gjson.GetBytes(payload, "error.code").String(); got != "message_too_big" {
+		t.Fatalf("error code = %q, want message_too_big: %s", got, payload)
+	}
+	executor.mu.Lock()
+	streamCalls := executor.streamCalls
+	executor.mu.Unlock()
+	if streamCalls != 1 {
+		t.Fatalf("stream calls = %d, want 1", streamCalls)
+	}
+}
+
+func TestResponsesWebSocket1009MessageTooBigRollbackBeforeNextRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	messageTooBigErr := websocketPinnedFailoverStatusError{
+		status:        http.StatusRequestEntityTooLarge,
+		msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
+		requestScoped: true,
+	}
+	executor := &websocketCaptureExecutor{streamErrs: []error{messageTooBigErr, nil}}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	auth := &coreauth.Auth{ID: "auth-rollback", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	if _, err := manager.Register(context.Background(), auth); err != nil {
+		t.Fatalf("Register auth: %v", err)
+	}
+	registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "rollback-model"}})
+	t.Cleanup(func() {
+		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
+	})
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	firstRequest := []byte(`{"type":"response.create","model":"rollback-model","input":[{"type":"message","id":"oversized-msg"}]}`)
+	if errWrite := conn.WriteMessage(websocket.TextMessage, firstRequest); errWrite != nil {
+		t.Fatalf("write oversized websocket request: %v", errWrite)
+	}
+	_, firstPayload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("read message-too-big error: %v", errRead)
+	}
+	if got := gjson.GetBytes(firstPayload, "error.code").String(); got != "message_too_big" {
+		t.Fatalf("first error code = %q, want message_too_big: %s", got, firstPayload)
+	}
+
+	secondRequest := []byte(`{"type":"response.create","model":"rollback-model","input":[{"type":"message","id":"corrected-msg"}]}`)
+	if errWrite := conn.WriteMessage(websocket.TextMessage, secondRequest); errWrite != nil {
+		t.Fatalf("write corrected websocket request: %v", errWrite)
+	}
+	_, secondPayload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("read corrected websocket response: %v", errRead)
+	}
+	if got := gjson.GetBytes(secondPayload, "type").String(); got != wsEventTypeCompleted {
+		t.Fatalf("second response type = %q, want %q: %s", got, wsEventTypeCompleted, secondPayload)
+	}
+
+	if executor.streamCalls != 2 || len(executor.payloads) != 2 {
+		t.Fatalf("stream calls = %d payloads = %d, want 2 and 2", executor.streamCalls, len(executor.payloads))
+	}
+	secondInput := gjson.GetBytes(executor.payloads[1], "input").Array()
+	if len(secondInput) != 1 || secondInput[0].Get("id").String() != "corrected-msg" {
+		t.Fatalf("corrected request replayed failed input: %s", executor.payloads[1])
+	}
+	if strings.Contains(string(executor.payloads[1]), "oversized-msg") {
+		t.Fatalf("failed oversized input leaked into corrected request: %s", executor.payloads[1])
+	}
+}
+
+func TestResponsesWebSocket1009ToolCacheRollbackIsTransactional(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	messageTooBigErr := websocketPinnedFailoverStatusError{
+		status:        http.StatusRequestEntityTooLarge,
+		msg:           `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
+		requestScoped: true,
+	}
+	partialToolEvent := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","id":"fc-partial","call_id":"partial-stale","name":"tool","arguments":"{}"}}`)
+	completed := []byte(`{"type":"response.completed","response":{"id":"resp-corrected","output":[{"type":"message","id":"out-corrected"}]}}`)
+	executor := &websocketCaptureExecutor{streamResults: [][]coreexecutor.StreamChunk{
+		{
+			{Payload: partialToolEvent},
+			{Err: messageTooBigErr},
+		},
+		{
+			{Payload: completed},
+		},
+	}}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	auth := &coreauth.Auth{ID: "auth-tool-rollback", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	if _, err := manager.Register(context.Background(), auth); err != nil {
+		t.Fatalf("Register auth: %v", err)
+	}
+	registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "tool-rollback-model"}})
+	t.Cleanup(func() {
+		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
+	})
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	sessionKey := "tool-cache-rollback-session"
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	headers := http.Header{"X-Client-Request-Id": []string{sessionKey}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	firstRequest := []byte(`{"type":"response.create","model":"tool-rollback-model","input":[{"type":"function_call_output","call_id":"request-stale","output":"stale-output"},{"type":"message","id":"oversized-msg"}]}`)
+	if errWrite := conn.WriteMessage(websocket.TextMessage, firstRequest); errWrite != nil {
+		t.Fatalf("write oversized tool websocket request: %v", errWrite)
+	}
+	_, partialPayload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("read partial tool event: %v", errRead)
+	}
+	if got := gjson.GetBytes(partialPayload, "type").String(); got != "response.output_item.done" {
+		t.Fatalf("partial event type = %q, want response.output_item.done: %s", got, partialPayload)
+	}
+	_, errorPayload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("read message-too-big error: %v", errRead)
+	}
+	if got := gjson.GetBytes(errorPayload, "error.code").String(); got != "message_too_big" {
+		t.Fatalf("error code = %q, want message_too_big: %s", got, errorPayload)
+	}
+	if _, ok := defaultWebsocketToolOutputCache.get(sessionKey, "request-stale"); ok {
+		t.Fatal("failed request output cache mutation was committed")
+	}
+	if _, ok := defaultWebsocketToolCallCache.get(sessionKey, "partial-stale"); ok {
+		t.Fatal("partial response tool-call cache mutation was committed")
+	}
+
+	secondRequest := []byte(`{"type":"response.create","model":"tool-rollback-model","input":[{"type":"function_call","id":"fc-request-stale","call_id":"request-stale","name":"tool","arguments":"{}"},{"type":"function_call_output","call_id":"partial-stale","output":"corrected-output"},{"type":"message","id":"corrected-msg"}]}`)
+	if errWrite := conn.WriteMessage(websocket.TextMessage, secondRequest); errWrite != nil {
+		t.Fatalf("write corrected tool websocket request: %v", errWrite)
+	}
+	_, secondPayload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("read corrected websocket response: %v", errRead)
+	}
+	if got := gjson.GetBytes(secondPayload, "type").String(); got != wsEventTypeCompleted {
+		t.Fatalf("second response type = %q, want %q: %s", got, wsEventTypeCompleted, secondPayload)
+	}
+
+	if executor.streamCalls != 2 || len(executor.payloads) != 2 {
+		t.Fatalf("stream calls = %d payloads = %d, want 2 and 2", executor.streamCalls, len(executor.payloads))
+	}
+	secondInput := gjson.GetBytes(executor.payloads[1], "input").Array()
+	if len(secondInput) != 1 || secondInput[0].Get("id").String() != "corrected-msg" {
+		t.Fatalf("corrected request contains stale repaired tool state: %s", executor.payloads[1])
+	}
+	if strings.Contains(string(executor.payloads[1]), "request-stale") || strings.Contains(string(executor.payloads[1]), "partial-stale") {
+		t.Fatalf("stale tool cache state leaked into corrected request: %s", executor.payloads[1])
+	}
+}
+
 func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -952,6 +1238,7 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 			errCh,
 			timelineLog,
 			"session-1",
+			nil,
 		)
 		if err != nil {
 			serverErrCh <- err
@@ -1035,6 +1322,7 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
 			errCh,
 			timelineLog,
 			"session-1",
+			nil,
 		)
 		if err == nil {
 			serverErrCh <- errors.New("expected websocket write failure")
@@ -1525,6 +1813,86 @@ func TestResponsesWebsocketReleasesPinnedAuthAfterQuotaError(t *testing.T) {
 	authBInput := gjson.GetBytes(authBPayload, "input").Raw
 	if !strings.Contains(authBInput, `"id":"msg-1"`) || !strings.Contains(authBInput, `"id":"msg-3"`) {
 		t.Fatalf("auth-b replay input missing expected transcript items: %s", authBInput)
+	}
+}
+
+func TestResponsesWebsocketRestoresForcedReplayAfter1009(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	selector := &orderedWebsocketSelector{order: []string{"auth-a", "auth-b"}}
+	executor := &websocketPinnedFailoverExecutor{messageTooBigOnAuthBFirst: true}
+	manager := coreauth.NewManager(nil, selector, nil)
+	manager.RegisterExecutor(executor)
+
+	for _, authID := range []string{"auth-a", "auth-b"} {
+		auth := &coreauth.Auth{
+			ID:         authID,
+			Provider:   executor.Identifier(),
+			Status:     coreauth.StatusActive,
+			Attributes: map[string]string{"websockets": "true"},
+		}
+		if _, err := manager.Register(context.Background(), auth); err != nil {
+			t.Fatalf("Register %s: %v", authID, err)
+		}
+		registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "replay-model"}})
+		t.Cleanup(func() { registry.GetGlobalRegistry().UnregisterClient(auth.ID) })
+	}
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	requests := []string{
+		`{"type":"response.create","model":"replay-model","input":[{"type":"message","id":"msg-1"}]}`,
+		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-2"}]}`,
+		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-3"}]}`,
+		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-4"}]}`,
+	}
+	wantTypes := []string{wsEventTypeCompleted, wsEventTypeError, wsEventTypeError, wsEventTypeCompleted}
+	wantStatuses := []int{0, http.StatusTooManyRequests, http.StatusRequestEntityTooLarge, 0}
+	for i := range requests {
+		if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(requests[i])); errWrite != nil {
+			t.Fatalf("write websocket message %d: %v", i+1, errWrite)
+		}
+		_, payload, errRead := conn.ReadMessage()
+		if errRead != nil {
+			t.Fatalf("read websocket message %d: %v", i+1, errRead)
+		}
+		if got := gjson.GetBytes(payload, "type").String(); got != wantTypes[i] {
+			t.Fatalf("message %d payload type = %s, want %s: %s", i+1, got, wantTypes[i], payload)
+		}
+		if wantStatuses[i] != 0 && int(gjson.GetBytes(payload, "status").Int()) != wantStatuses[i] {
+			t.Fatalf("message %d status = %d, want %d: %s", i+1, gjson.GetBytes(payload, "status").Int(), wantStatuses[i], payload)
+		}
+	}
+
+	if got := executor.AuthIDs(); len(got) != 4 || got[0] != "auth-a" || got[1] != "auth-a" || got[2] != "auth-b" || got[3] != "auth-b" {
+		t.Fatalf("selected auth IDs = %v, want [auth-a auth-a auth-b auth-b]", got)
+	}
+	authBPayloads := executor.Payloads("auth-b")
+	if len(authBPayloads) != 2 {
+		t.Fatalf("auth-b payload count = %d, want 2", len(authBPayloads))
+	}
+	correctedPayload := authBPayloads[1]
+	if gjson.GetBytes(correctedPayload, "previous_response_id").Exists() {
+		t.Fatalf("previous_response_id leaked after rolled-back 1009 replay: %s", correctedPayload)
+	}
+	correctedInput := gjson.GetBytes(correctedPayload, "input").Raw
+	if !strings.Contains(correctedInput, `"id":"msg-1"`) || !strings.Contains(correctedInput, `"id":"msg-4"`) {
+		t.Fatalf("corrected replay missing transcript items: %s", correctedInput)
+	}
+	if strings.Contains(correctedInput, `"id":"msg-3"`) {
+		t.Fatalf("failed 1009 request leaked into corrected replay: %s", correctedInput)
 	}
 }
 

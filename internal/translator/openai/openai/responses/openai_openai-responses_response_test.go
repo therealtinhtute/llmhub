@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func parseOpenAIResponsesSSEEvent(t *testing.T, chunk []byte) (string, gjson.Result) {
@@ -419,5 +420,339 @@ func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_FunctionCallDoneA
 	}
 	if completedOrder[0] != "call_glob" || completedOrder[1] != "call_read" {
 		t.Fatalf("unexpected completed function_call order: %v", completedOrder)
+	}
+}
+
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_RestoresNamespacedAndCustomDeclarations(t *testing.T) {
+	request := []byte(`{
+		"tools":[{"type":"namespace","name":"repo","tools":[
+			{"type":"function","name":"read"},
+			{"type":"custom","name":"patch"}
+		]}]
+	}`)
+	in := []string{
+		`data: {"id":"resp_tools","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_read","function":{"name":"repo__read","arguments":"{}"}},{"index":1,"id":"call_patch","function":{"name":"repo__patch","arguments":"{\"input\":\"diff\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_tools","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+	}
+
+	var param any
+	var out [][]byte
+	for _, line := range in {
+		out = append(out, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, []byte(line), &param)...)
+	}
+
+	seenFunction := false
+	seenCustom := false
+	seenCompletedFunction := false
+	seenCompletedCustom := false
+	for _, chunk := range out {
+		event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+		switch event {
+		case "response.output_item.done":
+			switch data.Get("item.call_id").String() {
+			case "call_read":
+				seenFunction = data.Get("item.type").String() == "function_call" && data.Get("item.name").String() == "read" && data.Get("item.namespace").String() == "repo"
+			case "call_patch":
+				seenCustom = data.Get("item.type").String() == "custom_tool_call" && data.Get("item.name").String() == "patch" && data.Get("item.namespace").String() == "repo" && data.Get("item.input").String() == "diff"
+			}
+		case "response.completed":
+			for _, item := range data.Get("response.output").Array() {
+				switch item.Get("call_id").String() {
+				case "call_read":
+					seenCompletedFunction = item.Get("name").String() == "read" && item.Get("namespace").String() == "repo"
+				case "call_patch":
+					seenCompletedCustom = item.Get("type").String() == "custom_tool_call" && item.Get("input").String() == "diff"
+				}
+			}
+		}
+	}
+	if !seenFunction || !seenCustom || !seenCompletedFunction || !seenCompletedCustom {
+		t.Fatalf("missing restored tool events: function=%v custom=%v completed_function=%v completed_custom=%v", seenFunction, seenCustom, seenCompletedFunction, seenCompletedCustom)
+	}
+}
+
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_FragmentedCustomInputDeltasExcludeWrapper(t *testing.T) {
+	request := []byte(`{"tools":[{"type":"custom","name":"patch"}]}`)
+	in := []string{
+		`data: {"id":"resp_custom_fragments","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_patch","type":"function","function":{"name":"patch","arguments":"{\"in"}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_custom_fragments","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"put\":\"d"}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_custom_fragments","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"if"}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_custom_fragments","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"f\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_custom_fragments","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+	}
+
+	var param any
+	var delta strings.Builder
+	deltaCount := 0
+	seenInputDone := false
+	seenItemDone := false
+	for _, line := range in {
+		for _, chunk := range ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, []byte(line), &param) {
+			event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+			switch event {
+			case "response.custom_tool_call_input.delta":
+				deltaCount++
+				delta.WriteString(data.Get("delta").String())
+				if got := data.Get("item_id").String(); got != "ctc_call_patch" {
+					t.Fatalf("custom delta item_id = %q, want ctc_call_patch", got)
+				}
+			case "response.custom_tool_call_input.done":
+				seenInputDone = data.Get("item_id").String() == "ctc_call_patch" && data.Get("input").String() == "diff"
+			case "response.output_item.done":
+				if data.Get("item.call_id").String() == "call_patch" {
+					seenItemDone = data.Get("item.id").String() == "ctc_call_patch" && data.Get("item.type").String() == "custom_tool_call" && data.Get("item.input").String() == "diff"
+				}
+			case "response.function_call_arguments.delta", "response.function_call_arguments.done":
+				t.Fatalf("custom call emitted function argument event %q: %s", event, data.Raw)
+			}
+		}
+	}
+	if deltaCount == 0 {
+		t.Fatal("custom call emitted no input delta events")
+	}
+	if got := delta.String(); got != "diff" {
+		t.Fatalf("custom input deltas = %q, want diff", got)
+	}
+	if !seenInputDone || !seenItemDone {
+		t.Fatalf("custom completion inconsistent: input_done=%v item_done=%v", seenInputDone, seenItemDone)
+	}
+}
+
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream_RestoresNamespacedAndCustomDeclarations(t *testing.T) {
+	request := []byte(`{
+		"tools":[
+			{"type":"namespace","name":"repo","tools":[{"type":"function","name":"read"}]},
+			{"type":"custom","name":"patch"}
+		]
+	}`)
+	response := []byte(`{"id":"resp_tools","created":1,"choices":[{"index":0,"message":{"tool_calls":[
+		{"id":"call_read","function":{"name":"repo__read","arguments":"{}"}},
+		{"id":"call_patch","function":{"name":"patch","arguments":"{\"input\":\"diff\"}"}}
+	]}}]}`)
+
+	out := ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(context.Background(), "model", request, request, response, nil)
+	if got := gjson.GetBytes(out, "output.0.name").String(); got != "read" {
+		t.Fatalf("function name = %q, want read: %s", got, out)
+	}
+	if got := gjson.GetBytes(out, "output.0.namespace").String(); got != "repo" {
+		t.Fatalf("function namespace = %q, want repo: %s", got, out)
+	}
+	if got := gjson.GetBytes(out, "output.1.type").String(); got != "custom_tool_call" {
+		t.Fatalf("custom type = %q, want custom_tool_call: %s", got, out)
+	}
+	if got := gjson.GetBytes(out, "output.1.input").String(); got != "diff" {
+		t.Fatalf("custom input = %q, want diff: %s", got, out)
+	}
+}
+
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_FragmentedToolNames(t *testing.T) {
+	request := []byte(`{"tools":[{"type":"namespace","name":"repo","tools":[{"type":"custom","name":"patch"},{"type":"function","name":"patch_extra"},{"type":"function","name":"read"}]}]}`)
+	inputs := [][]byte{
+		[]byte(`{"id":"resp_fragmented_names","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_patch","type":"function","function":{"name":"repo__pa","arguments":"{\"in"}},{"index":1,"id":"call_read","type":"function","function":{"name":"repo__r","arguments":"{\"pa"}},{"index":2,"id":"call_other","type":"function","function":{"name":"external_","arguments":"{\"q\":"}}]},"finish_reason":null}]}`),
+		[]byte(`{"id":"resp_fragmented_names","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"function":{"name":"tool","arguments":"\"x\"}"}},{"index":0,"function":{"name":"tch","arguments":"put\":\"x\"}"}},{"index":1,"function":{"name":"ead","arguments":"th\":\"y\"}"}}]},"finish_reason":null}]}`),
+		[]byte(`{"id":"resp_fragmented_names","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`),
+		[]byte(`data: [DONE]`),
+	}
+
+	var param any
+	var chunksByInput [][][]byte
+	for _, input := range inputs {
+		chunksByInput = append(chunksByInput, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, input, &param))
+	}
+	for _, chunk := range chunksByInput[0] {
+		event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+		if event == "response.output_item.added" && strings.Contains(data.Get("item.type").String(), "tool_call") {
+			t.Fatalf("partial tool name emitted output item: %s", data.Raw)
+		}
+	}
+	for _, chunk := range chunksByInput[1] {
+		event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+		if event != "response.output_item.added" {
+			continue
+		}
+		switch data.Get("item.call_id").String() {
+		case "call_patch":
+			t.Fatalf("exact name that prefixes a longer declaration emitted before terminal finish: %s", data.Raw)
+		case "call_other":
+			t.Fatalf("unresolved ordinary name emitted before terminal finish: %s", data.Raw)
+		}
+	}
+
+	added := make(map[string]gjson.Result)
+	var deltas = map[string]*strings.Builder{
+		"ctc_call_patch": {},
+		"fc_call_read":   {},
+		"fc_call_other":  {},
+	}
+	inputDone := make(map[string]gjson.Result)
+	itemDone := make(map[string]gjson.Result)
+	var completed gjson.Result
+	for _, chunks := range chunksByInput {
+		for _, chunk := range chunks {
+			event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+			switch event {
+			case "response.output_item.added":
+				if callID := data.Get("item.call_id").String(); callID != "" {
+					added[data.Get("item.id").String()] = data
+				}
+			case "response.custom_tool_call_input.delta":
+				itemID := data.Get("item_id").String()
+				if _, ok := added[itemID]; !ok {
+					t.Fatalf("custom delta preceded output_item.added: %s", data.Raw)
+				}
+				builder := deltas[itemID]
+				if builder == nil {
+					t.Fatalf("unexpected fragmented-call item ID %q: %s", itemID, data.Raw)
+				}
+				builder.WriteString(data.Get("delta").String())
+			case "response.function_call_arguments.delta":
+				itemID := data.Get("item_id").String()
+				if _, ok := added[itemID]; !ok {
+					t.Fatalf("function delta preceded output_item.added: %s", data.Raw)
+				}
+				builder := deltas[itemID]
+				if builder == nil {
+					t.Fatalf("unexpected fragmented-call item ID %q: %s", itemID, data.Raw)
+				}
+				builder.WriteString(data.Get("delta").String())
+			case "response.custom_tool_call_input.done", "response.function_call_arguments.done":
+				inputDone[data.Get("item_id").String()] = data
+			case "response.output_item.done":
+				if itemID := data.Get("item.id").String(); itemID != "" {
+					itemDone[itemID] = data
+				}
+			case "response.completed":
+				completed = data
+			}
+		}
+	}
+
+	patch := added["ctc_call_patch"]
+	if patch.Get("item.type").String() != "custom_tool_call" || patch.Get("item.name").String() != "patch" || patch.Get("item.namespace").String() != "repo" || patch.Get("output_index").Int() != 0 {
+		t.Fatalf("fragmented custom declaration restored incorrectly: %s", patch.Raw)
+	}
+	read := added["fc_call_read"]
+	if read.Get("item.type").String() != "function_call" || read.Get("item.name").String() != "read" || read.Get("item.namespace").String() != "repo" || read.Get("output_index").Int() != 1 {
+		t.Fatalf("fragmented function declaration restored incorrectly: %s", read.Raw)
+	}
+	other := added["fc_call_other"]
+	if other.Get("item.type").String() != "function_call" || other.Get("item.name").String() != "external_tool" || other.Get("item.namespace").Exists() || other.Get("output_index").Int() != 2 {
+		t.Fatalf("unresolved ordinary function restored incorrectly: %s", other.Raw)
+	}
+	if got := deltas["ctc_call_patch"].String(); got != "x" {
+		t.Fatalf("custom input deltas = %q, want x", got)
+	}
+	if got := deltas["fc_call_read"].String(); got != `{"path":"y"}` {
+		t.Fatalf("declared function argument deltas = %q", got)
+	}
+	if got := deltas["fc_call_other"].String(); got != `{"q":"x"}` {
+		t.Fatalf("ordinary function argument deltas = %q", got)
+	}
+	if done := inputDone["ctc_call_patch"]; done.Get("type").String() != "response.custom_tool_call_input.done" || done.Get("input").String() != "x" {
+		t.Fatalf("fragmented custom input.done inconsistent: %s", done.Raw)
+	}
+	if done := itemDone["ctc_call_patch"]; done.Get("item.type").String() != "custom_tool_call" || done.Get("item.name").String() != "patch" || done.Get("item.namespace").String() != "repo" || done.Get("item.input").String() != "x" {
+		t.Fatalf("fragmented custom output_item.done inconsistent: %s", done.Raw)
+	}
+	for itemID, wantArgs := range map[string]string{"fc_call_read": `{"path":"y"}`, "fc_call_other": `{"q":"x"}`} {
+		if done := inputDone[itemID]; done.Get("type").String() != "response.function_call_arguments.done" || done.Get("arguments").String() != wantArgs {
+			t.Fatalf("fragmented function arguments.done inconsistent for %s: %s", itemID, done.Raw)
+		}
+		if done := itemDone[itemID]; done.Get("item.type").String() != "function_call" || done.Get("item.arguments").String() != wantArgs {
+			t.Fatalf("fragmented function output_item.done inconsistent for %s: %s", itemID, done.Raw)
+		}
+	}
+	wantCompleted := map[string]struct {
+		typeName  string
+		name      string
+		namespace string
+		valuePath string
+		value     string
+	}{
+		"ctc_call_patch": {typeName: "custom_tool_call", name: "patch", namespace: "repo", valuePath: "input", value: "x"},
+		"fc_call_read":   {typeName: "function_call", name: "read", namespace: "repo", valuePath: "arguments", value: `{"path":"y"}`},
+		"fc_call_other":  {typeName: "function_call", name: "external_tool", valuePath: "arguments", value: `{"q":"x"}`},
+	}
+	for _, item := range completed.Get("response.output").Array() {
+		want, ok := wantCompleted[item.Get("id").String()]
+		if !ok {
+			continue
+		}
+		if item.Get("type").String() != want.typeName || item.Get("name").String() != want.name || item.Get("namespace").String() != want.namespace || item.Get(want.valuePath).String() != want.value {
+			t.Fatalf("completed fragmented call inconsistent: %s", item.Raw)
+		}
+		delete(wantCompleted, item.Get("id").String())
+	}
+	if len(wantCompleted) != 0 {
+		t.Fatalf("completed response missing fragmented calls: %v", wantCompleted)
+	}
+}
+
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_CustomInputFidelity(t *testing.T) {
+	tests := []struct {
+		name      string
+		arguments string
+		wantInput string
+	}{
+		{name: "raw brace text", arguments: `{diff --git a/file b/file`, wantInput: `{diff --git a/file b/file`},
+		{name: "incomplete wrapper", arguments: `{"input":"diff`, wantInput: `{"input":"diff`},
+		{name: "raw JSON with extra member", arguments: `{"input":"literal","other":1}`, wantInput: `{"input":"literal","other":1` + `}`},
+		{name: "exact compatibility wrapper", arguments: `{"input":"literal"}`, wantInput: "literal"},
+		{name: "leading whitespace exact wrapper", arguments: " \n { \t\"input\" : \"snow \\u96ea\" } \r", wantInput: "snow 雪"},
+		{name: "null input remains raw", arguments: `{"input":null}`, wantInput: `{"input":null}`},
+	}
+
+	request := []byte(`{"tools":[{"type":"custom","name":"patch"}]}`)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var param any
+			var chunks [][]byte
+			for i := 0; i < len(tt.arguments); i++ {
+				upstream := []byte(`{"id":"resp_custom_fidelity","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":""}}]},"finish_reason":null}]}`)
+				if i == 0 {
+					upstream, _ = sjson.SetBytes(upstream, "choices.0.delta.tool_calls.0.id", "call_patch")
+					upstream, _ = sjson.SetBytes(upstream, "choices.0.delta.tool_calls.0.type", "function")
+					upstream, _ = sjson.SetBytes(upstream, "choices.0.delta.tool_calls.0.function.name", "patch")
+				}
+				upstream, _ = sjson.SetBytes(upstream, "choices.0.delta.tool_calls.0.function.arguments", tt.arguments[i:i+1])
+				chunks = append(chunks, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, upstream, &param)...)
+			}
+			if tt.arguments == "" {
+				upstream := []byte(`{"id":"resp_custom_fidelity","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_patch","type":"function","function":{"name":"patch","arguments":""}}]},"finish_reason":null}]}`)
+				chunks = append(chunks, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, upstream, &param)...)
+			}
+			chunks = append(chunks, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, []byte(`{"id":"resp_custom_fidelity","object":"chat.completion.chunk","created":1,"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`), &param)...)
+			chunks = append(chunks, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, []byte(`data: [DONE]`), &param)...)
+
+			var delta strings.Builder
+			var doneInput, itemInput, completedInput string
+			for _, chunk := range chunks {
+				event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+				switch event {
+				case "response.custom_tool_call_input.delta":
+					delta.WriteString(data.Get("delta").String())
+				case "response.custom_tool_call_input.done":
+					doneInput = data.Get("input").String()
+				case "response.output_item.done":
+					if data.Get("item.type").String() == "custom_tool_call" {
+						itemInput = data.Get("item.input").String()
+					}
+				case "response.completed":
+					for _, item := range data.Get("response.output").Array() {
+						if item.Get("type").String() == "custom_tool_call" {
+							completedInput = item.Get("input").String()
+						}
+					}
+				}
+			}
+			if got := delta.String(); got != tt.wantInput {
+				t.Fatalf("custom input deltas = %q, want %q", got, tt.wantInput)
+			}
+			if doneInput != tt.wantInput || itemInput != tt.wantInput || completedInput != tt.wantInput {
+				t.Fatalf("custom lifecycle inputs = done %q item %q completed %q, want %q", doneInput, itemInput, completedInput, tt.wantInput)
+			}
+		})
 	}
 }

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S1-codex-tool-declarations",
+  "revision": "r02",
+  "supersedes_revision": "r01",
+  "created_at_utc": "2026-07-23T06:07:44Z",
+  "worktree_start_head": "2960b690bf89232b8a23c5b8823fbe0ca831347f",
+  "prepared_base_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "phase_base_manifest": "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/phases/P4-BASE/r02/baseline.json",
+  "allowlist": [
+    "internal/translator/codex/claude/codex_claude_request.go",
+    "internal/translator/codex/claude/codex_claude_request_test.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go",
+    "internal/runtime/executor/codex_executor.go",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go",
+    "internal/runtime/executor/codex_websockets_executor.go",
+    "internal/runtime/executor/codex_websockets_executor_test.go"
+  ],
+  "baseline_sha256": {
+    "internal/translator/codex/claude/codex_claude_request.go": "d68d7c249d5f9be6088fc4b3c7c5099050f0035d9a4db6cfcd98e67ce0cb5507",
+    "internal/translator/codex/claude/codex_claude_request_test.go": "abe6c9140b02a5d0fa15c6ee95e5b7cd2242d31436b5608b7e8b4022ce58d790",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go": "d71b29d6e8396dcda1ccaf654ed5b5420c05ccef926e7be18746682d3f7b7dfb",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go": "f7d0a451d5d7a247938f5c00c4291ae4c116cddb77034e242acec5c6cd2ae9ef",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go": "115d67ed7f30670bed2614958fea5ae39b354618ca5bc73a80e09d36cf42798b",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go": "5c80218a5da42ba5dc7148bf5a8f6fa85652f1292950647ad9e44617a154a35b",
+    "internal/runtime/executor/codex_executor.go": "dbaeff7db2a90f78d77aa6c4b53d1542ba52967294aa34b408db229db135a1a9",
+    "internal/runtime/executor/codex_websockets_executor.go": "cf6dc788f02f320161079f9cd3cf6f443068ba8caf3520dbe44ecbfe9a10c5c9",
+    "internal/runtime/executor/codex_websockets_executor_test.go": "7e216d98c39e2990268f8e9c4c07858e0775c03599962decce9d2e97a4cc5772"
+  },
+  "planned_new_absent": [
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go"
+  ],
+  "baseline_tar_sha256": "bf6dff9b022074121ae0be9e1667d7ee64164228296b9dfad45930d953d14fc6",
+  "predecessor_patches_applied_in_order": [
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P1-CLOSE/r01/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S1-cooldown-jitter/r01/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r04/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S1-file-data-normalization/r03/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r03/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S3-codex-claude-output-indices/r04/patch"
+  ],
+  "worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a980554dfc038bb21"
+}

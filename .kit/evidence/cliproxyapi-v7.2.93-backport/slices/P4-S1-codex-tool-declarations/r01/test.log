@@ -1,0 +1,19 @@
+$ go test ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/translator/codex/claude	0.005s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/codex/openai/responses	0.003s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses	0.003s
+[return_code=0]
+
+$ go test ./internal/runtime/executor -run Test.*(Codex|Namespace|AdditionalTools|CustomTool|ParallelTool|Collision|Declaration) -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	0.127s
+[return_code=0]
+
+$ go test -race ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/translator/codex/claude	1.018s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/codex/openai/responses	1.009s
+ok  	github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses	1.014s
+[return_code=0]
+
+$ go test -race ./internal/runtime/executor -run Test.*(Codex|Namespace|AdditionalTools|CustomTool|ParallelTool|Collision|Declaration) -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	1.190s
+[return_code=0]

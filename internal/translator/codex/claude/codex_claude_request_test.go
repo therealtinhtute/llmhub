@@ -242,7 +242,7 @@ func TestConvertClaudeRequestToCodex_ToolChoiceModeMapping(t *testing.T) {
 	}
 }
 
-func TestConvertClaudeRequestToCodex_ToolChoiceSpecificFunctionUsesConvertedName(t *testing.T) {
+func TestConvertClaudeRequestToCodex_ToolChoicePreservesExistingMCPName(t *testing.T) {
 	longName := "mcp__server_with_a_very_long_name_that_exceeds_sixty_four_characters__search"
 	inputJSON := `{
 		"model": "claude-3-opus",
@@ -264,8 +264,8 @@ func TestConvertClaudeRequestToCodex_ToolChoiceSpecificFunctionUsesConvertedName
 	if choiceName != toolName {
 		t.Fatalf("tool_choice.name = %q, want converted tool name %q. Output: %s", choiceName, toolName, string(result))
 	}
-	if choiceName == longName {
-		t.Fatalf("tool_choice.name should use shortened Codex tool name. Output: %s", string(result))
+	if choiceName != longName {
+		t.Fatalf("tool_choice.name = %q, want byte-stable MCP name %q. Output: %s", choiceName, longName, string(result))
 	}
 }
 

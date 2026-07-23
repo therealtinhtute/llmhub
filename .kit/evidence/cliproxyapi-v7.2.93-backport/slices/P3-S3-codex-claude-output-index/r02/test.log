@@ -1,0 +1,25 @@
+P3-S3 Codex-to-Claude per-item lifecycle verification
+Date: 2026-07-23
+Worktree: /home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a5330931263e80eb8
+Base tree: 98d750898d239533918d092276faf9520a64adb1
+Result tree: e5d4c7dc0a87c5aa4676aeef34572961c32a4068
+
+$ go test ./internal/translator/codex/claude -run 'Test.*(OutputIndex|Interleav|ContentBlock)' -count=1
+ok  github.com/therealtinhtute/llmhub/internal/translator/codex/claude  0.003s
+
+$ go test ./internal/translator/codex/claude -count=1
+ok  github.com/therealtinhtute/llmhub/internal/translator/codex/claude  0.005s
+
+$ git diff --check
+PASS (no output)
+
+Adversarial coverage:
+- two interleaved function-call items retain indices 4 and 7
+- two interleaved text items retain indices 2 and 5
+- a missing done event does not poison a later item at index 9
+- interleaved reasoning items finalize signatures and stops at owned indices 4 and 6
+- explicit output_index zero, nonzero, conflicting later indices, and absent-field fallback remain covered
+
+Forward patch application: PASS
+Reverse patch application: PASS
+Allowlist check: PASS (exactly two authorized files)

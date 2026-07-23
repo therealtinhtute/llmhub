@@ -1,0 +1,46 @@
+{
+  "phase": "auth-count-reliability",
+  "run_id": "01KY675B4E1PSM764ZBKMRA9ZA",
+  "accepted_p2_s2_revision": "r04",
+  "accepted_p2_s2_result_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "commands": [
+    {
+      "command": "git diff HEAD -- <Phase 2 product paths> | grep -iE '(password|secret|token|api_key|private_key)' | grep '^+' || true",
+      "returncode": 0,
+      "result": "matches were limited to CountTokens symbols, endpoint strings, test identifiers, and an OAuth test message; no credentials or secret values"
+    },
+    {
+      "command": "go test ./sdk/cliproxy/auth ./internal/api/modules/amp -count=1",
+      "returncode": 0,
+      "stdout": "ok  \tgithub.com/therealtinhtute/llmhub/sdk/cliproxy/auth\t0.265s\nok  \tgithub.com/therealtinhtute/llmhub/internal/api/modules/amp\t0.195s\n"
+    },
+    {
+      "command": "go test ./...",
+      "returncode": 0,
+      "result": "all packages passed after r04 application; packages without tests reported [no test files]"
+    },
+    {
+      "command": "go vet ./...",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "go build ./...",
+      "returncode": 0,
+      "stdout": ""
+    },
+    {
+      "command": "git diff --check",
+      "returncode": 0,
+      "stdout": ""
+    }
+  ],
+  "proof_classes": {
+    "unit": "auth cooldown, jitter, invalid_grant, CountTokens, request-scoped, and fallback tests",
+    "integration": "Amp provider CountTokens handler through shared conductor, registry, and scheduler behavior",
+    "manual-check": "P2-S1 r01 and P2-S2 r04 independent reviews plus Phase 2 Security/Performance/Architecture/Code Quality review",
+    "command-output": "captured above"
+  },
+  "staticcheck": "unavailable in the environment; not claimed as passing",
+  "supersession_note": "The original gate run preceded the r03-to-r04 correction. All required commands were rerun after accepted r04 was applied, and this log records the post-r04 results."
+}

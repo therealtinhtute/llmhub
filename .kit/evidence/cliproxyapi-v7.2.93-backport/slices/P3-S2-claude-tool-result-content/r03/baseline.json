@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S2-claude-tool-result-content",
+  "revision": "r03",
+  "supersedes_revision": "r02",
+  "supersession_reason": "r02 rejected valid Claude document source.content string values",
+  "created_at_utc": "2026-07-23T03:43:01Z",
+  "worktree_start_head": "2960b690bf89232b8a23c5b8823fbe0ca831347f",
+  "prepared_base_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "allowlist": [
+    "internal/translator/claude/openai/responses/claude_openai-responses_request.go",
+    "internal/translator/claude/openai/responses/claude_openai-responses_request_test.go"
+  ],
+  "baseline_sha256": {
+    "internal/translator/claude/openai/responses/claude_openai-responses_request.go": "84c96648a0e075dd62a96906bc7b24af0d0b0a304ecb73b93e7a25faf34e827b",
+    "internal/translator/claude/openai/responses/claude_openai-responses_request_test.go": "7f3792beab25571b792e274a0b0697c1e171ada1addc1ba1793b0a500cb5773d"
+  },
+  "baseline_tar_sha256": "37f31c083863153eae452c2177e1e717b34e345101eb4a2bab657ea3d12cecb4",
+  "predecessor_patches_applied_in_order": [
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P1-CLOSE/r01/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S1-cooldown-jitter/r01/patch",
+    "/home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P2-S2-error-classification/r04/patch"
+  ],
+  "worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-a4637a042786d8c0f"
+}

@@ -1,0 +1,12 @@
+{
+  "prepared_base_hashes_match": true,
+  "worktree_scope_matches": true,
+  "non_slice_predecessor_files_match": true,
+  "xai_files_match_prepared_base": true,
+  "forward_matches_isolated_result": true,
+  "reverse_matches_base_tree": true,
+  "reverse_removes_planned_new_files": true,
+  "whitespace_check": true,
+  "prepared_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "result_tree": "7cb9c2f3f60352941278a14f2fc321a0e76dfec5"
+}

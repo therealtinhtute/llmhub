@@ -462,18 +462,8 @@ func convertClaudeWebSearchToolToCodex(tool gjson.Result) []byte {
 // shortenNameIfNeeded applies a simple shortening rule for a single name.
 func shortenNameIfNeeded(name string) string {
 	const limit = 64
-	if len(name) <= limit {
+	if strings.HasPrefix(name, "mcp__") || len(name) <= limit {
 		return name
-	}
-	if strings.HasPrefix(name, "mcp__") {
-		idx := strings.LastIndex(name, "__")
-		if idx > 0 {
-			cand := "mcp__" + name[idx+2:]
-			if len(cand) > limit {
-				return cand[:limit]
-			}
-			return cand
-		}
 	}
 	return name[:limit]
 }
@@ -485,18 +475,8 @@ func buildShortNameMap(names []string) map[string]string {
 	m := map[string]string{}
 
 	baseCandidate := func(n string) string {
-		if len(n) <= limit {
+		if strings.HasPrefix(n, "mcp__") || len(n) <= limit {
 			return n
-		}
-		if strings.HasPrefix(n, "mcp__") {
-			idx := strings.LastIndex(n, "__")
-			if idx > 0 {
-				cand := "mcp__" + n[idx+2:]
-				if len(cand) > limit {
-					cand = cand[:limit]
-				}
-				return cand
-			}
 		}
 		return n[:limit]
 	}

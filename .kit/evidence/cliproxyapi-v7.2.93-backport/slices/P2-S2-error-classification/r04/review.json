@@ -1,0 +1,31 @@
+{
+  "slice_id": "P2-S2-error-classification",
+  "revision": "r04",
+  "patch_sha256": "0f0b7c79e4627bc956a333ce64604dc4ef6a8357324be7915655cc660e0325ec",
+  "verdict": "APPROVED",
+  "scope_check": {
+    "unexpected_paths": []
+  },
+  "tested_result_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "tests_reviewed": [
+    "reconstructed prepared baseline 5193328220266e21d519e51a2f2c3ac9398aa716 from local baseline plus accepted P1 and P2-S1 patches",
+    "forward and reverse application of immutable r04 patch (pass)",
+    "go test ./sdk/cliproxy/auth -run 'Test.*(InvalidGrant|CountTokens|RequestScoped|Fallback)' -count=1 (pass)",
+    "go test ./internal/api/modules/amp -run 'Test.*CountTokens' -count=1 (pass)",
+    "go test ./sdk/cliproxy/auth -run 'Test.*(Cooldown|Jitter|Backoff)' -count=1 (pass)",
+    "go test ./sdk/cliproxy/auth ./internal/api/modules/amp -count=1 (pass)"
+  ],
+  "findings": [],
+  "minor_notes": [
+    "Generic CountTokens 404 coverage directly asserts accounting and availability neutrality but not injected Store.Save and Hook.OnResult calls; source review confirms both remain unconditional in recordAvailabilityNeutralResult."
+  ],
+  "verified": {
+    "result_hashes_match": true,
+    "structured_json_invalid_grant_fallthrough_removed": true,
+    "longer_machine_identifiers_rejected": true,
+    "wrapped_and_joined_model_not_found_availability_changing": true,
+    "generic_count_tokens_404_availability_neutral": true,
+    "amp_inherits_shared_policy": true,
+    "stale_r03_dependency": false
+  }
+}

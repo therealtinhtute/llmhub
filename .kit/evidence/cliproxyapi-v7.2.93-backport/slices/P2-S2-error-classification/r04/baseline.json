@@ -1,0 +1,40 @@
+{
+  "slice_id": "P2-S2-error-classification",
+  "revision": "r04",
+  "base_slice": "P2-S1-cooldown-jitter/r01",
+  "supersedes_revision": "r03",
+  "supersession_reason": "r03 frozen patch contradicted its APPROVED review and retained structured JSON fallback misclassification",
+  "allowlist": [
+    "sdk/cliproxy/auth/conductor.go",
+    "sdk/cliproxy/auth/conductor_overrides_test.go",
+    "sdk/cliproxy/auth/conductor_count_tokens_test.go",
+    "sdk/cliproxy/auth/conductor_scheduler_refresh_test.go",
+    "internal/api/modules/amp/routes_test.go"
+  ],
+  "baseline_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "645bf1c3fad4b65963764769a0be5f9577b0adea2ab5944bead40bfb228082eb",
+    "sdk/cliproxy/auth/conductor_overrides_test.go": "ce11145ff6271d0c1d74b89b344731bb037396b559a748585776083da32b5ee3",
+    "sdk/cliproxy/auth/conductor_scheduler_refresh_test.go": "763bedb0cb29fccc049d4cea82efe6550a9952ba63e5c07ac0d39a4daedbf560",
+    "internal/api/modules/amp/routes_test.go": "9862172095ecadab4cd76f156b7197497ea6b4567035bcb275d30eeddf721102"
+  },
+  "planned_new_absent": [
+    "sdk/cliproxy/auth/conductor_count_tokens_test.go"
+  ],
+  "prepared_base_tree": "5193328220266e21d519e51a2f2c3ac9398aa716",
+  "changed_paths": [
+    "sdk/cliproxy/auth/conductor.go",
+    "sdk/cliproxy/auth/conductor_overrides_test.go",
+    "sdk/cliproxy/auth/conductor_count_tokens_test.go",
+    "internal/api/modules/amp/routes_test.go"
+  ],
+  "patch_sha256": "0f0b7c79e4627bc956a333ce64604dc4ef6a8357324be7915655cc660e0325ec",
+  "result_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "a5d941597f6afa7b23e4fe62fff800d185a3d0110c18e41f1ea2089c036ae862",
+    "sdk/cliproxy/auth/conductor_overrides_test.go": "f6e50b1ce23d417d32671a9a08bdd049b02a1a6bcb33af9d4ebee2434f6ed639",
+    "sdk/cliproxy/auth/conductor_count_tokens_test.go": "dd44135b585407a65c652fe14cb03e100b5d91f74923228ad4941667e107a763",
+    "internal/api/modules/amp/routes_test.go": "9e3d6cca309b550a91eaba79a75af583685927a98fe5bc251011ddd13abd3588"
+  },
+  "scratch_path": "/tmp/llmhub-p2-s2-r04-sdsuqqdj",
+  "forward_matches_isolated_result": true,
+  "reverse_matches_p2_s1_base": true
+}

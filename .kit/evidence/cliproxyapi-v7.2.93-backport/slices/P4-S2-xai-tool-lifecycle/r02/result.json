@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S2-xai-tool-lifecycle",
+  "revision": "r02",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T05:07:51Z",
+  "base_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "result_tree": "7fa63d91f072c7d324f9ea15bf2a3bf6fbabcb1c",
+  "changed_files": [
+    "internal/runtime/executor/xai_executor.go",
+    "internal/runtime/executor/xai_executor_test.go"
+  ],
+  "result_sha256": {
+    "internal/runtime/executor/xai_executor.go": "273d88908c27d84def971b87108cd325044e966c353f2afce55b37b276130b7c",
+    "internal/runtime/executor/xai_executor_test.go": "b13504f481564b5676228b8d898d05e1e21df26143989bad31b8e6987d62a076"
+  },
+  "patch_sha256": "80f3484c8d12b5337792e87f45628ec245389ab4d3f533ed21ce2d5d353d95ae",
+  "verification": [
+    {
+      "command": "go test ./internal/runtime/executor -run ^TestXAIExecutorSameNameXSearchCallIdentityFiltering$ -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    }
+  ],
+  "application_proof": {
+    "prepared_base_hashes_match": true,
+    "worktree_scope_matches": true,
+    "forward_matches_isolated_result": true,
+    "reverse_matches_base_tree": true,
+    "whitespace_check": true,
+    "prepared_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+    "result_tree": "7fa63d91f072c7d324f9ea15bf2a3bf6fbabcb1c"
+  },
+  "notes": "Corrects r01 same-name xs_call lifecycle leak with permanent streaming/non-streaming and index-compaction regressions; independent review pending."
+}

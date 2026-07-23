@@ -1,0 +1,62 @@
+{
+  "base_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "changed_files_between_trees": [
+    "internal/translator/claude/openai/responses/claude_openai-responses_request.go",
+    "internal/translator/claude/openai/responses/claude_openai-responses_request_test.go"
+  ],
+  "commands": [
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git read-tree 98d750898d239533918d092276faf9520a64adb1",
+      "return_code": 0,
+      "stdout": ""
+    },
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git apply --cached --check /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r01/patch",
+      "return_code": 0,
+      "stdout": ""
+    },
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git apply --cached /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r01/patch",
+      "return_code": 0,
+      "stdout": ""
+    },
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git write-tree",
+      "return_code": 0,
+      "stdout": "c867e277a7e674ee7eab8883a7fbe0c98fd99251"
+    },
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git apply --cached --reverse --check /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r01/patch",
+      "return_code": 0,
+      "stdout": ""
+    },
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git apply --cached --reverse /home/tinhpt/Lab/llmhub/.kit/evidence/cliproxyapi-v7.2.93-backport/slices/P3-S2-claude-tool-result-content/r01/patch",
+      "return_code": 0,
+      "stdout": ""
+    },
+    {
+      "command": "GIT_INDEX_FILE=/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index git write-tree",
+      "return_code": 0,
+      "stdout": "98d750898d239533918d092276faf9520a64adb1"
+    }
+  ],
+  "created_at_utc": "2026-07-23T02:32:52Z",
+  "expected_result_tree": "c867e277a7e674ee7eab8883a7fbe0c98fd99251",
+  "forward_application": {
+    "matches_expected_result_tree": true,
+    "return_code": 0,
+    "tree": "c867e277a7e674ee7eab8883a7fbe0c98fd99251"
+  },
+  "patch_sha256": "d57f4700e647834a49aa45959cfd40c48d933203655fb4c10df5c8d3ea925dd9",
+  "reverse_application": {
+    "matches_base_tree": true,
+    "return_code": 0,
+    "tree": "98d750898d239533918d092276faf9520a64adb1"
+  },
+  "revision": "r01",
+  "schema_version": 1,
+  "scratch_index": "/tmp/llmhub-p3-s2-r01-zUWJ418E/proof.index",
+  "slice_id": "P3-S2-claude-tool-result-content",
+  "source_worktree_index_modified": false
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-CLOSE",
+  "revision": "r01",
+  "created_at_utc": "2026-07-23T04:10:22Z",
+  "allowlist": [
+    "docs/decisions/0011-translator-structured-output-and-index-fidelity.md",
+    "docs/stories/high-risk/US-016-cliproxyapi-v7-2-93-targeted-parity/validation.md",
+    ".kit/reports/github/cliproxyapi-v7.2.93-parity.md"
+  ],
+  "baseline_sha256": {
+    "docs/stories/high-risk/US-016-cliproxyapi-v7-2-93-targeted-parity/validation.md": "c26b6f11c44a98321bf3a99357d55b94f9e6831a3f3e14f99d617fe875d89d1d",
+    ".kit/reports/github/cliproxyapi-v7.2.93-parity.md": "3405c89c2bbf7f14b96572eb68ef396b7d4d770d4b20cf682580cbdd706cad92"
+  },
+  "planned_new_absent": [
+    "docs/decisions/0011-translator-structured-output-and-index-fidelity.md"
+  ],
+  "baseline_tar_sha256": "933e1a873bbd84ac31099e724c5f1354021bb8690beac8ea76c69334e8b344d3",
+  "baseline_scope": "Phase 2 approved documentation state immediately before Phase 3 closure edits"
+}

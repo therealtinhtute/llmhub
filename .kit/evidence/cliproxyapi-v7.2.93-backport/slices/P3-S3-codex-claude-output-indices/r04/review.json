@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S3-codex-claude-output-indices",
+  "revision": "r04",
+  "patch_sha256": "9e1e4ccd0ef3a03b83b1726448f11cb53819eb56e874765eef46ec14faec62cc",
+  "verdict": "APPROVED",
+  "findings": [],
+  "verified": {
+    "exact_two_file_allowlist": true,
+    "baseline_tar_sha256_match": true,
+    "baseline_file_hashes_match": true,
+    "patch_sha256_match": true,
+    "prepared_tree": "98d750898d239533918d092276faf9520a64adb1",
+    "result_tree": "5039052c3c4c4d67808b2f9a6754f00234824231",
+    "forward_application": true,
+    "reverse_application": true,
+    "result_hashes_match": true,
+    "whitespace_check": true,
+    "focused_regressions_pass": true,
+    "package_suite_pass": true,
+    "race_suite_pass": true,
+    "r01_mixed_index_retention_regression_pass": true,
+    "r01_signature_only_reasoning_overlap_regression_pass": true,
+    "r02_reasoning_transition_regression_pass": true,
+    "r02_tool_to_text_transition_regression_pass": true,
+    "r02_consecutive_tools_regression_pass": true,
+    "r03_delayed_stale_reasoning_done_after_newer_completion_pass": true
+  },
+  "review_summary": "Independent reconstruction confirmed the exact scope, hashes, result tree, forward/reverse application, and all focused, package, race, and prior-rejection regressions. Finished reasoning-item identity now prevents delayed stale completions from reopening an old output_index lifecycle after the newer item completes."
+}

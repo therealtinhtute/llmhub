@@ -1,0 +1,821 @@
+diff --git a/internal/api/modules/amp/routes_test.go b/internal/api/modules/amp/routes_test.go
+index 64252d89..de30c371 100644
+--- a/internal/api/modules/amp/routes_test.go
++++ b/internal/api/modules/amp/routes_test.go
+@@ -1,12 +1,18 @@
+ package amp
+ 
+ import (
++	"bytes"
++	"context"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"testing"
+ 
+ 	"github.com/gin-gonic/gin"
++	"github.com/therealtinhtute/llmhub/internal/registry"
+ 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
++	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
++	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
++	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
+ )
+ 
+ func TestRegisterManagementRoutes(t *testing.T) {
+@@ -380,3 +386,71 @@ func TestLocalhostOnlyMiddleware_HotReload(t *testing.T) {
+ 		t.Errorf("Expected 403 after re-enabling restriction, got %d", w.Code)
+ 	}
+ }
++
++type ampCountTokensErrorExecutor struct{}
++
++func (ampCountTokensErrorExecutor) Identifier() string { return "claude" }
++
++func (ampCountTokensErrorExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
++	return coreexecutor.Response{}, nil
++}
++
++func (ampCountTokensErrorExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (*coreexecutor.StreamResult, error) {
++	return nil, nil
++}
++
++func (ampCountTokensErrorExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
++	return auth, nil
++}
++
++func (ampCountTokensErrorExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
++	return coreexecutor.Response{}, &coreauth.Error{
++		HTTPStatus: http.StatusNotFound,
++		Message:    "Cannot POST /v1/messages/count_tokens",
++	}
++}
++
++func (ampCountTokensErrorExecutor) HttpRequest(context.Context, *coreauth.Auth, *http.Request) (*http.Response, error) {
++	return nil, nil
++}
++
++func TestAmpCountTokensInheritsAvailabilityNeutralConductorPolicy(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	model := "amp-count-tokens-neutral-model"
++	authID := "amp-count-tokens-neutral-auth"
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(authID, "claude", []*registry.ModelInfo{{ID: model}})
++	t.Cleanup(func() { reg.UnregisterClient(authID) })
++
++	manager := coreauth.NewManager(nil, nil, nil)
++	manager.RegisterExecutor(ampCountTokensErrorExecutor{})
++	if _, errRegister := manager.Register(context.Background(), &coreauth.Auth{ID: authID, Provider: "claude"}); errRegister != nil {
++		t.Fatalf("register auth: %v", errRegister)
++	}
++
++	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
++	router := gin.New()
++	module := &AmpModule{}
++	module.registerProviderAliases(router, base, func(*gin.Context) {})
++
++	body := []byte(`{"model":"amp-count-tokens-neutral-model","messages":[{"role":"user","content":"hello"}]}`)
++	req := httptest.NewRequest(http.MethodPost, "/api/provider/anthropic/v1/messages/count_tokens", bytes.NewReader(body))
++	req.Header.Set("Content-Type", "application/json")
++	response := httptest.NewRecorder()
++	router.ServeHTTP(response, req)
++
++	if response.Code != http.StatusNotFound {
++		t.Fatalf("CountTokens status = %d, want %d", response.Code, http.StatusNotFound)
++	}
++	updated, ok := manager.GetByID(authID)
++	if !ok || updated == nil {
++		t.Fatal("expected auth to remain registered")
++	}
++	if state := updated.ModelStates[model]; state != nil {
++		t.Fatalf("Amp CountTokens route changed model availability: %#v", state)
++	}
++	if count := reg.GetModelCount(model); count <= 0 {
++		t.Fatalf("available model count = %d, want positive", count)
++	}
++}
+diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
+index d70fb05c..b4806d9b 100644
+--- a/sdk/cliproxy/auth/conductor.go
++++ b/sdk/cliproxy/auth/conductor.go
+@@ -1549,14 +1549,18 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
+ 				if errCtx := execCtx.Err(); errCtx != nil {
+ 					return cliproxyexecutor.Response{}, errCtx
+ 				}
+-				result.Error = &Error{Message: errExec.Error()}
+-				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
+-					result.Error.HTTPStatus = se.StatusCode()
+-				}
++				result.Error = resultErrorFromError(errExec)
+ 				if ra := retryAfterFromError(errExec); ra != nil {
+ 					result.RetryAfter = ra
+ 				}
+-				m.MarkResult(execCtx, result)
++				// Some Anthropic-compatible upstreams do not implement count_tokens
++				// and return a generic endpoint 404. Keep failure accounting and hooks
++				// without suspending a model that still works for messages requests.
++				if isCountTokensEndpointNotFoundError(errExec, execReq.Model) {
++					m.recordAvailabilityNeutralResult(execCtx, result)
++				} else {
++					m.MarkResult(execCtx, result)
++				}
+ 				if isRequestInvalidError(errExec) {
+ 					return cliproxyexecutor.Response{}, errExec
+ 				}
+@@ -2402,6 +2406,14 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
+ 						state.NextRetryAfter = next
+ 						suspendReason = "model_not_supported"
+ 						shouldSuspendModel = true
++					} else if isInvalidGrantResultError(result.Error) {
++						if disableCooling {
++							state.NextRetryAfter = time.Time{}
++						} else {
++							state.NextRetryAfter = now.Add(30 * time.Minute)
++							suspendReason = "invalid_grant"
++							shouldSuspendModel = true
++						}
+ 					} else {
+ 						switch statusCode {
+ 						case 401:
+@@ -2498,6 +2510,27 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
+ 	m.hook.OnResult(ctx, result)
+ }
+ 
++func (m *Manager) recordAvailabilityNeutralResult(ctx context.Context, result Result) {
++	if result.AuthID == "" {
++		return
++	}
++
++	m.mu.Lock()
++	if auth, ok := m.auths[result.AuthID]; ok && auth != nil {
++		now := time.Now()
++		auth.recordRecentRequest(now, result.Success)
++		if result.Success {
++			auth.Success++
++		} else {
++			auth.Failed++
++		}
++		_ = m.persist(ctx, auth)
++	}
++	m.mu.Unlock()
++
++	m.hook.OnResult(ctx, result)
++}
++
+ func applyKiroUsageResultFromResponse(result *Result, resp cliproxyexecutor.Response) {
+ 	if result == nil {
+ 		return
+@@ -2827,6 +2860,17 @@ func statusCodeFromError(err error) int {
+ 	return 0
+ }
+ 
++func resultErrorFromError(err error) *Error {
++	if err == nil {
++		return nil
++	}
++	var authErr *Error
++	if errors.As(err, &authErr) && authErr != nil {
++		return cloneError(authErr)
++	}
++	return &Error{Message: err.Error(), HTTPStatus: statusCodeFromError(err)}
++}
++
+ func isRequestScopedError(err error) bool {
+ 	if err == nil {
+ 		return false
+@@ -2945,6 +2989,97 @@ func isModelSupportResultError(err *Error) bool {
+ 	return isModelSupportErrorMessage(err.Message)
+ }
+ 
++func isInvalidGrantIdentifier(value string) bool {
++	return strings.EqualFold(strings.TrimSpace(value), "invalid_grant")
++}
++
++func isErrorIdentifierByte(value byte) bool {
++	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
++}
++
++func containsBoundedErrorIdentifier(message, identifier string) bool {
++	message = strings.ToLower(message)
++	identifier = strings.ToLower(identifier)
++	for offset := 0; offset < len(message); {
++		index := strings.Index(message[offset:], identifier)
++		if index < 0 {
++			return false
++		}
++		index += offset
++		end := index + len(identifier)
++		if (index == 0 || !isErrorIdentifierByte(message[index-1])) && (end == len(message) || !isErrorIdentifierByte(message[end])) {
++			return true
++		}
++		offset = index + 1
++	}
++	return false
++}
++
++func containsStructuredInvalidGrant(value any) bool {
++	switch typed := value.(type) {
++	case map[string]any:
++		for key, item := range typed {
++			if text, ok := item.(string); ok {
++				switch strings.ToLower(strings.TrimSpace(key)) {
++				case "error", "code", "type":
++					if isInvalidGrantIdentifier(text) {
++						return true
++					}
++				}
++			}
++			switch item.(type) {
++			case map[string]any, []any:
++				if containsStructuredInvalidGrant(item) {
++					return true
++				}
++			}
++		}
++	case []any:
++		for _, item := range typed {
++			if containsStructuredInvalidGrant(item) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func isInvalidGrantErrorMessage(message string) bool {
++	var payload any
++	if errJSON := json.Unmarshal([]byte(strings.TrimSpace(message)), &payload); errJSON == nil && containsStructuredInvalidGrant(payload) {
++		return true
++	}
++	return containsBoundedErrorIdentifier(message, "invalid_grant")
++}
++
++func isInvalidGrantError(err error) bool {
++	if err == nil {
++		return false
++	}
++	status := statusCodeFromError(err)
++	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
++		return false
++	}
++	var authErr *Error
++	if errors.As(err, &authErr) && authErr != nil {
++		if isInvalidGrantIdentifier(authErr.Code) || isInvalidGrantErrorMessage(authErr.Message) {
++			return true
++		}
++	}
++	return isInvalidGrantErrorMessage(err.Error())
++}
++
++func isInvalidGrantResultError(err *Error) bool {
++	if err == nil {
++		return false
++	}
++	status := statusCodeFromResult(err)
++	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
++		return false
++	}
++	return isInvalidGrantIdentifier(err.Code) || isInvalidGrantErrorMessage(err.Message)
++}
++
+ func isRequestScopedNotFoundMessage(message string) bool {
+ 	if message == "" {
+ 		return false
+@@ -2962,6 +3097,81 @@ func isRequestScopedNotFoundResultError(err *Error) bool {
+ 	return isRequestScopedNotFoundMessage(err.Message)
+ }
+ 
++func isCountTokensEndpointNotFoundError(err error, _ string) bool {
++	if err == nil || statusCodeFromError(err) != http.StatusNotFound {
++		return false
++	}
++	return !isExplicitModelNotFoundError(err)
++}
++
++func isExplicitModelNotFoundError(err error) bool {
++	if err == nil {
++		return false
++	}
++	var authErr *Error
++	if errors.As(err, &authErr) && authErr != nil {
++		if isModelNotFoundIdentifier(authErr.Code) || isStructuredModelNotFoundError(authErr.Message) {
++			return true
++		}
++	}
++	if isStructuredModelNotFoundError(err.Error()) {
++		return true
++	}
++	switch wrapped := err.(type) {
++	case interface{ Unwrap() []error }:
++		for _, nested := range wrapped.Unwrap() {
++			if isExplicitModelNotFoundError(nested) {
++				return true
++			}
++		}
++	case interface{ Unwrap() error }:
++		return isExplicitModelNotFoundError(wrapped.Unwrap())
++	}
++	return false
++}
++
++func isStructuredModelNotFoundError(message string) bool {
++	var payload any
++	if errJSON := json.Unmarshal([]byte(strings.TrimSpace(message)), &payload); errJSON != nil {
++		return false
++	}
++	return containsStructuredModelNotFound(payload)
++}
++
++func containsStructuredModelNotFound(value any) bool {
++	switch typed := value.(type) {
++	case map[string]any:
++		for key, item := range typed {
++			if text, ok := item.(string); ok {
++				switch strings.ToLower(strings.TrimSpace(key)) {
++				case "code", "type", "error":
++					if isModelNotFoundIdentifier(text) {
++						return true
++					}
++				}
++			}
++			switch item.(type) {
++			case map[string]any, []any:
++				if containsStructuredModelNotFound(item) {
++					return true
++				}
++			}
++		}
++	case []any:
++		for _, item := range typed {
++			if containsStructuredModelNotFound(item) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func isModelNotFoundIdentifier(value string) bool {
++	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(value)))
++	return normalized == "model_not_found"
++}
++
+ // isRequestInvalidError returns true if the error represents a client request
+ // error that should not be retried. Specifically, it treats typed request-scoped
+ // errors, 400 responses with "invalid_request_error", request-scoped 404 item
+@@ -2975,6 +3185,9 @@ func isRequestInvalidError(err error) bool {
+ 	if isRequestScopedError(err) {
+ 		return true
+ 	}
++	if isInvalidGrantError(err) {
++		return false
++	}
+ 	if isModelSupportError(err) {
+ 		return false
+ 	}
+diff --git a/sdk/cliproxy/auth/conductor_overrides_test.go b/sdk/cliproxy/auth/conductor_overrides_test.go
+index d6ebb073..74ecdf3a 100644
+--- a/sdk/cliproxy/auth/conductor_overrides_test.go
++++ b/sdk/cliproxy/auth/conductor_overrides_test.go
+@@ -3,6 +3,7 @@ package auth
+ import (
+ 	"context"
+ 	"net/http"
++	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"testing"
+@@ -1232,3 +1233,243 @@ func TestManager_RequestScopedNotFoundStopsRetryWithoutSuspendingAuth(t *testing
+ 		t.Fatalf("expected request-scoped 404 to avoid bad auth model cooldown state, got %#v", state)
+ 	}
+ }
++
++func TestManager_InvalidGrantUsesThirtyMinuteSuspension(t *testing.T) {
++	previous := quotaCooldownDisabled.Load()
++	quotaCooldownDisabled.Store(false)
++	t.Cleanup(func() { quotaCooldownDisabled.Store(previous) })
++
++	testCases := []struct {
++		name    string
++		status  int
++		message string
++	}{
++		{
++			name:    "structured 400",
++			status:  http.StatusBadRequest,
++			message: `{"error":"invalid_grant","error_description":"Bad Request"}`,
++		},
++		{
++			name:    "textual 400",
++			status:  http.StatusBadRequest,
++			message: "oauth token exchange failed: invalid_grant",
++		},
++		{
++			name:    "structured 401",
++			status:  http.StatusUnauthorized,
++			message: `{"error":{"code":"invalid_grant"}}`,
++		},
++		{
++			name:    "textual 401",
++			status:  http.StatusUnauthorized,
++			message: "oauth refresh rejected with invalid_grant",
++		},
++	}
++
++	for _, testCase := range testCases {
++		t.Run(testCase.name, func(t *testing.T) {
++			suffix := strings.NewReplacer("/", "-", " ", "-").Replace(t.Name())
++			model := "invalid-grant-model-" + suffix
++			authID := "invalid-grant-auth-" + suffix
++			resultErr := &Error{HTTPStatus: testCase.status, Message: testCase.message}
++			if !isInvalidGrantResultError(resultErr) {
++				t.Fatalf("expected invalid_grant classification for %#v", resultErr)
++			}
++
++			reg := registry.GetGlobalRegistry()
++			reg.RegisterClient(authID, "antigravity", []*registry.ModelInfo{{ID: model}})
++			t.Cleanup(func() { reg.UnregisterClient(authID) })
++
++			manager := NewManager(nil, nil, nil)
++			if _, errRegister := manager.Register(context.Background(), &Auth{ID: authID, Provider: "antigravity"}); errRegister != nil {
++				t.Fatalf("register auth: %v", errRegister)
++			}
++			manager.MarkResult(context.Background(), Result{
++				AuthID:   authID,
++				Provider: "antigravity",
++				Model:    model,
++				Success:  false,
++				Error:    resultErr,
++			})
++
++			updated, ok := manager.GetByID(authID)
++			if !ok || updated == nil {
++				t.Fatal("expected auth to remain registered")
++			}
++			state := updated.ModelStates[model]
++			if state == nil || !state.Unavailable {
++				t.Fatalf("model state = %#v, want unavailable", state)
++			}
++			remaining := time.Until(state.NextRetryAfter)
++			if remaining < 29*time.Minute || remaining > 30*time.Minute {
++				t.Fatalf("invalid_grant cooldown = %v, want about 30m", remaining)
++			}
++			if count := reg.GetModelCount(model); count != 0 {
++				t.Fatalf("available model count = %d, want 0", count)
++			}
++		})
++	}
++}
++
++func TestManager_InvalidGrantUnrelatedBadRequestRetainsOrdinaryBehavior(t *testing.T) {
++	previous := quotaCooldownDisabled.Load()
++	quotaCooldownDisabled.Store(false)
++	t.Cleanup(func() { quotaCooldownDisabled.Store(previous) })
++
++	testCases := []struct {
++		name    string
++		message string
++	}{
++		{
++			name:    "unrelated invalid request",
++			message: `{"type":"invalid_request_error","error":{"code":"invalid_request"}}`,
++		},
++		{
++			name:    "structured invalid_grant_type",
++			message: `{"type":"invalid_request_error","error":{"code":"invalid_grant_type"}}`,
++		},
++		{
++			name:    "structured invalid_granted",
++			message: `{"type":"invalid_request_error","error":"invalid_granted"}`,
++		},
++		{
++			name:    "invalid request message with longer identifiers",
++			message: `{"type":"invalid_request_error","message":"received invalid_grant_type after invalid_granted response"}`,
++		},
++	}
++
++	for _, testCase := range testCases {
++		t.Run(testCase.name, func(t *testing.T) {
++			resultErr := &Error{HTTPStatus: http.StatusBadRequest, Message: testCase.message}
++			if isInvalidGrantResultError(resultErr) || isInvalidGrantError(resultErr) {
++				t.Fatalf("longer or unrelated identifier classified as invalid_grant: %s", testCase.message)
++			}
++			if !isRequestInvalidError(resultErr) {
++				t.Fatal("unrelated invalid_request_error 400 should retain request-invalid behavior")
++			}
++
++			suffix := strings.NewReplacer("/", "-", " ", "-").Replace(t.Name())
++			model := "unrelated-bad-request-model-" + suffix
++			authID := "unrelated-bad-request-auth-" + suffix
++			reg := registry.GetGlobalRegistry()
++			reg.RegisterClient(authID, "antigravity", []*registry.ModelInfo{{ID: model}})
++			t.Cleanup(func() { reg.UnregisterClient(authID) })
++
++			manager := NewManager(nil, nil, nil)
++			if _, errRegister := manager.Register(context.Background(), &Auth{ID: authID, Provider: "antigravity"}); errRegister != nil {
++				t.Fatalf("register auth: %v", errRegister)
++			}
++			manager.MarkResult(context.Background(), Result{
++				AuthID:   authID,
++				Provider: "antigravity",
++				Model:    model,
++				Success:  false,
++				Error:    resultErr,
++			})
++
++			updated, ok := manager.GetByID(authID)
++			if !ok || updated == nil {
++				t.Fatal("expected auth to remain registered")
++			}
++			state := updated.ModelStates[model]
++			if state == nil {
++				t.Fatal("ordinary 400 should retain normal error state")
++			}
++			if !state.NextRetryAfter.IsZero() {
++				t.Fatalf("ordinary 400 unexpectedly set model cooldown: %#v", state)
++			}
++			if updated.Unavailable || !updated.NextRetryAfter.IsZero() {
++				t.Fatalf("ordinary 400 unexpectedly changed auth availability: %#v", updated)
++			}
++			if count := reg.GetModelCount(model); count <= 0 {
++				t.Fatalf("available model count = %d, want positive", count)
++			}
++		})
++	}
++}
++
++func TestManager_InvalidGrantLongerIdentifiersAtUnauthorizedStatusAreNotInvalidGrant(t *testing.T) {
++	testCases := []string{
++		`{"error":{"code":"invalid_grant_type"}}`,
++		`{"error":"invalid_granted"}`,
++		"oauth refresh failed: invalid_grant_type",
++		"oauth refresh failed: invalid_granted",
++	}
++	for _, message := range testCases {
++		err := &Error{HTTPStatus: http.StatusUnauthorized, Message: message}
++		if isInvalidGrantError(err) || isInvalidGrantResultError(err) {
++			t.Fatalf("HTTP 401 longer identifier classified as invalid_grant: %s", message)
++		}
++	}
++}
++
++func TestManager_InvalidGrantLongerIdentifiersStopCredentialFallback(t *testing.T) {
++	previous := quotaCooldownDisabled.Load()
++	quotaCooldownDisabled.Store(false)
++	t.Cleanup(func() { quotaCooldownDisabled.Store(previous) })
++
++	messages := []string{
++		`{"type":"invalid_request_error","error":{"code":"invalid_grant_type"}}`,
++		`{"type":"invalid_request_error","message":"oauth returned invalid_granted"}`,
++	}
++	for index, message := range messages {
++		t.Run(strconv.Itoa(index), func(t *testing.T) {
++			suffix := strings.NewReplacer("/", "-", " ", "-").Replace(t.Name())
++			model := "invalid-grant-negative-fallback-model-" + suffix
++			badAuthID := "aa-invalid-grant-negative-" + suffix
++			goodAuthID := "bb-invalid-grant-negative-" + suffix
++			requestErr := &Error{HTTPStatus: http.StatusBadRequest, Message: message}
++
++			executor := &authFallbackExecutor{
++				id:            "antigravity",
++				executeErrors: map[string]error{badAuthID: requestErr},
++			}
++			manager := NewManager(nil, nil, nil)
++			manager.RegisterExecutor(executor)
++
++			reg := registry.GetGlobalRegistry()
++			reg.RegisterClient(badAuthID, "antigravity", []*registry.ModelInfo{{ID: model}})
++			reg.RegisterClient(goodAuthID, "antigravity", []*registry.ModelInfo{{ID: model}})
++			t.Cleanup(func() {
++				reg.UnregisterClient(badAuthID)
++				reg.UnregisterClient(goodAuthID)
++			})
++			if _, err := manager.Register(context.Background(), &Auth{ID: badAuthID, Provider: "antigravity"}); err != nil {
++				t.Fatalf("register bad auth: %v", err)
++			}
++			if _, err := manager.Register(context.Background(), &Auth{ID: goodAuthID, Provider: "antigravity"}); err != nil {
++				t.Fatalf("register good auth: %v", err)
++			}
++
++			_, errExecute := manager.Execute(context.Background(), []string{"antigravity"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
++			if errExecute == nil {
++				t.Fatal("expected ordinary request-invalid error")
++			}
++			if calls := executor.ExecuteCalls(); len(calls) != 1 || calls[0] != badAuthID {
++				t.Fatalf("credential calls = %v, want [%s]", calls, badAuthID)
++			}
++
++			updated, ok := manager.GetByID(badAuthID)
++			if !ok || updated == nil {
++				t.Fatal("expected bad auth to remain registered")
++			}
++			state := updated.ModelStates[model]
++			if state == nil || !state.NextRetryAfter.IsZero() {
++				t.Fatalf("longer identifier unexpectedly entered 30m suspension: %#v", state)
++			}
++			if count := reg.GetModelCount(model); count != 2 {
++				t.Fatalf("available model count = %d, want 2", count)
++			}
++		})
++	}
++}
++
++func TestManager_InvalidGrantBadRequestIsNotRequestInvalid(t *testing.T) {
++	err := &Error{
++		HTTPStatus: http.StatusBadRequest,
++		Message:    `{"type":"invalid_request_error","error":{"error":"invalid_grant"}}`,
++	}
++	if isRequestInvalidError(err) {
++		t.Fatal("invalid_grant 400 should allow credential fallback")
++	}
++}
+diff --git a/sdk/cliproxy/auth/conductor_count_tokens_test.go b/sdk/cliproxy/auth/conductor_count_tokens_test.go
+new file mode 100644
+index 00000000..a8f712d7
+--- /dev/null
++++ b/sdk/cliproxy/auth/conductor_count_tokens_test.go
+@@ -0,0 +1,185 @@
++package auth
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"net/http"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/therealtinhtute/llmhub/internal/registry"
++	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
++)
++
++type countTokensErrorExecutor struct {
++	err error
++}
++
++func (e *countTokensErrorExecutor) Identifier() string { return "claude" }
++
++func (e *countTokensErrorExecutor) Execute(context.Context, *Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
++	return cliproxyexecutor.Response{}, nil
++}
++
++func (e *countTokensErrorExecutor) ExecuteStream(context.Context, *Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
++	return nil, nil
++}
++
++func (e *countTokensErrorExecutor) Refresh(_ context.Context, auth *Auth) (*Auth, error) {
++	return auth, nil
++}
++
++func (e *countTokensErrorExecutor) CountTokens(context.Context, *Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
++	return cliproxyexecutor.Response{}, e.err
++}
++
++func (e *countTokensErrorExecutor) HttpRequest(context.Context, *Auth, *http.Request) (*http.Response, error) {
++	return nil, nil
++}
++
++type countTokensStatusError struct {
++	status  int
++	message string
++}
++
++func (e *countTokensStatusError) Error() string   { return e.message }
++func (e *countTokensStatusError) StatusCode() int { return e.status }
++
++func TestManager_CountTokensErrorClassification(t *testing.T) {
++	previous := quotaCooldownDisabled.Load()
++	quotaCooldownDisabled.Store(false)
++	t.Cleanup(func() { quotaCooldownDisabled.Store(previous) })
++
++	testCases := []struct {
++		name               string
++		err                error
++		availabilityChange bool
++	}{
++		{
++			name: "generic empty endpoint 404",
++			err:  &Error{HTTPStatus: http.StatusNotFound},
++		},
++		{
++			name: "generic unsupported endpoint 404",
++			err: &Error{
++				HTTPStatus: http.StatusNotFound,
++				Message:    "Cannot POST /v1/messages/count_tokens",
++			},
++		},
++		{
++			name: "explicit top-level model_not_found",
++			err: &Error{
++				Code:       "model_not_found",
++				HTTPStatus: http.StatusNotFound,
++				Message:    "Not Found",
++			},
++			availabilityChange: true,
++		},
++		{
++			name: "explicit nested model_not_found",
++			err: &Error{
++				HTTPStatus: http.StatusNotFound,
++				Message:    `{"error":{"code":"model_not_found","message":"Not Found"}}`,
++			},
++			availabilityChange: true,
++		},
++		{
++			name: "wrapped Error nested model_not_found",
++			err: fmt.Errorf("count tokens failed: %w", &Error{
++				HTTPStatus: http.StatusNotFound,
++				Message:    `{"error":{"code":"model_not_found","message":"Not Found"}}`,
++			}),
++			availabilityChange: true,
++		},
++		{
++			name: "wrapped status error nested model_not_found",
++			err: fmt.Errorf("count tokens failed: %w", &countTokensStatusError{
++				status:  http.StatusNotFound,
++				message: `{"error":{"type":"model_not_found","message":"Not Found"}}`,
++			}),
++			availabilityChange: true,
++		},
++		{
++			name: "joined status error nested model_not_found",
++			err: errors.Join(
++				errors.New("count tokens failed"),
++				&countTokensStatusError{
++					status:  http.StatusNotFound,
++					message: `{"error":{"code":"model_not_found","message":"Not Found"}}`,
++				},
++			),
++			availabilityChange: true,
++		},
++	}
++
++	for _, testCase := range testCases {
++		t.Run(testCase.name, func(t *testing.T) {
++			suffix := strings.NewReplacer("/", "-", " ", "-").Replace(t.Name())
++			model := "count-tokens-" + suffix
++			authID := "count-tokens-auth-" + suffix
++
++			reg := registry.GetGlobalRegistry()
++			reg.RegisterClient(authID, "claude", []*registry.ModelInfo{{ID: model}})
++			t.Cleanup(func() { reg.UnregisterClient(authID) })
++
++			manager := NewManager(nil, nil, nil)
++			manager.RegisterExecutor(&countTokensErrorExecutor{err: testCase.err})
++			if _, errRegister := manager.Register(context.Background(), &Auth{ID: authID, Provider: "claude"}); errRegister != nil {
++				t.Fatalf("register auth: %v", errRegister)
++			}
++
++			if _, errCount := manager.ExecuteCount(context.Background(), []string{"claude"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{}); errCount == nil {
++				t.Fatal("expected CountTokens error")
++			}
++
++			updated, ok := manager.GetByID(authID)
++			if !ok || updated == nil {
++				t.Fatal("expected auth to remain registered")
++			}
++			if updated.Failed != 1 {
++				t.Fatalf("failed count = %d, want 1", updated.Failed)
++			}
++
++			state := updated.ModelStates[model]
++			if testCase.availabilityChange {
++				if state == nil || !state.Unavailable {
++					t.Fatalf("model state = %#v, want unavailable", state)
++				}
++				remaining := time.Until(state.NextRetryAfter)
++				if remaining < 11*time.Hour || remaining > 12*time.Hour {
++					t.Fatalf("model cooldown = %v, want about 12h", remaining)
++				}
++				if count := reg.GetModelCount(model); count != 0 {
++					t.Fatalf("available model count = %d, want 0", count)
++				}
++				picked, errPick := manager.scheduler.pickSingle(context.Background(), "claude", model, cliproxyexecutor.Options{}, nil)
++				if errPick == nil {
++					t.Fatal("scheduler error = nil, want unavailable model")
++				}
++				if picked != nil {
++					t.Fatalf("scheduler picked auth = %#v, want nil", picked)
++				}
++				return
++			}
++
++			if state != nil {
++				t.Fatalf("generic CountTokens endpoint error created model state: %#v", state)
++			}
++			if updated.Unavailable || !updated.NextRetryAfter.IsZero() {
++				t.Fatalf("generic CountTokens endpoint error changed auth availability: %#v", updated)
++			}
++			if count := reg.GetModelCount(model); count <= 0 {
++				t.Fatalf("available model count = %d, want positive", count)
++			}
++			picked, errPick := manager.scheduler.pickSingle(context.Background(), "claude", model, cliproxyexecutor.Options{}, nil)
++			if errPick != nil {
++				t.Fatalf("scheduler error = %v, want nil", errPick)
++			}
++			if picked == nil || picked.ID != authID {
++				t.Fatalf("scheduler picked auth = %#v, want %q", picked, authID)
++			}
++		})
++	}
++}

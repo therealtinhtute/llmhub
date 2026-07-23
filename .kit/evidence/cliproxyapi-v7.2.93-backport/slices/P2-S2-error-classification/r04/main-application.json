@@ -1,0 +1,51 @@
+{
+  "revision": "r04",
+  "replaced_revision": "r03",
+  "method": [
+    "git apply --reverse --check r03/patch",
+    "git apply --reverse r03/patch",
+    "git apply --check r04/patch",
+    "git apply r04/patch"
+  ],
+  "result_hashes_match_reviewed_revision": true,
+  "result_hashes": {
+    "sdk/cliproxy/auth/conductor.go": "a5d941597f6afa7b23e4fe62fff800d185a3d0110c18e41f1ea2089c036ae862",
+    "sdk/cliproxy/auth/conductor_overrides_test.go": "f6e50b1ce23d417d32671a9a08bdd049b02a1a6bcb33af9d4ebee2434f6ed639",
+    "sdk/cliproxy/auth/conductor_count_tokens_test.go": "dd44135b585407a65c652fe14cb03e100b5d91f74923228ad4941667e107a763",
+    "internal/api/modules/amp/routes_test.go": "9e3d6cca309b550a91eaba79a75af583685927a98fe5bc251011ddd13abd3588"
+  },
+  "verification": [
+    {
+      "command": "go test ./sdk/cliproxy/auth -run 'Test.*(InvalidGrant|CountTokens|RequestScoped|Fallback)' -count=1",
+      "result": "pass"
+    },
+    {
+      "command": "go test ./internal/api/modules/amp -run 'Test.*CountTokens' -count=1",
+      "result": "pass"
+    },
+    {
+      "command": "go test ./sdk/cliproxy/auth -run 'Test.*(Cooldown|Jitter|Backoff)' -count=1",
+      "result": "pass"
+    },
+    {
+      "command": "go test ./sdk/cliproxy/auth ./internal/api/modules/amp -count=1",
+      "result": "pass"
+    },
+    {
+      "command": "go test ./...",
+      "result": "pass"
+    },
+    {
+      "command": "go vet ./...",
+      "result": "pass"
+    },
+    {
+      "command": "go build ./...",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ]
+}

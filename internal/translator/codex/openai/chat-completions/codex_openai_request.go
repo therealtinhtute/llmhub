@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -183,10 +184,10 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 							if role == "user" {
 								fileData := it.Get("file.file_data").String()
 								filename := it.Get("file.filename").String()
-								if fileData != "" {
+								if mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData(filename, "", fileData); ok {
 									part := []byte(`{}`)
 									part, _ = sjson.SetBytes(part, "type", "input_file")
-									part, _ = sjson.SetBytes(part, "file_data", fileData)
+									part, _ = sjson.SetBytes(part, "file_data", "data:"+mimeType+";base64,"+data)
 									if filename != "" {
 										part, _ = sjson.SetBytes(part, "filename", filename)
 									}
@@ -408,7 +409,18 @@ func appendToolOutputContentPart(output []byte, item gjson.Result) []byte {
 		fileID := item.Get("file.file_id").String()
 		fileData := item.Get("file.file_data").String()
 		fileURL := item.Get("file.file_url").String()
-		if fileID == "" && fileData == "" && fileURL == "" {
+		filename := item.Get("file.filename").String()
+		normalizedFileData := ""
+		if fileData != "" {
+			mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData(filename, "", fileData)
+			if !ok {
+				return appendToolOutputFallbackPart(output, item)
+			}
+			if ok {
+				normalizedFileData = "data:" + mimeType + ";base64," + data
+			}
+		}
+		if fileID == "" && normalizedFileData == "" && fileURL == "" {
 			return appendToolOutputFallbackPart(output, item)
 		}
 		part := []byte(`{}`)
@@ -416,13 +428,13 @@ func appendToolOutputContentPart(output []byte, item gjson.Result) []byte {
 		if fileID != "" {
 			part, _ = sjson.SetBytes(part, "file_id", fileID)
 		}
-		if fileData != "" {
-			part, _ = sjson.SetBytes(part, "file_data", fileData)
+		if normalizedFileData != "" {
+			part, _ = sjson.SetBytes(part, "file_data", normalizedFileData)
 		}
 		if fileURL != "" {
 			part, _ = sjson.SetBytes(part, "file_url", fileURL)
 		}
-		if filename := item.Get("file.filename").String(); filename != "" {
+		if filename != "" {
 			part, _ = sjson.SetBytes(part, "filename", filename)
 		}
 		output, _ = sjson.SetRawBytes(output, "-1", part)

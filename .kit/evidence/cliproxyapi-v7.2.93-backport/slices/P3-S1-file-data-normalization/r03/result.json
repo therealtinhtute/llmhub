@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S1-file-data-normalization",
+  "revision": "r03",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T03:27:26Z",
+  "base_tree": "98d750898d239533918d092276faf9520a64adb1",
+  "result_tree": "8848e25e9a5cc7e5c25dee0f80585d5bdd785384",
+  "changed_files": [
+    "internal/translator/common/file_data.go",
+    "internal/translator/common/file_data_test.go",
+    "internal/translator/gemini/openai/chat-completions/gemini_openai_request.go",
+    "internal/translator/gemini/openai/chat-completions/gemini_openai_request_test.go",
+    "internal/translator/gemini-cli/openai/chat-completions/gemini-cli_openai_request.go",
+    "internal/translator/gemini-cli/openai/chat-completions/gemini-cli_openai_request_test.go",
+    "internal/translator/codex/openai/chat-completions/codex_openai_request.go",
+    "internal/translator/codex/openai/chat-completions/codex_openai_request_test.go"
+  ],
+  "result_sha256": {
+    "internal/translator/common/file_data.go": "dbf7899dc9f221e507c2ca85133a84a8157c64351a9234de8783a39e31474926",
+    "internal/translator/common/file_data_test.go": "b020f78533452ebf0681ac946c777f06a9721a7a4fec8b417b791c589c70b224",
+    "internal/translator/gemini/openai/chat-completions/gemini_openai_request.go": "1ad1dc90578dbc6c306347fe8e88a0a17cce0dc5b469cc1ee70f8667fb59b627",
+    "internal/translator/gemini/openai/chat-completions/gemini_openai_request_test.go": "0b8394f03dab56004522a8ba6e49086fa4069426bb9d2ada1b19b8be17642e35",
+    "internal/translator/gemini-cli/openai/chat-completions/gemini-cli_openai_request.go": "e327fdde303ee210e2bc79139883cedfce2b391e535f8451ce51a892da6dc1b3",
+    "internal/translator/gemini-cli/openai/chat-completions/gemini-cli_openai_request_test.go": "7b187ee864f50d0e6671e1c059420c9acde16f0e681ddf7521f884c1e3c2fde2",
+    "internal/translator/codex/openai/chat-completions/codex_openai_request.go": "78032e46ca740616eeccf22be96537894883b8fd37d741146b00f7be64a3e675",
+    "internal/translator/codex/openai/chat-completions/codex_openai_request_test.go": "b1722c059b4b1c007393121349fa3814838a3652a03da2c53a9e7e102679c392"
+  },
+  "patch_sha256": "1e0dae5ab9290d2a16ce81727fb0040fb5a6f6eca591d02f77e9a2761dbaca7d",
+  "verification": [
+    {
+      "command": "go test ./internal/translator/codex/openai/chat-completions -run TestToolOutputInvalidFileDataFallsBackDeterministically -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/translator/common ./internal/translator/gemini/openai/chat-completions ./internal/translator/gemini-cli/openai/chat-completions ./internal/translator/codex/openai/chat-completions -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    }
+  ],
+  "application_proof": {
+    "prepared_tree_matches": true,
+    "forward_matches_isolated_result": true,
+    "reverse_matches_base_tree": true,
+    "whitespace_check": true,
+    "prepared_tree": "98d750898d239533918d092276faf9520a64adb1",
+    "result_tree": "8848e25e9a5cc7e5c25dee0f80585d5bdd785384"
+  },
+  "notes": "Corrects r02 invalid-file-data fallback gap; independent review pending."
+}

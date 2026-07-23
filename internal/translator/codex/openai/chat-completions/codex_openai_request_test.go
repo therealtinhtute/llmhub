@@ -246,8 +246,8 @@ func TestToolCallOutputWithMultimodalContent(t *testing.T) {
 	if parts[3].Get("filename").String() != "doc.pdf" {
 		t.Errorf("part 3: unexpected filename %s", parts[3].Get("filename").String())
 	}
-	if parts[4].Get("type").String() != "input_file" || parts[4].Get("file_data").String() != "SGVsbG8=" {
-		t.Fatalf("part 4: expected file_data-backed input_file, got %s", parts[4].Raw)
+	if parts[4].Get("type").String() != "input_file" || parts[4].Get("file_data").String() != "data:text/plain;base64,SGVsbG8=" {
+		t.Fatalf("part 4: expected normalized file_data-backed input_file, got %s", parts[4].Raw)
 	}
 	if parts[5].Get("type").String() != "input_file" || parts[5].Get("file_url").String() != "https://example.com/report.pdf" {
 		t.Fatalf("part 5: expected file_url-backed input_file, got %s", parts[5].Raw)
@@ -807,5 +807,71 @@ func TestToolsDefinitionTranslated(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("tool 'search' not found in output tools: %s", gjson.Get(result, "tools").Raw)
+	}
+}
+
+func TestConvertOpenAIRequestToCodexNormalizesFileData(t *testing.T) {
+	input := []byte(`{
+		"messages": [
+			{
+				"role": "user",
+				"content": [
+					{"type":"image_url","image_url":{"url":"https://example.com/image.png"}},
+					{"type":"file","file":{"filename":"report.PDF","file_data":"file-raw"}},
+					{"type":"file","file":{"filename":"wrong.txt","file_data":"data:image/jpeg;base64,file-url"}},
+					{"type":"file","file":{"filename":"guess.pdf","file_data":"data:;base64,file-invalid"}},
+					{"type":"file","file":{"filename":"guess.pdf","file_data":"data:application/pdf,file-invalid"}}
+				]
+			}
+		]
+	}`)
+
+	out := ConvertOpenAIRequestToCodex("gpt-test", input, true)
+	parts := gjson.GetBytes(out, "input.0.content").Array()
+	if len(parts) != 3 {
+		t.Fatalf("expected image and 2 normalized files, got %d parts: %s", len(parts), gjson.GetBytes(out, "input.0.content").Raw)
+	}
+	if got := parts[0].Get("image_url").String(); got != "https://example.com/image.png" {
+		t.Errorf("image_url = %q, want unchanged remote URL", got)
+	}
+	if got := parts[1].Get("file_data").String(); got != "data:application/pdf;base64,file-raw" {
+		t.Errorf("raw file_data = %q, want canonical data URL", got)
+	}
+	if got := parts[2].Get("file_data").String(); got != "data:image/jpeg;base64,file-url" {
+		t.Errorf("data URL file_data = %q, want authoritative MIME", got)
+	}
+}
+
+func TestToolOutputInvalidFileDataFallsBackDeterministically(t *testing.T) {
+	tests := []struct {
+		name string
+		item string
+	}{
+		{
+			name: "file data only",
+			item: `{"type":"file","file":{"filename":"guess.pdf","file_data":"data:;base64,file-invalid"}}`,
+		},
+		{
+			name: "with file ID",
+			item: `{"type":"file","file":{"file_id":"file-123","filename":"guess.pdf","file_data":"data:;base64,file-invalid"}}`,
+		},
+		{
+			name: "with file URL",
+			item: `{"type":"file","file":{"file_url":"https://example.com/report.pdf","filename":"guess.pdf","file_data":"data:application/pdf,file-invalid"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := gjson.Parse(tt.item)
+			output := appendToolOutputContentPart([]byte(`[]`), item)
+			part := gjson.GetBytes(output, "0")
+			if part.Get("type").String() != "input_text" {
+				t.Fatalf("expected invalid file data to use input_text fallback, got %s", part.Raw)
+			}
+			if part.Get("text").String() != item.Raw {
+				t.Fatalf("expected deterministic compact JSON fallback %s, got %s", item.Raw, part.Get("text").String())
+			}
+		})
 	}
 }

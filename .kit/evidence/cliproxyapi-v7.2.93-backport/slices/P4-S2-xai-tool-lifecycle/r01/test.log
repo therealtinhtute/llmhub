@@ -1,0 +1,11 @@
+$ go test ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	0.014s
+[return_code=0]
+
+$ go test ./internal/runtime/executor -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	1.294s
+[return_code=0]
+
+$ go test -race ./internal/runtime/executor -run Test.*(XAI|Namespace|AdditionalTools|CustomTool|ParallelTool|XSearch|Collision|Declaration) -count=1
+ok  	github.com/therealtinhtute/llmhub/internal/runtime/executor	1.063s
+[return_code=0]

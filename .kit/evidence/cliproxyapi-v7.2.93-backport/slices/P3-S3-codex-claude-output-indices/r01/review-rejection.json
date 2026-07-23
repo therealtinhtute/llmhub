@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S3-codex-claude-output-indices",
+  "revision": "r01",
+  "patch_sha256": "bf7174a97d34ba7240bcf30afd09dbc7a87bf237afb17ef5a3e007efe384b2ca",
+  "verdict": "REJECTED",
+  "findings": [
+    {
+      "severity": "major",
+      "summary": "Mixed output_index presence changes text-block identity mid-lifecycle.",
+      "failure_scenario": "content_part.added with item_id msg_7 and output_index 7 followed by output_text.delta for msg_7 without output_index emits start/stop at 7 and restarts at sequential index 1 instead of retaining index 7."
+    },
+    {
+      "severity": "major",
+      "summary": "Signature-only reasoning can overlap an active text block.",
+      "failure_scenario": "An active text block at index 5 followed by signature-only reasoning at index 2 starts and stops thinking before stopping text, producing overlapping blocks and out-of-order closure."
+    }
+  ],
+  "resolution": "Do not apply r01. Mint a corrected immutable revision with adversarial regressions for both stream sequences and repeat independent review."
+}

@@ -11,16 +11,17 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	codexauth "github.com/therealtinhtute/llmhub/internal/auth/codex"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/misc"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
+	openairesponses "github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"github.com/tiktoken-go/tokenizer"
@@ -205,6 +206,21 @@ type CodexExecutor struct {
 
 func NewCodexExecutor(cfg *config.Config) *CodexExecutor { return &CodexExecutor{cfg: cfg} }
 
+func buildCodexResponsesDeclarationTable(from sdktranslator.Format, requestRawJSON []byte) (*openairesponses.ResponsesToolDeclarationTable, error) {
+	if from != "openai-response" {
+		return nil, nil
+	}
+	return openairesponses.BuildResponsesToolDeclarationTable(requestRawJSON)
+}
+
+func codexToolDeclarationStatusErr(err error) statusErr {
+	body := []byte(`{"error":{}}`)
+	body, _ = sjson.SetBytes(body, "error.message", err.Error())
+	body, _ = sjson.SetBytes(body, "error.type", "invalid_request_error")
+	body, _ = sjson.SetBytes(body, "error.code", "tool_name_collision")
+	return statusErr{code: http.StatusBadRequest, msg: string(body)}
+}
+
 func (e *CodexExecutor) Identifier() string { return "codex" }
 
 // PrepareRequest injects Codex credentials into the outgoing HTTP request.
@@ -264,6 +280,10 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
+	if declarationErr != nil {
+		return resp, codexToolDeclarationStatusErr(declarationErr)
+	}
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
 	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
 
@@ -397,6 +417,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 			completedData = completedDataPatched
 		}
 
+		if declarationTable != nil {
+			completedData = declarationTable.RestoreResponsesToolCalls(completedData)
+		}
 		var param any
 		out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, originalPayload, body, completedData, &param)
 		resp = cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}
@@ -424,6 +447,10 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
+	if declarationErr != nil {
+		return resp, codexToolDeclarationStatusErr(declarationErr)
+	}
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
 	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
 
@@ -492,6 +519,9 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 	reporter.Publish(ctx, helps.ParseOpenAIUsage(data))
 	reporter.EnsurePublished(ctx)
+	if declarationTable != nil {
+		data = declarationTable.RestoreResponsesToolCalls(data)
+	}
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, originalPayload, body, data, &param)
 	resp = cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}
@@ -522,6 +552,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
+	if declarationErr != nil {
+		return nil, codexToolDeclarationStatusErr(declarationErr)
+	}
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
 	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, true)
 
@@ -604,7 +638,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
-			translatedLine := bytes.Clone(line)
+			translatedLines := [][]byte{bytes.Clone(line)}
 
 			if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
@@ -626,16 +660,25 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					}
 					publishCodexImageToolUsage(ctx, reporter, body, data)
 					data = patchCodexCompletedOutput(data, outputItemsByIndex, outputItemsFallback)
-					translatedLine = append([]byte("data: "), data...)
+				}
+				restoredEvents := [][]byte{data}
+				if declarationTable != nil {
+					restoredEvents = declarationTable.RestoreResponsesToolCallEvents(data)
+				}
+				translatedLines = translatedLines[:0]
+				for _, restoredEvent := range restoredEvents {
+					translatedLines = append(translatedLines, append([]byte("data: "), restoredEvent...))
 				}
 			}
 
-			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, originalPayload, body, translatedLine, &param)
-			for i := range chunks {
-				select {
-				case out <- cliproxyexecutor.StreamChunk{Payload: chunks[i]}:
-				case <-ctx.Done():
-					return
+			for _, translatedLine := range translatedLines {
+				chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, originalPayload, body, translatedLine, &param)
+				for i := range chunks {
+					select {
+					case out <- cliproxyexecutor.StreamChunk{Payload: chunks[i]}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}

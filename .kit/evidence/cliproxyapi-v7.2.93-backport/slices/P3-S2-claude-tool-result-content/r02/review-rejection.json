@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "slice_id": "P3-S2-claude-tool-result-content",
+  "revision": "r02",
+  "patch_sha256": "1191cfd9cc64088cbd23416adaa1019c84108148cb894638f203b53025fde013",
+  "verdict": "REJECTED",
+  "findings": [
+    {
+      "severity": "major",
+      "summary": "Valid string-backed Claude document content is downgraded to JSON text.",
+      "failure_scenario": "A function_call_output array containing {\"type\":\"document\",\"source\":{\"type\":\"content\",\"content\":\"document\"}} is valid under the Claude ContentBlockSource schema, whose content field is string or an array of text/image blocks, but r02 accepts only arrays and falls back the entire tool result to compact JSON text."
+    }
+  ],
+  "schema_reference": {
+    "url": "https://platform.claude.com/docs/en/api/messages",
+    "verified_contract": "ContentBlockSource.content is string or array of ContentBlockSourceContent; array members are text or image blocks."
+  },
+  "resolution": "Do not apply r02. Mint a corrected immutable revision that preserves string-backed document content and directly tests invalid native image, document, and search-result required fields."
+}

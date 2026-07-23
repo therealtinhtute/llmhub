@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -362,5 +363,36 @@ func TestTruncationRemovedForCodexCompatibility(t *testing.T) {
 
 	if gjson.Get(outputStr, "truncation").Exists() {
 		t.Fatalf("truncation should be removed for Codex compatibility")
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToCodex_DeclarationTablePromotesAdditionalAndFlattensNamespace(t *testing.T) {
+	inputJSON := []byte(`{
+		"model":"gpt-5.4",
+		"tools":[
+			{"type":"namespace","name":"repo","tools":[
+				{"type":"function","name":"read","parameters":{"type":"object","properties":{"path":{"type":"string"}}}},
+				{"type":"custom","name":"patch"},
+				{"type":"function","name":"mcp__stable"}
+			]}
+		],
+		"input":[
+			{"type":"additional_tools","tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}]},
+			{"type":"message","role":"user","content":"hello"}
+		]
+	}`)
+
+	output := ConvertOpenAIResponsesRequestToCodex("gpt-5.4", inputJSON, false)
+	wantNames := []string{"repo__read", "repo__patch", "mcp__stable", "shell"}
+	for i, want := range wantNames {
+		if got := gjson.GetBytes(output, "tools."+strconv.Itoa(i)+".name").String(); got != want {
+			t.Fatalf("tools[%d].name = %q, want %q: %s", i, got, want, output)
+		}
+	}
+	if got := gjson.GetBytes(output, "input.#").Int(); got != 1 {
+		t.Fatalf("input count = %d, want 1 after additional_tools promotion: %s", got, output)
+	}
+	if got := gjson.GetBytes(output, "tools.0.parameters.properties.path.type").String(); got != "string" {
+		t.Fatalf("function schema was not preserved: %s", output)
 	}
 }

@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "slice_id": "P4-S1-codex-tool-declarations",
+  "revision": "r05",
+  "supersedes_revision": "r04",
+  "status": "PASS",
+  "created_at_utc": "2026-07-23T08:43:37Z",
+  "worktree": "/home/tinhpt/Lab/llmhub/.claude/worktrees/agent-aeecb8973bd30f1c6",
+  "base_tree": "851498d3cde20b09e889cc2f45e7feef70a8c241",
+  "superseded_r04_result_tree": "a04532ab00573a16269a15b25343aaa0901a1853",
+  "result_tree": "7b754f67c75c8932ee7b3552ef789ccf6842e31f",
+  "changed_files": [
+    "internal/runtime/executor/codex_executor.go",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go",
+    "internal/runtime/executor/codex_websockets_executor.go",
+    "internal/runtime/executor/codex_websockets_executor_test.go",
+    "internal/translator/codex/claude/codex_claude_request.go",
+    "internal/translator/codex/claude/codex_claude_request_test.go",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go"
+  ],
+  "unchanged_allowlisted_files": [
+    "internal/translator/codex/openai/responses/codex_openai-responses_request.go"
+  ],
+  "result_sha256": {
+    "internal/runtime/executor/codex_executor.go": "3848b034698a58fa74663f88284eae5aa76e4f2667cd5709fe8defd27effbb51",
+    "internal/runtime/executor/codex_executor_parallel_tool_calls_test.go": "d77690c529f135748c7f28ea47727a74fe01cc56d51108d9757bb333882016e9",
+    "internal/runtime/executor/codex_websockets_executor.go": "17a3b3e4408b6de4251796146e3c95ca98b5a9e05467b67dfd340e677f8b577c",
+    "internal/runtime/executor/codex_websockets_executor_test.go": "244b06aeb8dd878f595bd4576869cea65e367bcc1fcd957a678ef1a2f1590089",
+    "internal/translator/codex/claude/codex_claude_request.go": "d68d7c249d5f9be6088fc4b3c7c5099050f0035d9a4db6cfcd98e67ce0cb5507",
+    "internal/translator/codex/claude/codex_claude_request_test.go": "abe6c9140b02a5d0fa15c6ee95e5b7cd2242d31436b5608b7e8b4022ce58d790",
+    "internal/translator/codex/openai/responses/codex_openai-responses_request_test.go": "db6f6fe027a0cc0289602ddbd9bb93b9c861680c7441e10a0f6e43edf96775aa",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response.go": "5499a577d6f0e737c23d3a63321036c22a213aec432af8de941c4e26ce8bd7b9",
+    "internal/translator/openai/openai/responses/openai_openai-responses_response_test.go": "41655b13ed965f13d5b7b56929e5062ab5b8e6cd4d926ef034851fa05b31befb",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools.go": "9fc6d93e936e0488dcdab0f37938fd281301c9971e84c7da06a21242cf500660",
+    "internal/translator/openai/openai/responses/openai_openai-responses_tools_test.go": "595e2b92eb936b25eb97a04fc13f6a47b701ae4033784062922456ba4ac1d27f"
+  },
+  "patch_sha256": "b2ca393ea5ec36e0f8e17987c325a2a4496b09c1e98b6f1cd170f72043209b42",
+  "verification": [
+    {
+      "command": "go test ./internal/translator/codex/openai/responses -run TestConvertOpenAIResponsesRequestToCodex_PreservesDeclarationsUntilProviderNormalization -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/translator/openai/openai/responses -run 'TestResponsesToolDeclarationTableDeduplicatesReplayedCustomInputDelta|TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_DeduplicatesReplayedCustomInputDelta' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -run 'TestCodexHTTPExecutorDeduplicatesReplayedCustomInputDelta|TestCodexWebSocketExecutorDeduplicatesReplayedCustomInputDelta|TestCodexWebSocketExecutorMergesCompletedOutputItems' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/translator/openai/openai/responses ./internal/runtime/executor -run 'Test(ResponsesToolDeclarationTableCustomInputFidelity|ResponsesToolDeclarationTableInterleavedCustomInputState|ConvertOpenAIChatCompletionsResponseToOpenAIResponses_CustomInputFidelity|ConvertOpenAIChatCompletionsResponseToOpenAIResponses_InterleavedCustomInputState|CodexHTTPExecutorCustomInputFidelity|CodexHTTPExecutorInterleavedCustomInputState|CodexWebSocketExecutorCustomInputFidelity|CodexWebSocketExecutorInterleavedCustomInputState)$' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -run 'Test.*(Codex|WebSocket|Namespace|AdditionalTools|CustomTool|ParallelTool|Collision|Declaration|MessageTooBig|1009|Fragment)' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test ./internal/runtime/executor -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go test -race ./internal/runtime/executor -run 'Test.*(Codex|WebSocket|Namespace|AdditionalTools|CustomTool|ParallelTool|Collision|Declaration|MessageTooBig|1009|Fragment)' -count=1",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "combined P4-S1 r05 + approved P4-S2 r03 focused tests, full executor tests, and focused race tests",
+      "outcome": "ok; approved xAI source hashes byte-identical",
+      "return_code": 0
+    },
+    {
+      "command": "go vet ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses ./internal/runtime/executor",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "go build ./internal/translator/codex/claude ./internal/translator/codex/openai/responses ./internal/translator/openai/openai/responses ./internal/runtime/executor",
+      "outcome": "ok",
+      "return_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "outcome": "ok",
+      "return_code": 0
+    }
+  ],
+  "diagnostic_checks": [
+    {
+      "command": "go test -race ./internal/runtime/executor -count=1",
+      "outcome": "failed on a pre-existing out-of-scope Antigravity credits test-cleanup race in antigravity_executor_credits_test.go and antigravity_executor.go; all required focused executor race suites pass",
+      "return_code": 1
+    }
+  ],
+  "application_proof": {
+    "prepared_base_hashes_match": true,
+    "baseline_archive_hashes_match": true,
+    "worktree_scope_matches": true,
+    "forward_matches_result_tree": true,
+    "reverse_matches_base_tree": true,
+    "reverse_removes_planned_new_files": true,
+    "whitespace_check": true,
+    "combined_p4_s2_approved_files_byte_compatible": true
+  },
+  "notes": "Corrected immutable r05 keeps the shared Responses-to-codex translator consumer-neutral, performs namespace flattening only in Codex HTTP/WebSocket executors, merges request-local WebSocket output_item.done items into terminal output without duplicates, and suppresses replayed custom deltas by stable upstream identity while preserving identical text from distinct events.",
+  "remaining_blockers": [
+    "The package-wide executor race command still exposes a pre-existing Antigravity credits cleanup race outside the exact P4-S1 allowlist; all P4-S1, r04 frozen, and combined P4-S2 focused race suites pass."
+  ]
+}

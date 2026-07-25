@@ -1,1 +1,0 @@
-{"op":"create","entity":"trace","id":"01KY6BHP2HF9Y0G3ATJ7XED0AB","fields":{"created_at":"2026-07-23T02:05:52Z","run_id":"01KY675B4E1PSM764ZBKMRA9ZA","summary":"Phase 2 full gate approved: affected and full tests, vet, build, diff, review, ADR and evidence complete","wave":3},"at":"2026-07-23T02:05:52Z"}

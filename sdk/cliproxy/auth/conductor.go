@@ -24,6 +24,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
 	"github.com/therealtinhtute/llmhub/internal/util"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy/executionregistry"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	coreusage "github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 )
@@ -167,9 +168,14 @@ type Manager struct {
 	scheduler *authScheduler
 	// homeRuntimeAuths caches auths returned by Home so websocket sessions can
 	// reuse an established upstream credential without dispatching every turn.
-	homeRuntimeAuths map[string]map[string]*Auth
+	homeRuntimeAuths      map[string]map[string]*Auth
+	homeRuntimeAuthOwners map[string]map[string]*HomeDispatchSelection
+	homeSessionSelections map[string]map[homeSessionSelectionKey]*HomeDispatchSelection
+	homeSessionLocks      sync.Map
 	// providerOffsets tracks per-model provider rotation state for multi-provider routing.
-	providerOffsets map[string]int
+	providerOffsets             map[string]int
+	homeDispatchBundle          atomic.Pointer[HomeDispatchBundle]
+	homeInFlightPublisherConfig atomic.Pointer[HomeInFlightPublisherConfig]
 
 	// Retry controls request retry behavior.
 	requestRetry        atomic.Int32
@@ -209,20 +215,72 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		hook = NoopHook{}
 	}
 	manager := &Manager{
-		store:            store,
-		executors:        make(map[string]ProviderExecutor),
-		selector:         selector,
-		hook:             hook,
-		auths:            make(map[string]*Auth),
-		homeRuntimeAuths: make(map[string]map[string]*Auth),
-		providerOffsets:  make(map[string]int),
-		modelPoolOffsets: make(map[string]int),
+		store:                 store,
+		executors:             make(map[string]ProviderExecutor),
+		selector:              selector,
+		hook:                  hook,
+		auths:                 make(map[string]*Auth),
+		homeRuntimeAuths:      make(map[string]map[string]*Auth),
+		homeRuntimeAuthOwners: make(map[string]map[string]*HomeDispatchSelection),
+		homeSessionSelections: make(map[string]map[homeSessionSelectionKey]*HomeDispatchSelection),
+		providerOffsets:       make(map[string]int),
+		modelPoolOffsets:      make(map[string]int),
 	}
 	// atomic.Value requires non-nil initial value.
 	manager.runtimeConfig.Store(&internalconfig.Config{})
 	manager.apiKeyModelAlias.Store(apiKeyModelAliasTable(nil))
+	defaultInFlightConfig, errInFlightConfig := HomeInFlightPublisherConfigFromConfig(internalconfig.DefaultCredentialInFlightConfig())
+	if errInFlightConfig == nil {
+		manager.ApplyHomeInFlightPublisherConfig(defaultInFlightConfig)
+	}
 	manager.scheduler = newAuthScheduler(selector)
 	return manager
+}
+
+// HomeDispatchBundle is the immutable client and registry pair for one Home lifetime.
+type HomeDispatchBundle struct {
+	client     homeAuthDispatcher
+	registry   *executionregistry.Registry
+	generation uint64
+}
+
+func (m *Manager) PublishHomeDispatch(client homeAuthDispatcher, registry *executionregistry.Registry, generation uint64) *HomeDispatchBundle {
+	if m == nil || client == nil || registry == nil {
+		return nil
+	}
+	bundle := &HomeDispatchBundle{client: client, registry: registry, generation: generation}
+	m.homeDispatchBundle.Store(bundle)
+	return bundle
+}
+
+func (m *Manager) ClearHomeDispatchBundle(bundle *HomeDispatchBundle) bool {
+	return m != nil && bundle != nil && m.homeDispatchBundle.CompareAndSwap(bundle, nil)
+}
+
+func (m *Manager) HomeDispatchBundle() *HomeDispatchBundle {
+	if m == nil {
+		return nil
+	}
+	return m.homeDispatchBundle.Load()
+}
+
+func (m *Manager) SetHomeExecutionRegistry(registry *executionregistry.Registry) {
+	if m != nil {
+		m.PublishHomeDispatch(currentHomeDispatcher(), registry, 0)
+	}
+}
+
+func (m *Manager) ClearHomeExecutionRegistry(registry *executionregistry.Registry) bool {
+	bundle := m.HomeDispatchBundle()
+	return bundle != nil && bundle.registry == registry && m.ClearHomeDispatchBundle(bundle)
+}
+
+func (m *Manager) HomeExecutionRegistry() *executionregistry.Registry {
+	bundle := m.HomeDispatchBundle()
+	if bundle == nil {
+		return nil
+	}
+	return bundle.registry
 }
 
 func isBuiltInSelector(selector Selector) bool {
@@ -1280,6 +1338,9 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 	if len(normalized) == 0 {
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
+	if m.HomeEnabled() {
+		return m.executeHome(ctx, req, opts, false)
+	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
 
@@ -1315,6 +1376,9 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 	if len(normalized) == 0 {
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
+	if m.HomeEnabled() {
+		return m.executeHome(ctx, req, opts, true)
+	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
 
@@ -1345,6 +1409,9 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 	normalized := m.normalizeProviders(providers)
 	if len(normalized) == 0 {
 		return nil, &Error{Code: "provider_not_found", Message: "no provider supplied"}
+	}
+	if m.HomeEnabled() {
+		return m.executeHomeStream(ctx, req, opts)
 	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
@@ -2923,8 +2990,8 @@ func retryAfterFromError(err error) *time.Duration {
 	type retryAfterProvider interface {
 		RetryAfter() *time.Duration
 	}
-	rap, ok := err.(retryAfterProvider)
-	if !ok || rap == nil {
+	var rap retryAfterProvider
+	if !errors.As(err, &rap) || rap == nil {
 		return nil
 	}
 	retryAfter := rap.RetryAfter()
@@ -3489,10 +3556,15 @@ func (m *Manager) CloseExecutionSession(sessionID string) {
 	}
 
 	m.mu.Lock()
+	var selections []*HomeDispatchSelection
 	if sessionID == CloseAllExecutionSessionsID {
 		m.clearHomeRuntimeAuthsLocked()
+		selections = m.takeAllHomeSessionSelectionsLocked()
+		m.clearHomeSessionLocks()
 	} else {
 		m.clearHomeRuntimeAuthsForSessionLocked(sessionID)
+		selections = m.takeHomeSessionSelectionsLocked(sessionID)
+		m.homeSessionLocks.Delete(sessionID)
 	}
 	executors := make([]ProviderExecutor, 0, len(m.executors))
 	for _, exec := range m.executors {
@@ -3500,6 +3572,9 @@ func (m *Manager) CloseExecutionSession(sessionID string) {
 	}
 	m.mu.Unlock()
 
+	for _, selection := range selections {
+		selection.End("session_closed")
+	}
 	for i := range executors {
 		if closer, ok := executors[i].(ExecutionSessionCloser); ok && closer != nil {
 			closer.CloseExecutionSession(sessionID)
@@ -3862,13 +3937,17 @@ type homeErrorEnvelope struct {
 }
 
 type homeErrorDetail struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
+	Type         string `json:"type"`
+	Message      string `json:"message"`
+	Code         string `json:"code,omitempty"`
+	Retryable    bool   `json:"retryable,omitempty"`
+	RetryAfterMS int64  `json:"retry_after_ms,omitempty"`
 }
 
 const (
 	homeUpstreamModelAttributeKey     = "home_upstream_model"
+	homeForceMappingAttributeKey      = "home_force_mapping"
+	homeOriginalAliasAttributeKey     = "home_original_alias"
 	homeRequestRetryExceededErrorCode = "request_retry_exceeded"
 )
 
@@ -3891,11 +3970,23 @@ func shouldReturnLastErrorOnPickFailure(homeMode bool, lastErr error, errPick er
 }
 
 type homeAuthDispatchResponse struct {
-	Model      string `json:"model"`
-	Provider   string `json:"provider"`
-	AuthIndex  string `json:"auth_index"`
-	UserAPIKey string `json:"user_api_key"`
-	Auth       Auth   `json:"auth"`
+	Model         string `json:"model"`
+	Provider      string `json:"provider"`
+	AuthIndex     string `json:"auth_index"`
+	UserAPIKey    string `json:"user_api_key"`
+	ForceMapping  bool   `json:"force_mapping"`
+	OriginalAlias string `json:"original_alias"`
+	Auth          Auth   `json:"auth"`
+}
+
+type homeAuthDispatcher interface {
+	HeartbeatOK() bool
+	RPopAuth(ctx context.Context, requestedModel string, sessionID string, headers http.Header, count int) ([]byte, error)
+	AbortAmbiguousDispatch()
+}
+
+var currentHomeDispatcher = func() homeAuthDispatcher {
+	return home.Current()
 }
 
 func setHomeUserAPIKeyOnGinContext(ctx context.Context, apiKey string) {
@@ -4007,7 +4098,11 @@ func (m *Manager) clearHomeRuntimeAuths() {
 	}
 	m.mu.Lock()
 	m.clearHomeRuntimeAuthsLocked()
+	selections := m.takeAllHomeSessionSelectionsLocked()
 	m.mu.Unlock()
+	for _, selection := range selections {
+		selection.End("home_disabled")
+	}
 }
 
 func (m *Manager) clearHomeRuntimeAuthsLocked() {
@@ -4015,6 +4110,7 @@ func (m *Manager) clearHomeRuntimeAuthsLocked() {
 		return
 	}
 	m.homeRuntimeAuths = make(map[string]map[string]*Auth)
+	m.homeRuntimeAuthOwners = make(map[string]map[string]*HomeDispatchSelection)
 }
 
 func (m *Manager) clearHomeRuntimeAuthsForSessionLocked(sessionID string) {
@@ -4023,6 +4119,7 @@ func (m *Manager) clearHomeRuntimeAuthsForSessionLocked(sessionID string) {
 		return
 	}
 	delete(m.homeRuntimeAuths, sessionID)
+	delete(m.homeRuntimeAuthOwners, sessionID)
 }
 
 func (m *Manager) rememberHomeRuntimeAuth(sessionID string, auth *Auth) {
@@ -4044,6 +4141,12 @@ func (m *Manager) rememberHomeRuntimeAuth(sessionID string, auth *Auth) {
 		m.homeRuntimeAuths[sessionID] = sessionAuths
 	}
 	sessionAuths[authID] = auth.Clone()
+	if owners := m.homeRuntimeAuthOwners[sessionID]; owners != nil {
+		delete(owners, authID)
+		if len(owners) == 0 {
+			delete(m.homeRuntimeAuthOwners, sessionID)
+		}
+	}
 	m.mu.Unlock()
 }
 

@@ -59,6 +59,8 @@ type Options struct {
 	SourceFormat sdktranslator.Format
 	// Metadata carries extra execution hints shared across selection and executors.
 	Metadata map[string]any
+	// ExecutionLifecycle owns Home-dispatched execution resources. Executors must not add it to request metadata.
+	ExecutionLifecycle ExecutionLifecycle
 }
 
 // Response wraps either a full provider response or metadata for streaming flows.

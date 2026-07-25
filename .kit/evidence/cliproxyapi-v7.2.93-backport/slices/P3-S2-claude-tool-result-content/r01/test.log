@@ -1,7 +1,0 @@
-$ go test ./internal/translator/claude/openai/responses -run 'Test.*(FunctionCallOutput|ToolResult|Structured|Content)' -count=1
-ok  	github.com/therealtinhtute/llmhub/internal/translator/claude/openai/responses	0.003s
-[return_code=0]
-
-$ git diff --check
-[no output]
-[return_code=0]

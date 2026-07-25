@@ -1,8 +1,0 @@
-{
-  "forward_matches_result_hashes": true,
-  "reverse_matches_baseline_hashes": true,
-  "reverse_removes_planned_new_file": true,
-  "whitespace_check": true,
-  "base_tree": "18d856e051fa531008896fb8f841a96218287c48",
-  "result_tree": "88a0d7c77f256a545a173884dcc6175ba34c9706"
-}

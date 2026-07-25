@@ -520,7 +520,7 @@ func TestDetachMismatchedWebsocketSessionConn(t *testing.T) {
 		wsURL:      "wss://example.test/a",
 	}
 
-	staleConn, staleAuthID, staleWSURL := detachMismatchedWebsocketSessionConn(sess, "auth-b", "wss://example.test/b")
+	staleConn, staleAuthID, staleWSURL, _ := detachMismatchedWebsocketSessionConn(sess, "auth-b", "wss://example.test/b")
 	if staleConn != conn {
 		t.Fatalf("stale conn = %p, want %p", staleConn, conn)
 	}

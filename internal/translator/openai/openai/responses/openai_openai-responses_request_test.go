@@ -19,6 +19,29 @@ func prettyJSONForTest(raw []byte) string {
 	return out.String()
 }
 
+func BenchmarkConvertOpenAIResponsesRequestWithLargeNonConvertibleToolArray(b *testing.B) {
+	var request bytes.Buffer
+	request.WriteString(`{"input":"hello","parallel_tool_calls":true,"tool_choice":"auto","tools":[`)
+	for index := range 1024 {
+		if index > 0 {
+			request.WriteByte(',')
+		}
+		request.WriteString(`{"type":"web_search"}`)
+	}
+	request.WriteString(`]}`)
+	raw := request.Bytes()
+	if out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("gpt-5.4", raw, false); gjson.GetBytes(out, "tools").Exists() {
+		b.Fatalf("non-convertible tools leaked into output: %s", out)
+	}
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(raw)))
+	b.ResetTimer()
+	for range b.N {
+		_ = ConvertOpenAIResponsesRequestToOpenAIChatCompletions("gpt-5.4", raw, false)
+	}
+}
+
 func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_MergeConsecutiveFunctionCalls(t *testing.T) {
 	raw := []byte(`{
 		"input": [
@@ -120,5 +143,46 @@ func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_DefersMessageUntil
 	}
 	if got := gjson.GetBytes(out, "messages.3.content").String(); got != "next" {
 		t.Fatalf("messages.3.content = %q, want %q", got, "next")
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_OmitsToolSettingsWithoutTools(t *testing.T) {
+	tests := map[string][]byte{
+		"empty tools": []byte(`{
+			"input": [{"role":"user","content":"say ok"}],
+			"tools": [],
+			"tool_choice": "auto",
+			"parallel_tool_calls": false
+		}`),
+		"unconvertible tools": []byte(`{
+			"tools": [{"type":"unsupported"}],
+			"tool_choice": "auto",
+			"parallel_tool_calls": false
+		}`),
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("grok-4.5", raw, false)
+			for _, field := range []string{"tools", "tool_choice", "parallel_tool_calls"} {
+				if got := gjson.GetBytes(out, field); got.Exists() {
+					t.Fatalf("%s should be omitted without tools; output=%s", field, out)
+				}
+			}
+		})
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_PreservesToolSettingsWithTools(t *testing.T) {
+	raw := []byte(`{
+		"tools": [{"type":"function","name":"run_command","parameters":{"type":"object"}}],
+		"tool_choice": {"type":"function","function":{"name":"run_command"}},
+		"parallel_tool_calls": false
+	}`)
+	out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("grok-4.5", raw, false)
+	if got := gjson.GetBytes(out, "parallel_tool_calls"); !got.Exists() || got.Bool() {
+		t.Fatalf("parallel_tool_calls = %v, want false; output=%s", got.Value(), out)
+	}
+	if got := gjson.GetBytes(out, "tool_choice.function.name").String(); got != "run_command" {
+		t.Fatalf("tool_choice.function.name = %q, want run_command; output=%s", got, out)
 	}
 }

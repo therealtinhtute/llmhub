@@ -1,2 +1,0 @@
-{"op":"create","entity":"run","id":"01KY6BT9T8W9EER2NXKHF1JKT6","fields":{"artifact_path":".kit/runs/work/20260723-0910-translator-content-fidelity.md","created_at":"2026-07-23T02:10:34Z","story_slug":"translator-content-fidelity"},"at":"2026-07-23T02:10:34Z"}
-{"op":"update","entity":"meta","id":"meta","fields":{"latest_run_id":"01KY6BT9T8W9EER2NXKHF1JKT6"},"at":"2026-07-23T02:10:34Z"}

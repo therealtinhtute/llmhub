@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	internalconfig "github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy/executionregistry"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 )
 
@@ -266,5 +269,70 @@ func TestCloseExecutionSessionClearsHomeRuntimeAuthForSession(t *testing.T) {
 	manager.CloseExecutionSession("session-2")
 	if _, ok := manager.GetExecutionSessionAuthByID("session-2", "home-auth-1"); ok {
 		t.Fatal("home auth was not cleared when its last session closed")
+	}
+}
+
+type retainingHomeSessionExecutor struct {
+	schedulerTestExecutor
+	calls atomic.Int32
+}
+
+func (*retainingHomeSessionExecutor) Identifier() string { return "retaining-test" }
+
+func (e *retainingHomeSessionExecutor) Execute(_ context.Context, _ *Auth, _ cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	e.calls.Add(1)
+	if lifecycle, ok := opts.ExecutionLifecycle.(interface{ Retain() }); ok {
+		lifecycle.Retain()
+	}
+	return cliproxyexecutor.Response{Payload: []byte("ok")}, nil
+}
+
+func TestHomeWebsocketSessionRetainsOneAccountedSelectionUntilClose(t *testing.T) {
+	payload := []byte(`{"concurrency":{"accounted":true,"credential_id":"home-auth-1","model":"model-a"},"auth_index":"home-auth-1","auth":{"id":"home-auth-1","provider":"retaining-test","status":"active","attributes":{"websockets":"true"}},"model":"model-a"}`)
+	dispatcher := &fixtureHomeDispatcher{payloads: [][]byte{payload, payload}}
+	registry := executionregistry.New()
+	releases := make(chan executionregistry.ReleaseGroup, 2)
+	registry.SetReleaseSink(func(group executionregistry.ReleaseGroup, _ int64) *executionregistry.ReleaseTicket {
+		releases <- group
+		return nil
+	})
+
+	manager := NewManager(nil, nil, nil)
+	manager.SetConfig(&internalconfig.Config{Home: internalconfig.HomeConfig{Enabled: true}})
+	manager.PublishHomeDispatch(dispatcher, registry, 1)
+	executor := &retainingHomeSessionExecutor{}
+	manager.RegisterExecutor(executor)
+
+	ctx := cliproxyexecutor.WithDownstreamWebsocket(context.Background())
+	opts := cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.ExecutionSessionMetadataKey: "session-1",
+		cliproxyexecutor.PinnedAuthMetadataKey:       "home-auth-1",
+	}}
+	for range 2 {
+		if _, errExecute := manager.Execute(ctx, []string{"retaining-test"}, cliproxyexecutor.Request{Model: "model-a"}, opts); errExecute != nil {
+			t.Fatalf("Execute() error = %v", errExecute)
+		}
+	}
+	if got := dispatcher.calls; got != 1 {
+		t.Fatalf("Home RPOP calls = %d, want 1", got)
+	}
+	if got := executor.calls.Load(); got != 2 {
+		t.Fatalf("executor calls = %d, want 2", got)
+	}
+	select {
+	case group := <-releases:
+		t.Fatalf("selection released before session close: %#v", group)
+	default:
+	}
+
+	manager.CloseExecutionSession("session-1")
+	select {
+	case group := <-releases:
+		want := executionregistry.ReleaseGroup{CredentialID: "home-auth-1", Model: "model-a"}
+		if group != want {
+			t.Fatalf("release group = %#v, want %#v", group, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session close did not release accounted selection")
 	}
 }

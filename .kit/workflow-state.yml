@@ -1,0 +1,10 @@
+current_phase: token-estimation
+entry_phase: auth-credential-concurrency
+spec: .kit/planning/SPEC.md
+roadmap: .kit/planning/ROADMAP.md
+active_context: .kit/planning/phases/token-estimation/token-estimation-CONTEXT.md
+active_plan: .kit/planning/phases/token-estimation/token-estimation-PLAN.md
+latest_cook_run: .kit/runs/work/20260725-1210-token-estimation.md
+latest_check_report: .kit/reports/check/20260725-1215-token-estimation.md
+handoff: none
+last_updated: 2026-07-25 14:43

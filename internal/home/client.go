@@ -18,16 +18,18 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/therealtinhtute/llmhub/internal/config"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/config"
 )
 
 const (
-	redisKeyConfig     = "config"
-	redisChannelConfig = "config"
-	redisKeyModels     = "models"
-	redisKeyUsage      = "usage"
-	redisKeyRequestLog = "request-log"
+	redisKeyConfig             = "config"
+	redisChannelConfig         = "config"
+	redisKeyModels             = "models"
+	redisKeyUsage              = "usage"
+	redisKeyInFlightSnapshot   = "in-flight-snapshot"
+	redisKeyConcurrencyRelease = "concurrency-release"
+	redisKeyRequestLog         = "request-log"
 
 	homeReconnectInterval          = time.Second
 	homeReconnectFailoverThreshold = 3
@@ -36,6 +38,38 @@ const (
 	redisChannelCluster            = "cluster"
 )
 
+// DispatchError classifies whether Home may have processed an auth dispatch request.
+type DispatchError struct {
+	Err       error
+	Ambiguous bool
+}
+
+func (e *DispatchError) Error() string {
+	if e == nil || e.Err == nil {
+		return "home auth dispatch failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *DispatchError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func NewAmbiguousDispatchError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &DispatchError{Err: err, Ambiguous: true}
+}
+
+func IsAmbiguousDispatchError(err error) bool {
+	var dispatchErr *DispatchError
+	return errors.As(err, &dispatchErr) && dispatchErr.Ambiguous
+}
+
 var (
 	ErrDisabled       = errors.New("home client disabled")
 	ErrNotConnected   = errors.New("home not connected")
@@ -43,6 +77,7 @@ var (
 	ErrAuthNotFound   = errors.New("home auth not found")
 	ErrConfigNotFound = errors.New("home config not found")
 	ErrModelsNotFound = errors.New("home models not found")
+	ErrDispatchFenced = errors.New("home auth dispatch is fenced")
 )
 
 type clusterNode struct {
@@ -65,10 +100,13 @@ type Client struct {
 	seedHost string
 	seedPort int
 
-	cmd *redis.Client
-	sub *redis.Client
+	cmd     *redis.Client
+	sub     *redis.Client
+	release *redis.Client
+	limiter atomic.Pointer[config.CredentialConcurrencyConfig]
 
 	heartbeatOK       atomic.Bool
+	dispatchFenced    atomic.Bool
 	clusterNodes      []clusterNode
 	reconnectFailures int
 }
@@ -105,6 +143,7 @@ func (c *Client) Close() {
 		return
 	}
 	c.heartbeatOK.Store(false)
+	c.dispatchFenced.Store(true)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.closeClientsLocked()
@@ -117,8 +156,24 @@ func (c *Client) closeClientsLocked() {
 	if c.sub != nil {
 		_ = c.sub.Close()
 	}
+	if c.release != nil {
+		_ = c.release.Close()
+	}
 	c.cmd = nil
 	c.sub = nil
+	c.release = nil
+}
+
+// AbortAmbiguousDispatch fences dispatch after a response whose accounting state is unknown.
+func (c *Client) AbortAmbiguousDispatch() {
+	if c == nil {
+		return
+	}
+	c.dispatchFenced.Store(true)
+	c.heartbeatOK.Store(false)
+	c.mu.Lock()
+	c.closeClientsLocked()
+	c.mu.Unlock()
 }
 
 func (c *Client) addr() (string, bool) {
@@ -561,15 +616,19 @@ func newAuthDispatchRequest(requestedModel string, sessionID string, headers htt
 		count = 1
 	}
 	return authDispatchRequest{
-		Type:      "auth",
-		Model:     requestedModel,
-		Count:     count,
-		SessionID: strings.TrimSpace(sessionID),
-		Headers:   headersToLowerMap(headers),
+		Type:                "auth",
+		Model:               requestedModel,
+		Count:               count,
+		ConcurrencyProtocol: 1,
+		SessionID:           strings.TrimSpace(sessionID),
+		Headers:             headersToLowerMap(headers),
 	}
 }
 
 func (c *Client) RPopAuth(ctx context.Context, requestedModel string, sessionID string, headers http.Header, count int) ([]byte, error) {
+	if c == nil || c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
 	cmd, errClient := c.commandClient()
 	if errClient != nil {
 		return nil, errClient
@@ -589,6 +648,10 @@ func (c *Client) RPopAuth(ctx context.Context, requestedModel string, sessionID 
 		return nil, ErrAuthNotFound
 	}
 	if err != nil {
+		var redisErr redis.Error
+		if !errors.As(err, &redisErr) {
+			return nil, NewAmbiguousDispatchError(err)
+		}
 		return nil, err
 	}
 	if len(raw) == 0 {
@@ -637,6 +700,80 @@ func (c *Client) LPushUsage(ctx context.Context, payload []byte) error {
 		return nil
 	}
 	return cmd.LPush(ctx, redisKeyUsage, payload).Err()
+}
+
+// LPushInFlightSnapshot publishes one bounded in-flight observation frame.
+func (c *Client) LPushInFlightSnapshot(ctx context.Context, payload []byte) error {
+	cmd, errClient := c.commandClient()
+	if errClient != nil {
+		return errClient
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	return cmd.LPush(ctx, redisKeyInFlightSnapshot, payload).Err()
+}
+
+// PushConcurrencyRelease sends one cumulative concurrency release frame.
+func (c *Client) PushConcurrencyRelease(ctx context.Context, frame ConcurrencyReleaseFrame) error {
+	if frame.CredentialID == "" || frame.Model == "" || frame.ReleaseSeq <= 0 {
+		return fmt.Errorf("invalid concurrency release frame")
+	}
+	cmd, errClient := c.concurrencyReleaseClient()
+	if errClient != nil {
+		return errClient
+	}
+	payload, errMarshal := json.Marshal(frame)
+	if errMarshal != nil {
+		return fmt.Errorf("marshal concurrency release frame: %w", errMarshal)
+	}
+	return cmd.LPush(ctx, redisKeyConcurrencyRelease, payload).Err()
+}
+
+func (c *Client) concurrencyReleaseClient() (*redis.Client, error) {
+	if c == nil || c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
+	if !c.Enabled() {
+		return nil, ErrDisabled
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.release != nil {
+		return c.release, nil
+	}
+	addr, ok := c.addrLocked()
+	if !ok {
+		return nil, fmt.Errorf("home: invalid address (host=%q port=%d)", c.homeCfg.Host, c.homeCfg.Port)
+	}
+	options, errOptions := c.redisOptionsLocked(addr)
+	if errOptions != nil {
+		return nil, errOptions
+	}
+	c.release = redis.NewClient(options)
+	return c.release, nil
+}
+
+func (c *Client) SetLifecycleConfig(cfg config.CredentialConcurrencyConfig) error {
+	if c == nil {
+		return ErrDisabled
+	}
+	cfg = cfg.WithDefaults()
+	if errValidate := config.ValidateCredentialConcurrency(cfg); errValidate != nil {
+		return fmt.Errorf("validate credential concurrency lifecycle config: %w", errValidate)
+	}
+	c.limiter.Store(&cfg)
+	return nil
+}
+
+func (c *Client) LimiterConfig() config.CredentialConcurrencyConfig {
+	if c == nil {
+		return config.CredentialConcurrencyConfig{}.WithDefaults()
+	}
+	if cfg := c.limiter.Load(); cfg != nil {
+		return *cfg
+	}
+	return config.CredentialConcurrencyConfig{}.WithDefaults()
 }
 
 func (c *Client) RPushRequestLog(ctx context.Context, payload []byte) error {

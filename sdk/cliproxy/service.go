@@ -26,6 +26,7 @@ import (
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy/executionregistry"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 	"github.com/therealtinhtute/llmhub/sdk/config"
 )
@@ -102,8 +103,15 @@ type Service struct {
 	// wsGateway manages websocket Gemini providers.
 	wsGateway *wsrelay.Manager
 
-	homeClient *home.Client
-	homeCancel context.CancelFunc
+	homeClient         *home.Client
+	homeCancel         context.CancelFunc
+	homeReleaseCancel  context.CancelFunc
+	homeRegistry       *executionregistry.Registry
+	homeDispatchBundle *coreauth.HomeDispatchBundle
+	homeLifetimeMu     sync.Mutex
+	homeReleaseFlusher interface {
+		Flush(context.Context) error
+	}
 }
 
 // RegisterUsagePlugin registers a usage plugin on the global usage manager.
@@ -713,14 +721,9 @@ func (s *Service) startHomeSubscriber(ctx context.Context) {
 		return
 	}
 
-	if s.homeCancel != nil {
-		s.homeCancel()
-		s.homeCancel = nil
-	}
-	if s.homeClient != nil {
-		s.homeClient.Close()
-		s.homeClient = nil
-	}
+	s.homeLifetimeMu.Lock()
+	defer s.homeLifetimeMu.Unlock()
+	s.stopHomeLifetimeLocked(context.Background())
 
 	homeCtx := ctx
 	if homeCtx == nil {
@@ -730,8 +733,27 @@ func (s *Service) startHomeSubscriber(ctx context.Context) {
 	s.homeCancel = cancel
 
 	client := home.New(cfg.Home)
+	if errLifecycle := client.SetLifecycleConfig(cfg.CredentialConcurrency); errLifecycle != nil {
+		log.Warnf("failed to apply Home credential concurrency config: %v", errLifecycle)
+	}
+	registry := executionregistry.New()
+	releaseCtx, releaseCancel := context.WithCancel(context.Background())
+	releaseFlusher := home.NewReleaseFlusher(client.LimiterConfig, client.PushConcurrencyRelease)
+	registry.SetReleaseSink(releaseFlusher.MarkDirty)
+	go releaseFlusher.Run(releaseCtx)
+
 	s.homeClient = client
+	s.homeRegistry = registry
+	s.homeReleaseCancel = releaseCancel
+	s.homeReleaseFlusher = releaseFlusher
 	home.SetCurrent(client)
+	if s.coreManager != nil {
+		s.homeDispatchBundle = s.coreManager.PublishHomeDispatch(client, registry, 1)
+		if publisherConfig, errPublisher := coreauth.HomeInFlightPublisherConfigFromConfig(cfg.CredentialInFlight); errPublisher == nil {
+			s.coreManager.ApplyHomeInFlightPublisherConfig(publisherConfig)
+		}
+		go s.coreManager.StartHomeInFlightPublisher(homeCtx, client, registry)
+	}
 
 	go client.StartConfigSubscriber(homeCtx, func(raw []byte) error {
 		parsed, err := config.ParseConfigBytes(raw)
@@ -739,10 +761,79 @@ func (s *Service) startHomeSubscriber(ctx context.Context) {
 			log.Warnf("failed to parse home config payload: %v", err)
 			return err
 		}
+		if errLifecycle := client.SetLifecycleConfig(parsed.CredentialConcurrency); errLifecycle != nil {
+			return errLifecycle
+		}
+		s.homeLifetimeMu.Lock()
+		defer s.homeLifetimeMu.Unlock()
+		if s.homeClient != client {
+			return context.Canceled
+		}
+		if s.coreManager != nil {
+			if publisherConfig, errPublisher := coreauth.HomeInFlightPublisherConfigFromConfig(parsed.CredentialInFlight); errPublisher == nil {
+				s.coreManager.ApplyHomeInFlightPublisherConfig(publisherConfig)
+			}
+		}
+		registry.ObserveBarrier(parsed.CredentialConcurrency.ObservationBarrierRevision)
 		s.applyHomeOverlay(parsed)
 		return nil
 	})
 	s.startHomeUsageForwarder(homeCtx, client)
+}
+
+func (s *Service) stopHomeLifetime(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	s.homeLifetimeMu.Lock()
+	defer s.homeLifetimeMu.Unlock()
+	s.stopHomeLifetimeLocked(ctx)
+}
+
+func (s *Service) stopHomeLifetimeLocked(ctx context.Context) {
+	if s.homeCancel != nil {
+		s.homeCancel()
+		s.homeCancel = nil
+	}
+	if s.coreManager != nil && s.homeDispatchBundle != nil {
+		s.coreManager.ClearHomeDispatchBundle(s.homeDispatchBundle)
+		s.homeDispatchBundle = nil
+	}
+	if s.homeRegistry != nil {
+		drainCtx := ctx
+		if drainCtx == nil {
+			drainCtx = context.Background()
+		}
+		bound := time.Duration(0)
+		s.cfgMu.RLock()
+		if s.cfg != nil {
+			bound = s.cfg.CredentialConcurrency.WithDefaults().CPACancelBound
+		}
+		s.cfgMu.RUnlock()
+		if bound <= 0 {
+			bound = 5 * time.Second
+		}
+		drainCtx, cancelDrain := context.WithTimeout(drainCtx, bound)
+		if errDrain := s.homeRegistry.Drain(drainCtx); errDrain != nil {
+			log.Warnf("failed to drain Home execution registry: %v", errDrain)
+		} else if s.homeReleaseFlusher != nil {
+			if errFlush := s.homeReleaseFlusher.Flush(drainCtx); errFlush != nil {
+				log.Warnf("failed to flush Home credential releases: %v", errFlush)
+			}
+		}
+		cancelDrain()
+		s.homeRegistry = nil
+	}
+	if s.homeReleaseCancel != nil {
+		s.homeReleaseCancel()
+		s.homeReleaseCancel = nil
+	}
+	s.homeReleaseFlusher = nil
+	if s.homeClient != nil {
+		s.homeClient.Close()
+		s.homeClient = nil
+	}
+	home.ClearCurrent()
 }
 
 // Run starts the service and blocks until the context is cancelled or the server stops.
@@ -978,15 +1069,7 @@ func (s *Service) Shutdown(ctx context.Context) error {
 			ctx = context.Background()
 		}
 
-		if s.homeCancel != nil {
-			s.homeCancel()
-			s.homeCancel = nil
-		}
-		if s.homeClient != nil {
-			s.homeClient.Close()
-			s.homeClient = nil
-		}
-		home.ClearCurrent()
+		s.stopHomeLifetime(ctx)
 
 		// legacy refresh loop removed; only stopping core auth manager below
 

@@ -2,6 +2,7 @@
 
 Phase: quota-usage-reset
 Status: ready
+Lane: normal
 Spec Link: ../../SPEC.md
 Roadmap Link: ../../ROADMAP.md
 Blast Radius: low (W1) / medium (W2)

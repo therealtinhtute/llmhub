@@ -9,9 +9,11 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { toast } from 'sonner';
-import { useQuotaStore, useThemeStore } from '@/stores';
+import { useConfirmationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
+import { normalizeAuthIndex } from '@/utils/authIndex';
+import { quotaApi } from '@/services/api';
 import { QuotaCard } from './QuotaCard';
 import type { QuotaStatusState } from './QuotaCard';
 import { useQuotaLoader } from './useQuotaLoader';
@@ -25,6 +27,21 @@ type QuotaUpdater<T> = T | ((prev: T) => T);
 type QuotaSetter<T> = (updater: QuotaUpdater<T>) => void;
 
 type ViewMode = 'paged' | 'all';
+
+const resolveResetErrorMessageKey = (status: number | undefined): string => {
+  switch (status) {
+    case 400:
+      return 'quota_management.reset_error_400';
+    case 404:
+      return 'quota_management.reset_error_404';
+    case 500:
+      return 'quota_management.reset_error_500';
+    case 503:
+      return 'quota_management.reset_error_503';
+    default:
+      return 'quota_management.reset_error_generic';
+  }
+};
 
 const MAX_ITEMS_PER_PAGE = 25;
 const MAX_SHOW_ALL_THRESHOLD = 30;
@@ -116,6 +133,8 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   const setQuota = useQuotaStore((state) => state[config.storeSetter]) as QuotaSetter<
     Record<string, TState>
   >;
+  const showConfirmation = useConfirmationStore((state) => state.showConfirmation);
+  const [resettingNames, setResettingNames] = useState<Set<string>>(new Set());
 
   /* Removed useRef */
   const [columns, gridRef] = useGridColumns(300);
@@ -263,6 +282,40 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     [config, disabled, quota, setQuota, t]
   );
 
+  const resetQuotaForFile = useCallback(
+    (item: AuthFileItem) => {
+      if (disabled || item.disabled) return;
+      const authIndex = normalizeAuthIndex(item['auth_index'] ?? item.authIndex);
+      if (!authIndex) return;
+
+      showConfirmation({
+        title: t('quota_management.reset_confirm_title'),
+        message: t('quota_management.reset_confirm_message', { name: item.name }),
+        confirmText: t('quota_management.reset_confirm_action'),
+        variant: 'danger',
+        onConfirm: async () => {
+          setResettingNames((prev) => new Set(prev).add(item.name));
+          try {
+            await quotaApi.resetQuota(authIndex);
+            toast.success(t('quota_management.reset_success', { name: item.name }));
+            await refreshQuotaForFile(item);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : t('common.unknown_error');
+            const status = getStatusFromError(err);
+            toast.error(t(resolveResetErrorMessageKey(status), { name: item.name, message }));
+          } finally {
+            setResettingNames((prev) => {
+              const next = new Set(prev);
+              next.delete(item.name);
+              return next;
+            });
+          }
+        },
+      });
+    },
+    [disabled, refreshQuotaForFile, showConfirmation, t]
+  );
+
   const titleNode = (
     <div className={styles.titleWrapper}>
       <span>{t(`${config.i18nPrefix}.title`)}</span>
@@ -345,6 +398,9 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
                 defaultType={config.type}
                 canRefresh={!disabled && !item.disabled}
                 onRefresh={() => void refreshQuotaForFile(item)}
+                canResetQuota={!disabled && !item.disabled}
+                resettingQuota={resettingNames.has(item.name)}
+                onResetQuota={() => resetQuotaForFile(item)}
                 renderQuotaItems={config.renderQuotaItems}
               />
             ))}

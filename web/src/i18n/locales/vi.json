@@ -1119,7 +1119,18 @@
     "refresh_files_and_quota": "Refresh files & quota",
     "refresh_all_credentials": "Refresh all credentials",
     "card_idle_hint": "Use the top \"Refresh all credentials\" button to fetch the latest quota data.",
-    "tab_all": "All"
+    "tab_all": "All",
+    "reset_action": "Reset",
+    "reset_missing_auth_index": "Reset unavailable — this credential has no auth index",
+    "reset_confirm_title": "Reset quota?",
+    "reset_confirm_message": "This clears cooldown state for \"{{name}}\" and resumes routing immediately. This cannot be undone.",
+    "reset_confirm_action": "Reset quota",
+    "reset_success": "Quota reset for {{name}}",
+    "reset_error_400": "Reset failed for {{name}}: invalid request",
+    "reset_error_404": "Reset failed for {{name}}: credential not found",
+    "reset_error_500": "Reset failed for {{name}}: server error",
+    "reset_error_503": "Reset failed for {{name}}: auth manager unavailable",
+    "reset_error_generic": "Reset failed for {{name}}: {{message}}"
   },
   "models_management": {
     "title": "Models",

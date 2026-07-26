@@ -294,9 +294,9 @@ export function MainLayout() {
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader className="border-b border-sidebar-border p-3">
-          <div className="flex items-center gap-2" title="LLMHub Management Center">
-            <img src={INLINE_LOGO_JPEG} alt="LLMHub logo" className="h-7 w-7 shrink-0 object-contain" />
-            <span className="font-mono text-xs font-semibold uppercase tracking-wider text-sidebar-foreground truncate">
+          <div className="grid justify-items-start gap-1" title="LLMHub Management Center">
+            <img src={INLINE_LOGO_JPEG} alt="LLMHub logo" className="size-15 object-contain" />
+            <span className="truncate font-serif text-xl font-semibold italic text-sidebar-foreground">
               {t('title.abbr')}
             </span>
           </div>
@@ -336,7 +336,7 @@ export function MainLayout() {
           ref={headerRef}
           className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4"
         >
-          <SidebarTrigger className="-ml-1" />
+          <SidebarTrigger className="-ml-1 cursor-pointer" />
           <div className="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"

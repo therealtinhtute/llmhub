@@ -4,9 +4,9 @@ import { useShallow } from 'zustand/shallow';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from 'sonner';
-import { useQuotaStore, useThemeStore } from '@/stores';
+import { useConfirmationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, KiroQuotaState, ResolvedTheme } from '@/types';
-import { authFilesApi } from '@/services/api';
+import { authFilesApi, quotaApi } from '@/services/api';
 import { getStatusFromError } from '@/utils/quota';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { QuotaCard } from './QuotaCard';
@@ -39,6 +39,21 @@ export interface AllQuotaSectionProps {
 
 type QuotaUpdater<T> = T | ((prev: T) => T);
 type QuotaSetter<T> = (updater: QuotaUpdater<T>) => void;
+
+const resolveResetErrorMessageKey = (status: number | undefined): string => {
+  switch (status) {
+    case 400:
+      return 'quota_management.reset_error_400';
+    case 404:
+      return 'quota_management.reset_error_404';
+    case 500:
+      return 'quota_management.reset_error_500';
+    case 503:
+      return 'quota_management.reset_error_503';
+    default:
+      return 'quota_management.reset_error_generic';
+  }
+};
 
 const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6) => {
   const [page, setPage] = useState(1);
@@ -113,6 +128,9 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
       clearQuotaCache: state.clearQuotaCache,
     }))
   );
+
+  const showConfirmation = useConfirmationStore((state) => state.showConfirmation);
+  const [resettingNames, setResettingNames] = useState<Set<string>>(new Set());
 
   const [columns, gridRef] = useGridColumns(300);
   const [internalViewMode, setInternalViewMode] = useState<ViewMode>('paged');
@@ -295,6 +313,40 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
     [disabled, t]
   );
 
+  const resetQuotaForItem = useCallback(
+    (item: AuthFileItem, config: QuotaConfig<QuotaStatusState, unknown>) => {
+      if (disabled || item.disabled) return;
+      const authIndex = normalizeAuthIndex(item['auth_index'] ?? item.authIndex);
+      if (!authIndex) return;
+
+      showConfirmation({
+        title: t('quota_management.reset_confirm_title'),
+        message: t('quota_management.reset_confirm_message', { name: item.name }),
+        confirmText: t('quota_management.reset_confirm_action'),
+        variant: 'danger',
+        onConfirm: async () => {
+          setResettingNames((prev) => new Set(prev).add(item.name));
+          try {
+            await quotaApi.resetQuota(authIndex);
+            toast.success(t('quota_management.reset_success', { name: item.name }));
+            await refreshQuotaForItem(item, config);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : t('common.unknown_error');
+            const status = getStatusFromError(err);
+            toast.error(t(resolveResetErrorMessageKey(status), { name: item.name, message }));
+          } finally {
+            setResettingNames((prev) => {
+              const next = new Set(prev);
+              next.delete(item.name);
+              return next;
+            });
+          }
+        },
+      });
+    },
+    [disabled, refreshQuotaForItem, showConfirmation, t]
+  );
+
   const setKiroOverageForItem = useCallback(
     async (item: AuthFileItem, enabled: boolean) => {
       if (disabled || item.disabled) return;
@@ -366,6 +418,9 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
             defaultType={config.type}
             canRefresh={!disabled && !item.disabled}
             onRefresh={() => void refreshQuotaForItem(item, config)}
+            canResetQuota={!disabled && !item.disabled}
+            resettingQuota={resettingNames.has(item.name)}
+            onResetQuota={() => resetQuotaForItem(item, config)}
             onSetKiroOverage={config.type === 'kiro' ? setKiroOverageForItem : undefined}
             renderQuotaItems={config.renderQuotaItems}
           />

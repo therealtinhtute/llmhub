@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KYENH07NFYB5BT2SY8SFC1C4","fields":{"created_at":"2026-07-26T07:34:10Z","run_id":"01KYEN0YEGNYYPX1KCWETAD1AZ","summary":"T1: wired reset-quota into QuotaCard/QuotaSection/AllQuotaSection with confirm+refetch+status-mapped errors; type-check+lint clean","wave":1},"at":"2026-07-26T07:34:10Z"}

@@ -7,9 +7,13 @@ import type { ReactElement, ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import type { AuthFileItem, ResolvedTheme, ThemeColors } from '@/types';
 import { TYPE_COLORS } from '@/utils/quota';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import { Skeleton } from '@/components/ui/skeleton';
 import { quotaStyles as styles } from './quotaStyles';
 import type { QuotaStyleMap } from './quotaStyles';
+
+const resetButtonClassName =
+  'ml-auto shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55';
 
 type QuotaStatus = 'idle' | 'loading' | 'success' | 'error' | 'runtime-only';
 
@@ -71,6 +75,9 @@ interface QuotaCardProps<TState extends QuotaStatusState> {
   defaultType: string;
   canRefresh?: boolean;
   onRefresh?: () => void;
+  canResetQuota?: boolean;
+  resettingQuota?: boolean;
+  onResetQuota?: () => void;
   onSetKiroOverage?: (item: AuthFileItem, enabled: boolean) => void | Promise<void>;
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
@@ -85,6 +92,9 @@ export function QuotaCard<TState extends QuotaStatusState>({
   defaultType,
   canRefresh = false,
   onRefresh,
+  canResetQuota = false,
+  resettingQuota = false,
+  onResetQuota,
   onSetKiroOverage,
   renderQuotaItems,
 }: QuotaCardProps<TState>) {
@@ -93,6 +103,13 @@ export function QuotaCard<TState extends QuotaStatusState>({
   const displayType = item.type || item.provider || defaultType;
   const typeColorSet = TYPE_COLORS[displayType] || TYPE_COLORS.unknown;
   const typeColor: ThemeColors = typeColorSet.light;
+
+  const authIndexAvailable =
+    normalizeAuthIndex(item['auth_index'] ?? item.authIndex) !== null;
+  const resetDisabled = !canResetQuota || !authIndexAvailable || resettingQuota;
+  const resetTooltip = !authIndexAvailable
+    ? t('quota_management.reset_missing_auth_index')
+    : t('quota_management.reset_action');
 
   const quotaStatus = quota?.status ?? 'idle';
   const quotaErrorMessage = resolveQuotaErrorMessage(
@@ -126,6 +143,18 @@ export function QuotaCard<TState extends QuotaStatusState>({
           {getTypeLabel(displayType)}
         </span>
         <span className={styles.fileName}>{item.name}</span>
+        {onResetQuota && (
+          <button
+            type="button"
+            className={resetButtonClassName}
+            onClick={onResetQuota}
+            disabled={resetDisabled}
+            title={resetTooltip}
+            aria-label={resetTooltip}
+          >
+            {resettingQuota ? t('common.loading') : t('quota_management.reset_action')}
+          </button>
+        )}
       </div>
 
       <div className={styles.quotaSection}>

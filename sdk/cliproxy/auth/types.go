@@ -191,6 +191,15 @@ func (a *Auth) recordRecentRequest(now time.Time, success bool) {
 	bucket.failed++
 }
 
+func (a *Auth) resetUsageCounters() {
+	if a == nil {
+		return
+	}
+	a.Success = 0
+	a.Failed = 0
+	a.recentRequests = recentRequestRing{}
+}
+
 func (a *Auth) RecentRequestsSnapshot(now time.Time) []RecentRequestBucket {
 	out := make([]RecentRequestBucket, 0, recentRequestBucketCount)
 	if a == nil {

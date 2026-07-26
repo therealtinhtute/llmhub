@@ -3,6 +3,7 @@ package management
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,6 +41,51 @@ func (h *Handler) GetUsageQueue(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, records)
+}
+
+// ResetUsage clears the success/failure counters and recent-request buckets for
+// one auth index. It does not touch quota or routing state.
+func (h *Handler) ResetUsage(c *gin.Context) {
+	if h == nil || h.authManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+		return
+	}
+
+	var req struct {
+		AuthIndex string `json:"auth_index"`
+	}
+	if errBindJSON := c.ShouldBindJSON(&req); errBindJSON != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	authIndex := strings.TrimSpace(req.AuthIndex)
+	if authIndex == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+		return
+	}
+
+	auth := h.authByIndex(authIndex)
+	if auth == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "auth not found"})
+		return
+	}
+
+	updated, errReset := h.authManager.ResetUsage(auth.ID)
+	if errReset != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to reset usage: %v", errReset)})
+		return
+	}
+	if updated == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "auth not found"})
+		return
+	}
+	updated.EnsureIndex()
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "ok",
+		"auth_index": updated.Index,
+	})
 }
 
 func parseUsageQueueCount(value string) (int, error) {

@@ -98,14 +98,12 @@ export function AuthFilesPage() {
     deletingAll,
     statusUpdating,
     batchStatusUpdating,
-    usageResetting,
     fileInputRef,
     loadFiles,
     handleUploadClick,
     handleFileChange,
     handleDelete,
     handleDeleteAll,
-    handleResetUsage,
     handleDownload,
     handleStatusToggle,
     toggleSelect,
@@ -769,13 +767,11 @@ export function AuthFilesPage() {
                     disableControls={disableControls}
                     deleting={deleting}
                     statusUpdating={statusUpdating}
-                    usageResetting={usageResetting}
                     statusBarCache={statusBarCache}
                     onDownload={handleDownload}
                     onDelete={handleDelete}
                     onToggleStatus={handleStatusToggle}
                     onToggleSelect={toggleSelect}
-                    onResetUsage={handleResetUsage}
                   />
                 ))}
               </div>

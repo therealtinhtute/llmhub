@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from 'sonner';
 import { useConfirmationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, KiroQuotaState, ResolvedTheme } from '@/types';
-import { authFilesApi, quotaApi } from '@/services/api';
+import { authFilesApi } from '@/services/api';
 import { getStatusFromError } from '@/utils/quota';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { QuotaCard } from './QuotaCard';
@@ -14,6 +14,7 @@ import type { QuotaStatusState } from './QuotaCard';
 import { buildKiroQuotaStateFromProvider, type QuotaConfig, type QuotaStore } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
 import { quotaStyles as styles } from './quotaStyles';
+import { IconRefreshCw } from '@/components/ui/icons';
 
 type ViewMode = 'paged' | 'all';
 
@@ -39,21 +40,6 @@ export interface AllQuotaSectionProps {
 
 type QuotaUpdater<T> = T | ((prev: T) => T);
 type QuotaSetter<T> = (updater: QuotaUpdater<T>) => void;
-
-const resolveResetErrorMessageKey = (status: number | undefined): string => {
-  switch (status) {
-    case 400:
-      return 'quota_management.reset_error_400';
-    case 404:
-      return 'quota_management.reset_error_404';
-    case 500:
-      return 'quota_management.reset_error_500';
-    case 503:
-      return 'quota_management.reset_error_503';
-    default:
-      return 'quota_management.reset_error_generic';
-  }
-};
 
 const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6) => {
   const [page, setPage] = useState(1);
@@ -315,25 +301,32 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
 
   const resetQuotaForItem = useCallback(
     (item: AuthFileItem, config: QuotaConfig<QuotaStatusState, unknown>) => {
-      if (disabled || item.disabled) return;
-      const authIndex = normalizeAuthIndex(item['auth_index'] ?? item.authIndex);
-      if (!authIndex) return;
+      const resetQuota = config.resetQuota;
+      if (!resetQuota || disabled || item.disabled || resettingNames.has(item.name)) return;
+
+      const currentQuota = config.storeSelector(useQuotaStore.getState())[item.name];
+      if (currentQuota?.status === 'loading') return;
 
       showConfirmation({
-        title: t('quota_management.reset_confirm_title'),
-        message: t('quota_management.reset_confirm_message', { name: item.name }),
-        confirmText: t('quota_management.reset_confirm_action'),
-        variant: 'danger',
+        title: t('codex_quota.reset_confirm_title'),
+        message: t('codex_quota.reset_confirm_message', { name: item.name }),
+        confirmText: t('codex_quota.reset_confirm_button'),
+        variant: 'primary',
         onConfirm: async () => {
           setResettingNames((prev) => new Set(prev).add(item.name));
           try {
-            await quotaApi.resetQuota(authIndex);
-            toast.success(t('quota_management.reset_success', { name: item.name }));
-            await refreshQuotaForItem(item, config);
+            const data = await resetQuota(item, t);
+            const setter = useQuotaStore.getState()[
+              config.storeSetter as keyof QuotaStore
+            ] as QuotaSetter<Record<string, QuotaStatusState>>;
+            setter((prev) => ({
+              ...prev,
+              [item.name]: config.buildSuccessState(data),
+            }));
+            toast.success(t('codex_quota.reset_success', { name: item.name }));
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : t('common.unknown_error');
-            const status = getStatusFromError(err);
-            toast.error(t(resolveResetErrorMessageKey(status), { name: item.name, message }));
+            toast.error(t('codex_quota.reset_failed', { name: item.name, message }));
           } finally {
             setResettingNames((prev) => {
               const next = new Set(prev);
@@ -344,7 +337,7 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
         },
       });
     },
-    [disabled, refreshQuotaForItem, showConfirmation, t]
+    [disabled, resettingNames, showConfirmation, t]
   );
 
   const setKiroOverageForItem = useCallback(
@@ -406,25 +399,49 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
   return (
     <div className="flex flex-col gap-3">
       <div ref={gridRef} className={styles.quotaGrid}>
-        {pageItems.map(({ item, config }) => (
-          <QuotaCard
-            key={item.name}
-            item={item}
-            quota={config.storeSelector(allQuota)[item.name]}
-            resolvedTheme={resolvedTheme}
-            i18nPrefix={config.i18nPrefix}
-            cardIdleMessageKey={config.cardIdleMessageKey}
-            cardClassName={config.cardClassName}
-            defaultType={config.type}
-            canRefresh={!disabled && !item.disabled}
-            onRefresh={() => void refreshQuotaForItem(item, config)}
-            canResetQuota={!disabled && !item.disabled}
-            resettingQuota={resettingNames.has(item.name)}
-            onResetQuota={() => resetQuotaForItem(item, config)}
-            onSetKiroOverage={config.type === 'kiro' ? setKiroOverageForItem : undefined}
-            renderQuotaItems={config.renderQuotaItems}
-          />
-        ))}
+        {pageItems.map(({ item, config }) => {
+          const itemQuota = config.storeSelector(allQuota)[item.name];
+          const isResettingQuota = resettingNames.has(item.name);
+          const canUseQuotaAction =
+            !disabled && !item.disabled && itemQuota?.status !== 'loading';
+          const showResetQuotaAction =
+            itemQuota !== undefined && Boolean(config.canResetQuota?.(itemQuota));
+          const resetQuotaAction =
+            config.resetQuota && showResetQuotaAction ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="ml-auto shrink-0"
+                onClick={() => resetQuotaForItem(item, config)}
+                disabled={!canUseQuotaAction || isResettingQuota}
+                loading={isResettingQuota}
+                title={t('codex_quota.reset_button')}
+                aria-label={t('codex_quota.reset_button')}
+              >
+                {!isResettingQuota && <IconRefreshCw size={14} />}
+                {t('codex_quota.reset_button')}
+              </Button>
+            ) : undefined;
+
+          return (
+            <QuotaCard
+              key={item.name}
+              item={item}
+              quota={itemQuota}
+              resolvedTheme={resolvedTheme}
+              i18nPrefix={config.i18nPrefix}
+              cardIdleMessageKey={config.cardIdleMessageKey}
+              cardClassName={config.cardClassName}
+              defaultType={config.type}
+              canRefresh={!disabled && !item.disabled}
+              onRefresh={() => void refreshQuotaForItem(item, config)}
+              resetQuotaAction={resetQuotaAction}
+              onSetKiroOverage={config.type === 'kiro' ? setKiroOverageForItem : undefined}
+              renderQuotaItems={config.renderQuotaItems}
+            />
+          );
+        })}
       </div>
       {allItems.length > pageSize && effectiveViewMode === 'paged' && (
         <div className={styles.pagination}>

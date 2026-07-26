@@ -70,9 +70,19 @@ export const quotaStyles = {
     'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 px-2 py-1',
 
   // Codex plan row
-  codexPlan: 'flex items-center gap-1.5 text-[12px] text-muted-foreground',
+  codexPlan: 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground',
+  codexPlanItem: 'inline-flex items-center gap-1.5',
   codexPlanLabel: 'text-[var(--text-tertiary,hsl(var(--muted-foreground)))]',
   codexPlanValue: 'font-semibold text-foreground capitalize',
+
+  // Codex manual reset credits
+  codexResetCredits: 'flex flex-col gap-1 border border-border bg-muted/40 px-2 py-1.5',
+  codexResetCreditsTitle:
+    'text-[11px] font-semibold text-[var(--text-tertiary,hsl(var(--muted-foreground)))]',
+  codexResetCreditRow: 'flex items-center justify-between gap-2 text-[11px]',
+  codexResetCreditLabel: 'text-muted-foreground',
+  codexResetCreditTime: 'font-medium text-foreground tabular-nums',
+  codexResetCreditsError: 'text-[11px] text-destructive',
   overagePlanValue: 'flex min-w-0 flex-1 items-center justify-between gap-2 font-semibold text-foreground',
   overageToggle:
     'shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',

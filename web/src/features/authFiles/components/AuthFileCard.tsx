@@ -6,7 +6,6 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconDownload,
   IconInfo,
-  IconRefreshCw,
   IconTrash2,
 } from '@/components/ui/icons';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
@@ -41,13 +40,11 @@ export type AuthFileCardProps = {
   disableControls: boolean;
   deleting: string | null;
   statusUpdating: Record<string, boolean>;
-  usageResetting: Record<string, boolean>;
   statusBarCache: Map<string, AuthFileStatusBarData>;
   onDownload: (name: string) => void;
   onDelete: (name: string) => void;
   onToggleStatus: (file: AuthFileItem, enabled: boolean) => void;
   onToggleSelect: (name: string) => void;
-  onResetUsage: (file: AuthFileItem) => void;
 };
 
 export function AuthFileCard(props: AuthFileCardProps) {
@@ -60,13 +57,11 @@ export function AuthFileCard(props: AuthFileCardProps) {
     disableControls,
     deleting,
     statusUpdating,
-    usageResetting,
     statusBarCache,
     onDownload,
     onDelete,
     onToggleStatus,
     onToggleSelect,
-    onResetUsage,
   } = props;
 
   const recentBuckets = normalizeRecentRequestBuckets(file.recent_requests ?? file.recentRequests);
@@ -317,25 +312,6 @@ export function AuthFileCard(props: AuthFileCardProps) {
                   <IconDownload className="block" size={16} />
                 </Button>
               )}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => onResetUsage(file)}
-                className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
-                title={
-                  authIndexKey
-                    ? t('auth_files.reset_usage_action')
-                    : t('auth_files.reset_usage_missing_auth_index')
-                }
-                aria-label={t('auth_files.reset_usage_action')}
-                disabled={disableControls || !authIndexKey || usageResetting[file.name] === true}
-              >
-                {usageResetting[file.name] === true ? (
-                  <LoadingSpinner size={14} />
-                ) : (
-                  <IconRefreshCw className="block" size={16} />
-                )}
-              </Button>
               {!isRuntimeOnly && (
                 <Button
                   variant="danger"

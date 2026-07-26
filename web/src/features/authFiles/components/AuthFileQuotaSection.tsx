@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -12,7 +12,7 @@ import {
   buildKiroQuotaStateFromProvider,
 } from '@/components/quota';
 import { toast } from 'sonner';
-import { useQuotaStore } from '@/stores';
+import { useConfirmationStore, useQuotaStore } from '@/stores';
 import { authFilesApi } from '@/services/api';
 import type { AuthFileItem, KiroQuotaState } from '@/types';
 import { normalizeAuthIndex } from '@/utils/authIndex';
@@ -23,6 +23,8 @@ import {
   type QuotaProviderType,
 } from '@/features/authFiles/constants';
 import { QuotaProgressBar } from '@/features/authFiles/components/QuotaProgressBar';
+import { Button } from '@/components/ui/Button';
+import { IconRefreshCw } from '@/components/ui/icons';
 
 // Tailwind class equivalents for quota rendering classes,
 // passed to renderQuotaItems as the helpers.styles object.
@@ -43,9 +45,16 @@ const quotaStyleMap = {
   quotaPercent: 'font-semibold text-foreground',
   quotaReset: 'text-muted-foreground/60',
   quotaAmount: 'text-muted-foreground',
-  codexPlan: 'flex items-center gap-[6px] text-[12px] text-muted-foreground',
+  codexPlan: 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground',
+  codexPlanItem: 'inline-flex items-center gap-1.5',
   codexPlanLabel: 'text-muted-foreground/60',
   codexPlanValue: 'font-semibold text-foreground capitalize',
+  codexResetCredits: 'flex flex-col gap-1 border border-border bg-muted/40 px-2 py-1.5',
+  codexResetCreditsTitle: 'text-[11px] font-semibold text-muted-foreground/60',
+  codexResetCreditRow: 'flex items-center justify-between gap-2 text-[11px]',
+  codexResetCreditLabel: 'text-muted-foreground',
+  codexResetCreditTime: 'font-medium text-foreground tabular-nums',
+  codexResetCreditsError: 'text-[11px] text-destructive',
   overagePlanValue: 'flex min-w-0 flex-1 items-center justify-between gap-2 font-semibold text-foreground',
   overageToggle:
     'shrink-0 border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',
@@ -74,6 +83,8 @@ export type AuthFileQuotaSectionProps = {
 export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
   const { file, quotaType, disableControls } = props;
   const { t } = useTranslation();
+  const showConfirmation = useConfirmationStore((state) => state.showConfirmation);
+  const [resettingQuota, setResettingQuota] = useState(false);
 
   const quota = useQuotaStore((state) => {
     if (quotaType === 'antigravity') return state.antigravityQuota[file.name] as QuotaState;
@@ -136,6 +147,48 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     }
   }, [disableControls, file, quota?.status, quotaType, t, updateQuotaState]);
 
+  const resetQuotaForFile = useCallback(() => {
+    const config = getQuotaConfig(quotaType) as unknown as {
+      resetQuota?: (file: AuthFileItem, t: TFunction) => Promise<unknown>;
+      buildSuccessState: (data: unknown) => unknown;
+    };
+    const resetQuota = config.resetQuota;
+    if (!resetQuota || disableControls || file.disabled || quota?.status === 'loading') return;
+    if (resettingQuota) return;
+
+    showConfirmation({
+      title: t('codex_quota.reset_confirm_title'),
+      message: t('codex_quota.reset_confirm_message', { name: file.name }),
+      confirmText: t('codex_quota.reset_confirm_button'),
+      variant: 'primary',
+      onConfirm: async () => {
+        setResettingQuota(true);
+        try {
+          const data = await resetQuota(file, t);
+          updateQuotaState((prev: Record<string, unknown>) => ({
+            ...prev,
+            [file.name]: config.buildSuccessState(data),
+          }));
+          toast.success(t('codex_quota.reset_success', { name: file.name }));
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : t('common.unknown_error');
+          toast.error(t('codex_quota.reset_failed', { name: file.name, message }));
+        } finally {
+          setResettingQuota(false);
+        }
+      },
+    });
+  }, [
+    disableControls,
+    file,
+    quota?.status,
+    quotaType,
+    resettingQuota,
+    showConfirmation,
+    t,
+    updateQuotaState,
+  ]);
+
   const setKiroOverageForFile = useCallback(
     async (enabled: boolean) => {
       if (quotaType !== 'kiro') return;
@@ -187,11 +240,14 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
 
   const config = getQuotaConfig(quotaType) as unknown as {
     i18nPrefix: string;
+    resetQuota?: (file: AuthFileItem, t: TFunction) => Promise<unknown>;
+    canResetQuota?: (quota: unknown) => boolean;
     renderQuotaItems: (quota: unknown, t: TFunction, helpers: unknown) => unknown;
   };
 
   const quotaStatus = quota?.status ?? 'idle';
   const canRefreshQuota = !disableControls && !file.disabled;
+  const showResetQuotaAction = quota !== undefined && Boolean(config.canResetQuota?.(quota));
   const quotaErrorMessage = resolveQuotaErrorMessage(
     t,
     quota?.errorStatus,
@@ -230,6 +286,23 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         }) as ReactNode)
       ) : (
         <div className={quotaStyleMap.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
+      )}
+      {config.resetQuota && showResetQuotaAction && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={resetQuotaForFile}
+            disabled={!canRefreshQuota || quotaStatus === 'loading' || resettingQuota}
+            loading={resettingQuota}
+            title={t('codex_quota.reset_button')}
+            aria-label={t('codex_quota.reset_button')}
+          >
+            {!resettingQuota && <IconRefreshCw size={14} />}
+            {t('codex_quota.reset_button')}
+          </Button>
+        </div>
       )}
     </div>
   );

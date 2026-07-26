@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { authFilesApi, usageApi } from '@/services/api';
+import { authFilesApi } from '@/services/api';
 import { apiClient } from '@/services/api/client';
 import { toast } from 'sonner';
 import { useConfirmationStore } from '@/stores';
@@ -8,29 +8,12 @@ import type { AuthFileItem } from '@/types';
 import { formatFileSize } from '@/utils/format';
 import { MAX_AUTH_FILE_SIZE } from '@/utils/constants';
 import { downloadBlob } from '@/utils/download';
-import { normalizeAuthIndex } from '@/utils/authIndex';
-import { getStatusFromError } from '@/utils/quota';
 import {
   getTypeLabel,
   hasAuthFileStatusMessage,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
 } from '@/features/authFiles/constants';
-
-const resolveResetUsageErrorMessageKey = (status: number | undefined): string => {
-  switch (status) {
-    case 400:
-      return 'auth_files.reset_usage_error_400';
-    case 404:
-      return 'auth_files.reset_usage_error_404';
-    case 500:
-      return 'auth_files.reset_usage_error_500';
-    case 503:
-      return 'auth_files.reset_usage_error_503';
-    default:
-      return 'auth_files.reset_usage_error_generic';
-  }
-};
 
 type DeleteAllOptions = {
   filter: string;
@@ -52,14 +35,12 @@ export type UseAuthFilesDataResult = {
   deletingAll: boolean;
   statusUpdating: Record<string, boolean>;
   batchStatusUpdating: boolean;
-  usageResetting: Record<string, boolean>;
   fileInputRef: RefObject<HTMLInputElement | null>;
   loadFiles: () => Promise<void>;
   handleUploadClick: () => void;
   handleFileChange: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleDelete: (name: string) => void;
   handleDeleteAll: (options: DeleteAllOptions) => void;
-  handleResetUsage: (item: AuthFileItem) => void;
   handleDownload: (name: string) => Promise<void>;
   handleStatusToggle: (item: AuthFileItem, enabled: boolean) => Promise<void>;
   toggleSelect: (name: string) => void;
@@ -83,7 +64,6 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
   const [deletingAll, setDeletingAll] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState<Record<string, boolean>>({});
   const [batchStatusUpdating, setBatchStatusUpdating] = useState(false);
-  const [usageResetting, setUsageResetting] = useState<Record<string, boolean>>({});
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -289,39 +269,6 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       });
     },
     [applyDeletedFiles, showConfirmation, t]
-  );
-
-  const handleResetUsage = useCallback(
-    (item: AuthFileItem) => {
-      const authIndex = normalizeAuthIndex(item['auth_index'] ?? item.authIndex);
-      if (!authIndex) return;
-
-      showConfirmation({
-        title: t('auth_files.reset_usage_confirm_title'),
-        message: t('auth_files.reset_usage_confirm_message', { name: item.name }),
-        confirmText: t('auth_files.reset_usage_confirm_action'),
-        variant: 'danger',
-        onConfirm: async () => {
-          setUsageResetting((prev) => ({ ...prev, [item.name]: true }));
-          try {
-            await usageApi.resetUsage(authIndex);
-            toast.success(t('auth_files.reset_usage_success', { name: item.name }));
-            await loadFiles();
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : t('common.unknown_error');
-            const status = getStatusFromError(err);
-            toast.error(t(resolveResetUsageErrorMessageKey(status), { name: item.name, message }));
-          } finally {
-            setUsageResetting((prev) => {
-              const next = { ...prev };
-              delete next[item.name];
-              return next;
-            });
-          }
-        },
-      });
-    },
-    [loadFiles, showConfirmation, t]
   );
 
   const handleDeleteAll = useCallback(
@@ -687,14 +634,12 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
     deletingAll,
     statusUpdating,
     batchStatusUpdating,
-    usageResetting,
     fileInputRef,
     loadFiles,
     handleUploadClick,
     handleFileChange,
     handleDelete,
     handleDeleteAll,
-    handleResetUsage,
     handleDownload,
     handleStatusToggle,
     toggleSelect,

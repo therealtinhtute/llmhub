@@ -117,3 +117,5 @@ Requests are routed to executors via model name or prefix. The registry (`intern
 The management panel is a React/Vite SPA (`web/`). It is compiled and copied to `internal/managementasset/static/management.html` by `make embed`. The binary serves it from that embedded path — the panel is absent if `make embed` was not run.
 
 For frontend development, run `make dev-web` (hot reload at Vite default port, proxying API calls to `DEV_WEB_API_BASE`, default `http://localhost:9090`) alongside a running `make dev` server.
+
+Do not create new frontend test files anywhere under `web/`. Verify frontend changes with type checking, linting, production builds, and browser runtime checks instead.

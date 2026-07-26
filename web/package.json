@@ -10,9 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "type-check": "tsc --noEmit",
-    "test": "vitest",
-    "test:run": "vitest run"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@codemirror/lang-yaml": "^6.1.2",
@@ -53,7 +51,6 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
     "vite": "^8.0.10",
-    "vite-plugin-singlefile": "^2.3.3",
-    "vitest": "^4.1.8"
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }

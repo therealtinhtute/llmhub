@@ -3467,6 +3467,28 @@ func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []strin
 	return snapshot, models, nil
 }
 
+// ResetUsage clears the success/failure counters and the recent-request ring for
+// an auth. Those counters are in-memory only, so nothing is persisted and routing
+// state is left untouched. Calling it repeatedly yields the same result.
+func (m *Manager) ResetUsage(authID string) (*Auth, error) {
+	if m == nil {
+		return nil, nil
+	}
+	authID = strings.TrimSpace(authID)
+	if authID == "" {
+		return nil, errors.New("auth id is required")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	auth, ok := m.auths[authID]
+	if !ok || auth == nil {
+		return nil, nil
+	}
+	auth.resetUsageCounters()
+	return auth.Clone(), nil
+}
+
 func modelsForRegisteredAuth(authID string) []string {
 	supportedModels := registry.GetGlobalRegistry().GetModelsForClient(authID)
 	models := make([]string, 0, len(supportedModels))

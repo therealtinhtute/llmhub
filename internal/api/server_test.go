@@ -22,6 +22,11 @@ import (
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	return newTestServerWithAuthManager(t, auth.NewManager(nil, nil, nil))
+}
+
+func newTestServerWithAuthManager(t *testing.T, authManager *auth.Manager) *Server {
+	t.Helper()
 
 	gin.SetMode(gin.TestMode)
 
@@ -42,7 +47,6 @@ func newTestServer(t *testing.T) *Server {
 		UsageStatisticsEnabled: false,
 	}
 
-	authManager := auth.NewManager(nil, nil, nil)
 	accessManager := sdkaccess.NewManager()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")

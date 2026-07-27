@@ -406,7 +406,7 @@ export function MainLayout() {
         >
           <div
             className={cn(
-              'flex flex-1 flex-col gap-6 min-h-full px-[clamp(20px,3vw,48px)] pt-6 pb-10 overflow-x-hidden',
+              'flex flex-1 flex-col gap-6 min-h-full px-[clamp(20px,3vw,48px)] pt-6 pb-10 overflow-x-hidden [&_h1]:font-serif [&_h1]:italic',
               isLogsPage && 'flex-auto min-h-0 overflow-hidden'
             )}
           >

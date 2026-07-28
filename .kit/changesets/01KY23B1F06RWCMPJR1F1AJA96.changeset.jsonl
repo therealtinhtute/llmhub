@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KY23B1F06RWCMPJR1EQKJJTQ","fields":{"created_at":"2026-07-21T10:25:28Z","run_id":"01KY22EK7T10ED5QZ10GQA5R7F","summary":"Replaced blocking writer-side disconnect wait with connection-scoped nonblocking classification; focused and repeated race tests pass.","wave":1},"at":"2026-07-21T10:25:28Z"}

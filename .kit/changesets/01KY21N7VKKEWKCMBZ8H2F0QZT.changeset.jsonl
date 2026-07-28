@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KY21N7VKKEWKCMBZ8GBGMPM1","fields":{"created_at":"2026-07-21T09:56:05Z","run_id":"01KY20GD3482KG0KK2V5GJ21NY","summary":"Canonical close-1009 mapping now covers reusable and transient readers with lifecycle-aware writer classification","wave":1},"at":"2026-07-21T09:56:05Z"}

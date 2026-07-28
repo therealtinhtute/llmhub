@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KY23B8VT4Q9PFQAPWRMBPTR5","fields":{"created_at":"2026-07-21T10:25:35Z","run_id":"01KY22EK7T10ED5QZ10GQA5R7F","summary":"Preserved typed request-scoped metadata in auth results and added adversarial typed/untyped 413 controls; focused and repeated race tests pass.","wave":2},"at":"2026-07-21T10:25:35Z"}

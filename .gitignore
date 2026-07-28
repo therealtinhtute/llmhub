@@ -62,3 +62,4 @@ scripts/bin/harness-cli
 scripts/bin/harness-cli.exe
 .kit/harness.db
 .kit/cache/
+.kit/conflicts/

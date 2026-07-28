@@ -40,7 +40,7 @@ type PostgresStoreConfig struct {
 type PostgresStore struct {
 	db *sql.DB
 
-	cfg        PostgresStoreConfig
+	cfg PostgresStoreConfig
 
 	mu sync.Mutex
 }
@@ -174,6 +174,9 @@ func (s *PostgresStore) EnsureSchema(ctx context.Context) error {
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (created_at)", s.indexName("usage_events_created_idx"), usageTable)); err != nil {
 		return fmt.Errorf("postgres store: create usage created index: %w", err)
+	}
+	if err := s.ensureQuotaAlertSchema(ctx); err != nil {
+		return err
 	}
 	return nil
 }

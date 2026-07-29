@@ -1,1 +1,0 @@
-{"op":"create","entity":"story","id":"01KYCVP8JQZSKV8BH9J7B08J5M","fields":{"created_at":"2026-07-25T14:43:25Z","depends_on":"auth-credential-concurrency","goal":"Provide bounded semantic Claude/xAI input-token estimates and avoid emitting or processing tool settings when no convertible tools exist.","slug":"token-estimation","status":"planned"},"at":"2026-07-25T14:43:25Z"}

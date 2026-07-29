@@ -1,1 +1,0 @@
-{"op":"create","entity":"trace","id":"01KYP40BZE5KTXGXPYTM0ZG60X","fields":{"created_at":"2026-07-29T05:01:55Z","run_id":"01KYP2WZ2C40JB3371Y45W8XAZ","summary":"M1 backend management APIs added with redacted settings, DB-only writes, auth route coverage, state/events/ack, and Telegram test-send seam","wave":1},"at":"2026-07-29T05:01:55Z"}

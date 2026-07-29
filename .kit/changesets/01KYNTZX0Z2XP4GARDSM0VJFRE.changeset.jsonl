@@ -1,1 +1,0 @@
-{"op":"create","entity":"trace","id":"01KYNTZX0Z2XP4GARDSGK7G1NY","fields":{"created_at":"2026-07-29T02:24:23Z","run_id":"01KYNSSJAVX9HF8J3MJEA7P65R","summary":"Implemented Gemini CLI and Antigravity quota collectors with fixed POST endpoints, server-side grouping parity, non-fatal supplementary calls, and sanitized provider failures.","wave":3},"at":"2026-07-29T02:24:23Z"}

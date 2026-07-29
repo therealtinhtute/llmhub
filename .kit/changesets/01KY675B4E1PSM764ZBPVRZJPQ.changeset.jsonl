@@ -1,2 +1,0 @@
-{"op":"create","entity":"run","id":"01KY675B4E1PSM764ZBKMRA9ZA","fields":{"artifact_path":".kit/runs/work/20260723-0749-auth-count-reliability.md","created_at":"2026-07-23T00:49:13Z","story_slug":"auth-count-reliability"},"at":"2026-07-23T00:49:13Z"}
-{"op":"update","entity":"meta","id":"meta","fields":{"latest_run_id":"01KY675B4E1PSM764ZBKMRA9ZA"},"at":"2026-07-23T00:49:13Z"}

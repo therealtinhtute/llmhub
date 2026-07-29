@@ -223,7 +223,7 @@ func (s *PostgresStore) ensureQuotaAlertSchema(ctx context.Context) error {
 		},
 		{
 			name:  "state listing index",
-			query: fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (updated_at DESC, auth_id, provider, resource, window_key)", s.indexName("quota_alert_state_list_idx"), s.fullTableName(quotaAlertStateTable)),
+			query: fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (updated_at DESC, auth_id DESC, provider DESC, resource DESC, window_key DESC)", s.indexName("quota_alert_state_list_desc_idx"), s.fullTableName(quotaAlertStateTable)),
 		},
 		{
 			name:  "event listing index",
@@ -1182,16 +1182,15 @@ func (s *PostgresStore) ListStates(ctx context.Context, page quotaalert.PageRequ
 	`, s.fullTableName(quotaAlertStateTable))
 	var rows *sql.Rows
 	if page.Cursor == "" {
-		rows, err = s.db.QueryContext(ctx, baseSelect+" ORDER BY updated_at DESC, auth_id, provider, resource, window_key LIMIT $1", page.Limit+1)
+		rows, err = s.db.QueryContext(ctx, baseSelect+" ORDER BY updated_at DESC, auth_id DESC, provider DESC, resource DESC, window_key DESC LIMIT $1", page.Limit+1)
 	} else {
 		cursor, errDecode := decodeQuotaStateCursor(page.Cursor)
 		if errDecode != nil {
 			return quotaalert.Page[quotaalert.CurrentState]{}, errDecode
 		}
 		rows, err = s.db.QueryContext(ctx, baseSelect+`
-			WHERE updated_at < $1
-			   OR (updated_at = $1 AND (auth_id, provider, resource, window_key) > ($2, $3, $4, $5))
-			ORDER BY updated_at DESC, auth_id, provider, resource, window_key
+			WHERE (updated_at, auth_id, provider, resource, window_key) < ($1, $2, $3, $4, $5)
+			ORDER BY updated_at DESC, auth_id DESC, provider DESC, resource DESC, window_key DESC
 			LIMIT $6
 		`, cursor.UpdatedAt, cursor.AuthID, cursor.Provider, cursor.Resource, cursor.Window, page.Limit+1)
 	}
@@ -1432,8 +1431,11 @@ func (s *PostgresStore) PruneEvents(ctx context.Context, before time.Time, limit
 		s.fullTableName(quotaNotificationBatchesTable),
 	)
 	var deleted int64
-	if err := s.db.QueryRowContext(ctx, query, before.UTC(), limit).Scan(&deleted); err != nil {
+	if err := tx.QueryRowContext(ctx, query, before.UTC(), limit).Scan(&deleted); err != nil {
 		return 0, fmt.Errorf("postgres store: prune quota alert events: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, fmt.Errorf("postgres store: commit quota alert event retention: %w", err)
 	}
 	return deleted, nil
 }
@@ -1445,6 +1447,14 @@ func (s *PostgresStore) PruneNotificationBatches(ctx context.Context, before tim
 	}
 	if limit < 1 || limit > quotaalert.MaxPageSize {
 		return 0, fmt.Errorf("postgres store: quota notification retention limit must be between 1 and %d", quotaalert.MaxPageSize)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("postgres store: begin quota notification retention: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err = s.lockQuotaAlertRetention(ctx, tx); err != nil {
+		return 0, err
 	}
 	query := fmt.Sprintf(`
 		WITH doomed AS (
@@ -1476,8 +1486,11 @@ func (s *PostgresStore) PruneNotificationBatches(ctx context.Context, before tim
 		s.fullTableName(quotaAlertEventsTable),
 	)
 	var deleted int64
-	if err := s.db.QueryRowContext(ctx, query, before.UTC(), limit).Scan(&deleted); err != nil {
+	if err := tx.QueryRowContext(ctx, query, before.UTC(), limit).Scan(&deleted); err != nil {
 		return 0, fmt.Errorf("postgres store: prune quota notification batches: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, fmt.Errorf("postgres store: commit quota notification retention: %w", err)
 	}
 	return deleted, nil
 }
@@ -1594,6 +1607,13 @@ func (s *PostgresStore) ClaimNotificationBatches(ctx context.Context, options qu
 		})
 	}
 	if len(claims) > 0 {
+		refreshArgs := make([]any, 0, len(claims)+2)
+		refreshArgs = append(refreshArgs, leaseID, options.LeaseDuration.Microseconds())
+		refreshIDs := make([]string, 0, len(claims))
+		for index, claim := range claims {
+			refreshIDs = append(refreshIDs, fmt.Sprintf("$%d", index+3))
+			refreshArgs = append(refreshArgs, claim.Batch.ID())
+		}
 		refreshQuery := fmt.Sprintf(`
 			WITH clock AS (
 				SELECT clock_timestamp() AS now
@@ -1603,15 +1623,15 @@ func (s *PostgresStore) ClaimNotificationBatches(ctx context.Context, options qu
 			    claimable_at = clock.now + ($2 * INTERVAL '1 microsecond'),
 			    updated_at = clock.now
 			FROM clock
-			WHERE batch.lease_id = $1
+			WHERE batch.id IN (%s)
+			  AND batch.lease_id = $1
 			  AND batch.status = 'pending'
 			RETURNING batch.id, batch.lease_until
-		`, s.fullTableName(quotaNotificationBatchesTable))
+		`, s.fullTableName(quotaNotificationBatchesTable), strings.Join(refreshIDs, ","))
 		refreshedRows, refreshErr := tx.QueryContext(
 			ctx,
 			refreshQuery,
-			leaseID,
-			options.LeaseDuration.Microseconds(),
+			refreshArgs...,
 		)
 		if refreshErr != nil {
 			return nil, fmt.Errorf("postgres store: refresh quota notification leases: %w", refreshErr)

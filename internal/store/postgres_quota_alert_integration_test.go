@@ -100,8 +100,10 @@ func TestPostgresQuotaAlertDDLIdempotenceAndDefaults(t *testing.T) {
 		t.Fatal("oversized event ID bypassed database constraint")
 	}
 	if _, err := store.db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (id, provider, events, available_at, created_at)
-		VALUES ($1, $2, to_jsonb($3::text), $4, $4)
+		INSERT INTO %s (
+			id, provider, events, available_at, claimable_at, created_at
+		)
+		VALUES ($1, $2, to_jsonb($3::text), $4, $4, $4)
 	`, store.fullTableName(quotaNotificationBatchesTable)),
 		strings.Repeat("b", 64),
 		quotaalert.ProviderClaude,
@@ -533,6 +535,51 @@ func TestPostgresQuotaAlertAtomicCommitDeduplicationPaginationAndAcknowledgement
 	}
 }
 
+func TestPostgresQuotaAlertStatePaginationSeeksAcrossEqualTimestamps(t *testing.T) {
+	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
+	updatedAt := time.Date(2026, time.July, 28, 11, 0, 0, 0, time.UTC)
+	var states []quotaalert.CurrentState
+	var events []quotaalert.TransitionEvent
+	for _, suffix := range []string{"a", "b", "c"} {
+		state, event := quotaAlertTestStateAndEvent("pagination-"+suffix, updatedAt)
+		states = append(states, state)
+		events = append(events, event)
+	}
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{
+		States: states,
+		Events: events,
+	})
+
+	var authIDs []string
+	cursor := ""
+	for {
+		page, err := store.ListStates(ctx, quotaalert.PageRequest{
+			Cursor: cursor,
+			Limit:  1,
+		})
+		if err != nil {
+			t.Fatalf("ListStates(cursor %q) error = %v", cursor, err)
+		}
+		if len(page.Items) != 1 {
+			t.Fatalf("ListStates(cursor %q) items = %#v, want one", cursor, page.Items)
+		}
+		authIDs = append(authIDs, page.Items[0].Identity.AuthID)
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	want := []string{"auth-pagination-c", "auth-pagination-b", "auth-pagination-a"}
+	if len(authIDs) != len(want) {
+		t.Fatalf("paginated auth IDs = %v, want %v", authIDs, want)
+	}
+	for index := range want {
+		if authIDs[index] != want[index] {
+			t.Fatalf("paginated auth IDs = %v, want %v", authIDs, want)
+		}
+	}
+}
+
 func TestPostgresQuotaAlertEventBelongsToOnlyOneNotificationBatch(t *testing.T) {
 	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
@@ -781,6 +828,111 @@ func TestPostgresQuotaAlertEventFirstRetentionPreservesAssignmentTombstone(t *te
 	}
 }
 
+func TestPostgresQuotaAlertConcurrentOppositeOrderPruningCleansAssignment(t *testing.T) {
+	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
+	now := time.Date(2026, time.July, 28, 13, 30, 0, 0, time.UTC)
+	state, event := quotaAlertTestStateAndEvent("concurrent-retention", now)
+	batch, err := quotaalert.NewNotificationBatch(
+		quotaalert.ProviderClaude,
+		[]quotaalert.TransitionEvent{event},
+		now,
+	)
+	if err != nil {
+		t.Fatalf("NewNotificationBatch() error = %v", err)
+	}
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{
+		States:  []quotaalert.CurrentState{state},
+		Events:  []quotaalert.TransitionEvent{event},
+		Batches: []quotaalert.NotificationBatch{batch},
+	})
+	if _, err = store.db.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s SET status = 'sent', updated_at = $1 WHERE id = $2
+	`, store.fullTableName(quotaNotificationBatchesTable)), now, batch.ID()); err != nil {
+		t.Fatalf("mark notification batch terminal: %v", err)
+	}
+
+	functionName := store.fullTableName("quota_alert_retention_delay")
+	if _, err = store.db.ExecContext(ctx, fmt.Sprintf(`
+		CREATE FUNCTION %s() RETURNS trigger AS $$
+		BEGIN
+			PERFORM pg_sleep(0.25);
+			RETURN OLD;
+		END;
+		$$ LANGUAGE plpgsql
+	`, functionName)); err != nil {
+		t.Fatalf("create retention delay function: %v", err)
+	}
+	for name, table := range map[string]string{
+		"quota_alert_event_retention_delay": quotaAlertEventsTable,
+		"quota_alert_batch_retention_delay": quotaNotificationBatchesTable,
+	} {
+		if _, err = store.db.ExecContext(ctx, fmt.Sprintf(`
+			CREATE TRIGGER %s
+			BEFORE DELETE ON %s
+			FOR EACH ROW EXECUTE FUNCTION %s()
+		`, quoteIdentifier(name), store.fullTableName(table), functionName)); err != nil {
+			t.Fatalf("create %s trigger: %v", name, err)
+		}
+	}
+
+	type pruneResult struct {
+		deleted int64
+		err     error
+	}
+	start := make(chan struct{})
+	results := make(chan pruneResult, 2)
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		<-start
+		deleted, pruneErr := store.PruneEvents(
+			ctx,
+			now.Add(24*time.Hour),
+			quotaalert.MaxPageSize,
+		)
+		results <- pruneResult{deleted: deleted, err: pruneErr}
+	}()
+	go func() {
+		defer wait.Done()
+		<-start
+		deleted, pruneErr := store.PruneNotificationBatches(
+			ctx,
+			now.Add(24*time.Hour),
+			quotaalert.MaxPageSize,
+		)
+		results <- pruneResult{deleted: deleted, err: pruneErr}
+	}()
+	close(start)
+	wait.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent retention error = %v", result.err)
+		}
+		if result.deleted != 1 {
+			t.Fatalf("concurrent retention deleted = %d, want 1", result.deleted)
+		}
+	}
+
+	for table, want := range map[string]int{
+		quotaAlertEventsTable:             0,
+		quotaNotificationBatchesTable:     0,
+		quotaNotificationBatchEventsTable: 0,
+	} {
+		var count int
+		if err = store.db.QueryRowContext(ctx, fmt.Sprintf(
+			"SELECT COUNT(*) FROM %s",
+			store.fullTableName(table),
+		)).Scan(&count); err != nil {
+			t.Fatalf("count %s after concurrent retention: %v", table, err)
+		}
+		if count != want {
+			t.Fatalf("%s count after concurrent retention = %d, want %d", table, count, want)
+		}
+	}
+}
+
 func TestPostgresQuotaAlertCollectionCanonicalizesAndRejectsInvalidEvents(t *testing.T) {
 	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
 	localTime := time.Date(2026, time.July, 28, 14, 0, 0, 123, time.FixedZone("ICT", 7*60*60))
@@ -906,9 +1058,16 @@ func TestPostgresQuotaAlertCollectionCanonicalizesAndRejectsInvalidEvents(t *tes
 		t.Fatalf("Release(batch without event lease) error = %v", err)
 	}
 
+	conflictingAt := normalized.OccurredAt.Add(time.Minute)
+	conflictingState := state
+	conflictingState.ObservedAt = conflictingAt
+	conflictingState.UpdatedAt = conflictingAt
 	conflicting := event
-	conflicting.From = quotaalert.AlertUnknown
-	conflictingBatch, err := quotaalert.NewNotificationBatch(quotaalert.ProviderClaude, []quotaalert.TransitionEvent{conflicting}, localTime)
+	conflicting.Kind = quotaalert.TransitionReminder
+	conflicting.From = quotaalert.AlertWarning
+	conflicting.To = quotaalert.AlertWarning
+	conflicting.OccurredAt = conflictingAt
+	conflictingBatch, err := quotaalert.NewNotificationBatch(quotaalert.ProviderClaude, []quotaalert.TransitionEvent{conflicting}, conflictingAt)
 	if err != nil {
 		t.Fatalf("NewNotificationBatch(conflicting event) error = %v", err)
 	}
@@ -917,7 +1076,7 @@ func TestPostgresQuotaAlertCollectionCanonicalizesAndRejectsInvalidEvents(t *tes
 		t.Fatalf("TryAcquireCollection(conflicting event) = acquired %t, error %v", acquired, err)
 	}
 	conflictingCommit := quotaAlertTestCollectionCommit(t, ctx, store, quotaalert.CollectionCommit{
-		States:  []quotaalert.CurrentState{state},
+		States:  []quotaalert.CurrentState{conflictingState},
 		Events:  []quotaalert.TransitionEvent{conflicting},
 		Batches: []quotaalert.NotificationBatch{conflictingBatch},
 	})
@@ -1057,11 +1216,21 @@ func TestPostgresQuotaAlertCollectionEnforcesEventStateCoherence(t *testing.T) {
 		})
 	}
 
-	reminderState, reminderEvent := quotaAlertTestStateAndEvent("reminder", now.Add(time.Hour))
-	reminderState.TransitionedAt = now
+	initialReminderState, initialReminderEvent := quotaAlertTestStateAndEvent("reminder", now)
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{
+		SettingsRevision: settings.Revision,
+		States:           []quotaalert.CurrentState{initialReminderState},
+		Events:           []quotaalert.TransitionEvent{initialReminderEvent},
+	})
+	reminderState := initialReminderState
+	reminderState.ObservedAt = now.Add(time.Hour)
+	reminderState.UpdatedAt = now.Add(time.Hour)
+	reminderEvent := initialReminderEvent
+	reminderEvent.ID = "event-reminder-follow-up"
 	reminderEvent.Kind = quotaalert.TransitionReminder
 	reminderEvent.From = quotaalert.AlertWarning
 	reminderEvent.To = quotaalert.AlertWarning
+	reminderEvent.OccurredAt = now.Add(time.Hour)
 	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{
 		SettingsRevision: settings.Revision,
 		States:           []quotaalert.CurrentState{reminderState},
@@ -1143,6 +1312,65 @@ func TestPostgresQuotaAlertStateRejectsEqualTimeConflict(t *testing.T) {
 	}
 	if len(loaded) != 1 || loaded[0].Remaining != newer.Remaining || loaded[0].Revision != 2 {
 		t.Fatalf("newer state = %#v", loaded)
+	}
+}
+
+func TestPostgresQuotaAlertCollectionRejectsInvalidInitialTransitionHistory(t *testing.T) {
+	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
+	now := time.Date(2026, time.July, 28, 16, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		mutate func(*quotaalert.CurrentState, *quotaalert.TransitionEvent)
+	}{
+		{
+			name: "recovery",
+			mutate: func(state *quotaalert.CurrentState, event *quotaalert.TransitionEvent) {
+				state.Alert = quotaalert.AlertHealthy
+				state.Remaining = 50
+				event.Kind = quotaalert.TransitionRecovery
+				event.From = quotaalert.AlertWarning
+				event.To = quotaalert.AlertHealthy
+				event.Remaining = 50
+			},
+		},
+		{
+			name: "reminder",
+			mutate: func(_ *quotaalert.CurrentState, event *quotaalert.TransitionEvent) {
+				event.Kind = quotaalert.TransitionReminder
+				event.From = quotaalert.AlertWarning
+				event.To = quotaalert.AlertWarning
+			},
+		},
+		{
+			name: "warning from healthy",
+			mutate: func(_ *quotaalert.CurrentState, event *quotaalert.TransitionEvent) {
+				event.From = quotaalert.AlertHealthy
+			},
+		},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state, event := quotaAlertTestStateAndEvent(
+				fmt.Sprintf("initial-history-%d", index),
+				now.Add(time.Duration(index)*time.Minute),
+			)
+			test.mutate(&state, &event)
+			commit := quotaAlertTestCollectionCommit(t, ctx, store, quotaalert.CollectionCommit{
+				States: []quotaalert.CurrentState{state},
+				Events: []quotaalert.TransitionEvent{event},
+			})
+			lease, acquired, err := store.TryAcquireCollection(ctx)
+			if err != nil || !acquired {
+				t.Fatalf("TryAcquireCollection() = acquired %t, error %v", acquired, err)
+			}
+			if err = store.CommitCollection(ctx, lease, commit); err == nil {
+				_ = lease.Release(ctx)
+				t.Fatal("CommitCollection(invalid initial transition) error = nil")
+			}
+			if err = lease.Release(ctx); err != nil {
+				t.Fatalf("CollectionLease.Release() error = %v", err)
+			}
+		})
 	}
 }
 

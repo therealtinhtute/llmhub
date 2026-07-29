@@ -1,1 +1,0 @@
-{"op":"create","entity":"trace","id":"01KYNQZP2TZFZHX2T9VSZ6NXJG","fields":{"created_at":"2026-07-29T01:31:50Z","run_id":"01KYKP3RWHS0XMCQSS82ZQYBRA","summary":"Final quota-alert foundation gate proof passed: real PostgreSQL, full Go, race, static safety, and manual SQL review clean","wave":5},"at":"2026-07-29T01:31:50Z"}

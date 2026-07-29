@@ -1,1 +1,0 @@
-{"op":"create","entity":"story","id":"01KYCVP8JFJ7KV1VNTDYZMGRED","fields":{"created_at":"2026-07-25T14:43:25Z","goal":"Implement Home-dispatched credential accounting with exactly-once lifecycle release, bounded drain, and in-flight observation without regressing local auth.","slug":"auth-credential-concurrency","status":"planned"},"at":"2026-07-25T14:43:25Z"}

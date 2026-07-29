@@ -1,1 +1,0 @@
-{"op":"create","entity":"trace","id":"01KYNT1QFG7WGRFZQAVQAWQ0B5","fields":{"created_at":"2026-07-29T02:07:54Z","run_id":"01KYNSSJAVX9HF8J3MJEA7P65R","summary":"Collector registry and fixed-host HTTP boundary implemented with sanitization proof","wave":1},"at":"2026-07-29T02:07:54Z"}

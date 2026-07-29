@@ -1,2 +1,0 @@
-{"op":"create","entity":"run","id":"01KYCVPE8V5CP8TWVN3FX5JEEK","fields":{"artifact_path":".kit/runs/work/20260723-2210-auth-credential-concurrency.md","created_at":"2026-07-25T14:43:31Z","story_slug":"auth-credential-concurrency"},"at":"2026-07-25T14:43:31Z"}
-{"op":"update","entity":"meta","id":"meta","fields":{"latest_run_id":"01KYCVPE8V5CP8TWVN3FX5JEEK"},"at":"2026-07-25T14:43:31Z"}

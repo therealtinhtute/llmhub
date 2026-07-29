@@ -1,1 +1,0 @@
-{"op":"create","entity":"story","id":"01KY1TKX29K6DSAKQZXSBAM6XY","fields":{"created_at":"2026-07-21T07:53:01Z","goal":"Propagate WebSocket close 1009 without credential fallback","slug":"websocket-message-too-big","status":"planned"},"at":"2026-07-21T07:53:01Z"}

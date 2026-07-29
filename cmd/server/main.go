@@ -19,6 +19,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/misc"
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
@@ -42,6 +43,14 @@ func init() {
 	buildinfo.Version = Version
 	buildinfo.Commit = Commit
 	buildinfo.BuildDate = BuildDate
+}
+
+func configureQuotaAlertRuntime(builder *cliproxy.Builder, pgStore quotaalert.Store) {
+	cipher, err := loadQuotaSecretCipherFromEnv()
+	if err != nil {
+		log.Warnf("quota alert Telegram disabled: %v", err)
+	}
+	builder.WithQuotaAlertStore(pgStore).WithQuotaAlertSecretCipher(cipher)
 }
 
 // main is the entry point of the application.
@@ -256,6 +265,7 @@ func main() {
 					builder.WithManagementConfigStore(pgStore).
 						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
 						WithRuntimeStoragePolicy(runtimeStoragePolicy)
+					configureQuotaAlertRuntime(builder, pgStore)
 				})
 
 				client := tui.NewClient(cfg.Port, password)
@@ -306,6 +316,7 @@ func main() {
 				builder.WithManagementConfigStore(pgStore).
 					WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
 					WithRuntimeStoragePolicy(runtimeStoragePolicy)
+				configureQuotaAlertRuntime(builder, pgStore)
 			})
 		}
 	}

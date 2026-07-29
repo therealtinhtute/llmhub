@@ -10,6 +10,7 @@ import (
 
 	configaccess "github.com/therealtinhtute/llmhub/internal/access/config_access"
 	"github.com/therealtinhtute/llmhub/internal/api"
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
@@ -55,6 +56,10 @@ type Builder struct {
 	managementConfigStore api.ManagementConfigStore
 
 	runtimeStoragePolicy runtimepolicy.RuntimeStorage
+
+	quotaAlertService *quotaalert.Service
+	quotaAlertStore   quotaalert.Store
+	quotaAlertCipher  *quotaalert.SecretCipher
 }
 
 // Hooks allows callers to plug into service lifecycle stages.
@@ -180,6 +185,21 @@ func (b *Builder) WithRuntimeStoragePolicy(policy runtimepolicy.RuntimeStorage) 
 	return b
 }
 
+func (b *Builder) WithQuotaAlertService(service *quotaalert.Service) *Builder {
+	b.quotaAlertService = service
+	return b
+}
+
+func (b *Builder) WithQuotaAlertStore(store quotaalert.Store) *Builder {
+	b.quotaAlertStore = store
+	return b
+}
+
+func (b *Builder) WithQuotaAlertSecretCipher(cipher *quotaalert.SecretCipher) *Builder {
+	b.quotaAlertCipher = cipher
+	return b
+}
+
 // Build validates inputs, applies defaults, and returns a ready-to-run service.
 func (b *Builder) Build() (*Service, error) {
 	if b.cfg == nil {
@@ -260,6 +280,30 @@ func (b *Builder) Build() (*Service, error) {
 	coreManager.SetConfig(b.cfg)
 	coreManager.SetOAuthModelAlias(b.cfg.OAuthModelAlias)
 
+	quotaService := b.quotaAlertService
+	if quotaService == nil && b.quotaAlertStore != nil {
+		collectorRegistry, err := quotaalert.NewDefaultCollectorRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("cliproxy: create quota alert collectors: %w", err)
+		}
+		sender, err := quotaalert.NewTelegramStoreSender(quotaalert.TelegramStoreSenderConfig{
+			Store:  b.quotaAlertStore,
+			Cipher: b.quotaAlertCipher,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("cliproxy: create quota alert Telegram sender: %w", err)
+		}
+		quotaService, err = quotaalert.NewService(quotaalert.ServiceConfig{
+			Store:             b.quotaAlertStore,
+			AuthSource:        NewQuotaAlertAuthSource(coreManager),
+			CollectorRegistry: collectorRegistry,
+			Sender:            sender,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("cliproxy: create quota alert service: %w", err)
+		}
+	}
+
 	service := &Service{
 		cfg:                   b.cfg,
 		configPath:            b.configPath,
@@ -273,6 +317,7 @@ func (b *Builder) Build() (*Service, error) {
 		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
 		managementConfigStore: b.managementConfigStore,
 		runtimeStoragePolicy:  b.runtimeStoragePolicy,
+		quotaAlertService:     quotaService,
 	}
 	return service, nil
 }

@@ -226,7 +226,7 @@ updated: 2026-07-29
 
   - phase_slug: quota-provider-collectors
     story_id: 01KYKBG1WPYTBQW4P23Y2YFQEQ
-    status: in-progress
+    status: checked
     goal: Collect and normalize quota for every supported provider through fixed backend endpoints with provider-parity coverage.
     depends_on: quota-alert-foundation
     allowed_surfaces:
@@ -384,16 +384,19 @@ updated: 2026-07-29
 
   - phase_slug: quota-alert-runtime
     story_id: 01KYKBG9G432XE1RBFB9NRDRZG
-    status: planned
+    status: checked
     goal: Run transition evaluation, single-owner polling, durable provider-grouped delivery, Telegram, and lifecycle integration.
     depends_on: quota-provider-collectors
     allowed_surfaces:
       - `internal/quotaalert/evaluator.go`
       - `internal/quotaalert/service.go`
       - `internal/quotaalert/telegram.go`
+      - `internal/quotaalert/telegram_store_sender.go`
       - corresponding `internal/quotaalert/*_test.go`
       - `sdk/cliproxy/builder.go`
       - `sdk/cliproxy/service.go`
+      - `sdk/cliproxy/quota_alert.go`
+      - `sdk/cliproxy/service_quota_alert_lifecycle_test.go`
       - `sdk/cliproxy/auth/conductor.go` only for narrow hook composition
       - `cmd/server/db_runtime.go`
       - `cmd/server/db_runtime_test.go`
@@ -686,6 +689,12 @@ updated: 2026-07-29
 - timestamp: 2026-07-29T02:36:00Z | phase: quota-provider-collectors | wave: 4 | task: C4 | task_status: DONE | run_id: 01KYNSSJAVX9HF8J3MJEA7P65R | trace_id: 01KYNV8E6STPCQS0Q7CC56ZQ5R | changed_surfaces: internal/quotaalert/collector_kimi.go, internal/quotaalert/collector_xai.go, internal/quotaalert/collector_kimi_xai_test.go, internal/quotaalert/testdata/collector_kimi_usage.json, internal/quotaalert/testdata/collector_xai_billing.json | verification: `go test ./internal/quotaalert -run '^Test(Kimi|XAI)Collector' -count=1` PASS
 - timestamp: 2026-07-29T02:43:17Z | phase: quota-provider-collectors | wave: 5 | task: C5 | task_status: DONE | run_id: 01KYNSSJAVX9HF8J3MJEA7P65R | trace_id: 01KYNVYAVHNXWZ778T1WRTD92S | changed_surfaces: internal/quotaalert/collector_kiro.go, internal/quotaalert/collector_kiro_test.go, internal/quotaalert/testdata/collector_kiro_usage.json | verification: `go test ./internal/quotaalert -run '^TestKiroCollector' -count=1` PASS; `go test ./internal/runtime/executor -run 'Test(ParseKiroUsageLimits|KiroQuotaStateExhausted|KiroExecutorFetchQuota)' -count=1` PASS
 - timestamp: 2026-07-29T02:43:17Z | phase: quota-provider-collectors | wave: 6 | task: C6 | task_status: DONE | run_id: 01KYNSSJAVX9HF8J3MJEA7P65R | trace_id: 01KYNW1A9BTD70BS6GJ0TRT6AR | changed_surfaces: internal/quotaalert/collectors.go, internal/quotaalert/collectors_test.go, internal/quotaalert/collector_kiro.go, internal/quotaalert/collector_kiro_test.go, internal/quotaalert/testdata/collector_kiro_usage.json | verification: `go test ./internal/quotaalert -run '^Test.*Collector' -count=1` PASS; `go test ./internal/runtime/executor -run 'Test(ParseKiroUsageLimits|KiroQuotaStateExhausted|KiroExecutorFetchQuota|Antigravity.*Credits)' -count=1` PASS; `go test -race ./internal/quotaalert -run '^Test.*Collector' -count=1` PASS
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | wave: 1 | task: phase-start | task_status: in-progress | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | trace_id: none | changed_surfaces: docs/plans/active/quota-alert-monitoring.md | verification: run created; R1 evaluator and R2 Telegram transport pending
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | wave: 1 | task: R1 | task_status: DONE | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | trace_id: 01KYNY1GASS761MCHJSS0J0CDB | changed_surfaces: internal/quotaalert/evaluator.go, internal/quotaalert/evaluator_test.go | verification: `go test ./internal/quotaalert -run '^TestEvaluator' -count=1` PASS
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | wave: 1 | task: R2 | task_status: DONE | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | trace_id: 01KYNY1GASS761MCHJSS0J0CDB | changed_surfaces: internal/quotaalert/telegram.go, internal/quotaalert/telegram_test.go | verification: `go test ./internal/quotaalert -run '^TestTelegram' -count=1` PASS
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | wave: 2 | task: R3 | task_status: DONE | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | trace_id: 01KYNY9SCNC2VDK71EE0NVJKY3 | changed_surfaces: internal/quotaalert/service.go, internal/quotaalert/service_test.go | verification: `go test ./internal/quotaalert -run '^TestService' -count=1` PASS; `go test -race ./internal/quotaalert -run '^Test(Service|Evaluator|Telegram)' -count=1` PASS
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | wave: 3 | task: R4 | task_status: DONE | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | trace_id: 01KYNYWQGT4GCEF0YFD9A1HNE4 | changed_surfaces: sdk/cliproxy/builder.go, sdk/cliproxy/service.go, sdk/cliproxy/quota_alert.go, sdk/cliproxy/service_quota_alert_lifecycle_test.go, cmd/server/db_runtime.go, cmd/server/db_runtime_test.go, cmd/server/main.go | verification: `go test ./sdk/cliproxy -run '^TestServiceQuotaAlert' -count=1` PASS; `go test ./cmd/server -run '^TestQuotaSecretKey' -count=1` PASS; `go test ./sdk/cliproxy ./cmd/server -count=1` PASS
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | wave: 4 | task: R5 | task_status: DONE | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | trace_id: 01KYNZ86YKV3PERMY8ZXT5V971 | changed_surfaces: internal/quotaalert/telegram_store_sender.go, internal/quotaalert/telegram_test.go, internal/quotaalert/service.go, internal/quotaalert/service_test.go, internal/store/postgres_quota_alert_integration_test.go, sdk/cliproxy/builder.go, sdk/cliproxy/service_quota_alert_lifecycle_test.go, cmd/server/main.go | verification: `LLMHUB_POSTGRES_TEST_DSN='postgres://user:password@127.0.0.1:5432/llmhub_test?sslmode=disable' go test ./internal/store ./internal/quotaalert -run 'Test.*(AdvisoryLock|NotificationClaim|TransitionDedup|MultiInstance|LeaseRecovery)' -count=1` PASS without skips; `go test -race ./internal/quotaalert ./sdk/cliproxy -count=1` PASS; `go test ./internal/quotaalert ./sdk/cliproxy ./cmd/server -count=1` PASS; `git diff --check` PASS
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -713,13 +722,15 @@ updated: 2026-07-29
 - timestamp: 2026-07-28T06:59:13Z | phase: quota-alert-foundation | commands/results: `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; `go test ./... -count=1` PASS; YAML-owned surface check PASS; gofmt check PASS; `git diff --check` PASS; secret-pattern scan across 15 changed/untracked files PASS; full Security/Performance/Architecture/Code Quality review FAIL with one major finding and no critical findings: `CommitCollection` bypasses `TransitionEvent.Normalize` and persists the original noncanonical event | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | check_id: 01KYKRAE46M01QSD2WG35N2TRJ | verdict: REQUEST_CHANGES | proof_gaps: persistence-level regression proving contradictory transitions are rejected and canonical event fields are stored consistently with notification batches
 - timestamp: 2026-07-29T00:00:00Z | phase: quota-alert-foundation | commands/results: `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; `go test ./... -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; changed-file static validation PASS for 18 files: gofmt, YAML-owned surface, `git diff --check`, whitespace, and secret patterns; focused in-process SQL review CLEAN for transition provenance, tombstones, retention locking, primary-key lease refresh, and seekable pagination; `zharness audit --json` PASS; prior background review agents were stopped and no incomplete result was used | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | check_id: 01KYNR02XCV0EQBPJ44VZC074E | verdict: APPROVED | proof_gaps: none
 - timestamp: 2026-07-29T02:43:17Z | phase: quota-provider-collectors | commands/results: `go test ./internal/quotaalert -run '^Test.*Collector' -count=1` PASS; `go test ./internal/runtime/executor -run 'Test(ParseKiroUsageLimits|KiroQuotaStateExhausted|KiroExecutorFetchQuota|Antigravity.*Credits)' -count=1` PASS; `go test -race ./internal/quotaalert -run '^Test.*Collector' -count=1` PASS; `go test ./internal/quotaalert ./internal/runtime/executor -count=1` PASS; `go test -race ./internal/quotaalert -run '^Test.*Collector' -count=1` PASS; `git diff --check` PASS; forbidden-pattern scan found only fixed provider constants, raw decode buffers, and negative attacker-URL tests | run_id: 01KYNSSJAVX9HF8J3MJEA7P65R | check_id: 01KYNW37X1678T95V3Z8N99NM7 | verdict: APPROVED | proof_gaps: none
+- timestamp: 2026-07-29T03:10:45Z | phase: quota-alert-runtime | commands/results: `go test ./internal/quotaalert -run '^TestServiceDeliver' -count=1` PASS; `go test ./internal/quotaalert ./sdk/cliproxy ./cmd/server -count=1` PASS; `go test -race ./internal/quotaalert ./sdk/cliproxy -count=1` PASS; real PostgreSQL `LLMHUB_POSTGRES_TEST_DSN='postgres://user:password@127.0.0.1:5432/llmhub_test?sslmode=disable' go test ./internal/store ./internal/quotaalert -run 'Test.*(AdvisoryLock|NotificationClaim|TransitionDedup|MultiInstance|LeaseRecovery)' -count=1` PASS without skips; `git diff --check` PASS; `go test ./... -count=1` PASS; manual full-check review fixed timeout/cancel delivery retry semantics and verified DB-backed Telegram delivery decrypts only at send time with missing/wrong key isolated to Telegram; post-record peer review later returned REQUEST_CHANGES against this check with four major runtime blockers | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | check_id: 01KYNZP43KKTTYJ6BMQ5N5Q42A | verdict: APPROVED_SUPERSEDED_BY_POST_CHECK_REMEDIATION | proof_gaps: Stop before Start hang; shared collection timeout without bounded worker isolation; stale states not removed for inactive auths/vanished resources; Telegram unavailable marked permanent
+- timestamp: 2026-07-29T03:44:41Z | phase: quota-alert-runtime | commands/results: peer reviewer `quota_runtime_reviewer` returned REQUEST_CHANGES with four major blockers; remediation trace `01KYP08JZ4NA1GHBTRETG1BR4A` fixed Stop-before-Start shutdown blocking, changed collection to bounded per-auth worker isolation with per-auth timeouts, lists current states and commits stale `RemovedStates`, and makes `ErrTelegramUnavailable` retryable until max attempts; `go test ./internal/quotaalert -run 'TestService' -count=1` PASS; `go test ./internal/quotaalert ./sdk/cliproxy ./cmd/server -count=1` PASS; `go test -race ./internal/quotaalert ./sdk/cliproxy -count=1` PASS; real PostgreSQL `LLMHUB_POSTGRES_TEST_DSN='postgres://user:password@127.0.0.1:5432/llmhub_test?sslmode=disable' go test ./internal/store ./internal/quotaalert -run 'Test.*(AdvisoryLock|NotificationClaim|TransitionDedup|MultiInstance|LeaseRecovery)' -count=1` PASS without skips; `git diff --check` PASS; `go test ./... -count=1` PASS | run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP | check_id: post-check-remediation-trace-01KYP08JZ4NA1GHBTRETG1BR4A | verdict: REMEDIATED | proof_gaps: minor Wake request-path hook remains deferred because no existing request result-hook composition surface was found in the runtime wiring and adding speculative request-path coupling is out of scope
 
 ## Current State and Next Action
-- active_phase: quota-provider-collectors
-- lifecycle_status: approved
-- latest_run_id: 01KYNSSJAVX9HF8J3MJEA7P65R
-- latest_trace_ids: [01KYKM47P0AEZ37S24GMR91ZPY, 01KYKN1WJ1N0DBEGDJCD14ME68, 01KYKNBVYYK3RMASMFECJ12X8G, 01KYKQFXKJ4W23WFRC8EWV351T, 01KYKWJ4X1NP4P9QBWAS4H4AKJ, 01KYM1T7H87E9FRF6GPTR7BHPX, 01KYNQZP2TZFZHX2T9VSZ6NXJG, 01KYNT1QFG7WGRFZQAVQAWQ0B5, 01KYNTKFVJS31JMMHXWZM87RS2, 01KYNTZX0Z2XP4GARDSGK7G1NY, 01KYNV8E6STPCQS0Q7CC56ZQ5R, 01KYNVYAVHNXWZ778T1WRTD92S, 01KYNW1A9BTD70BS6GJ0TRT6AR]
-- latest_check_id: 01KYNW37X1678T95V3Z8N99NM7
+- active_phase: quota-alert-runtime
+- lifecycle_status: checked
+- latest_run_id: 01KYNXMHH74BYPW4JVZ8PKVFCP
+- latest_trace_ids: [01KYKM47P0AEZ37S24GMR91ZPY, 01KYKN1WJ1N0DBEGDJCD14ME68, 01KYKNBVYYK3RMASMFECJ12X8G, 01KYKQFXKJ4W23WFRC8EWV351T, 01KYKWJ4X1NP4P9QBWAS4H4AKJ, 01KYM1T7H87E9FRF6GPTR7BHPX, 01KYNQZP2TZFZHX2T9VSZ6NXJG, 01KYNT1QFG7WGRFZQAVQAWQ0B5, 01KYNTKFVJS31JMMHXWZM87RS2, 01KYNTZX0Z2XP4GARDSGK7G1NY, 01KYNV8E6STPCQS0Q7CC56ZQ5R, 01KYNVYAVHNXWZ778T1WRTD92S, 01KYNW1A9BTD70BS6GJ0TRT6AR, 01KYNY1GASS761MCHJSS0J0CDB, 01KYNY9SCNC2VDK71EE0NVJKY3, 01KYNYWQGT4GCEF0YFD9A1HNE4, 01KYNZ86YKV3PERMY8ZXT5V971, 01KYP08JZ4NA1GHBTRETG1BR4A]
+- latest_check_id: 01KYNZP43KKTTYJ6BMQ5N5Q42A (post-check peer findings remediated by trace 01KYP08JZ4NA1GHBTRETG1BR4A)
 - latest_handoff_id: 01KYKJGBHYY4VZ0GSC0GC9WERY
 - completed_work:
   - Locked initiative `quota-alert-monitoring` with stable plan/intake IDs and database-only configuration requirements.
@@ -741,5 +752,5 @@ updated: 2026-07-29
 - proof_gaps:
   - none
 - open_items:
-  - Commit and push the approved `quota-provider-collectors` phase when ready.
-- exact_next_action: `/git cp` for the approved `quota-provider-collectors` phase changes
+  - Commit and push the approved `quota-alert-runtime` phase when ready.
+- exact_next_action: `/git cp` for the approved `quota-alert-runtime` phase changes

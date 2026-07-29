@@ -15,11 +15,15 @@ import (
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/store"
 	"github.com/therealtinhtute/llmhub/internal/util"
 )
 
-const runtimeConfigLabel = "postgres://runtime-config"
+const (
+	runtimeConfigLabel      = "postgres://runtime-config"
+	defaultQuotaSecretKeyID = "runtime"
+)
 
 func lookupEnvTrimmed(keys ...string) (string, bool) {
 	for _, key := range keys {
@@ -30,6 +34,22 @@ func lookupEnvTrimmed(keys ...string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func loadQuotaSecretCipherFromEnv() (*quotaalert.SecretCipher, error) {
+	encoded, ok := lookupEnvTrimmed("LLMHUB_QUOTA_SECRET_KEY_B64", "llmhub_quota_secret_key_b64")
+	if !ok {
+		return nil, nil
+	}
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("decode LLMHUB_QUOTA_SECRET_KEY_B64: %w", err)
+	}
+	keyID, ok := lookupEnvTrimmed("LLMHUB_QUOTA_SECRET_KEY_ID", "llmhub_quota_secret_key_id")
+	if !ok {
+		keyID = defaultQuotaSecretKeyID
+	}
+	return quotaalert.NewSecretCipher(keyID, key)
 }
 
 func loadDotEnvForSetup(path string) error {

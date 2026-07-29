@@ -34,6 +34,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/managementasset"
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
@@ -64,6 +65,8 @@ type serverOptionConfig struct {
 	postAuthHook               auth.PostAuthHook
 	managementConfigStore      managementHandlers.ManagementConfigStore
 	managementConfigChangeHook func(*config.Config)
+	quotaAlertStore            quotaalert.Store
+	quotaAlertCipher           *quotaalert.SecretCipher
 	runtimeStoragePolicy       runtimepolicy.RuntimeStorage
 }
 
@@ -141,6 +144,18 @@ func WithManagementConfigStore(store managementHandlers.ManagementConfigStore) S
 func WithManagementConfigChangeHook(hook func(*config.Config)) ServerOption {
 	return func(cfg *serverOptionConfig) {
 		cfg.managementConfigChangeHook = hook
+	}
+}
+
+func WithQuotaAlertStore(store quotaalert.Store) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.quotaAlertStore = store
+	}
+}
+
+func WithQuotaAlertSecretCipher(cipher *quotaalert.SecretCipher) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.quotaAlertCipher = cipher
 	}
 }
 
@@ -323,6 +338,12 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 	if optionState.managementConfigChangeHook != nil {
 		s.mgmt.SetConfigChangeHook(optionState.managementConfigChangeHook)
+	}
+	if optionState.quotaAlertStore != nil {
+		s.mgmt.SetQuotaAlertStore(optionState.quotaAlertStore)
+	}
+	if optionState.quotaAlertCipher != nil {
+		s.mgmt.SetQuotaAlertSecretCipher(optionState.quotaAlertCipher)
 	}
 	s.localPassword = optionState.localPassword
 
@@ -641,6 +662,14 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PUT("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 		mgmt.PATCH("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 		mgmt.POST("/reset-quota", s.mgmt.ResetQuota)
+
+		mgmt.GET("/quota-alerts/settings", s.mgmt.GetQuotaAlertSettings)
+		mgmt.PUT("/quota-alerts/settings", s.mgmt.PutQuotaAlertSettings)
+		mgmt.PUT("/quota-alerts/telegram", s.mgmt.PutQuotaAlertTelegram)
+		mgmt.GET("/quota-alerts/state", s.mgmt.GetQuotaAlertState)
+		mgmt.GET("/quota-alerts/events", s.mgmt.GetQuotaAlertEvents)
+		mgmt.POST("/quota-alerts/events/:id/ack", s.mgmt.AckQuotaAlertEvent)
+		mgmt.POST("/quota-alerts/telegram/test", s.mgmt.TestQuotaAlertTelegram)
 
 		mgmt.GET("/api-keys", s.mgmt.GetAPIKeys)
 		mgmt.PUT("/api-keys", s.mgmt.PutAPIKeys)

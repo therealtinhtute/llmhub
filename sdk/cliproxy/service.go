@@ -66,6 +66,9 @@ type Service struct {
 	// managementConfigStore persists management config changes outside local files.
 	managementConfigStore api.ManagementConfigStore
 
+	quotaAlertStore  quotaalert.Store
+	quotaAlertCipher *quotaalert.SecretCipher
+
 	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 
 	// server is the HTTP API server instance.
@@ -916,6 +919,12 @@ func (s *Service) Run(ctx context.Context) error {
 				s.applyConfigUpdate(newCfg)
 			}),
 		)
+	}
+	if s.quotaAlertStore != nil {
+		serverOptions = append(serverOptions, api.WithQuotaAlertStore(s.quotaAlertStore))
+	}
+	if s.quotaAlertCipher != nil {
+		serverOptions = append(serverOptions, api.WithQuotaAlertSecretCipher(s.quotaAlertCipher))
 	}
 	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, serverOptions...)
 

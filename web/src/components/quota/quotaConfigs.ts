@@ -42,6 +42,7 @@ import type {
 } from '@/types';
 import { apiCallApi, authFilesApi, getApiCallErrorMessage } from '@/services/api';
 import { useQuotaStore } from '@/stores';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   ANTIGRAVITY_QUOTA_URLS,
   ANTIGRAVITY_REQUEST_HEADERS,
@@ -151,6 +152,7 @@ export interface QuotaConfig<TState, TData> {
   controlsClassName: string;
   controlClassName: string;
   gridClassName: string;
+  placeResetQuotaAction?: 'header' | 'body';
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
 
@@ -874,7 +876,7 @@ const renderCodexItems = (
   t: TFunction,
   helpers: QuotaRenderHelpers
 ): ReactNode => {
-  const { styles: styleMap, QuotaProgressBar } = helpers;
+  const { styles: styleMap, QuotaProgressBar, resetQuotaAction } = helpers;
   const { createElement: h, Fragment } = React;
   const windows = quota.windows ?? [];
   const planType = quota.planType ?? null;
@@ -897,39 +899,72 @@ const renderCodexItems = (
   const resetCreditsCount = quota.rateLimitResetCreditsAvailableCount ?? null;
   const resetCredits = quota.rateLimitResetCredits ?? [];
   const resetCreditsError = quota.rateLimitResetCreditsError ?? '';
-  const nodes: ReactNode[] = [];
+  const hasManualResetTab = resetCredits.length > 0 || Boolean(resetCreditsError);
+  const statusNodes: ReactNode[] = [];
+  const manualResetNodes: ReactNode[] = [];
+  const renderResetAction = (key: string) =>
+    resetQuotaAction
+      ? h('div', { key, className: styleMap.quotaCardActionRow }, resetQuotaAction)
+      : null;
 
-  if (planLabel || resetCreditsCount !== null) {
-    const planNodes: ReactNode[] = [];
-
-    if (planLabel) {
-      const valueClass = isPremiumPlan ? styleMap.premiumPlanValue : styleMap.codexPlanValue;
-      planNodes.push(
+  if (planLabel) {
+    const valueClass = isPremiumPlan ? styleMap.premiumPlanValue : styleMap.codexPlanValue;
+    statusNodes.push(
+      h(
+        'div',
+        { key: 'plan', className: styleMap.codexPlan },
         h(
           'span',
           { key: 'plan-type', className: styleMap.codexPlanItem },
           h('span', { className: styleMap.codexPlanLabel }, t('codex_quota.plan_label')),
           h('span', { className: valueClass }, planLabel)
         )
-      );
-    }
-
-    if (resetCreditsCount !== null) {
-      planNodes.push(
-        h(
-          'span',
-          { key: 'reset-credits', className: styleMap.codexPlanItem },
-          h('span', { className: styleMap.codexPlanLabel }, t('codex_quota.reset_credits_label')),
-          h('span', { className: styleMap.codexPlanValue }, resetCreditsCount.toString())
-        )
-      );
-    }
-
-    nodes.push(h('div', { key: 'plan', className: styleMap.codexPlan }, ...planNodes));
+      )
+    );
   }
 
+  if (windows.length === 0) {
+    statusNodes.push(
+      h('div', { key: 'empty', className: styleMap.quotaMessage }, t('codex_quota.empty_windows'))
+    );
+  } else {
+    statusNodes.push(
+      ...windows.map((window) => {
+        const used = window.usedPercent;
+        const clampedUsed = used === null ? null : Math.max(0, Math.min(100, used));
+        const remaining = clampedUsed === null ? null : Math.max(0, Math.min(100, 100 - clampedUsed));
+        const percentLabel = remaining === null ? '--' : `${Math.round(remaining)}%`;
+        const windowLabel = window.labelKey
+          ? t(window.labelKey, window.labelParams as Record<string, string | number>)
+          : window.label;
+
+        return h(
+          'div',
+          { key: window.id, className: styleMap.quotaRow },
+          h(
+            'div',
+            { className: styleMap.quotaRowHeader },
+            h('span', { className: styleMap.quotaModel }, windowLabel),
+            h(
+              'div',
+              { className: styleMap.quotaMeta },
+              h('span', { className: styleMap.quotaPercent }, percentLabel),
+              h('span', { className: styleMap.quotaReset }, window.resetLabel)
+            )
+          ),
+          h(QuotaProgressBar, { percent: remaining })
+        );
+      })
+    );
+  }
+
+  const statusResetAction = renderResetAction('status-reset-action');
+  if (statusResetAction) statusNodes.push(statusResetAction);
+
   if (resetCredits.length > 0) {
-    nodes.push(
+    const manualResetAction = renderResetAction('manual-reset-action');
+    if (manualResetAction) manualResetNodes.push(manualResetAction);
+    manualResetNodes.push(
       h(
         'div',
         { key: 'reset-credit-expiries', className: styleMap.codexResetCredits },
@@ -960,7 +995,9 @@ const renderCodexItems = (
       )
     );
   } else if (resetCreditsError) {
-    nodes.push(
+    const manualResetAction = renderResetAction('manual-reset-action');
+    if (manualResetAction) manualResetNodes.push(manualResetAction);
+    manualResetNodes.push(
       h(
         'div',
         { key: 'reset-credit-expiry-error', className: styleMap.codexResetCreditsError },
@@ -969,43 +1006,39 @@ const renderCodexItems = (
     );
   }
 
-  if (windows.length === 0) {
-    nodes.push(
-      h('div', { key: 'empty', className: styleMap.quotaMessage }, t('codex_quota.empty_windows'))
-    );
-    return h(Fragment, null, ...nodes);
+  if (!hasManualResetTab) {
+    return h(Fragment, null, ...statusNodes);
   }
 
-  nodes.push(
-    ...windows.map((window) => {
-      const used = window.usedPercent;
-      const clampedUsed = used === null ? null : Math.max(0, Math.min(100, used));
-      const remaining = clampedUsed === null ? null : Math.max(0, Math.min(100, 100 - clampedUsed));
-      const percentLabel = remaining === null ? '--' : `${Math.round(remaining)}%`;
-      const windowLabel = window.labelKey
-        ? t(window.labelKey, window.labelParams as Record<string, string | number>)
-        : window.label;
+  const manualResetCount = resetCreditsCount ?? (resetCredits.length > 0 ? resetCredits.length : null);
 
-      return h(
-        'div',
-        { key: window.id, className: styleMap.quotaRow },
-        h(
-          'div',
-          { className: styleMap.quotaRowHeader },
-          h('span', { className: styleMap.quotaModel }, windowLabel),
-          h(
-            'div',
-            { className: styleMap.quotaMeta },
-            h('span', { className: styleMap.quotaPercent }, percentLabel),
-            h('span', { className: styleMap.quotaReset }, window.resetLabel)
-          )
-        ),
-        h(QuotaProgressBar, { percent: remaining })
-      );
-    })
+  return h(
+    Tabs,
+    { defaultValue: 'status', className: styleMap.quotaCardTabs },
+    h(
+      TabsList,
+      { className: styleMap.quotaCardTabsList },
+      h(TabsTrigger, { value: 'status', className: styleMap.quotaCardTabsTrigger }, t('codex_quota.status_tab')),
+      h(
+        TabsTrigger,
+        { value: 'manual-resets', className: styleMap.quotaCardTabsTrigger },
+        t('codex_quota.manual_resets_tab'),
+        manualResetCount !== null
+          ? h('span', { className: styleMap.tabCountBadge }, manualResetCount.toString())
+          : null
+      )
+    ),
+    h(
+      TabsContent,
+      { value: 'status', className: styleMap.quotaCardTabsContent },
+      ...statusNodes
+    ),
+    h(
+      TabsContent,
+      { value: 'manual-resets', className: styleMap.quotaCardTabsContent },
+      ...manualResetNodes
+    )
   );
-
-  return h(Fragment, null, ...nodes);
 };
 
 const renderGeminiCliItems = (
@@ -1400,6 +1433,7 @@ export const CODEX_CONFIG: QuotaConfig<CodexQuotaState, CodexQuotaData> = {
   controlsClassName: styles.codexControls,
   controlClassName: styles.codexControl,
   gridClassName: styles.codexGrid,
+  placeResetQuotaAction: 'body',
   renderQuotaItems: renderCodexItems,
 };
 

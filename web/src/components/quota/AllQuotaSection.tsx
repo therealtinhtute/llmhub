@@ -437,6 +437,7 @@ export function AllQuotaSection({ configs, files, loading, disabled, viewMode: e
               canRefresh={!disabled && !item.disabled}
               onRefresh={() => void refreshQuotaForItem(item, config)}
               resetQuotaAction={resetQuotaAction}
+              placeResetQuotaAction={config.placeResetQuotaAction}
               onSetKiroOverage={config.type === 'kiro' ? setKiroOverageForItem : undefined}
               renderQuotaItems={config.renderQuotaItems}
             />

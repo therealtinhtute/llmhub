@@ -1315,6 +1315,60 @@ func (s *PostgresStore) ListEvents(ctx context.Context, page quotaalert.PageRequ
 	return result, nil
 }
 
+// ListEventDeliveryStatuses summarizes Telegram outbox state for transition events.
+func (s *PostgresStore) ListEventDeliveryStatuses(ctx context.Context, eventIDs []string) (map[string]quotaalert.EventDeliveryStatus, error) {
+	if len(eventIDs) == 0 {
+		return map[string]quotaalert.EventDeliveryStatus{}, nil
+	}
+	if len(eventIDs) > quotaalert.MaxPageSize {
+		return nil, fmt.Errorf("postgres store: event delivery status request must not exceed %d events", quotaalert.MaxPageSize)
+	}
+	placeholders := make([]string, 0, len(eventIDs))
+	args := make([]any, 0, len(eventIDs))
+	for _, eventID := range eventIDs {
+		eventID = strings.TrimSpace(eventID)
+		if eventID == "" {
+			return nil, fmt.Errorf("postgres store: event delivery status event ID is required")
+		}
+		args = append(args, eventID)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+	}
+	query := fmt.Sprintf(`
+		SELECT DISTINCT ON (link.event_id)
+		       link.event_id, batch.status, batch.failure_code, batch.attempt_count, batch.sent_at
+		FROM %s AS link
+		JOIN %s AS batch ON batch.id = link.batch_id
+		WHERE link.event_id IN (%s)
+		ORDER BY link.event_id, batch.created_at DESC, batch.id DESC
+	`, s.fullTableName(quotaNotificationBatchEventsTable), s.fullTableName(quotaNotificationBatchesTable), strings.Join(placeholders, ","))
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("postgres store: list quota alert event delivery statuses: %w", err)
+	}
+	defer rows.Close()
+	statuses := make(map[string]quotaalert.EventDeliveryStatus, len(eventIDs))
+	for rows.Next() {
+		var eventID string
+		var status quotaalert.EventDeliveryStatus
+		var failureCode sql.NullString
+		var sentAt sql.NullTime
+		if err = rows.Scan(&eventID, &status.Status, &failureCode, &status.AttemptCount, &sentAt); err != nil {
+			return nil, fmt.Errorf("postgres store: scan quota alert event delivery status: %w", err)
+		}
+		if failureCode.Valid {
+			status.FailureCode = failureCode.String
+		}
+		if sentAt.Valid {
+			status.SentAt = sentAt.Time
+		}
+		statuses[eventID] = status
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres store: iterate quota alert event delivery statuses: %w", err)
+	}
+	return statuses, nil
+}
+
 func scanQuotaAlertEvent(scanner rowScanner) (quotaalert.TransitionEvent, error) {
 	var event quotaalert.TransitionEvent
 	var remaining sql.NullFloat64

@@ -13,6 +13,7 @@ import (
 	gin "github.com/gin-gonic/gin"
 	proxyconfig "github.com/therealtinhtute/llmhub/internal/config"
 	internallogging "github.com/therealtinhtute/llmhub/internal/logging"
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
@@ -25,7 +26,17 @@ func newTestServer(t *testing.T) *Server {
 	return newTestServerWithAuthManager(t, auth.NewManager(nil, nil, nil))
 }
 
+func newTestServerWithOptions(t *testing.T, options ...ServerOption) *Server {
+	t.Helper()
+	return newTestServerWithAuthManagerAndOptions(t, auth.NewManager(nil, nil, nil), options...)
+}
+
 func newTestServerWithAuthManager(t *testing.T, authManager *auth.Manager) *Server {
+	t.Helper()
+	return newTestServerWithAuthManagerAndOptions(t, authManager)
+}
+
+func newTestServerWithAuthManagerAndOptions(t *testing.T, authManager *auth.Manager, options ...ServerOption) *Server {
 	t.Helper()
 
 	gin.SetMode(gin.TestMode)
@@ -50,7 +61,7 @@ func newTestServerWithAuthManager(t *testing.T, authManager *auth.Manager) *Serv
 	accessManager := sdkaccess.NewManager()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	return NewServer(cfg, authManager, accessManager, configPath)
+	return NewServer(cfg, authManager, accessManager, configPath, options...)
 }
 
 func TestHealthz(t *testing.T) {
@@ -149,6 +160,33 @@ func TestManagementUsageRequiresManagementAuthAndPopsArray(t *testing.T) {
 
 	if remaining := redisqueue.PopOldest(1); len(remaining) != 0 {
 		t.Fatalf("remaining queue = %q, want empty", remaining)
+	}
+}
+
+func TestManagementQuotaAlertSettingsRouteRequiresManagementAuth(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
+	store := &apiQuotaAlertRouteStore{settings: quotaalert.DefaultSettings()}
+	server := newTestServerWithOptions(t, WithQuotaAlertStore(store))
+
+	missingKeyReq := httptest.NewRequest(http.MethodGet, "/v0/management/quota-alerts/settings", nil)
+	missingKeyRR := httptest.NewRecorder()
+	server.engine.ServeHTTP(missingKeyRR, missingKeyReq)
+	if missingKeyRR.Code != http.StatusUnauthorized {
+		t.Fatalf("missing key status = %d, want %d body=%s", missingKeyRR.Code, http.StatusUnauthorized, missingKeyRR.Body.String())
+	}
+	if store.loadSettingsCount != 0 {
+		t.Fatalf("store loads before auth = %d, want 0", store.loadSettingsCount)
+	}
+
+	authReq := httptest.NewRequest(http.MethodGet, "/v0/management/quota-alerts/settings", nil)
+	authReq.Header.Set("Authorization", "Bearer test-management-key")
+	authRR := httptest.NewRecorder()
+	server.engine.ServeHTTP(authRR, authReq)
+	if authRR.Code != http.StatusOK {
+		t.Fatalf("authenticated status = %d, want %d body=%s", authRR.Code, http.StatusOK, authRR.Body.String())
+	}
+	if store.loadSettingsCount != 1 {
+		t.Fatalf("store loads after auth = %d, want 1", store.loadSettingsCount)
 	}
 }
 

@@ -719,6 +719,14 @@ type NotificationResult struct {
 	PermanentFailure bool
 }
 
+// EventDeliveryStatus summarizes Telegram outbox delivery for one transition event.
+type EventDeliveryStatus struct {
+	Status       string
+	FailureCode  string
+	AttemptCount int
+	SentAt       time.Time
+}
+
 // Store is the database-only quota-alert persistence boundary.
 type Store interface {
 	LoadSettings(ctx context.Context) (Settings, error)

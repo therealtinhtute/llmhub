@@ -317,6 +317,8 @@ func (b *Builder) Build() (*Service, error) {
 		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
 		managementConfigStore: b.managementConfigStore,
 		runtimeStoragePolicy:  b.runtimeStoragePolicy,
+		quotaAlertStore:       b.quotaAlertStore,
+		quotaAlertCipher:      b.quotaAlertCipher,
 		quotaAlertService:     quotaService,
 	}
 	return service, nil

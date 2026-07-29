@@ -91,7 +91,12 @@ func (s *TelegramSender) Send(ctx context.Context, batch NotificationBatch) erro
 
 // SendTest sends an explicit test notification without creating any alert transition payload.
 func (s *TelegramSender) SendTest(ctx context.Context) error {
-	return s.sendMessage(ctx, "LLMHub quota alert test notification. If you received this, Telegram delivery is configured.")
+	lines := []string{
+		"✅ LLMHub quota alert test",
+		"Status: Telegram delivery is configured.",
+		"This is a test only; no quota transition was created.",
+	}
+	return s.sendMessage(ctx, strings.Join(lines, "\n"))
 }
 
 // RenderTelegramMessage renders a bounded provider-grouped quota alert message.
@@ -112,20 +117,55 @@ func RenderTelegramMessage(batch NotificationBatch) string {
 		return leftEvent.ID < rightEvent.ID
 	})
 	lines := []string{
-		"LLMHub quota alert",
+		transitionHeader(events),
 		"Provider: " + string(batch.Provider()),
 	}
 	for _, event := range events {
-		line := fmt.Sprintf("- %s: %s %s / %s", event.AuthLabel, event.Kind, event.Identity.Resource, event.Identity.Window)
+		lines = append(lines,
+			"",
+			fmt.Sprintf("%s %s", transitionIcon(event.Kind), event.AuthLabel),
+			fmt.Sprintf("Resource: %s / %s", event.Identity.Resource, event.Identity.Window),
+			fmt.Sprintf("Transition: %s → %s", event.From, event.To),
+		)
 		if event.RemainingKnown {
-			line += fmt.Sprintf(" (%g%% remaining)", event.Remaining)
+			lines = append(lines, fmt.Sprintf("Remaining: %g%%", event.Remaining))
+		} else {
+			lines = append(lines, "Remaining: unknown")
 		}
 		if event.ResetKnown {
-			line += "; resets " + event.ResetAt.UTC().Format(time.RFC3339)
+			lines = append(lines, "Reset: "+event.ResetAt.UTC().Format(time.RFC3339))
 		}
-		lines = append(lines, line)
 	}
 	return boundTelegramMessage(strings.Join(lines, "\n"))
+}
+
+func transitionHeader(events []TransitionEvent) string {
+	hasRecovery := false
+	for _, event := range events {
+		if event.Kind == TransitionExhausted {
+			return "🚨 LLMHub quota alert"
+		}
+		if event.Kind == TransitionRecovery {
+			hasRecovery = true
+		}
+	}
+	if hasRecovery {
+		return "✅ LLMHub quota recovered"
+	}
+	return "⚠️ LLMHub quota alert"
+}
+
+func transitionIcon(kind TransitionKind) string {
+	switch kind {
+	case TransitionExhausted:
+		return "🚨"
+	case TransitionRecovery:
+		return "✅"
+	case TransitionReminder:
+		return "🔁"
+	default:
+		return "⚠️"
+	}
 }
 
 func (s *TelegramSender) sendMessage(ctx context.Context, message string) error {

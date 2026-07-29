@@ -51,13 +51,27 @@ func TestTelegramSendsProviderGroupedBatch(t *testing.T) {
 	if got.ChatID != "-100123" {
 		t.Fatalf("chat ID = %q", got.ChatID)
 	}
-	for _, want := range []string{"LLMHub quota alert", "Provider: claude", "auth-1 label", "messages / weekly", "warning", "exhausted", "5%", "0%"} {
+	for _, want := range []string{"🚨 LLMHub quota alert", "Provider: claude", "auth-1 label", "Resource: messages / weekly", "Transition: healthy → warning", "Transition: warning → exhausted", "Remaining: 5%", "Remaining: 0%"} {
 		if !strings.Contains(got.Text, want) {
 			t.Fatalf("message missing %q: %s", want, got.Text)
 		}
 	}
 	if strings.Contains(got.Text, "secret-token") {
 		t.Fatalf("message contains token: %s", got.Text)
+	}
+}
+
+func TestTelegramRecoveryBatchUsesRecoveredHeader(t *testing.T) {
+	now := time.Date(2026, time.July, 29, 5, 0, 0, 0, time.UTC)
+	batch := telegramTestBatch(t, now, []TransitionEvent{
+		telegramTestEvent("event-1", ProviderClaude, TransitionRecovery, AlertWarning, AlertHealthy, 80, now),
+	})
+	message := RenderTelegramMessage(batch)
+	if !strings.Contains(message, "✅ LLMHub quota recovered") {
+		t.Fatalf("message missing recovery header: %s", message)
+	}
+	if strings.Contains(message, "⚠️ LLMHub quota alert") {
+		t.Fatalf("recovery message used warning header: %s", message)
 	}
 }
 
@@ -79,8 +93,10 @@ func TestTelegramTestSendCreatesNoAlertTransitionPayload(t *testing.T) {
 	if err = sender.SendTest(context.Background()); err != nil {
 		t.Fatalf("SendTest() error = %v", err)
 	}
-	if !strings.Contains(got.Text, "test notification") {
-		t.Fatalf("test message = %q", got.Text)
+	for _, want := range []string{"✅ LLMHub quota alert test", "Status: Telegram delivery is configured.", "no quota transition was created"} {
+		if !strings.Contains(got.Text, want) {
+			t.Fatalf("test message missing %q: %s", want, got.Text)
+		}
 	}
 	for _, forbidden := range []string{"warning", "exhausted", "recovery", "auth-", "secret-token"} {
 		if strings.Contains(got.Text, forbidden) {

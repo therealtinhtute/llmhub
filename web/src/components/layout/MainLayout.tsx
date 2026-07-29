@@ -228,6 +228,7 @@ export function MainLayout() {
       labelKey: 'nav_groups.observe',
       items: [
         { path: '/quota', labelKey: 'nav.quota_management', metaKey: 'nav_meta.quota_management', icon: sidebarIcons.quota },
+        { path: '/quota/monitoring', labelKey: 'nav.quota_monitoring', metaKey: 'nav_meta.quota_monitoring', icon: sidebarIcons.quota },
         ...(config?.loggingToFile
           ? [{ path: '/logs', labelKey: 'nav.logs', metaKey: 'nav_meta.logs', icon: sidebarIcons.logs }]
           : []),
@@ -251,6 +252,7 @@ export function MainLayout() {
           : location.pathname;
       const normalizedPath = normalized === '/dashboard' ? '/' : normalized;
       if (path === '/') return normalizedPath === '/';
+      if (path === '/quota') return normalizedPath === '/quota';
       return normalizedPath === path || normalizedPath.startsWith(path + '/');
     },
     [location.pathname]

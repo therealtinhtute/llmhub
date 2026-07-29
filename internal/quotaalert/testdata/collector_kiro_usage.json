@@ -1,0 +1,32 @@
+{
+  "usageBreakdownList": [
+    {
+      "resourceType": "AGENTIC_REQUEST",
+      "displayName": "Agentic requests",
+      "currentUsageWithPrecision": 75,
+      "usageLimitWithPrecision": 100,
+      "nextDateReset": "2026-07-30T00:00:00Z"
+    },
+    {
+      "resourceType": "CHAT_REQUEST",
+      "currentUsage": 5,
+      "usageLimit": 10,
+      "freeTrialInfo": {
+        "currentUsage": 1,
+        "usageLimit": 5,
+        "freeTrialExpiry": "2026-08-01T00:00:00Z"
+      }
+    },
+    {
+      "resourceType": "CREDIT",
+      "currentUsageWithPrecision": 1000,
+      "usageLimitWithPrecision": 1000,
+      "overageStatus": "DISABLED"
+    }
+  ],
+  "nextDateReset": "2026-07-31T00:00:00Z",
+  "subscriptionInfo": {
+    "subscriptionType": "paid",
+    "subscriptionTitle": "Kiro Pro"
+  }
+}

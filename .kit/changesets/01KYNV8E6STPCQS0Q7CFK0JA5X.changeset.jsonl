@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KYNV8E6STPCQS0Q7CC56ZQ5R","fields":{"created_at":"2026-07-29T02:29:02Z","run_id":"01KYNSSJAVX9HF8J3MJEA7P65R","summary":"Implemented Kimi and xAI quota collectors with fixed GET endpoints, remaining-percentage normalization, reset timestamps, and sanitized failures.","wave":4},"at":"2026-07-29T02:29:02Z"}

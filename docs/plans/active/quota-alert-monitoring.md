@@ -5,7 +5,7 @@ intake_id: 01KYKAM79F477BT30M0MW5ZA20
 lane: high-risk
 status: active
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-07-29
 ---
 
 # Plan: Database-backed quota alert monitoring
@@ -114,7 +114,7 @@ updated: 2026-07-28
 - phases:
   - phase_slug: quota-alert-foundation
     story_id: 01KYKBFTE2YMWCCZVXQP1NKP2E
-    status: in-progress
+    status: checked
     goal: Define the quota-alert domain, encrypted database-only settings, durable state, events, and notification outbox persistence.
     depends_on: none
     allowed_surfaces:
@@ -678,6 +678,7 @@ updated: 2026-07-28
 - timestamp: 2026-07-28T06:44:54Z | phase: quota-alert-foundation | wave: remediation | task: check-01KYKP0ZK8APNVVT0H4ZYGMWYP | task_status: DONE | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | trace_id: 01KYKQFXKJ4W23WFRC8EWV351T | changed_surfaces: internal/quotaalert/types.go, internal/quotaalert/types_test.go, internal/store/postgres_quota_alert.go, internal/store/postgres_quota_alert_integration_test.go | verification: `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; `go test ./... -count=1` PASS; YAML-owned surface check PASS; gofmt check PASS; `git diff --check` PASS
 - timestamp: 2026-07-28T08:13:40Z | phase: quota-alert-foundation | wave: remediation | task: check-01KYKRAE46M01QSD2WG35N2TRJ | task_status: DONE | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | trace_id: 01KYKWJ4X1NP4P9QBWAS4H4AKJ | changed_surfaces: internal/quotaalert/types.go, internal/quotaalert/types_test.go, internal/quotaalert/crypto.go, internal/quotaalert/crypto_test.go, internal/store/postgres_quota_alert.go, internal/store/postgres_quota_alert_integration_test.go | verification: canonical event/state/batch persistence, atomic settings-secret reads, explicit state reconciliation, immutable event replay, poison quarantine, bounded leases/inputs, PostgreSQL timestamp precision, and exclusive notification outcomes implemented; `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; `go test ./... -count=1` PASS
 - timestamp: 2026-07-28T09:45:21Z | phase: quota-alert-foundation | wave: remediation-4 | task: architecture-performance-follow-up | task_status: DONE | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | trace_id: 01KYM1T7H87E9FRF6GPTR7BHPX | changed_surfaces: internal/quotaalert/types.go, internal/quotaalert/types_test.go, internal/store/postgres_quota_alert.go, internal/store/postgres_quota_alert_integration_test.go | verification: persisted transition provenance, exact replay, cross-store lease fencing, acknowledgement chronology, two-sided retention tombstones, seekable commit-refreshed notification leases, 1,000-item collection commits, and 16,384-identity state loads implemented; `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; `go test ./... -count=1` PASS; gofmt, YAML-owned surface, `git diff --check`, changed-file whitespace, and secret scans PASS
+- timestamp: 2026-07-29T00:00:00Z | phase: quota-alert-foundation | wave: remediation-5 | task: final-gate | task_status: DONE | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | trace_id: 01KYNQZP2TZFZHX2T9VSZ6NXJG | changed_surfaces: internal/store/postgres_quota_alert.go, internal/store/postgres_quota_alert_integration_test.go, docs/plans/active/quota-alert-monitoring.md | verification: invalid initial transition history, batch-first retired replay, event-first pruned ID reuse, serialized opposite-order pruning, primary-key lease refresh, descending tuple state pagination, and corrected JSON constraint regression implemented; `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; `go test ./... -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips after restarting local PostgreSQL container; gofmt, YAML-owned surface, `git diff --check`, changed-file whitespace, secret scan, focused SQL review, and `zharness audit --json` PASS; check_id 01KYNR02XCV0EQBPJ44VZC074E APPROVED
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -697,18 +698,20 @@ updated: 2026-07-28
 - timestamp: 2026-07-28T09:45:21Z | phase/task: quota-alert-foundation/remediation-4 | decision: Persist event-to-batch assignment tombstones without parent foreign keys and delete a tombstone only in the bounded prune that removes the second surviving parent. | rationale: Batch-first and event-first retention must both preserve event delivery dedupe, while cleanup must touch only assignments associated with the bounded deleted set.
 - timestamp: 2026-07-28T09:45:21Z | phase/task: quota-alert-foundation/remediation-4 | decision: Maintain one indexed `claimable_at` timestamp for pending notification eligibility and refresh every valid lease from PostgreSQL time immediately before claim commit. | rationale: A seekable schedule avoids nullable-expiry OR scans, and validation time cannot consume the lease returned to a delivery worker.
 - timestamp: 2026-07-28T09:45:21Z | phase/task: quota-alert-foundation/remediation-4 | decision: Cap atomic collection commits at 1,000 top-level items and `LoadStates` requests at 16,384 identities while retaining 1,000-identity SQL chunks. | rationale: Explicit total bounds make per-row transactional writes and state-load allocation/query work finite without an unplanned bulk-write abstraction.
+- timestamp: 2026-07-29T00:00:00Z | phase/task: quota-alert-foundation/remediation-5 | decision: Serialize event and batch retention through one transaction-scoped advisory lock, use a new all-descending state-list index/keyset predicate, and refresh notification leases by bounded claimed batch IDs plus lease ownership. | rationale: Opposite-order pruning cannot leak tombstones under MVCC, equal-timestamp state pages remain seekable, and lease refresh avoids scanning unrelated pending outbox rows.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
 - timestamp: 2026-07-28T06:19:12Z | phase: quota-alert-foundation | commands/results: `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; YAML-owned surface check PASS; `git diff --check` PASS; `go test ./... -count=1` PASS; gofmt check PASS; `zharness audit --json` PASS; full Security/Performance/Architecture/Code Quality review FAIL with four major finding groups and no critical findings | run_id: 01KYKK2CDAB7SR569Y3ZXEES95 | check_id: 01KYKP0ZK8APNVVT0H4ZYGMWYP | verdict: REQUEST_CHANGES | proof_gaps: settings snapshot/secret-boundary concurrency; cancellation-safe collection ownership and database-clock delivery leases; transition/state freshness invariants; bounded and integrity-checked terminal outbox retention
 - timestamp: 2026-07-28T06:59:13Z | phase: quota-alert-foundation | commands/results: `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; `go test ./... -count=1` PASS; YAML-owned surface check PASS; gofmt check PASS; `git diff --check` PASS; secret-pattern scan across 15 changed/untracked files PASS; full Security/Performance/Architecture/Code Quality review FAIL with one major finding and no critical findings: `CommitCollection` bypasses `TransitionEvent.Normalize` and persists the original noncanonical event | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | check_id: 01KYKRAE46M01QSD2WG35N2TRJ | verdict: REQUEST_CHANGES | proof_gaps: persistence-level regression proving contradictory transitions are rejected and canonical event fields are stored consistently with notification batches
+- timestamp: 2026-07-29T00:00:00Z | phase: quota-alert-foundation | commands/results: `go test ./internal/quotaalert ./internal/store -count=1` PASS; `go test -race ./internal/quotaalert -count=1` PASS; `go test ./... -count=1` PASS; real PostgreSQL 16 `go test ./internal/store -run '^TestPostgresQuotaAlert' -count=1` PASS without skips; changed-file static validation PASS for 18 files: gofmt, YAML-owned surface, `git diff --check`, whitespace, and secret patterns; focused in-process SQL review CLEAN for transition provenance, tombstones, retention locking, primary-key lease refresh, and seekable pagination; `zharness audit --json` PASS; prior background review agents were stopped and no incomplete result was used | run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA | check_id: 01KYNR02XCV0EQBPJ44VZC074E | verdict: APPROVED | proof_gaps: none
 
 ## Current State and Next Action
 - active_phase: quota-alert-foundation
-- lifecycle_status: in-progress
+- lifecycle_status: checked
 - latest_run_id: 01KYKP3RWHS0XMCQSS82ZQYBRA
-- latest_trace_ids: [01KYKM47P0AEZ37S24GMR91ZPY, 01KYKN1WJ1N0DBEGDJCD14ME68, 01KYKNBVYYK3RMASMFECJ12X8G, 01KYKQFXKJ4W23WFRC8EWV351T, 01KYKWJ4X1NP4P9QBWAS4H4AKJ, 01KYM1T7H87E9FRF6GPTR7BHPX]
-- latest_check_id: 01KYKRAE46M01QSD2WG35N2TRJ
+- latest_trace_ids: [01KYKM47P0AEZ37S24GMR91ZPY, 01KYKN1WJ1N0DBEGDJCD14ME68, 01KYKNBVYYK3RMASMFECJ12X8G, 01KYKQFXKJ4W23WFRC8EWV351T, 01KYKWJ4X1NP4P9QBWAS4H4AKJ, 01KYM1T7H87E9FRF6GPTR7BHPX, 01KYNQZP2TZFZHX2T9VSZ6NXJG]
+- latest_check_id: 01KYNR02XCV0EQBPJ44VZC074E
 - latest_handoff_id: 01KYKJGBHYY4VZ0GSC0GC9WERY
 - completed_work:
   - Locked initiative `quota-alert-monitoring` with stable plan/intake IDs and database-only configuration requirements.
@@ -718,10 +721,11 @@ updated: 2026-07-28
   - Remediated all four blocker groups from check `01KYKP0ZK8APNVVT0H4ZYGMWYP` and recorded trace `01KYKQFXKJ4W23WFRC8EWV351T`.
   - Remediated check `01KYKRAE46M01QSD2WG35N2TRJ` plus final integrity-review findings and recorded trace `01KYKWJ4X1NP4P9QBWAS4H4AKJ`; focused, race, real-PostgreSQL, and repository-wide suites pass.
   - Completed architecture/performance follow-up remediation and recorded trace `01KYM1T7H87E9FRF6GPTR7BHPX`: persisted transition provenance and lease ownership, two-sided delivery tombstones, commit-refreshed seekable claims, and explicit total workload caps all pass PostgreSQL regressions.
+  - Completed final gate trace `01KYNQZP2TZFZHX2T9VSZ6NXJG` and approved check `01KYNR02XCV0EQBPJ44VZC074E`: invalid initial transitions, retired replay, pruned ID reuse, opposite-order pruning, primary-key lease refresh, equal-timestamp pagination, and database JSON constraint regressions all pass.
 - blockers:
   - none
 - proof_gaps:
-  - Final durable full check has not yet recorded the independent manual-review verdicts and current automated evidence.
+  - none
 - open_items:
-  - Run the final durable full check and synchronize its verdict with the phase lifecycle.
-- exact_next_action: `check full phase quota-alert-foundation`
+  - Commit and push final remediation/docs changes when explicitly authorized.
+- exact_next_action: `/git cp`

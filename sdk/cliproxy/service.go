@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/home"
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor"
@@ -65,6 +66,9 @@ type Service struct {
 	// managementConfigStore persists management config changes outside local files.
 	managementConfigStore api.ManagementConfigStore
 
+	quotaAlertStore  quotaalert.Store
+	quotaAlertCipher *quotaalert.SecretCipher
+
 	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 
 	// server is the HTTP API server instance.
@@ -112,6 +116,8 @@ type Service struct {
 	homeReleaseFlusher interface {
 		Flush(context.Context) error
 	}
+
+	quotaAlertService *quotaalert.Service
 }
 
 // RegisterUsagePlugin registers a usage plugin on the global usage manager.
@@ -914,6 +920,12 @@ func (s *Service) Run(ctx context.Context) error {
 			}),
 		)
 	}
+	if s.quotaAlertStore != nil {
+		serverOptions = append(serverOptions, api.WithQuotaAlertStore(s.quotaAlertStore))
+	}
+	if s.quotaAlertCipher != nil {
+		serverOptions = append(serverOptions, api.WithQuotaAlertSecretCipher(s.quotaAlertCipher))
+	}
 	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, serverOptions...)
 
 	if s.authManager == nil {
@@ -1040,6 +1052,10 @@ func (s *Service) Run(ctx context.Context) error {
 		s.coreManager.StartAutoRefresh(context.Background(), interval)
 		log.Infof("core auth auto-refresh started (interval=%s)", interval)
 	}
+	if s.quotaAlertService != nil && !homeEnabled {
+		s.quotaAlertService.Start(context.Background())
+		log.Info("quota alert monitor started")
+	}
 
 	select {
 	case <-ctx.Done():
@@ -1070,6 +1086,9 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 
 		s.stopHomeLifetime(ctx)
+		if s.quotaAlertService != nil {
+			s.quotaAlertService.Stop()
+		}
 
 		// legacy refresh loop removed; only stopping core auth manager below
 

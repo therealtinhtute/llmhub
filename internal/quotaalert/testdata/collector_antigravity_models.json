@@ -1,0 +1,9 @@
+{
+  "models": {
+    "claude-sonnet-4-6": {"displayName": "Claude Sonnet", "quotaInfo": {"remainingFraction": 0.7, "resetTime": "2026-07-29T05:00:00Z"}},
+    "gpt-oss-120b-medium": {"quotaInfo": {"remaining_fraction": 0.3, "reset_time": "2026-07-29T04:30:00Z"}},
+    "gemini-3.1-pro-high": {"quotaInfo": {"remaining": 0.4, "resetTime": "2026-07-29T07:00:00Z"}},
+    "gemini-3.1-flash-image": {"displayName": "Gemini Image Preview", "quotaInfo": {"remainingFraction": 0.8}},
+    "gemini-2.5-flash-lite": {"quota_info": {"remainingFraction": "25%", "reset_time": "2026-07-29T08:00:00Z"}}
+  }
+}

@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KYNTKFVJS31JMMHXWZM87RS2","fields":{"created_at":"2026-07-29T02:17:36Z","run_id":"01KYNSSJAVX9HF8J3MJEA7P65R","summary":"Implemented Claude and Codex quota collectors with fixed-host usage calls, non-fatal enrichment, deterministic windows, bounded percentages, and guarded exhaustion.","wave":2},"at":"2026-07-29T02:17:36Z"}

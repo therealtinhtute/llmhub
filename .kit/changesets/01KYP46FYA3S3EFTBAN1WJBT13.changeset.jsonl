@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KYP46FYA3S3EFTBAMZ8RNA59","fields":{"created_at":"2026-07-29T05:05:16Z","run_id":"01KYP2WZ2C40JB3371Y45W8XAZ","summary":"M2 frontend quota-alert types and API client added with camelCase redacted responses, write-only Telegram update payload, pagination, acknowledgement, and test-send calls","wave":2},"at":"2026-07-29T05:05:16Z"}

@@ -409,6 +409,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
                   canRefresh={!disabled && !item.disabled}
                   onRefresh={() => void refreshQuotaForFile(item)}
                   resetQuotaAction={resetQuotaAction}
+                  placeResetQuotaAction={config.placeResetQuotaAction}
                   renderQuotaItems={config.renderQuotaItems}
                 />
               );

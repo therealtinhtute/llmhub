@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 )
 
 func TestLoadInitConfigBytesFromEnvYAML(t *testing.T) {
@@ -59,5 +61,50 @@ func TestLegacyRuntimeModeErrorRejectsLegacyEnv(t *testing.T) {
 	err := legacyRuntimeModeError()
 	if err == nil || !strings.Contains(err.Error(), "HOME_JWT") {
 		t.Fatalf("legacyRuntimeModeError() = %v, want HOME_JWT rejection", err)
+	}
+}
+
+func TestQuotaSecretKeyFromEnv(t *testing.T) {
+	t.Setenv("LLMHUB_QUOTA_SECRET_KEY_B64", base64.StdEncoding.EncodeToString(make([]byte, quotaalert.SecretKeySize)))
+	t.Setenv("LLMHUB_QUOTA_SECRET_KEY_ID", " runtime-key ")
+	cipher, err := loadQuotaSecretCipherFromEnv()
+	if err != nil {
+		t.Fatalf("loadQuotaSecretCipherFromEnv() error = %v", err)
+	}
+	if cipher == nil || cipher.KeyID() != "runtime-key" {
+		t.Fatalf("cipher key ID = %q", cipher.KeyID())
+	}
+}
+
+func TestQuotaSecretKeyFromEnvAllowsMissingKey(t *testing.T) {
+	cipher, err := loadQuotaSecretCipherFromEnv()
+	if err != nil {
+		t.Fatalf("loadQuotaSecretCipherFromEnv() error = %v", err)
+	}
+	if cipher != nil {
+		t.Fatalf("cipher = %#v, want nil", cipher)
+	}
+}
+
+func TestQuotaSecretKeyFromEnvRejectsInvalidKey(t *testing.T) {
+	for _, value := range []string{"not-base64", base64.StdEncoding.EncodeToString(make([]byte, quotaalert.SecretKeySize-1))} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("LLMHUB_QUOTA_SECRET_KEY_B64", value)
+			_, err := loadQuotaSecretCipherFromEnv()
+			if err == nil {
+				t.Fatal("loadQuotaSecretCipherFromEnv() error = nil")
+			}
+		})
+	}
+}
+
+func TestQuotaSecretKeyFromEnvDefaultKeyID(t *testing.T) {
+	t.Setenv("LLMHUB_QUOTA_SECRET_KEY_B64", base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", quotaalert.SecretKeySize))))
+	cipher, err := loadQuotaSecretCipherFromEnv()
+	if err != nil {
+		t.Fatalf("loadQuotaSecretCipherFromEnv() error = %v", err)
+	}
+	if cipher.KeyID() != defaultQuotaSecretKeyID {
+		t.Fatalf("key ID = %q, want %q", cipher.KeyID(), defaultQuotaSecretKeyID)
 	}
 }

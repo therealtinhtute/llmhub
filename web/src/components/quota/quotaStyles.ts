@@ -68,6 +68,13 @@ export const quotaStyles = {
     'text-[12px] text-destructive bg-destructive/8 border border-destructive px-2 py-1',
   quotaWarning:
     'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 px-2 py-1',
+  quotaCardTabs: 'flex flex-col gap-2',
+  quotaCardTabsList:
+    'flex w-full justify-start gap-0 border-b border-border bg-transparent p-0 overflow-x-auto',
+  quotaCardTabsTrigger:
+    'min-h-[28px] px-2 py-1 gap-1.5 text-[11px] font-semibold text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground',
+  quotaCardTabsContent: 'flex flex-col gap-2 pt-1',
+  quotaCardActionRow: 'flex justify-end pt-1',
 
   // Codex plan row
   codexPlan: 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground',

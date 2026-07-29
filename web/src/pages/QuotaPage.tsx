@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useAuthStore, useThemeStore } from '@/stores';
@@ -112,6 +113,20 @@ export function QuotaPage() {
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>{t('quota_management.title')}</h1>
         <p className={styles.description}>{t('quota_management.description')}</p>
+      </div>
+
+      <div className="rounded-md border border-border bg-muted/40 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-foreground">
+            {t('quota_management.monitoring_title')}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {t('quota_management.monitoring_desc')}
+          </div>
+        </div>
+        <Button asChild variant="secondary" size="sm" className="w-fit">
+          <Link to="/quota/monitoring">{t('quota_management.monitoring_open')}</Link>
+        </Button>
       </div>
 
       {error && <div className={styles.errorBox}>{error}</div>}

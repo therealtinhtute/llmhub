@@ -58,6 +58,7 @@ export interface QuotaRenderHelpers {
   QuotaProgressBar: (props: QuotaProgressBarProps) => ReactElement;
   item?: AuthFileItem;
   quotaDisabled?: boolean;
+  resetQuotaAction?: ReactNode;
   onSetKiroOverage?: (item: AuthFileItem, enabled: boolean) => void | Promise<void>;
 }
 
@@ -72,6 +73,7 @@ interface QuotaCardProps<TState extends QuotaStatusState> {
   canRefresh?: boolean;
   onRefresh?: () => void;
   resetQuotaAction?: ReactNode;
+  placeResetQuotaAction?: 'header' | 'body';
   onSetKiroOverage?: (item: AuthFileItem, enabled: boolean) => void | Promise<void>;
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
@@ -87,6 +89,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
   canRefresh = false,
   onRefresh,
   resetQuotaAction,
+  placeResetQuotaAction = 'header',
   onSetKiroOverage,
   renderQuotaItems,
 }: QuotaCardProps<TState>) {
@@ -128,7 +131,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
           {getTypeLabel(displayType)}
         </span>
         <span className={styles.fileName}>{item.name}</span>
-        {resetQuotaAction}
+        {placeResetQuotaAction === 'header' ? resetQuotaAction : null}
       </div>
 
       <div className={styles.quotaSection}>
@@ -169,6 +172,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
             QuotaProgressBar,
             item,
             quotaDisabled: item.disabled,
+            resetQuotaAction: placeResetQuotaAction === 'body' ? resetQuotaAction : undefined,
             onSetKiroOverage,
           })
         ) : (

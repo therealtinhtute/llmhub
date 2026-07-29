@@ -1,0 +1,1 @@
+{"op":"create","entity":"trace","id":"01KYP88NCN2B86VZ8XKNQEPB2K","fields":{"created_at":"2026-07-29T06:16:21Z","run_id":"01KYP2WZ2C40JB3371Y45W8XAZ","summary":"M5 quota-alert management verification passed: Go suites, frontend type/build/focused lint, diff checks, and browser acceptance with no token/config-YAML leakage","wave":4},"at":"2026-07-29T06:16:21Z"}

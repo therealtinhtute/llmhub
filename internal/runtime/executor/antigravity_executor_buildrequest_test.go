@@ -10,6 +10,7 @@ import (
 	"time"
 
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	"github.com/tidwall/gjson"
 )
 
 func TestAntigravityBuildRequest_SanitizesGeminiToolSchema(t *testing.T) {
@@ -91,6 +92,145 @@ func TestAntigravityBuildRequest_SkipsSchemaSanitizationWithEmptyToolsArray(t *t
 	}`))
 
 	assertNonSchemaRequestPreserved(t, body)
+}
+
+func TestAntigravityBuildRequest_PreservesHistoryWhileSanitizingSchemas(t *testing.T) {
+	payload := []byte(`{
+		"request": {
+			"contents": [
+				{"role": "model", "parts": [{"functionCall": {"name": "manage_todo_list", "args": {
+					"operation": "write",
+					"todoList": [
+						{"id": 1, "title": "output 1", "description": "d1", "status": "not-started"},
+						{"id": 2, "title": "output 2", "description": "d2", "status": "not-started"}
+					]
+				}}}]},
+				{"role": "model", "parts": [{"functionCall": {"name": "write_file", "args": {
+					"path": "a.md", "format": "markdown", "default": "x", "pattern": "p",
+					"const": "c", "deprecated": false, "nullable": "n", "examples": "e",
+					"additionalProperties": "ap", "x-custom": "keepme"
+				}}}]}
+			],
+			"tools": [{"functionDeclarations": [{
+				"name": "manage_todo_list",
+				"parametersJsonSchema": {
+					"type": "object",
+					"required": ["todoList"],
+					"properties": {"todoList": {"type": "array", "items": {
+						"type": "object",
+						"required": ["id", "title"],
+						"title": "TodoItem",
+						"properties": {"id": {"type": "number"}, "title": {"type": "string", "minLength": 3}}
+					}}}
+				}
+			}] }]
+		}
+	}`)
+
+	body := buildRequestBodyFromRawPayload(t, "gemini-3.1-pro", payload)
+	encoded, errMarshal := json.Marshal(body)
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
+	}
+
+	todo := gjson.GetBytes(encoded, `request.contents.0.parts.0.functionCall.args.todoList`)
+	for i, item := range todo.Array() {
+		if !item.Get("title").Exists() {
+			t.Errorf("todoList[%d] lost its title: %s", i, item.Raw)
+		}
+	}
+
+	args := gjson.GetBytes(encoded, `request.contents.1.parts.0.functionCall.args`)
+	for _, key := range []string{"format", "default", "pattern", "const", "deprecated", "examples", "additionalProperties", "x-custom"} {
+		if !args.Get(gjson.Escape(key)).Exists() {
+			t.Errorf("argument key %q was stripped from history: %s", key, args.Raw)
+		}
+	}
+	if args.Get("enum").Exists() {
+		t.Errorf("cleaner fabricated an enum key in history args: %s", args.Raw)
+	}
+
+	items := gjson.GetBytes(encoded, "request.tools.0.functionDeclarations.0.parameters.properties.todoList.items")
+	if items.Get("title").Exists() {
+		t.Errorf("schema keyword title was not removed: %s", items.Raw)
+	}
+	if items.Get("properties.title.minLength").Exists() {
+		t.Errorf("unsupported keyword minLength was not removed: %s", items.Raw)
+	}
+	if !items.Get("properties.title").Exists() {
+		t.Errorf("schema property named title must be preserved: %s", items.Raw)
+	}
+}
+
+func TestAntigravityBuildRequest_SanitizesAdditionalSchemaLocations(t *testing.T) {
+	payload := []byte(`{"request": {
+		"tools": [{"function_declarations": [{
+			"name": "t",
+			"parameters_json_schema": {"type": "object", "$id": "drop-a", "properties": {"a": {"type": "string"}}},
+			"response": {"type": "object", "$comment": "drop-b", "properties": {"b": {"type": "string"}}},
+			"response_json_schema": {"type": "object", "$id": "drop-c", "properties": {"c": {"type": "string"}}}
+		}] }],
+		"generation_config": {"response_schema": {"type": "object", "$id": "drop-d", "properties": {"d": {"type": "string"}}}}
+	}}`)
+
+	body := buildRequestBodyFromRawPayload(t, "gemini-3.1-pro", payload)
+	encoded, errMarshal := json.Marshal(body)
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
+	}
+
+	for _, path := range []string{
+		`request.tools.0.function_declarations.0.parameters_json_schema.\$id`,
+		`request.tools.0.function_declarations.0.response.\$comment`,
+		`request.tools.0.function_declarations.0.response_json_schema.\$id`,
+		`request.generation_config.response_schema.\$id`,
+	} {
+		if gjson.GetBytes(encoded, path).Exists() {
+			t.Errorf("unsupported keyword at %s survived cleaning: %s", path, encoded)
+		}
+	}
+}
+
+func TestAntigravityBuildRequest_PreservesResponseUnionAndEnumType(t *testing.T) {
+	payload := []byte(`{"request":{
+		"tools":[{"functionDeclarations":[{"name":"tool","parameters":{"type":"object","properties":{
+			"choice":{"anyOf":[{"type":"string"},{"type":"null"}]},
+			"level":{"type":"number","enum":[1,2]}
+		}}}]}],
+		"generationConfig":{"responseSchema":{"type":"object","properties":{
+			"action":{"anyOf":[{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]},{"type":"null"}]},
+			"conviction":{"type":"number","enum":[0.25,0.5,1]}
+		}}}
+	}}`)
+
+	body := buildRequestBodyFromRawPayload(t, "gemini-3.1-pro", payload)
+	encoded, errMarshal := json.Marshal(body)
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
+	}
+
+	responseSchema := gjson.GetBytes(encoded, "request.generationConfig.responseSchema")
+	union := responseSchema.Get("properties.action.anyOf")
+	if !union.IsArray() || len(union.Array()) != 2 || union.Get("1.type").String() != "null" {
+		t.Errorf("response anyOf union was flattened: %s", responseSchema.Raw)
+	}
+	conviction := responseSchema.Get("properties.conviction")
+	if gotType := conviction.Get("type").String(); gotType != "number" {
+		t.Errorf("response enum type = %q, want number: %s", gotType, responseSchema.Raw)
+	}
+	for _, enumValue := range conviction.Get("enum").Array() {
+		if enumValue.Type != gjson.String {
+			t.Errorf("response enum value is not a string: %s", conviction.Raw)
+		}
+	}
+
+	toolSchema := gjson.GetBytes(encoded, "request.tools.0.functionDeclarations.0.parameters")
+	if toolSchema.Get("properties.choice.anyOf").Exists() {
+		t.Errorf("tool anyOf union was not flattened: %s", toolSchema.Raw)
+	}
+	if gotType := toolSchema.Get("properties.level.type").String(); gotType != "string" {
+		t.Errorf("tool enum type = %q, want string: %s", gotType, toolSchema.Raw)
+	}
 }
 
 func TestAntigravityBuildRequest_UsesAuthProjectID(t *testing.T) {

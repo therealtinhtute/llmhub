@@ -163,3 +163,44 @@ func TestAntigravityExecutor_CacheModeSkipsPrecheck(t *testing.T) {
 		t.Fatalf("cache mode should skip precheck, got: %v", err)
 	}
 }
+
+func TestAntigravityReasoningReplayClientSessionKeyUsesDerivedMetadata(t *testing.T) {
+	key := antigravityReasoningReplayClientSessionKey(context.Background(), cliproxyexecutor.Request{}, cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.DerivedSessionIDMetadataKey: "ctx:v1:ag-root",
+	}})
+	if key != "derived:ctx:v1:ag-root" {
+		t.Fatalf("derived replay key = %q, want derived:ctx:v1:ag-root", key)
+	}
+
+	explicit := antigravityReasoningReplayClientSessionKey(context.Background(), cliproxyexecutor.Request{}, cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.ExecutionSessionMetadataKey: "execution-1",
+		cliproxyexecutor.DerivedSessionIDMetadataKey: "ctx:v1:ag-root",
+	}})
+	if explicit != "execution:execution-1" {
+		t.Fatalf("explicit replay key = %q, want execution:execution-1", explicit)
+	}
+}
+
+func TestPrepareAntigravityGeminiReasoningReplayPayloadRejectsBadFunctionPairing(t *testing.T) {
+	payload := []byte(`{
+		"request": {
+			"contents": [
+				{"role":"model","parts":[{"functionCall":{"id":"call-1","name":"run","args":{}}}]},
+				{"role":"user","parts":[{"text":"boundary"}]},
+				{"role":"function","parts":[{"functionResponse":{"id":"call-1","name":"run","response":{"result":"ok"}}}]}
+			]
+		}
+	}`)
+
+	_, _, err := prepareAntigravityGeminiReasoningReplayPayload(context.Background(), "gemini-3-pro", cliproxyexecutor.Request{Model: "gemini-3-pro", Payload: payload}, cliproxyexecutor.Options{}, payload)
+	if err == nil {
+		t.Fatal("expected bad Gemini function pairing to fail")
+	}
+	statusProvider, ok := err.(interface{ StatusCode() int })
+	if !ok {
+		t.Fatalf("expected status error, got %T: %v", err, err)
+	}
+	if statusProvider.StatusCode() != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", statusProvider.StatusCode(), http.StatusBadRequest)
+	}
+}

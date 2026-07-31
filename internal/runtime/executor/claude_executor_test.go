@@ -1071,6 +1071,127 @@ func TestApplyClaudeToolPrefix_SkipsBuiltinToolReference(t *testing.T) {
 	}
 }
 
+func TestPrependToFirstUserMessage_KeepsToolResultBlocksFirst(t *testing.T) {
+	payload := []byte(`{"messages":[
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"},{"type":"text","text":"continue"}]}
+	]}`)
+
+	out := prependToFirstUserMessage(payload, "guidance")
+	blocks := gjson.GetBytes(out, "messages.1.content")
+	if got := blocks.Get("0.type").String(); got != "tool_result" {
+		t.Fatalf("content.0.type = %q, want tool_result: %s", got, string(out))
+	}
+	last := blocks.Array()[len(blocks.Array())-1]
+	if last.Get("type").String() != "text" || !strings.Contains(last.Get("text").String(), "guidance") {
+		t.Fatalf("guidance block was not appended after leading tool_result blocks: %s", string(out))
+	}
+}
+
+func TestPrependToFirstUserMessage_PrependsWhenNoLeadingToolResult(t *testing.T) {
+	payload := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+
+	out := prependToFirstUserMessage(payload, "guidance")
+	blocks := gjson.GetBytes(out, "messages.0.content")
+	if got := blocks.Get("0.type").String(); got != "text" {
+		t.Fatalf("content.0.type = %q, want text: %s", got, string(out))
+	}
+	if !strings.Contains(blocks.Get("0.text").String(), "guidance") {
+		t.Fatalf("guidance was not prepended: %s", string(out))
+	}
+	if got := blocks.Get("1.text").String(); got != "hello" {
+		t.Fatalf("content.1.text = %q, want hello: %s", got, string(out))
+	}
+}
+
+func TestInjectToolsCacheControlSkipsDeferredTools(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		wantCacheIndex int
+		wantCacheTTL   string
+	}{
+		{
+			name: "trailing deferred tool",
+			input: `{"tools":[
+				{"name":"resident","defer_loading":false},
+				{"name":"deferred","defer_loading":true}
+			]}`,
+			wantCacheIndex: 0,
+		},
+		{
+			name: "multiple trailing deferred tools",
+			input: `{"tools":[
+				{"name":"resident"},
+				{"name":"deferred_1","defer_loading":true},
+				{"name":"deferred_2","defer_loading":true}
+			]}`,
+			wantCacheIndex: 0,
+		},
+		{
+			name: "middle deferred tool",
+			input: `{"tools":[
+				{"name":"resident_1"},
+				{"name":"deferred","defer_loading":true},
+				{"name":"resident_2"}
+			]}`,
+			wantCacheIndex: 2,
+		},
+		{
+			name: "all tools deferred",
+			input: `{"tools":[
+				{"name":"deferred_1","defer_loading":true},
+				{"name":"deferred_2","defer_loading":true}
+			]}`,
+			wantCacheIndex: -1,
+		},
+		{
+			name: "existing cache control",
+			input: `{"tools":[
+				{"name":"resident_1","cache_control":{"type":"ephemeral","ttl":"1h"}},
+				{"name":"resident_2"}
+			]}`,
+			wantCacheIndex: 0,
+			wantCacheTTL:   "1h",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := injectToolsCacheControl([]byte(tt.input))
+			tools := gjson.GetBytes(output, "tools").Array()
+			cacheCount := 0
+
+			for index, tool := range tools {
+				cacheControl := tool.Get("cache_control")
+				if cacheControl.Exists() {
+					cacheCount++
+					if index != tt.wantCacheIndex {
+						t.Errorf("cache_control added to tool %d, want tool %d: %s", index, tt.wantCacheIndex, string(output))
+					}
+				}
+				if tool.Get("defer_loading").Bool() && cacheControl.Exists() {
+					t.Errorf("deferred tool %d must not have cache_control: %s", index, string(output))
+				}
+			}
+
+			wantCacheCount := 1
+			if tt.wantCacheIndex < 0 {
+				wantCacheCount = 0
+			}
+			if cacheCount != wantCacheCount {
+				t.Errorf("cache_control count = %d, want %d: %s", cacheCount, wantCacheCount, string(output))
+			}
+			if tt.wantCacheTTL != "" {
+				path := fmt.Sprintf("tools.%d.cache_control.ttl", tt.wantCacheIndex)
+				if got := gjson.GetBytes(output, path).String(); got != tt.wantCacheTTL {
+					t.Errorf("cache_control TTL = %q, want %q: %s", got, tt.wantCacheTTL, string(output))
+				}
+			}
+		})
+	}
+}
+
 func TestNormalizeCacheControlTTL_DowngradesLaterOneHourBlocks(t *testing.T) {
 	payload := []byte(`{
 		"tools": [{"name":"t1","cache_control":{"type":"ephemeral","ttl":"1h"}}],

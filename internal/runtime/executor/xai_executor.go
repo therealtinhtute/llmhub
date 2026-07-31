@@ -791,7 +791,7 @@ func xaiExecutionSessionID(req cliproxyexecutor.Request, opts cliproxyexecutor.O
 	if promptCacheKey := gjson.GetBytes(req.Payload, "prompt_cache_key"); promptCacheKey.Exists() {
 		return strings.TrimSpace(promptCacheKey.String())
 	}
-	return ""
+	return helps.DerivedSessionUUID("xai", opts.Metadata, req.Metadata)
 }
 
 func xaiImageEndpointPath(opts cliproxyexecutor.Options) string {

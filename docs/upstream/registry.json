@@ -1,0 +1,13 @@
+{
+ "schema_version": 1,
+ "upstreams": [
+  {
+   "slug": "cliproxyapi",
+   "owner_repo": "router-for-me/CLIProxyAPI",
+   "repository": "https://github.com/router-for-me/CLIProxyAPI",
+   "remote": "upstream",
+   "checkpoint": "docs/upstream/cliproxyapi-checkpoint.json",
+   "path_map": {}
+  }
+ ]
+}

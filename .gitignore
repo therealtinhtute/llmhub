@@ -63,3 +63,10 @@ scripts/bin/harness-cli.exe
 .kit/harness.db
 .kit/cache/
 .kit/conflicts/
+
+# Derived upstream gap matrices (regenerate with upstream_gap.py)
+docs/upstream/*-gap-*.json
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -357,6 +357,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	if optionState.quotaAlertCipher != nil {
 		s.mgmt.SetQuotaAlertSecretCipher(optionState.quotaAlertCipher)
 	}
+	if optionState.runtimeSettingsStore != nil {
+		s.mgmt.SetRuntimeSettingsStore(optionState.runtimeSettingsStore)
+	}
 	s.localPassword = optionState.localPassword
 
 	// Home heartbeat gate: when home is enabled, block all endpoints with 503 until the
@@ -681,6 +684,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PUT("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 		mgmt.PATCH("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 		mgmt.POST("/reset-quota", s.mgmt.ResetQuota)
+
+		mgmt.GET("/runtime-controls", s.mgmt.GetRuntimeControls)
+		mgmt.PUT("/runtime-controls", s.mgmt.PutRuntimeControls)
+		mgmt.PATCH("/runtime-controls", s.mgmt.PutRuntimeControls)
 
 		mgmt.GET("/quota-alerts/settings", s.mgmt.GetQuotaAlertSettings)
 		mgmt.PUT("/quota-alerts/settings", s.mgmt.PutQuotaAlertSettings)

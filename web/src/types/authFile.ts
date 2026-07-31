@@ -37,6 +37,7 @@ export interface AuthFileItem {
   modelStates?: Record<string, RuntimeModelState>;
   lastRefresh?: string | number;
   modified?: number;
+  weight?: number;
   success?: unknown;
   failed?: unknown;
   recent_requests?: RecentRequestBucket[];

@@ -4,6 +4,7 @@ import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { FormInput as Input } from '@/components/ui/FormInput';
 import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
 import { toast } from 'sonner';
 import {
@@ -11,12 +12,40 @@ import {
   useConfigStore,
   useConfirmationStore,
 } from '@/stores';
-import { configApi, versionApi } from '@/services/api';
+import { configApi, runtimeControlsApi, versionApi } from '@/services/api';
+import type { RuntimeControlSettings } from '@/types';
 import { STORAGE_KEY_AUTH } from '@/utils/constants';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 
 const linkIconClass = (type: 'github' | 'docs' | 'primary') =>
   `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-emerald-500' : 'bg-primary'}`;
+
+const runtimeInputNumber = (value: string, fallback: number): number => {
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const updateRuntimeDraft = (
+  settings: RuntimeControlSettings | null,
+  update: (draft: RuntimeControlSettings) => void
+): RuntimeControlSettings | null => {
+  if (!settings) return settings;
+  const next: RuntimeControlSettings = {
+    ...settings,
+    credential_routing: {
+      ...settings.credential_routing,
+      weights: [...(settings.credential_routing?.weights ?? [])],
+    },
+    cloaking: { ...settings.cloaking },
+    codex_live: {
+      ...settings.codex_live,
+      ice_servers: [...(settings.codex_live?.ice_servers ?? [])],
+    },
+    home: { ...settings.home },
+  };
+  update(next);
+  return next;
+};
 
 const parseVersionSegments = (version?: string | null) => {
   if (!version) return null;
@@ -58,6 +87,14 @@ export function SystemPage() {
   const [requestLogTouched, setRequestLogTouched] = useState(false);
   const [requestLogSaving, setRequestLogSaving] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
+  const [runtimeDraft, setRuntimeDraft] = useState<RuntimeControlSettings | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [runtimeSaving, setRuntimeSaving] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [codexLiveMaxSessionsText, setCodexLiveMaxSessionsText] = useState('');
+  const [codexLivePublicIPText, setCodexLivePublicIPText] = useState('');
+  const [codexLiveUDPMinText, setCodexLiveUDPMinText] = useState('');
+  const [codexLiveUDPMaxText, setCodexLiveUDPMaxText] = useState('');
 
   const versionTapCount = useRef(0);
   const versionTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,6 +183,52 @@ export function SystemPage() {
     }
   };
 
+  const syncRuntimeText = useCallback((settings: RuntimeControlSettings) => {
+    setCodexLiveMaxSessionsText(String(settings.codex_live?.max_sessions ?? 32));
+    setCodexLivePublicIPText(settings.codex_live?.public_ip ?? '');
+    setCodexLiveUDPMinText(String(settings.codex_live?.udp_port_min ?? 0));
+    setCodexLiveUDPMaxText(String(settings.codex_live?.udp_port_max ?? 0));
+  }, []);
+
+  const loadRuntimeControls = useCallback(async () => {
+    setRuntimeLoading(true);
+    setRuntimeError(null);
+    try {
+      const settings = await runtimeControlsApi.get();
+      setRuntimeDraft(settings);
+      syncRuntimeText(settings);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+      setRuntimeError(message || t('system_info.runtime_controls_load_failed'));
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, [syncRuntimeText, t]);
+
+  const handleRuntimeSave = async () => {
+    if (!runtimeDraft) return;
+    const next = updateRuntimeDraft(runtimeDraft, (draft) => {
+      draft.codex_live.max_sessions = runtimeInputNumber(codexLiveMaxSessionsText, draft.codex_live.max_sessions);
+      draft.codex_live.public_ip = codexLivePublicIPText.trim() || undefined;
+      draft.codex_live.udp_port_min = runtimeInputNumber(codexLiveUDPMinText, draft.codex_live.udp_port_min);
+      draft.codex_live.udp_port_max = runtimeInputNumber(codexLiveUDPMaxText, draft.codex_live.udp_port_max);
+    });
+    if (!next) return;
+    setRuntimeSaving(true);
+    setRuntimeError(null);
+    try {
+      const saved = await runtimeControlsApi.save(next);
+      setRuntimeDraft(saved);
+      syncRuntimeText(saved);
+      toast.success(t('system_info.runtime_controls_saved'));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+      toast.error(`${t('notification.update_failed')}${message ? `: ${message}` : ''}`);
+    } finally {
+      setRuntimeSaving(false);
+    }
+  };
+
   const handleVersionCheck = useCallback(async () => {
     setCheckingVersion(true);
     try {
@@ -184,6 +267,10 @@ export function SystemPage() {
       // ignore
     });
   }, [fetchConfig]);
+
+  useEffect(() => {
+    void loadRuntimeControls();
+  }, [loadRuntimeControls]);
 
   useEffect(() => {
     if (requestLogModalOpen && !requestLogTouched) {
@@ -310,6 +397,177 @@ export function SystemPage() {
               </div>
             </a>
           </div>
+        </Card>
+
+        <Card title={t('system_info.runtime_controls_title')}>
+          <p className="text-sm text-muted-foreground mb-3">{t('system_info.runtime_controls_desc')}</p>
+          {runtimeLoading ? (
+            <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+          ) : runtimeError ? (
+            <div className="flex flex-col gap-3">
+              <div className="py-2 px-3 border border-destructive bg-destructive/10 text-destructive text-sm">{runtimeError}</div>
+              <div className="flex justify-end">
+                <Button variant="secondary" onClick={() => void loadRuntimeControls()}>
+                  {t('common.refresh')}
+                </Button>
+              </div>
+            </div>
+          ) : runtimeDraft ? (
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+                <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  <span>{t('system_info.runtime_routing_strategy')}</span>
+                  <select
+                    className="h-10 px-3 border border-border bg-background text-foreground"
+                    value={runtimeDraft.credential_routing.strategy}
+                    disabled={runtimeSaving}
+                    onChange={(event) =>
+                      setRuntimeDraft((current) =>
+                        updateRuntimeDraft(current, (draft) => {
+                          draft.credential_routing.strategy = event.target.value;
+                        })
+                      )
+                    }
+                  >
+                    <option value="round-robin">round-robin</option>
+                    <option value="weighted-round-robin">weighted-round-robin</option>
+                    <option value="fill-first">fill-first</option>
+                  </select>
+                </label>
+                <Input
+                  label={t('system_info.runtime_codex_live_max_sessions')}
+                  value={codexLiveMaxSessionsText}
+                  disabled={runtimeSaving}
+                  onChange={(event) => setCodexLiveMaxSessionsText(event.target.value)}
+                />
+                <Input
+                  label={t('system_info.runtime_codex_live_public_ip')}
+                  value={codexLivePublicIPText}
+                  placeholder="203.0.113.10"
+                  disabled={runtimeSaving}
+                  onChange={(event) => setCodexLivePublicIPText(event.target.value)}
+                />
+                <Input
+                  label={t('system_info.runtime_codex_live_udp_min')}
+                  value={codexLiveUDPMinText}
+                  disabled={runtimeSaving}
+                  onChange={(event) => setCodexLiveUDPMinText(event.target.value)}
+                />
+                <Input
+                  label={t('system_info.runtime_codex_live_udp_max')}
+                  value={codexLiveUDPMaxText}
+                  disabled={runtimeSaving}
+                  onChange={(event) => setCodexLiveUDPMaxText(event.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
+                <ToggleSwitch
+                  label={t('system_info.runtime_codex_live_enabled')}
+                  labelPosition="left"
+                  checked={runtimeDraft.codex_live.enabled}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.codex_live.enabled = value;
+                      })
+                    )
+                  }
+                />
+                <ToggleSwitch
+                  label={t('system_info.runtime_codex_live_private_ips')}
+                  labelPosition="left"
+                  checked={runtimeDraft.codex_live.disable_private_remote_ips}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.codex_live.disable_private_remote_ips = value;
+                      })
+                    )
+                  }
+                />
+                <ToggleSwitch
+                  label={t('system_info.runtime_cloak_claude_models')}
+                  labelPosition="left"
+                  checked={runtimeDraft.cloaking.disable_claude_model_list}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.cloaking.disable_claude_model_list = value;
+                      })
+                    )
+                  }
+                />
+                <ToggleSwitch
+                  label={t('system_info.runtime_cloak_codex')}
+                  labelPosition="left"
+                  checked={runtimeDraft.cloaking.disable_codex}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.cloaking.disable_codex = value;
+                      })
+                    )
+                  }
+                />
+                <ToggleSwitch
+                  label={t('system_info.runtime_home_enabled')}
+                  labelPosition="left"
+                  checked={runtimeDraft.home.enabled}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.home.enabled = value;
+                      })
+                    )
+                  }
+                />
+                <ToggleSwitch
+                  label={t('system_info.runtime_home_discovery')}
+                  labelPosition="left"
+                  checked={runtimeDraft.home.disable_cluster_discovery}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.home.disable_cluster_discovery = value;
+                      })
+                    )
+                  }
+                />
+                <ToggleSwitch
+                  label={t('system_info.runtime_cooldown_persistence')}
+                  labelPosition="left"
+                  checked={runtimeDraft.cooldown_persistence_enabled}
+                  disabled={runtimeSaving}
+                  onChange={(value) =>
+                    setRuntimeDraft((current) =>
+                      updateRuntimeDraft(current, (draft) => {
+                        draft.cooldown_persistence_enabled = value;
+                      })
+                    )
+                  }
+                />
+              </div>
+              <div className="flex justify-between gap-3 items-center max-sm:flex-col max-sm:items-stretch">
+                <div className="text-xs text-muted-foreground">
+                  {t('system_info.runtime_controls_revision', { revision: runtimeDraft.revision })}
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="secondary" onClick={() => void loadRuntimeControls()} disabled={runtimeSaving}>
+                    {t('common.refresh')}
+                  </Button>
+                  <Button onClick={() => void handleRuntimeSave()} loading={runtimeSaving}>
+                    {t('common.save')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </Card>
 
         <Card title={t('system_info.clear_login_title')}>

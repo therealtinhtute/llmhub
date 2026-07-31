@@ -17,6 +17,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
+	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -55,6 +56,7 @@ type Handler struct {
 	configChangeHook     func(*config.Config)
 	quotaAlertStore      quotaalert.Store
 	quotaAlertCipher     *quotaalert.SecretCipher
+	runtimeSettingsStore runtimecontrol.SettingsStore
 }
 
 type ManagementConfigStore interface {

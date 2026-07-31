@@ -156,7 +156,7 @@ PY`
 
   - phase_slug: cliproxyapi-present-proof
     story_id: 01KYW6RDHWRM7171YT75A9K1PV
-    status: planned
+    status: checked
     goal: Verify already-present upstream parity slices and block duplicate implementations.
     depends_on: cliproxyapi-ledger-scope-freeze
     requirement_trace: [R3, R7, R8, R15]
@@ -759,6 +759,47 @@ PY`
   verification: `python3 - <<'PY' ... scope_policy assertions ... PY` -> `scope policy 21 4 2`
   blocker: none
 
+- timestamp: 2026-07-31T14:53:10Z
+  phase: cliproxyapi-present-proof
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KYWAKMPF17K20B37Q153557E
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-present-proof --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KYWAKMPF17K20B37Q153557E`
+  blocker: none
+- timestamp: 2026-07-31T14:54:53Z
+  phase: cliproxyapi-present-proof
+  wave: runtime-present-proof
+  task: prove-codex-live-home-present
+  task_status: DONE
+  run_id: 01KYWAKMPF17K20B37Q153557E
+  trace_id: 01KYWAQJ2M28643YZ1WKZKNGMH
+  changed_surfaces: [`internal/client/codex/live/`, `internal/home/`, `sdk/cliproxy/auth/`, `internal/store/`, `internal/runtime/executor/helps/`]
+  verification: `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps -run 'Test.*(Live|Home|Cooldown|Weighted|Usage|Token)' -count=1` -> pass
+  blocker: none
+- timestamp: 2026-07-31T14:54:53Z
+  phase: cliproxyapi-present-proof
+  wave: runtime-present-proof
+  task: prove-model-schema-present
+  task_status: DONE
+  run_id: 01KYWAKMPF17K20B37Q153557E
+  trace_id: 01KYWAQJ2M28643YZ1WKZKNGMH
+  changed_surfaces: [`internal/registry/`, `internal/util/`, `internal/translator/`, `internal/watcher/diff/`, `sdk/config/`]
+  verification: `go test ./internal/registry ./internal/util ./internal/translator/... ./internal/watcher/... ./sdk/config -run 'Test.*(Model|Schema|Structured|Cached|Cloak|Display)' -count=1` -> pass
+  blocker: none
+- timestamp: 2026-07-31T14:54:53Z
+  phase: cliproxyapi-present-proof
+  wave: phase-checks
+  task: phase-checks
+  task_status: DONE
+  run_id: 01KYWAKMPF17K20B37Q153557E
+  trace_id: 01KYWAQJ2M28643YZ1WKZKNGMH
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps ./internal/registry ./internal/util ./internal/translator/... -count=1` -> pass; `git diff --check` -> pass
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1147,14 +1188,27 @@ PY`
     - `zharness audit --json` -> `pointer_drift=[]`, `contract_violations=[]`, `unlinked_proofs=[]`
   proof_gaps: none
 
+- timestamp: 2026-07-31T14:56:50Z
+  phase: cliproxyapi-present-proof
+  run_id: 01KYWAKMPF17K20B37Q153557E
+  check_id: 01KYWATY3N87QHYDFPJBCD90RB
+  verdict: APPROVED
+  evidence:
+    - `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps -run 'Test.*(Live|Home|Cooldown|Weighted|Usage|Token)' -count=1` -> pass
+    - `go test ./internal/registry ./internal/util ./internal/translator/... ./internal/watcher/... ./sdk/config -run 'Test.*(Model|Schema|Structured|Cached|Cloak|Display)' -count=1` -> pass
+    - `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps ./internal/registry ./internal/util ./internal/translator/... -count=1` -> pass
+    - `git diff --check` -> pass
+    - full Security, Performance, Architecture, and Code Quality review -> pass; no product code changed, already-present proof stayed inside planned surfaces, and duplicate implementation risk is blocked by the checked proof record
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: cliproxyapi-ledger-scope-freeze
+- active_phase: cliproxyapi-present-proof
 - lifecycle_status: checked
-- latest_run_id: 01KYW7667ENWDNMS1YEAG38W60
-- latest_trace_id: 01KYW77BEEDY2R70P87EP5P6FZ
-- latest_check_id: 01KYW7AA3ZHM4A05HX59MYE46C
+- latest_run_id: 01KYWAKMPF17K20B37Q153557E
+- latest_trace_id: 01KYWAQJ2M28643YZ1WKZKNGMH
+- latest_check_id: 01KYWATY3N87QHYDFPJBCD90RB
 - blockers: none
 - open_items:
-  - Phase `cliproxyapi-ledger-scope-freeze` is checked and ready for commit/handoff.
-  - Next implementation phase is `cliproxyapi-present-proof`.
-- exact_next_action: Commit the checked ledger/scope artifacts or run `work full phase cliproxyapi-present-proof` after preserving this phase state.
+  - Phase `cliproxyapi-present-proof` is checked and ready for commit/handoff.
+  - Next implementation phase is `cliproxyapi-thinking-summary`.
+- exact_next_action: Commit the checked `cliproxyapi-present-proof` plan lifecycle update or run `work full phase cliproxyapi-thinking-summary` after preserving this checked state.

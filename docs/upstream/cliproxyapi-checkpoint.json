@@ -8,9 +8,26 @@
   "scope_policy": {
     "strategy": "targeted-semantic-ports",
     "include": [
-      "full-codex-live",
-      "full-home-parity",
-      "postgres-backed-controls",
+      "verification-first-already-present-slices",
+      "thinking-summary-visibility",
+      "thinking-consolidation",
+      "translator-fidelity",
+      "translator-structured-output",
+      "translator-usage-metadata",
+      "translator-input-image",
+      "translator-naming",
+      "executor-runtime-fixes",
+      "codex-multiagent-v2",
+      "responses-websocket",
+      "auth-session-fixes",
+      "codex-model-resolution",
+      "credential-weight-api",
+      "codex-cloaking-toggle",
+      "management-api",
+      "logging-metadata",
+      "watcher-config-diff",
+      "claude-cais-signatures",
+      "antigravity-replay",
       "current-llmhub-management-ui"
     ],
     "exclude": [
@@ -18,6 +35,10 @@
       "file-authoritative-runtime",
       "upstream-branding-release-churn",
       "wholesale-source-merge"
+    ],
+    "defer": [
+      "home-401-refresh-revert",
+      "gitstore-recovery"
     ]
   },
   "checkpoint": {

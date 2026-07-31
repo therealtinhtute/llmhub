@@ -11,900 +11,423 @@ updated: 2026-07-31
 # Plan: CLIProxyAPI v7.2.111 Targeted Parity with v7.2.112 Checkpoint Delta
 
 ## Outcome
-- result: llmhub gains the approved fixes, compatibility improvements, model updates, operator controls, full Codex Live subsystem, and full Home runtime evolution available through CLIProxyAPI `v7.2.111`, adapted behind llmhub's existing architecture rather than merged wholesale; the final checkpoint records current upstream release `v7.2.112` with its newly published delta classified as explicit follow-up/reject scope per R23.
+- result: llmhub plans the full approved semantic parity scope from CLIProxyAPI `v7.2.93..v7.2.112` using the new phase-2 ledger, not the stale v7.2.111-only implementation scope. Work is bounded to the `adapt` slices; `already-present` slices require verification only; `reject` and `defer` slices are explicit non-work until refined.
 - success_signals:
-  - The source checkpoint records latest `router-for-me/CLIProxyAPI` release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, published `2026-07-31T08:39:29Z`, and local comparison baseline `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1`; completed implementation scope remains pinned to `v7.2.111`, commit `4a315136730baa8b3a436d12b74e5a702c70be5c`.
-  - Every product-relevant upstream change from the prior approved `v7.2.93` checkpoint through `v7.2.111` has an explicit disposition: already present, adapt, reject, or superseded locally; every `v7.2.112` final-gate commit has an explicit follow-up or reject disposition.
-  - Approved behavior is implemented without replacing Postgres runtime authority, Amp routing, Kiro support, embedded management web, public SDK boundaries, or llmhub branding and release contracts.
-  - Codex Live sessions, sideband WebSocket relay, WebRTC media relay, and TCP relay work through llmhub's runtime and configuration model with deterministic tests.
-  - Home membership, takeover, discovery, dispatch, affinity, replay/CAS, refresh, recovery, and concurrency behavior is adapted without regressing credential selection or lifecycle release, pinned to the approved `v7.2.111` behavior pending review of the `v7.2.112` Home 401 revert.
-  - Applicable credential-weight and cloaking controls are persisted as structured database settings and exposed through the existing management API and current web UI/UX patterns.
-  - Focused tests, `go test ./...`, Go build, frontend type/lint/build checks, `make build`, JSON validation, and `git diff --check` pass before closure.
-  - Final validation re-checks the latest stable upstream release and updates the checkpoint to that release/version and commit; if the latest release introduces product deltas outside the locked requirements, those are pinned as explicit follow-up rather than silently declared complete.
+  - The checkpoint remains pinned to `router-for-me/CLIProxyAPI` release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, with local baseline `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1` and immutable refs under `refs/upstream-checkpoints/cliproxyapi/`.
+  - `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md` is the commit-level authority: 113 non-merge commits classified as 54 `adapt`, 42 `already-present`, 15 `reject`, and 2 `defer`, with zero blank or invalid dispositions.
+  - `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md` is the path-level authority for semantic-review files: 181 paths classified as 105 `adapt`, 64 `already-present`, 6 `reject`, and 6 `defer`.
+  - Every `adapt` capability slice is planned behind llmhub's existing architecture and verification contract; no task may wholesale-merge upstream files just to match layout.
+  - `already-present` capability slices are proved with focused tests and local symbol evidence before any code is changed; duplicate implementations are blocked.
+  - Rejected pluginhost/plugin framework, branding/docs/release churn, file-authoritative runtime state, and wholesale upstream tree replacement remain excluded.
+  - Deferred Home 401 refresh-revert reconciliation and Git store corruption recovery remain explicit follow-up decisions unless this same plan is refined.
+  - Final validation re-checks the latest stable upstream release, refreshes the checkpoint/ledger if a new release exists, and records any new product delta as include/reject/defer rather than silently widening scope.
 
 ## Authority and Requirements
 - authority:
-  - User-approved decisions on 2026-07-31: targeted semantic ports; include full Codex Live; include full Home parity; expose applicable controls through Postgres, management API, and the current llmhub web UI/UX.
+  - User-approved direction on 2026-07-31: plan the full scope from the completed upstream phase-2 artifacts.
   - Upstream repository: `https://github.com/router-for-me/CLIProxyAPI`.
-  - Initial implementation checkpoint: release `v7.2.111`, commit `4a315136730baa8b3a436d12b74e5a702c70be5c`, published `2026-07-30T18:56:58Z`; `upstream/main` matched this commit when checked on 2026-07-31.
-  - Final latest-release checkpoint: release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, published `2026-07-31T08:39:29Z`; the final gate pins implemented scope to `v7.2.111` and records the `v7.2.112` delta as follow-up/reject scope per R23.
-  - Local immutable comparison baseline: `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1` on `master`.
-  - Local Git checkpoint refs: `refs/upstream-checkpoints/cliproxyapi/v7.2.93`, `refs/upstream-checkpoints/cliproxyapi/v7.2.96`, `refs/upstream-checkpoints/cliproxyapi/v7.2.111`, and `refs/upstream-checkpoints/cliproxyapi/v7.2.112`.
-  - Prior parity authority: `docs/stories/high-risk/US-016-cliproxyapi-v7-2-93-targeted-parity/` and decisions `0010` through `0013`.
-  - Prior selective post-checkpoint adaptation: local commit `f6294be54166cb481edb032b1e6f86052431cf2a`, which ports credential concurrency and token-estimation behavior from upstream `v7.2.96`.
-  - Repository architecture and verification rules in `CLAUDE.md`, including Postgres runtime authority and the prohibition on new frontend test files under `web/`.
-  - Structural gap scan on 2026-07-31: 411 paths changed upstream from `v7.2.93` to `v7.2.111`; 11 exactly match the target, 17 remain at the upstream baseline, 166 upstream additions are absent locally, 68 changed upstream paths are absent because of local divergence, and 149 paths require semantic review.
+  - Checkpoint authority: `docs/upstream/cliproxyapi-checkpoint.json`, release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, source range `v7.2.93..v7.2.112`.
+  - Structural gap authority: `docs/upstream/cliproxyapi-gap-v7.2.93..v7.2.112.json`, generated by blob comparison across upstream `from`, upstream `to`, and local `HEAD`.
+  - Commit disposition authority: `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`.
+  - Semantic-review path authority: `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md`.
+  - Repository architecture and verification rules in `CLAUDE.md`, especially Postgres runtime authority and the ban on new frontend test files under `web/`.
 - requirements:
-  - R1 [accepted]: Maintain one durable upstream ledger covering every non-merge product commit and release from `v7.2.94` through the checkpoint release, with source commit, affected surface, local status, decision, dependencies, and verification owner. | source: upstream checkpoint; user request to check all gaps, updates, fixes, and features
-  - R2 [accepted]: Adapt behavior in bounded slices behind existing llmhub interfaces; do not merge or overwrite the upstream tree wholesale. | source: user-approved targeted semantic ports; prior parity design
-  - R3 [accepted]: Preserve Postgres as the authoritative runtime source for configuration, credentials, cooldown state, usage, and new feature settings; no new runtime dependency may read authoritative state from local YAML or files. | source: `CLAUDE.md`; database-only feature-config project constraint
-  - R4 [accepted]: Preserve Amp routes and behavior, Kiro provider support, Gemini CLI paths, embedded management web, public SDK contracts, and existing provider-specific route semantics unless an individually approved parity fix requires an additive compatible change. | source: repository architecture; prior parity authority
-  - R5 [accepted]: Port or formally supersede the v7.2.94 management auth-file identity/index filtering fix using llmhub's database-backed credential identity model. | source: upstream commits `d25b6b41`, `36b45d57`
-  - R6 [accepted]: Reconcile v7.2.95-v7.2.98 translator performance, xAI token counting, Claude token estimation, Codex Alpha Search routing, credential concurrency, WebSocket continuity, atomic tool-cache state, normalized usage accounting, and Codex multi-agent-v2 behavior against already-ported local equivalents before adding code. | source: upstream releases `v7.2.95`-`v7.2.98`; local commit `f6294be5`
-  - R7 [accepted]: Implement the full upstream Codex Live capability set: session handling, sideband protocol, realtime WebRTC media relay, TCP proxy, configuration/diff propagation, lifecycle shutdown, logging, and deterministic tests, adapted to llmhub service startup and Postgres configuration. | source: user-approved full Codex Live; upstream release `v7.2.99`
-  - R8 [accepted]: Implement Codex and Claude client model catalogs and response builders without bypassing llmhub's registry, configured display-name contract, model visibility rules, or provider/auth routing. | source: upstream release `v7.2.99`; decision `0013`
-  - R9 [accepted]: Port applicable Antigravity replay, signature, schema-sanitization, tool-provenance, and response-format fixes while preserving llmhub's existing translator and cache boundaries. | source: upstream releases `v7.2.100`-`v7.2.105`
-  - R10 [accepted]: Port executor/runtime correctness changes for deferred-tool cache control, tool-result ordering, derived sessions, executor binding, xAI output controls, OAuth tool-name restoration, video failure reporting, and terminal/completion handling without weakening request-scoped error classification. | source: upstream releases `v7.2.100`-`v7.2.103`; decisions `0010`-`0012`
-  - R11 [accepted]: Implement full Home parity through the final checkpoint, including live alias groups, native session affinity, edge-control validation, membership and takeover eligibility, cluster discovery, dispatch/reconnect state, replay CAS, credential refresh before 401 retry, OAuth recovery after 401, and lifecycle/concurrency release semantics. | source: user-approved full Home parity; upstream releases `v7.2.101`-`v7.2.111`
-  - R12 [accepted]: Add weighted credential scheduling and validation across credential ingestion, selection, service configuration, and management operations; persist weights as structured database data and preserve existing provider-level scheduling semantics unless explicitly superseded by tests. | source: upstream commits `5dcca50f`, `e8e39526`; user-approved database/API/UI controls
-  - R13 [accepted]: Port PostgreSQL cooldown persistence only through llmhub's existing database schema/repository patterns, with migrations, restart recovery, concurrency tests, and no upstream file-store authority. | source: upstream commit `f329b9d1`; Postgres runtime authority
-  - R14 [accepted]: Port applicable translator fidelity changes for tool-call streaming, `[DONE]` and completion handling, `input_image` tool output, Claude tool schema normalization, Gemini structured output, token metadata including cached creation tokens, Codex function calls, grouped Claude tool results, and `json_schema`/`json_object` correctness. | source: upstream releases `v7.2.102`-`v7.2.107`
-  - R15 [accepted]: Port applicable model/catalog updates through the final checkpoint, including approved Claude, Gemini, Codex reasoning-level, and Kimi K3 256K metadata; removals or changed model defaults must be reconciled against llmhub's registry JSON, static definitions, display-name behavior, and remote model updater. | source: upstream releases `v7.2.100`-`v7.2.111`; decision `0013`
-  - R16 [accepted]: Add configurable Claude model-list cloaking and Codex cloaking/header behavior only as Postgres-backed structured settings with management API validation, safe defaults, and current-UX web controls. | source: upstream commits `69144785`, `a80e8082`; user-approved database/API/UI controls
-  - R17 [accepted]: Reconcile Codex configured-model resolution so built-in IDs are not force-injected when local configuration says otherwise, while preserving llmhub aliases, prefix clones, display names, auth selection, and Codex-compatible catalogs. | source: upstream releases `v7.2.106`-`v7.2.109`; decision `0013`
-  - R18 [accepted]: Any management API change must have Go handler/service/store coverage, authorization behavior consistent with existing endpoints, and backward-compatible response shapes unless a versioned additive contract is documented. | source: repository architecture; high-risk public-contract lane
-  - R19 [accepted]: Any web change must reuse current layout, typography, design tokens, shadcn-style components, navigation, interaction patterns, loading/error states, and i18n structure; upstream visual design must not replace llmhub UI/UX. | source: user UI/UX constraint; existing `web/` system
-  - R20 [accepted]: Frontend verification must use type checking, linting, production build, and browser runtime checks; no new test file may be created under `web/`. | source: `CLAUDE.md`
-  - R21 [accepted]: Each phase must start from the checkpointed sources, use bounded file ownership, include focused regression tests, and record exact evidence sufficient to distinguish adapted, already-present, rejected, and blocked upstream behavior. | source: prior high-risk parity validation model
-  - R22 [accepted]: The final gate must run the complete Go and frontend verification contract, re-query the latest non-prerelease upstream release, fetch its immutable commit into `refs/upstream-checkpoints/cliproxyapi/<version>`, and update this plan's checkpoint/ledger before completion. | source: user checkpoint constraint; repository prove-before-done rule
-  - R23 [accepted]: If the latest stable upstream release changes after planning, implementation must not silently widen scope; the ledger must identify the delta and either include it through an approved plan refinement or pin the completed scope with an explicit follow-up. | source: targeted-scope policy; checkpoint integrity
+  - R1 [accepted]: Preserve the phase-2 ledger and path report as durable planning authority; every implementation task must trace to a ledger slice and one of the dispositions `adapt`, `already-present`, `reject`, or `defer`. | source: `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`; `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md`
+  - R2 [accepted]: Implement only the 54 `adapt` commit dispositions and the 105 `adapt` semantic-review paths, grouped by capability slice, behind existing llmhub interfaces. | source: phase-2 ledger counts
+  - R3 [accepted]: Verify the 42 `already-present` commit dispositions and 64 `already-present` semantic-review paths with focused tests or local symbol evidence before making duplicate code changes. | source: phase-2 ledger counts
+  - R4 [accepted]: Reject the 15 `reject` commit dispositions and 6 `reject` semantic-review paths, including upstream pluginhost/plugin platform and branding/docs/release churn. | source: phase-2 ledger reject rows; `scope_policy.exclude`
+  - R5 [accepted]: Defer the Home 401 refresh-revert reconciliation until upstream PR #4687/revert rationale is known or local regression evidence exists; do not remove `RefreshAuthViaHome` or widen Home behavior in this plan. | source: upstream `v7.2.112` commit `a63da8ae76b1`; local `internal/runtime/executor/helps/home_refresh.go:39`
+  - R6 [accepted]: Defer Git store corruption recovery unless separately approved; Postgres remains the authoritative runtime store and Git/object stores are secondary persistence backends. | source: ledger slice `gitstore-recovery`; `CLAUDE.md`
+  - R7 [accepted]: Preserve Postgres as the authoritative runtime source for configuration, credentials, cooldown state, usage, and new feature settings; no new runtime dependency may read authoritative state from local YAML, auth files, Git, or object store backends. | source: `CLAUDE.md`; `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`
+  - R8 [accepted]: Preserve Amp routing, Kiro support, Gemini CLI paths, provider-specific routes, public SDK contracts, embedded management web behavior, and llmhub branding unless an approved `adapt` slice explicitly requires an additive compatible change. | source: repository architecture; phase-2 ledger
+  - R9 [accepted]: Plan and implement thinking-summary visibility, thinking-provider application, and `ApplyRequestThinking` consolidation across executor and translator paths without changing provider defaults outside the upstream behavior. | source: ledger slices `thinking-summary-visibility`, `thinking-consolidation`
+  - R10 [accepted]: Plan and implement translator fidelity gaps: streaming tool/function-call handling, completion/DONE behavior, grouped tool results, Codex/Claude/Gemini request-response parity, structured output, cached token metadata, and provider-specific summary visibility. | source: ledger slices `translator-fidelity`, `translator-structured-output`, `translator-usage-metadata`, `translator-input-image`, `translator-naming`
+  - R11 [accepted]: Plan and implement executor/runtime reliability gaps: deferred-tool cache control, tool-result ordering, derived sessions, config-aware binding, OAuth tool-name restoration, video failure reporting, local token counting, xAI output controls, and Codex multi-agent-v2 translation. | source: ledger slices `executor-runtime-fixes`, `codex-multiagent-v2`
+  - R12 [accepted]: Plan and implement auth/session gaps: auth file equality fix, native client session affinity, live Home alias preservation, Codex configured-model resolution, credential-weight management API parsing, and safe Codex cloaking/header toggle behavior. | source: ledger slices `auth-session-fixes`, `codex-model-resolution`, `credential-weight-api`, `codex-cloaking-toggle`
+  - R13 [accepted]: Plan and implement management/API/runtime diff gaps: auth identity filtering, runtime control exposure, request metadata logging, watcher config diff/relay propagation, and OpenAI Responses WebSocket continuity. | source: ledger slices `management-api`, `logging-metadata`, `watcher-config-diff`, `responses-websocket`
+  - R14 [accepted]: Plan and implement CAIS/provider signature validation gaps and Antigravity schema/replay compatibility only where not already covered locally. | source: ledger slices `claude-cais-signatures`, `antigravity-replay`
+  - R15 [accepted]: Treat model catalog, Codex Live, Home parity, Postgres cooldown, weighted scheduler, usage normalization, Claude cloaking, and schema-normalization slices as verification-first because the phase-2 ledger classifies them as already present or substantially present locally. | source: ledger slice summary
+  - R16 [accepted]: Frontend work is limited to approved management controls; it must reuse current llmhub UI/UX, i18n, and components, and must not add new frontend test files under `web/`. | source: `CLAUDE.md`; repository web panel rules
+  - R17 [accepted]: Every phase must define observable verification commands before work starts, including focused Go tests, `go test ./...`, `go vet`, frontend type/lint/build when web changes exist, `make build`, JSON validation, and `git diff --check`. | source: prove-before-done rule
+  - R18 [accepted]: The final gate must re-resolve the latest stable upstream release, fetch its immutable commit into `refs/upstream-checkpoints/cliproxyapi/<tag>`, refresh checkpoint/ledger artifacts, and classify any new delta before closure. | source: checkpoint integrity rule
+  - R19 [accepted]: If a newer stable upstream release changes scope after planning, implementation must not silently widen; the same active plan must be refined or the new delta pinned as an explicit follow-up. | source: targeted-scope policy
 
 ## Non-goals
-- NG1: Wholesale merging, rebasing, or replacing llmhub with the upstream source tree is excluded; this initiative ports approved semantics only.
-- NG2: Upstream pluginhost, pluginstore, plugin SDK/ABI, request-lifecycle plugin framework, plugin examples, and Home plugin synchronization are excluded even where they appear in the checkpoint range.
-- NG3: Replacing Postgres runtime authority with `config.yaml`, local auth files, watcher-owned state, Git-backed runtime state, or any other upstream file-based source is excluded.
-- NG4: Removing or redesigning Amp, Kiro, Gemini CLI, embedded management web, provider-specific routes, quota-alert features, or existing llmhub SDK surfaces is excluded.
-- NG5: Importing upstream web styling, branding, logos, sponsors, translated README churn, release assets, Docker/release workflows, installer behavior, or documentation showcases is excluded.
-- NG6: Refactoring large local files merely to match upstream file splits is excluded unless a bounded split is necessary to safely implement and verify an approved behavior.
-- NG7: Adding controls to the UI when the underlying feature is rejected or not operator-configurable is excluded; UI work follows approved backend contracts only.
-- NG8: Production deployment, credential-based live-provider validation, commit, push, pull request, merge, or release publication is excluded from this specification and requires separate authorization.
+- NG1: Wholesale merge, rebase, source-tree replacement, or source-layout parity with upstream is excluded.
+- NG2: Upstream pluginhost, pluginstore, plugin SDK/ABI, request-lifecycle plugin framework, plugin examples, and plugin synchronization are excluded.
+- NG3: Upstream branding, README translation churn, sponsor/public-site references, release workflow churn, and root logs ignore changes are excluded.
+- NG4: Replacing Postgres runtime authority with `config.yaml`, auth files, Git store, object store, watcher-owned state, or any other file-authoritative state is excluded.
+- NG5: Removing or redesigning Amp, Kiro, Gemini CLI, provider-specific routes, embedded management web, quota-alert behavior, or public SDK surfaces is excluded unless a listed `adapt` requirement demands an additive compatible change.
+- NG6: The upstream `v7.2.112` Home 401 refresh revert is not implemented in this plan; it remains deferred pending rationale or regression evidence.
+- NG7: Git store corruption recovery is not implemented in this plan unless separately approved; it remains deferred behind Postgres runtime authority.
+- NG8: New frontend test files under `web/` are excluded; frontend proof uses type check, lint, production build, and browser runtime checks.
+- NG9: Production deployment, credential-based live-provider validation, commit, push, PR, merge, or release publication is excluded from this specification and requires separate authorization.
 
 ## Approach and Risks
-- approach: Use an immutable-source, ledger-first semantic backport. Each upstream behavior is classified against local code, reproduced with a focused test where applicable, then implemented behind existing llmhub interfaces. Database contracts precede runtime consumers; protocol/runtime work precedes model and UI exposure; Codex Live is split into session/control and media/relay phases; the final phase refreshes the checkpoint and closes any newly published release delta without silently widening scope.
+- approach: Execute a ledger-gated semantic backport. First freeze the v7.2.112 artifacts and checkpoint policy, then prove `already-present` slices, then implement only `adapt` slices in dependency order. Keep each phase behind existing llmhub interfaces, with tests proving behavior rather than source-shape parity.
+- implementation_order:
+  1. Freeze ledger/scope artifacts and make the checkpoint policy match the refined disposition set.
+  2. Verify present slices to avoid duplicating Codex Live, Home parity, model catalog, cooldown, weighted scheduler, usage normalization, schema normalization, and Claude cloaking work.
+  3. Implement thinking summary/provider semantics first because it crosses executors and translators.
+  4. Implement translator fidelity before executor/websocket runtime changes so runtime paths call stable protocol helpers.
+  5. Implement executor, auth, Codex resolution, management/API, and signature/Antigravity gaps behind existing contracts.
+  6. Finish with full gate and latest-release checkpoint refresh.
 - constraints:
-  - Source comparisons use immutable refs under `refs/upstream-checkpoints/cliproxyapi/`; `upstream/main` is informative only.
-  - The canonical initiative artifact remains this plan; the machine-readable checkpoint and commit ledger live in one additive `docs/upstream/cliproxyapi-checkpoint.json` file.
-  - Runtime configuration and new feature settings are database-authoritative. Existing YAML structs may remain as decoded compatibility shapes, but startup cannot make files authoritative.
-  - Existing Amp, Kiro, Gemini CLI, provider routes, public SDK boundaries, embedded web, and local design system remain intact.
-  - Upstream file splits are copied only when they reduce implementation risk for an approved behavior; source layout parity is not a goal.
-  - No new frontend test files are created under `web/`; web proof uses type-check, lint, build, and browser runtime checks.
-  - Live-provider credentials are optional evidence. Deterministic local protocol, lifecycle, relay, and persistence tests are mandatory.
-  - Phase definitions and task contracts below are immutable after planning; execution status is append-only under Progress.
-- dependencies:
-  - Public GitHub access to query and fetch `router-for-me/CLIProxyAPI` releases and immutable commits.
-  - A Postgres test DSN for integration tests that cannot be proved with unit-level stores; tests must skip cleanly when the documented env var is absent.
-  - Local network loopback, TLS fixtures, and WebRTC/TCP test doubles for Codex Live and Home protocol verification.
-  - Bun for frontend verification and embedding.
+  - Source comparisons use immutable refs under `refs/upstream-checkpoints/cliproxyapi/`; never diff against a moving branch as authority.
+  - `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md` and `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md` are required inputs for every phase.
+  - Runtime state remains Postgres-authoritative; file, Git, object-store, or watcher-owned state cannot become the source of truth.
+  - Amp, Kiro, Gemini CLI paths, provider-specific routes, public SDK boundaries, embedded management web, and llmhub branding remain protected.
+  - Do not create new frontend test files under `web/`.
 - rejected_alternatives:
-  - Wholesale upstream merge: rejected because histories and architecture have diverged and the local tree contains Postgres, Amp, Kiro, quota-alert, SDK, branding, and web contracts absent upstream.
-  - Critical-fixes-only update: rejected because the approved scope explicitly includes full Codex Live, full Home parity, models, weights, and management controls.
-  - File/YAML-backed feature toggles: rejected because new llmhub feature configuration is database-only.
-  - One giant parity phase: rejected because Home, translators, database state, media relay, and UI have different failure modes and independent verification needs.
-  - Importing upstream plugin infrastructure to simplify patch application: rejected as an explicit non-goal and an unnecessary execution surface.
+  - Wholesale source merge: rejected because local architecture and product surfaces have diverged.
+  - Working directly from upstream file diffs: rejected because Phase 2 proved many semantic-review files are already adapted locally or include rejected slices.
+  - Planning only `adapt` commits and skipping `already-present`: rejected because duplicate implementation risk is high without proof gates.
+  - Implementing the v7.2.112 Home 401 revert now: rejected for this plan; upstream PR #4687 has no public rationale and local has `RefreshAuthViaHome`.
 - risks:
-  - risk: Patch-equivalent behavior may already exist under different local names, causing duplicate or conflicting implementations.
-    mitigation: The ledger phase classifies each commit using tests, symbols, and behavior; implementation starts only from `adapt` entries.
-    recovery: Revert only the duplicate slice and mark the ledger entry `already-present` or `superseded-local` with evidence.
-  - risk: Full Home parity introduces distributed-state races, stale ownership, duplicate release, or 401 retry loops.
-    mitigation: Preserve exactly-once executionregistry release, add deterministic fake-Home protocol tests, bound retries, and test shutdown/reconnect interleavings under `-race`.
-    recovery: Disable the new Home path through its database setting while retaining the prior v7.2.96 concurrency behavior; reverse only the active Home slice.
-  - risk: Credential weights and cooldown persistence alter scheduler fairness or availability semantics.
-    mitigation: Define validation and deterministic selection invariants before wiring persistence; test mixed providers, aliases, disabled credentials, restarts, and concurrent updates.
-    recovery: Fall back to neutral weight `1` and existing in-memory cooldown behavior without deleting stored values.
-  - risk: Codex Live media relay expands the attack and resource surface through UDP/WebRTC/TCP forwarding.
-    mitigation: Bind only configured interfaces, validate targets, enforce deadlines and size/concurrency bounds, redact credentials, and test cancellation and half-close behavior.
-    recovery: Keep Live disabled by default and independently disable media/TCP relay while preserving non-Live Codex execution.
-  - risk: Translator and signature changes can corrupt streaming state or tool identity across protocols.
-    mitigation: Add golden event-sequence tests for fragmented calls, indices, completion, schemas, signatures, and replay before changing shared helpers.
-    recovery: Reverse the smallest translator/provider slice and retain the prior decision contracts `0010`-`0013`.
-  - risk: Model catalog changes can silently alter routing, aliases, or visible IDs.
-    mitigation: Separate presentation metadata from routing identity and assert registry, configured-only Codex, prefix, alias, and display-name behavior across all catalog endpoints.
-    recovery: Remove only affected model entries or catalog exposure while keeping unrelated runtime fixes.
-  - risk: Database migrations or settings updates can leave a partially upgraded runtime.
-    mitigation: Use idempotent `EnsureSchema` operations, seeded defaults, revisioned writes, transaction tests, and restart round trips.
-    recovery: Keep old columns/read paths compatible and ignore new tables/settings when absent; never destructively migrate existing rows.
-  - risk: Upstream may publish another stable release during implementation.
-    mitigation: Re-query latest stable release at phase 1 and final gate; record the delta without silently changing planned tasks.
-    recovery: Refine this same plan for required product changes or pin the completed checkpoint and create an explicit follow-up.
+  - risk: A slice marked `already-present` may be only partially present.
+    mitigation: Run focused proof tasks before code work and convert only proven gaps to `adapt` through plan refinement.
+    recovery: Stop the phase, update ledger evidence, and refine this same plan before modifying code.
+  - risk: Thinking and translator changes can alter provider-visible protocol semantics.
+    mitigation: Add request/response golden tests per provider and run broad translator package tests before runtime consumers change.
+    recovery: Revert the smallest provider slice and keep unaffected protocol helpers.
+  - risk: WebSocket/executor changes can lose transcript/tool state or double-release lifecycle state.
+    mitigation: Race-test request-scoped state, atomic cache commit/rollback, terminal events, and cancellation.
+    recovery: Disable the affected optional path and revert only the transport/runtime slice.
+  - risk: Management/API controls can expose secrets or bypass revision/conflict behavior.
+    mitigation: Reuse existing auth, redaction, revision, and error-shape patterns; browser-verify current UX.
+    recovery: Keep backend defaults safe and defer UI exposure.
+  - risk: Upstream publishes another stable release during implementation.
+    mitigation: Re-query and classify at final gate.
+    recovery: Refine this same plan or pin the new delta as follow-up; do not silently widen scope.
 - stop_conditions:
-  - Stop if an approved behavior requires pluginhost/pluginstore, file-authoritative runtime state, removal of a protected local subsystem, or an undocumented public API break.
-  - Stop a phase when deterministic tests expose a conflict with prior decisions `0010`-`0013`, a database migration is not backward-compatible, or a relay cannot be bounded safely.
-  - Stop final closure if the checkpoint file, plan validation record, Git ref, release tag, and commit SHA disagree.
-- recovery_policy: Reverse only the current bounded slice in dependency order, preserve database rows through additive compatibility, append the failure and evidence under Progress/Validation, and resume from the last checked phase.
+  - Stop if a task requires pluginhost/pluginstore, file-authoritative runtime state, wholesale file replacement, or a breaking public API change.
+  - Stop if checkpoint JSON, ledger, path report, plan requirements, and DB phase rows disagree.
+  - Stop if deterministic tests expose a regression in protected Amp/Kiro/Gemini CLI/provider route behavior.
+- recovery_policy: Reverse only the current bounded slice, preserve additive DB data, append evidence under Progress/Validation, and resume from the last planned phase whose checks passed.
 
 ## Phases and Verification
-<!-- Phase and task definitions are immutable after to-plan. Do not add task status fields. Append-only Progress is the sole task execution-status source. Only each phase lifecycle status changes to mirror DB transitions: to-plan=planned; work after run create=in-progress; clean durable check=checked; closing handoff=done. Each planned phase records phase_slug, story_id, status, goal, depends_on, waves, tasks, and checks. -->
+<!-- Phase and task definitions are immutable after to-plan. Do not add task status fields. Append-only Progress is the sole task execution-status source. Only each phase lifecycle status changes to mirror DB transitions. -->
 - planning_status: planned
 - phases:
-  - phase_slug: upstream-parity-ledger
-    story_id: 01KYTYK4EWSZJW4PPRJC2BYY1B
-    status: done
-    goal: Classify every product-relevant CLIProxyAPI change from the prior checkpoint through the current stable release and establish the durable machine-readable checkpoint.
+  - phase_slug: cliproxyapi-ledger-scope-freeze
+    story_id: 01KYW6RDHMC6YVHJXD8X1TTDKR
+    status: checked
+    goal: Freeze the v7.2.93..v7.2.112 ledger, path dispositions, and checkpoint scope policy before code work.
     depends_on: none
-    requirement_trace: [R1, R2, R6, R21, R22, R23]
-    allowed_surfaces:
-      - `docs/upstream/cliproxyapi-checkpoint.json`
-      - append-only `Progress`, `Decisions`, and `Validation` entries in this plan
-      - local Git refs under `refs/upstream-checkpoints/cliproxyapi/`
-    avoided_surfaces:
-      - production Go and web code
-      - upstream plugin, branding, release, and documentation showcase content
+    requirement_trace: [R1, R2, R3, R4, R5, R6, R18, R19]
     waves:
-      - wave: ledger-source-freeze
+      - wave: artifact-consistency
         tasks:
-          - task_id: ledger-refresh-source
-            goal: Re-query the latest non-prerelease release, fetch its tag commit into an immutable checkpoint ref, and record release time, tag, SHA, URL, local baseline, prior checkpoints, and comparison timestamp.
-            depends_on: none
-            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, Git checkpoint refs]
-            expected_output: A schema-versioned checkpoint object whose source metadata matches GitHub and `git show-ref` exactly.
-            checks:
-              - `gh api repos/router-for-me/CLIProxyAPI/releases/latest --jq '{tag_name,published_at,html_url,target_commitish}'`
-              - `git show-ref refs/upstream-checkpoints/cliproxyapi/v7.2.93 refs/upstream-checkpoints/cliproxyapi/v7.2.96 refs/upstream-checkpoints/cliproxyapi/v7.2.111`
-              - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null`
-          - task_id: ledger-commit-inventory
-            goal: Enumerate every non-merge product commit and release from `v7.2.94` through the checkpoint, grouping commits by management, auth/Home, persistence, translator, executor, model, Codex Live, plugin, docs/release, and local-conflict surfaces.
-            depends_on: ledger-refresh-source
-            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`]
-            expected_output: Complete ordered commit entries with upstream files, release membership, dependency notes, and no unclassified product commit.
-            checks:
-              - `git log --reverse --no-merges --format='%H%x09%s' refs/upstream-checkpoints/cliproxyapi/v7.2.93..refs/upstream-checkpoints/cliproxyapi/v7.2.111`
-              - `git diff --name-status refs/upstream-checkpoints/cliproxyapi/v7.2.93..refs/upstream-checkpoints/cliproxyapi/v7.2.111`
-      - wave: ledger-local-disposition
-        tasks:
-          - task_id: ledger-semantic-disposition
-            goal: Assign every product commit one disposition from `already-present`, `adapt`, `superseded-local`, or `reject`, with local paths, tests, rationale, and owning phase.
-            depends_on: ledger-commit-inventory
-            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`]
-            expected_output: Zero unresolved product entries and explicit rejection of plugin/release/branding churn.
+          - task_id: verify-phase2-artifacts
+            goal: Prove checkpoint, gap report, ledger, and semantic-review path report agree on range, counts, and allowed dispositions.
+            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`, `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md`]
+            expected_output: 113 ledger rows and 181 semantic-review paths with zero blank or invalid dispositions.
             checks:
               - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null`
+              - `python3 -m json.tool docs/upstream/cliproxyapi-gap-v7.2.93..v7.2.112.json >/dev/null`
+              - `python3 - <<'PY'
+allowed={'already-present','adapt','reject','superseded-locally','defer'}
+rows=0
+for line in open('docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md'):
+    if line.startswith('| v7'):
+        rows+=1; d=line.split('|')[6].strip('` ') ; assert d in allowed, (rows,d)
+assert rows==113
+print(rows)
+PY`
+          - task_id: record-scope-policy
+            goal: Ensure `scope_policy.include`, `exclude`, and `defer` match the refined phase-2 disposition set.
+            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`]
+            expected_output: Include list contains only approved adapt/verify slices; exclude/defer lists match Non-goals.
+            checks:
               - `python3 - <<'PY'
 import json
-p='docs/upstream/cliproxyapi-checkpoint.json'
-d=json.load(open(p))
-entries=d['entries']
-assert entries
-assert all(e.get('disposition') in {'already-present','adapt','superseded-local','reject'} for e in entries)
-assert all(e.get('owner_phase') or e['disposition'] == 'reject' for e in entries)
-print(len(entries))
+d=json.load(open('docs/upstream/cliproxyapi-checkpoint.json'))
+p=d['scope_policy']
+assert 'home-401-refresh-revert' in p.get('defer', [])
+assert 'plugin-platform' in p['exclude']
+assert 'thinking-summary-visibility' in p['include']
+print(len(p['include']), len(p['exclude']), len(p.get('defer', [])))
 PY`
     phase_checks:
       - `git diff --check`
       - `zharness query phases --json`
     stop_conditions:
-      - Any product commit lacks a disposition, local evidence, or owning phase.
-      - The queried stable release differs from the locked checkpoint and the delta cannot be classified without changing scope.
-    escalation: Refine this same plan before implementation if the stable-release delta adds product behavior outside existing requirements.
+      - Any product commit or semantic-review path is blank, invalid, or inconsistent with the checkpoint range.
 
-  - phase_slug: postgres-control-foundation
-    story_id: 01KYTYK4F3MEEFC38M0RHCWPS9
-    status: done
-    goal: Create database-backed settings and state foundations required by approved controls, cooldown persistence, Home, and Codex Live.
-    depends_on: upstream-parity-ledger
-    requirement_trace: [R3, R12, R13, R16, R18, R21]
-    allowed_surfaces:
-      - `internal/store/postgresstore.go`
-      - additive `internal/store/postgres_*` files and integration tests
-      - focused setting/domain packages under `internal/`
-      - service/store interfaces required to load revisioned settings
-    avoided_surfaces:
-      - YAML as runtime authority
-      - web UI
-      - provider protocol behavior
+  - phase_slug: cliproxyapi-present-proof
+    story_id: 01KYW6RDHWRM7171YT75A9K1PV
+    status: planned
+    goal: Verify already-present upstream parity slices and block duplicate implementations.
+    depends_on: cliproxyapi-ledger-scope-freeze
+    requirement_trace: [R3, R7, R8, R15]
     waves:
-      - wave: postgres-schema-domain
+      - wave: runtime-present-proof
         tasks:
-          - task_id: define-runtime-control-domain
-            goal: Define validated, defaulted domain types for credential weights, Claude/Codex cloaking, Codex Live controls, Home controls, and persisted cooldown snapshots.
-            depends_on: none
-            touched_surfaces: [`internal/config/`, additive focused domain packages under `internal/`]
-            expected_output: Pure validation/default contracts with neutral backward-compatible defaults and no file persistence.
+          - task_id: prove-codex-live-home-present
+            goal: Verify Codex Live, Home parity, Postgres cooldown, weighted scheduler, and usage normalization are present under llmhub's architecture.
+            touched_surfaces: [`internal/client/codex/live/`, `internal/home/`, `sdk/cliproxy/auth/`, `internal/store/`, `internal/runtime/executor/helps/`]
+            expected_output: Focused tests pass without adding duplicate implementations.
             checks:
-              - `go test ./internal/config/... -count=1`
-          - task_id: add-idempotent-postgres-schema
-            goal: Add idempotent tables/columns/indexes and seeded singleton rows using existing `EnsureSchema` conventions and revisioned writes.
-            depends_on: define-runtime-control-domain
-            touched_surfaces: [`internal/store/postgresstore.go`, additive `internal/store/postgres_*` files]
-            expected_output: Additive schema that upgrades empty and existing databases without destructive changes.
+              - `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps -run 'Test.*(Live|Home|Cooldown|Weighted|Usage|Token)' -count=1`
+          - task_id: prove-model-schema-present
+            goal: Verify model catalog, schema normalization, structured output, cached token metadata, and Claude cloaking already-present claims.
+            touched_surfaces: [`internal/registry/`, `internal/util/`, `internal/translator/`, `internal/watcher/diff/`, `sdk/config/`]
+            expected_output: Existing tests/symbols prove already-present claims; any gap becomes a refine blocker.
             checks:
-              - `go test ./internal/store -run 'TestPostgresStore.*(Init|Schema|Settings|Cooldown)' -count=1`
-              - `LLMHUB_POSTGRES_TEST_DSN="$LLMHUB_POSTGRES_TEST_DSN" go test ./internal/store -run 'TestPostgres.*(Settings|Cooldown|Migration|Restart)' -count=1`
-      - wave: postgres-repository-contracts
-        tasks:
-          - task_id: implement-revisioned-settings-store
-            goal: Implement atomic load/save APIs for runtime controls, including revision conflicts, defaults, and restart round trips.
-            depends_on: add-idempotent-postgres-schema
-            touched_surfaces: [`internal/store/`, `sdk/cliproxy/` service dependencies]
-            expected_output: Transactional database repository with deterministic in-memory/unit seams and no YAML write path.
-            checks:
-              - `go test ./internal/store ./sdk/cliproxy -run 'Test.*(RuntimeSettings|Revision|Restart)' -count=1`
-          - task_id: implement-cooldown-snapshot-store
-            goal: Persist and restore cooldown windows without changing request-scoped availability classification or writing stale snapshots over newer state.
-            depends_on: add-idempotent-postgres-schema
-            touched_surfaces: [`internal/store/`, `sdk/cliproxy/auth/` store interfaces only]
-            expected_output: Restart-safe cooldown store with expiry cleanup and compare-before-write semantics.
-            checks:
-              - `go test ./internal/store ./sdk/cliproxy/auth -run 'Test.*Cooldown.*(Persist|Restore|Expiry|Concurrent)' -count=1`
+              - `go test ./internal/registry ./internal/util ./internal/translator/... ./internal/watcher/... ./sdk/config -run 'Test.*(Model|Schema|Structured|Cached|Cloak|Display)' -count=1`
     phase_checks:
-      - `go test ./internal/config/... ./internal/store/... ./sdk/cliproxy/... -count=1`
-      - `go vet ./internal/config/... ./internal/store/... ./sdk/cliproxy/...`
+      - `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps ./internal/registry ./internal/util ./internal/translator/... -count=1`
       - `git diff --check`
     stop_conditions:
-      - A schema operation drops/rewrites existing data or startup requires local config files.
-      - Revisioned writes cannot prevent lost updates.
-    escalation: Keep the new feature disabled and stop consumers until additive schema and repository contracts are proven.
+      - An already-present slice fails proof or needs code changes outside a listed adapt slice.
 
-  - phase_slug: auth-weight-management-parity
-    story_id: 01KYTYK4F9VD1FZRB2BS4Q1E36
-    status: done
-    goal: Adapt auth filtering, credential weights, weighted scheduling, cooldown restoration, and management contracts.
-    depends_on: postgres-control-foundation
-    requirement_trace: [R5, R10, R12, R13, R18, R21]
-    allowed_surfaces:
-      - `sdk/cliproxy/auth/`
-      - `internal/api/handlers/management/auth_files.go` and focused additive auth-management files
-      - `internal/store/`
-      - `sdk/cliproxy/builder.go`, `sdk/cliproxy/service.go`, and focused service wiring
-      - existing auth-file web DTO compatibility types only when backend contracts require them
-    avoided_surfaces:
-      - Home membership protocol internals
-      - Codex Live
-      - unrelated provider translators
+  - phase_slug: cliproxyapi-thinking-summary
+    story_id: 01KYW6RDJ3P9B8X2C1ZGKMQVSS
+    status: planned
+    goal: Adapt upstream thinking summary visibility and provider application semantics.
+    depends_on: cliproxyapi-present-proof
+    requirement_trace: [R2, R9, R10, R11]
     waves:
-      - wave: auth-identity-weight
+      - wave: thinking-core
         tasks:
-          - task_id: port-auth-identity-filtering
-            goal: Filter and address credentials by stable database identity/auth index without filename assumptions or cross-provider collisions.
-            depends_on: none
-            touched_surfaces: [`internal/api/handlers/management/auth_files.go`, focused handler tests, auth store lookups]
-            expected_output: Backward-compatible auth list/filter/update behavior for name, provider, and auth index.
+          - task_id: add-summary-authority-model
+            goal: Implement normalized summary payload authority, final summary visibility, hidden-summary behavior, and provider visibility semantics.
+            touched_surfaces: [`internal/thinking/`, `sdk/translator/`, focused tests]
+            expected_output: Provider-neutral summary model with explicit visibility rules.
             checks:
-              - `go test ./internal/api/handlers/management -run 'Test.*Auth.*(Filter|Index|Identity)' -count=1`
-          - task_id: implement-weight-validation-ingestion
-            goal: Parse, validate, default, persist, and expose credential weights without accepting zero, negative, overflow, or malformed values.
-            depends_on: none
-            touched_surfaces: [`sdk/cliproxy/auth/`, `internal/store/`, management DTOs]
-            expected_output: Neutral default weight `1`, canonical serialization, and validation at every ingestion path.
+              - `go test ./internal/thinking ./sdk/translator -run 'Test.*(Summary|Visibility|Hidden|Final|Provider)' -count=1`
+          - task_id: add-provider-thinking-application
+            goal: Adapt provider-specific thinking application for Claude, Gemini, Codex, OpenAI-compatible, Kimi, xAI, and Antigravity without changing defaults outside upstream behavior.
+            touched_surfaces: [`internal/thinking/provider/`, executor thinking hooks]
+            expected_output: Provider-specific application paths covered by focused conversion tests.
             checks:
-              - `go test ./sdk/cliproxy/auth ./internal/api/handlers/management ./internal/store -run 'Test.*Weight' -count=1`
-      - wave: scheduler-cooldown
+              - `go test ./internal/thinking/... ./internal/runtime/executor -run 'Test.*(Thinking|Summary|Effort)' -count=1`
+      - wave: thinking-integration
         tasks:
-          - task_id: implement-weighted-scheduler
-            goal: Apply deterministic weighted round-robin among ready credentials while preserving provider rotation, aliases, disabled credentials, cooldowns, and session affinity.
-            depends_on: implement-weight-validation-ingestion
-            touched_surfaces: [`sdk/cliproxy/auth/scheduler.go`, `selector.go`, conductor selection paths]
-            expected_output: Fair deterministic selection with no starvation and stable neutral behavior when all weights are `1`.
+          - task_id: replace-scattered-thinking-hooks
+            goal: Consolidate scattered thinking application behind the approved helper path only where Phase 2 marked `adapt`.
+            touched_surfaces: [`internal/runtime/executor/*_executor.go`, `internal/translator/`]
+            expected_output: No duplicate thinking application and no cross-provider summary leakage.
             checks:
-              - `go test ./sdk/cliproxy/auth -run 'Test.*(Weighted|Weight|Scheduler|PickNext)' -count=1`
-              - `go test -race ./sdk/cliproxy/auth -run 'Test.*(Weighted|Scheduler|Cooldown)' -count=1`
-          - task_id: wire-cooldown-restart-state
-            goal: Load persisted cooldowns at service startup and persist meaningful transitions without changing `invalid_grant`, CountTokens, or request-scoped error semantics.
-            depends_on: implement-weighted-scheduler
-            touched_surfaces: [`sdk/cliproxy/auth/`, `sdk/cliproxy/service.go`, `internal/store/`]
-            expected_output: Availability survives restart and expired/stale cooldowns do not suppress usable credentials.
-            checks:
-              - `go test ./sdk/cliproxy/auth ./sdk/cliproxy ./internal/store -run 'Test.*Cooldown.*(Restart|Persist|Availability)' -count=1`
-      - wave: auth-management-api
-        tasks:
-          - task_id: expose-auth-weight-management
-            goal: Add authorized management read/update contracts for weight and identity filtering with revision/error behavior matching existing endpoints.
-            depends_on: port-auth-identity-filtering
-            touched_surfaces: [`internal/api/handlers/management/`, route registration, API tests]
-            expected_output: Additive authenticated API with stable response shapes and explicit validation errors.
-            checks:
-              - `go test ./internal/api/handlers/management ./internal/api -run 'Test.*Auth.*(Weight|Filter|Management)' -count=1`
+              - `go test ./internal/runtime/executor ./internal/translator/... -run 'Test.*(Thinking|Summary|Visibility)' -count=1`
     phase_checks:
-      - `go test ./sdk/cliproxy/auth ./sdk/cliproxy ./internal/api/handlers/management ./internal/store -count=1`
-      - `go vet ./sdk/cliproxy/auth ./sdk/cliproxy ./internal/api/handlers/management ./internal/store`
+      - `go test ./internal/thinking/... ./internal/runtime/executor ./internal/translator/... ./sdk/translator -count=1`
+      - `go vet ./internal/thinking/... ./internal/runtime/executor ./internal/translator/...`
       - `git diff --check`
     stop_conditions:
-      - Neutral weights change existing selection order or a restart revives an expired cooldown.
-      - Auth filtering can target a credential outside the authenticated operator's intended identity.
-    escalation: Disable weighted selection and retain stored neutral values while isolating the failing scheduler or handler slice.
+      - Summary visibility changes a protected provider path without a focused failing/passing test.
 
-  - phase_slug: home-runtime-full-parity
-    story_id: 01KYTYK4FGP9CGTDWN08PT26BM
-    status: done
-    goal: Adapt complete Home membership, affinity, dispatch, recovery, CAS replay, and concurrency behavior through the checkpoint.
-    depends_on: auth-weight-management-parity
-    requirement_trace: [R4, R6, R10, R11, R21]
-    allowed_surfaces:
-      - `internal/home/`
-      - `sdk/cliproxy/auth/home_*`
-      - `sdk/cliproxy/executionregistry/`
-      - `sdk/cliproxy/service.go` and focused Home lifecycle files
-      - `internal/runtime/executor/helps/home_refresh.go`
-      - database-backed Home settings interfaces
-    avoided_surfaces:
-      - plugin-based Home synchronization
-      - file-authoritative Home config
-      - unrelated scheduler behavior after the prior phase gate
+  - phase_slug: cliproxyapi-translator-fidelity
+    story_id: 01KYW6RDJCWZ392M33PQFQD3DE
+    status: planned
+    goal: Adapt upstream translator streaming, tool, schema, usage, and response-format fidelity gaps.
+    depends_on: cliproxyapi-thinking-summary
+    requirement_trace: [R2, R10, R14]
     waves:
-      - wave: home-protocol-state
+      - wave: request-conversion
         tasks:
-          - task_id: port-membership-discovery-takeover
-            goal: Implement membership state, cluster discovery, takeover eligibility, alias groups, native client affinity signals, and edge-control validation.
-            depends_on: none
-            touched_surfaces: [`internal/home/`, `sdk/cliproxy/auth/home_session.go`, additive session identity helpers]
-            expected_output: Deterministic membership state machine with bounded discovery and validated session identity.
+          - task_id: adapt-tool-schema-request-parity
+            goal: Port missing grouped tool-result, tool-name conflict, response-format, `input_image`, schema cleaning, and summary request semantics not already proven present.
+            touched_surfaces: [`internal/translator/claude/`, `gemini/`, `codex/`, `openai/`, `antigravity/`, `internal/util/`]
+            expected_output: Provider-valid request bodies with preserved tool arguments and structured output settings.
             checks:
-              - `go test ./internal/home ./sdk/cliproxy/auth -run 'Test.*Home.*(Membership|Discovery|Takeover|Alias|Affinity|Control)' -count=1`
-              - `go test -race ./internal/home ./sdk/cliproxy/auth -run 'Test.*Home.*(Membership|Takeover|Affinity)' -count=1`
-          - task_id: port-home-cas-replay
-            goal: Use Home CAS semantics for replay state and reject stale compare-and-swap updates without losing valid transcript state.
-            depends_on: port-membership-discovery-takeover
-            touched_surfaces: [`internal/home/`, Home request/testdata fixtures, request-scoped replay consumers]
-            expected_output: Atomic replay ownership transitions with deterministic stale-writer tests.
-            checks:
-              - `go test ./internal/home ./sdk/cliproxy/auth -run 'Test.*Home.*(CAS|Replay|CompareAndSwap)' -count=1`
-      - wave: home-dispatch-recovery
+              - `go test ./internal/translator/... ./internal/util -run 'Test.*(Tool|Schema|InputImage|ResponseFormat|Summary|Structured)' -count=1`
+      - wave: response-streaming
         tasks:
-          - task_id: port-dispatch-reconnect-state
-            goal: Adapt dispatch, reconnect failover, NewLifetime semantics, error reporting, takeover-aware release, and cluster config recovery.
-            depends_on: port-membership-discovery-takeover
-            touched_surfaces: [`internal/home/client.go`, `requests.go`, `concurrency_release.go`, `sdk/cliproxy/auth/home_*`]
-            expected_output: Bounded reconnect and failover with exactly-once resource accounting.
+          - task_id: adapt-stream-tool-function-parity
+            goal: Port missing fragmented tool names, Codex function calls, duplicate delta suppression, `[DONE]`, completion state, output index, and cached token metadata semantics.
+            touched_surfaces: [`internal/translator/**/*response*.go`, focused event tests]
+            expected_output: Stable streaming/non-streaming event ordering and usage metadata.
             checks:
-              - `go test ./internal/home ./sdk/cliproxy/auth ./sdk/cliproxy/executionregistry -run 'Test.*Home.*(Dispatch|Reconnect|Lifetime|Release|Failover)' -count=1`
-              - `go test -race ./internal/home ./sdk/cliproxy/auth ./sdk/cliproxy/executionregistry -run 'Test.*(Dispatch|Release|Reconnect)' -count=1`
-          - task_id: port-home-401-refresh-recovery
-            goal: Refresh Home credentials before a single bounded 401 retry and recover OAuth material without infinite loops or duplicate in-flight accounting.
-            depends_on: port-dispatch-reconnect-state
-            touched_surfaces: [`internal/runtime/executor/helps/home_refresh.go`, Home auth/dispatch paths, provider executor auth hooks]
-            expected_output: One refresh/retry path with explicit terminal failure and preserved fallback behavior.
-            checks:
-              - `go test ./internal/runtime/executor/helps ./sdk/cliproxy/auth ./internal/home -run 'Test.*Home.*(401|Unauthorized|Refresh|Recovery)' -count=1`
-      - wave: home-service-lifecycle
-        tasks:
-          - task_id: integrate-home-full-lifecycle
-            goal: Wire database settings, startup, reload, reconnect, release flushing, and shutdown into the existing service without plugin synchronization.
-            depends_on: port-home-cas-replay
-            touched_surfaces: [`sdk/cliproxy/service.go`, focused service Home files/tests, `internal/config/home.go`, database settings loader]
-            expected_output: Idempotent start/reload/stop behavior with no leaked goroutines or stale ownership.
-            checks:
-              - `go test ./sdk/cliproxy ./internal/home -run 'Test.*Home.*(Lifecycle|Reload|Shutdown|Stale)' -count=1`
-              - `go test -race ./sdk/cliproxy ./internal/home -run 'Test.*Home.*(Lifecycle|Shutdown)' -count=1`
+              - `go test ./internal/translator/... -run 'Test.*(Done|Completion|ToolCall|FunctionCall|Delta|OutputIndex|Cached|Usage)' -count=1`
     phase_checks:
-      - `go test ./internal/home ./sdk/cliproxy/auth ./sdk/cliproxy/executionregistry ./sdk/cliproxy ./internal/runtime/executor/helps -count=1`
-      - `go vet ./internal/home ./sdk/cliproxy/auth ./sdk/cliproxy/executionregistry ./sdk/cliproxy ./internal/runtime/executor/helps`
+      - `go test ./internal/translator/... ./internal/util ./sdk/translator -count=1`
+      - `go vet ./internal/translator/... ./internal/util ./sdk/translator`
       - `git diff --check`
     stop_conditions:
-      - Any path can release a credential twice, retry 401 indefinitely, accept invalid session control bytes, or allow stale replay ownership.
-      - Full parity requires Home plugins or file-backed state.
-    escalation: Keep new Home behavior disabled and restore the prior v7.2.96 lifecycle path while preserving database schema and evidence.
+      - Translator changes mutate Kiro/Amp/provider-specific request shapes without explicit tests.
 
-  - phase_slug: translator-protocol-parity-111
-    story_id: 01KYTYK4FPD9V2YQ16F3WP82B2
-    status: done
-    goal: Adapt translator streaming, schema, tool-output, function-call, and usage fidelity through the checkpoint.
-    depends_on: home-runtime-full-parity
-    requirement_trace: [R6, R9, R10, R14, R21]
-    allowed_surfaces:
-      - `internal/translator/`
-      - `sdk/translator/`
-      - focused shared helpers under `internal/util/`
-      - protocol handler tests only where transport completion semantics require them
-    avoided_surfaces:
-      - provider auth selection
-      - model registry identity
-      - UI
+  - phase_slug: cliproxyapi-executor-websocket
+    story_id: 01KYW6RDJKEF8V4H5AFNN30S8K
+    status: planned
+    goal: Adapt executor/runtime reliability, Codex multi-agent-v2, token counting, and websocket continuity gaps.
+    depends_on: cliproxyapi-translator-fidelity
+    requirement_trace: [R2, R8, R11, R13]
     waves:
-      - wave: translator-request-fidelity
+      - wave: executor-runtime
         tasks:
-          - task_id: port-tool-schema-and-output-inputs
-            goal: Normalize Claude tool input schemas, preserve `input_image` tool outputs, map Gemini structured output, and keep valid tool-result ordering/grouping.
-            depends_on: none
-            touched_surfaces: [`internal/translator/claude/`, `gemini/`, `gemini-cli/`, `codex/`, `common/`, `internal/util/`]
-            expected_output: Protocol-valid request shapes with deterministic fallback for invalid mixed content.
+          - task_id: adapt-executor-binding-terminal-semantics
+            goal: Port config-aware executor binding, custom executor preservation, deferred-tool cache control, OAuth tool-name restoration, tool-result ordering, video failure reporting, derived sessions, and terminal completion behavior.
+            touched_surfaces: [`internal/runtime/executor/`, `internal/runtime/executor/helps/`, `sdk/cliproxy/`, `sdk/api/handlers/`]
+            expected_output: Runtime lifecycle and terminal semantics verified across HTTP/SSE/WebSocket paths.
             checks:
-              - `go test ./internal/translator/... -run 'Test.*(Schema|InputImage|ToolResult|Structured|ResponseFormat)' -count=1`
-          - task_id: reconcile-openai-tool-performance
-            goal: Port only behavior-preserving tool conversion and multi-agent optimizations not already present from v7.2.96.
-            depends_on: none
-            touched_surfaces: [`internal/translator/openai/`, `internal/runtime/executor/helps/` translation helpers]
-            expected_output: Equivalent output with focused allocation/benchmark evidence and no duplicate helper path.
+              - `go test ./internal/runtime/executor/... ./sdk/cliproxy/... ./sdk/api/handlers/... -run 'Test.*(Executor|Binding|Deferred|ToolName|ToolResult|Video|Derived|Terminal|Completion)' -count=1`
+          - task_id: adapt-token-counting-multiagent
+            goal: Port missing Claude/xAI local token counting and Codex multi-agent-v2 translation behavior without double-counting usage already reported by providers.
+            touched_surfaces: [`internal/runtime/executor/helps/`, provider executors]
+            expected_output: Deterministic local estimates with explicit first-event patching and no duplicate usage accounting.
             checks:
-              - `go test ./internal/translator/openai/... ./internal/runtime/executor/helps -run 'Test.*(Tool|MultiAgent|Translate)' -count=1`
-              - `go test ./internal/translator/openai/... -run '^$' -bench 'Benchmark.*Tool' -benchmem`
-      - wave: translator-response-streaming
-        tasks:
-          - task_id: port-stream-completion-tool-calls
-            goal: Handle fragmented tool names, custom/function conflicts, duplicate Claude deltas, `[DONE]`, terminal completion, provider output indices, and Codex function-call conversion without reopening retired state.
-            depends_on: port-tool-schema-and-output-inputs
-            touched_surfaces: [`internal/translator/*/*response*.go`, focused event-sequence tests]
-            expected_output: Stable streaming and non-streaming tool identity, indices, completion, and event ordering.
-            checks:
-              - `go test ./internal/translator/... -run 'Test.*(Done|Completion|ToolCall|FunctionCall|OutputIndex|Delta)' -count=1`
-          - task_id: port-usage-metadata-normalization
-            goal: Normalize partial/canonical token accounting and preserve cached creation tokens across supported response protocols.
-            depends_on: port-stream-completion-tool-calls
-            touched_surfaces: [`internal/translator/`, `sdk/cliproxy/usage/`, executor usage helpers]
-            expected_output: One canonical usage mapping with explicit partial accounting and no double counting.
-            checks:
-              - `go test ./internal/translator/... ./sdk/cliproxy/usage ./internal/runtime/executor/helps -run 'Test.*(Usage|Token|CachedCreation|Partial)' -count=1`
-      - wave: translator-response-format
-        tasks:
-          - task_id: fix-json-response-formats
-            goal: Correct `json_schema` and `json_object` mappings across OpenAI, Codex, Gemini, and Claude conversions using structured schema-cleaning options.
-            depends_on: port-tool-schema-and-output-inputs
-            touched_surfaces: [`internal/translator/`, `internal/util/` schema helpers]
-            expected_output: Provider-correct structured-output requests with preserved strict/name/schema fields.
-            checks:
-              - `go test ./internal/translator/... ./internal/util/... -run 'Test.*(JSONSchema|JSONObject|ResponseFormat|SchemaClean)' -count=1`
-    phase_checks:
-      - `go test ./internal/translator/... ./sdk/translator/... ./sdk/cliproxy/usage ./internal/runtime/executor/helps -count=1`
-      - `go vet ./internal/translator/... ./sdk/translator/... ./sdk/cliproxy/usage ./internal/runtime/executor/helps`
-      - `git diff --check`
-    stop_conditions:
-      - A shared helper changes Kiro/Amp request shapes without explicit tests.
-      - Streaming tests show duplicate, missing, reordered, or reopened events.
-    escalation: Split the failing provider/protocol into a follow-up refinement rather than weakening shared correctness contracts.
-
-  - phase_slug: antigravity-signature-parity
-    story_id: 01KYTYK4FXWCAR9718NRRMBMEH
-    status: done
-    goal: Adapt Antigravity replay, provenance, signature, and schema-sanitization correctness.
-    depends_on: translator-protocol-parity-111
-    requirement_trace: [R9, R10, R14, R21]
-    allowed_surfaces:
-      - `internal/runtime/executor/antigravity_executor.go` and focused additive files
-      - `internal/translator/antigravity/`
-      - additive focused signature package under `internal/signature/`
-      - existing cache package for bounded replay state
-      - Antigravity-focused tests
-    avoided_surfaces:
-      - unrelated Claude/Gemini direct executors
-      - global cache semantics
-      - plugin signature adapters
-    waves:
-      - wave: signature-validation
-        tasks:
-          - task_id: implement-provider-signature-validation
-            goal: Add CAIS, Gemini, Claude, GPT, and Grok signature validation/sanitization needed by approved replay paths with provider compatibility tests.
-            depends_on: none
-            touched_surfaces: [`internal/signature/`, `internal/translator/antigravity/`]
-            expected_output: Pure validation/sanitization APIs that reject malformed signatures without discarding recoverable context.
-            checks:
-              - `go test ./internal/signature/... ./internal/translator/antigravity/... -run 'Test.*Signature' -count=1`
-          - task_id: scope-antigravity-schema-cleaning
-            goal: Preserve tool arguments and provenance while applying schema cleaning only to the intended Antigravity surfaces.
-            depends_on: implement-provider-signature-validation
-            touched_surfaces: [`internal/runtime/executor/antigravity*`, `internal/translator/antigravity/`, schema helpers]
-            expected_output: No cross-provider mutation and complete tool argument preservation.
-            checks:
-              - `go test ./internal/runtime/executor ./internal/translator/antigravity/... -run 'Test.*Antigravity.*(Schema|Tool|Provenance)' -count=1`
-      - wave: replay-provenance
-        tasks:
-          - task_id: port-antigravity-reasoning-replay
-            goal: Preserve complete reasoning signature chains, recover provenance when context drifts, replay text thoughts safely, and clear bounded cache state at terminal boundaries.
-            depends_on: implement-provider-signature-validation
-            touched_surfaces: [`internal/cache/`, `internal/runtime/executor/antigravity*`, `internal/translator/antigravity/`]
-            expected_output: Session-safe bounded replay that degrades gracefully instead of killing valid sessions.
-            checks:
-              - `go test ./internal/cache ./internal/runtime/executor ./internal/translator/antigravity/... -run 'Test.*Antigravity.*(Replay|Reasoning|Provenance|Drift)' -count=1`
-              - `go test -race ./internal/cache ./internal/runtime/executor -run 'Test.*Antigravity.*Replay' -count=1`
-    phase_checks:
-      - `go test ./internal/cache ./internal/signature/... ./internal/runtime/executor ./internal/translator/antigravity/... -count=1`
-      - `go vet ./internal/cache ./internal/signature/... ./internal/runtime/executor ./internal/translator/antigravity/...`
-      - `git diff --check`
-    stop_conditions:
-      - Signature recovery accepts malformed provider data or replay leaks across sessions.
-      - Schema cleaning removes tool arguments or changes non-Antigravity requests.
-    escalation: Disable replay recovery while retaining strict validation and isolate the incompatible provider variant.
-
-  - phase_slug: executor-websocket-runtime-parity
-    story_id: 01KYTYK4G41ER484MG7D6MSTBA
-    status: done
-    goal: Adapt executor binding, lifecycle, WebSocket continuity, completion, cloaking, and runtime reliability changes.
-    depends_on: antigravity-signature-parity
-    requirement_trace: [R4, R6, R10, R14, R16, R21]
-    allowed_surfaces:
-      - `internal/runtime/executor/`
-      - `internal/runtime/executor/helps/`
-      - `sdk/api/handlers/`
-      - `sdk/cliproxy/executor/`, `sdk/cliproxy/pipeline/`, and focused service binding files
-      - database-backed cloaking settings consumers
-    avoided_surfaces:
-      - model catalog content
-      - management web
-      - Codex Live media transport
-    waves:
-      - wave: executor-binding-cloaking
-        tasks:
-          - task_id: reconcile-executor-binding
-            goal: Preserve custom/local executors during auth sync, use config-aware executor binding, and keep Amp/Kiro/provider registrations stable.
-            depends_on: none
-            touched_surfaces: [`sdk/cliproxy/service.go`, `builder.go`, provider registration, executor interfaces]
-            expected_output: Deterministic executor registry across startup, reload, auth updates, and configured providers.
-            checks:
-              - `go test ./sdk/cliproxy ./sdk/cliproxy/auth -run 'Test.*(Executor|Binding|Registration|AuthSync|Kiro|Amp)' -count=1`
-          - task_id: implement-database-cloaking-controls
-            goal: Apply Claude model-list and Codex request/header cloaking settings from database snapshots with backward-compatible defaults.
-            depends_on: reconcile-executor-binding
-            touched_surfaces: [`internal/runtime/executor/claude_executor.go`, `codex_executor.go`, helps/cloak files, service settings reload]
-            expected_output: Hot-reloadable controls with no YAML authority and no effect when defaults are unchanged.
-            checks:
-              - `go test ./internal/runtime/executor ./sdk/cliproxy -run 'Test.*(Cloak|Header|ModelList|DeferredTool)' -count=1`
+              - `go test ./internal/runtime/executor/... -run 'Test.*(InputToken|TokenCount|Estimate|MultiAgent|Usage)' -count=1`
       - wave: websocket-continuity
         tasks:
-          - task_id: port-websocket-context-continuity
-            goal: Preserve transcript, compacted xAI state, replay state, and tool cache atomically across WebSocket transport changes and failures.
-            depends_on: none
-            touched_surfaces: [`internal/runtime/executor/codex_websockets_executor.go`, xAI WebSocket paths if applicable, `sdk/api/handlers/openai/openai_responses_websocket*`]
-            expected_output: Request-scoped rollback/commit semantics with no state loss or partial cache mutation.
+          - task_id: adapt-websocket-cache-continuity
+            goal: Port atomic tool-cache commit/rollback, transcript preservation, compacted xAI/Codex state, and transport-change continuity.
+            touched_surfaces: [`internal/runtime/executor/codex_websockets_executor.go`, `sdk/api/handlers/openai/openai_responses_websocket*`]
+            expected_output: WebSocket state survives transport changes without partial cache mutation.
             checks:
-              - `go test ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*WebSocket.*(Continuity|Transcript|Cache|Rollback|Compact)' -count=1`
+              - `go test ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*(WebSocket|Continuity|Transcript|Cache|Rollback|Compact)' -count=1`
               - `go test -race ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*WebSocket' -count=1`
-          - task_id: port-runtime-terminal-reliability
-            goal: Restore OAuth tool names, report video failures, preserve tool-result ordering, suppress duplicate completion, support derived sessions, and keep request-scoped error/fallback semantics.
-            depends_on: port-websocket-context-continuity
-            touched_surfaces: [`internal/runtime/executor/`, `sdk/api/handlers/`, `sdk/cliproxy/session/` or local equivalent]
-            expected_output: Stable terminal output and lifecycle accounting for HTTP, stream, and WebSocket paths.
-            checks:
-              - `go test ./internal/runtime/executor ./sdk/api/handlers/... ./sdk/cliproxy/... -run 'Test.*(Terminal|Completion|ToolName|Video|DerivedSession|ToolResult)' -count=1`
-      - wave: local-token-counting
-        tasks:
-          - task_id: reconcile-local-token-counters
-            goal: Retain existing Claude/xAI estimation behavior, add only missing local counting semantics, and prevent double estimation when upstream usage is present.
-            depends_on: port-runtime-terminal-reliability
-            touched_surfaces: [`internal/runtime/executor/helps/claude_input_tokens.go`, token helpers, Claude/xAI executors]
-            expected_output: Bounded deterministic counts with explicit media/control exclusions and first-event patching only when needed.
-            checks:
-              - `go test ./internal/runtime/executor ./internal/runtime/executor/helps -run 'Test.*(InputToken|TokenCount|Estimate|Usage)' -count=1`
     phase_checks:
       - `go test ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/... -count=1`
       - `go vet ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/...`
       - `git diff --check`
     stop_conditions:
-      - WebSocket rollback loses transcript/tool state or any executor lifecycle leaks/release duplication occur.
-      - Cloaking controls require file-backed config or alter default requests.
-    escalation: Disable the affected optional control and reverse only the transport/provider slice while retaining proven shared lifecycle fixes.
+      - Any path loses transcript/tool state, double-releases lifecycle state, or changes default cloaking behavior.
 
-  - phase_slug: model-catalog-resolution-parity
-    story_id: 01KYTYK4GCR07WKC3HJC40AH1Z
-    status: done
-    goal: Adapt model catalogs, metadata, registry behavior, and configured-model resolution without changing local routing contracts.
-    depends_on: executor-websocket-runtime-parity
-    requirement_trace: [R8, R15, R17, R21]
-    allowed_surfaces:
-      - `internal/registry/`
-      - `internal/registry/models/models.json`
-      - `internal/registry/models/codex_client_models.json`
-      - additive client catalog builders under `internal/client/{codex,claude}/models/` when local registry delegation is preserved
-      - `sdk/api/handlers/{openai,claude,gemini}/` model responses
-      - focused Codex resolution code in `sdk/cliproxy/`
-    avoided_surfaces:
-      - provider auth selection
-      - upstream remote model authority replacing local registry
-      - UI styling
+  - phase_slug: cliproxyapi-auth-codex-controls
+    story_id: 01KYW6RDJTPRNWKRB251K4VT2C
+    status: planned
+    goal: Adapt auth/session fixes, Codex model resolution, weight API parsing, and cloaking controls.
+    depends_on: cliproxyapi-executor-websocket
+    requirement_trace: [R2, R7, R8, R12, R13, R16]
     waves:
-      - wave: model-data-catalogs
+      - wave: auth-session
         tasks:
-          - task_id: reconcile-model-metadata
-            goal: Add, update, or reject Claude, Gemini, Codex reasoning, and Kimi K3 256K metadata based on executor support and local registry schema; reconcile upstream removals explicitly.
-            depends_on: none
-            touched_surfaces: [`internal/registry/model_definitions.go`, `internal/registry/models/models.json`, registry tests]
-            expected_output: Valid static/JSON parity with no unsupported visible model and no routing identity changes from display metadata.
+          - task_id: adapt-auth-session-affinity
+            goal: Port missing auth-file equality fix, native session affinity, live Home alias preservation, and scheduler/selector gaps without changing neutral scheduling behavior.
+            touched_surfaces: [`sdk/auth/`, `sdk/cliproxy/auth/`]
+            expected_output: Existing Home/weight behavior remains stable while missing auth/session fixes are covered.
             checks:
-              - `go test ./internal/registry -run 'Test.*(Model|Definition|Registry|Kimi|Gemini|Claude|Reasoning)' -count=1`
-          - task_id: implement-client-catalog-builders
-            goal: Adapt Codex and Claude client-specific catalog response builders by delegating model visibility, IDs, aliases, and display names to llmhub's registry.
-            depends_on: reconcile-model-metadata
-            touched_surfaces: [`internal/client/codex/models/`, `internal/client/claude/models/`, API model handlers]
-            expected_output: Protocol-correct client catalogs with one registry source of truth.
-            checks:
-              - `go test ./internal/client/... ./sdk/api/handlers/openai ./sdk/api/handlers/claude -run 'Test.*(ClientModel|Catalog|DisplayName)' -count=1`
-      - wave: configured-model-resolution
+              - `go test ./sdk/auth ./sdk/cliproxy/auth -run 'Test.*(Auth|Session|Alias|Affinity|Selector|Scheduler|Weight)' -count=1`
+      - wave: codex-controls
         tasks:
-          - task_id: fix-codex-configured-only-resolution
-            goal: Stop force-injecting built-in Codex model IDs when configured-only behavior applies while preserving aliases, prefix clones, OAuth forks, and credential validation.
-            depends_on: implement-client-catalog-builders
-            touched_surfaces: [`sdk/cliproxy/`, `sdk/cliproxy/auth/`, Codex model handlers/tests]
-            expected_output: Configured models resolve deterministically and unconfigured built-ins stay hidden without breaking valid fallback.
+          - task_id: adapt-codex-resolution-and-cloaking
+            goal: Port configured-only Codex model resolution and `disable-codex-cloaking` header/config behavior while preserving aliases, prefix clones, and routing identity.
+            touched_surfaces: [`sdk/cliproxy/`, `sdk/api/handlers/openai/`, `internal/config/`, `internal/runtime/executor/codex_executor.go`]
+            expected_output: Built-ins are not force-injected when configuration forbids them, and cloaking defaults remain backward-compatible.
             checks:
-              - `go test ./sdk/cliproxy ./sdk/cliproxy/auth ./sdk/api/handlers/openai -run 'Test.*Codex.*(Model|Configured|Resolution|Credential|Alias)' -count=1`
-          - task_id: verify-cross-protocol-presentation
-            goal: Assert OpenAI, Codex, Claude, Gemini, and Gemini CLI catalogs preserve IDs, routing names, display names, visibility, and excluded-model behavior.
-            depends_on: fix-codex-configured-only-resolution
-            touched_surfaces: [model handler tests across `sdk/api/handlers/`, registry tests]
-            expected_output: Cross-protocol presentation matrix with no routing/presentation conflation.
+              - `go test ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/config ./internal/runtime/executor -run 'Test.*Codex.*(Model|Configured|Resolution|Cloak|Header|Alias)' -count=1`
+          - task_id: adapt-credential-weight-api-parsing
+            goal: Port missing management/auth-file credential weight parsing and validation for patch/update flows.
+            touched_surfaces: [`internal/api/handlers/management/config_lists.go`, auth management DTO/tests]
+            expected_output: Weight updates reject malformed/zero/negative/overflow values and preserve existing response shapes.
             checks:
-              - `go test ./internal/registry ./sdk/api/handlers/... ./sdk/cliproxy -run 'Test.*(Model|DisplayName|Excluded|Catalog)' -count=1`
+              - `go test ./internal/api/handlers/management ./sdk/cliproxy/auth -run 'Test.*(Weight|Patch|AuthFile|Management)' -count=1`
     phase_checks:
-      - `go test ./internal/registry ./internal/client/... ./sdk/api/handlers/... ./sdk/cliproxy ./sdk/cliproxy/auth -count=1`
-      - `go vet ./internal/registry ./internal/client/... ./sdk/api/handlers/... ./sdk/cliproxy ./sdk/cliproxy/auth`
+      - `go test ./sdk/auth ./sdk/cliproxy/auth ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/api/handlers/management ./internal/config ./internal/runtime/executor -count=1`
       - `git diff --check`
     stop_conditions:
-      - A model is exposed without executor support or display metadata changes routing/auth identity.
-      - Configured-only behavior hides a valid explicitly configured alias or provider-prefixed clone.
-    escalation: Remove only the affected catalog entry/exposure and retain validated resolution fixes.
+      - Neutral weight behavior, existing aliases, or configured model routing regress.
 
-  - phase_slug: codex-live-session-core
-    story_id: 01KYTYK4GJ1CJFRMZCBB2PYDMC
-    status: done
-    goal: Implement Codex Live session, sideband, configuration, lifecycle, and service integration.
-    depends_on: model-catalog-resolution-parity
-    requirement_trace: [R3, R7, R10, R18, R21]
-    allowed_surfaces:
-      - additive `internal/client/codex/live/` session and sideband files
-      - database-backed Codex Live setting domain/store
-      - `internal/api/`, `sdk/cliproxy/`, and Codex executor lifecycle wiring
-      - focused logging and configuration diff hooks
-    avoided_surfaces:
-      - WebRTC/TCP forwarding implementation, reserved for the next phase
-      - upstream file/YAML runtime authority
-      - management web controls
+  - phase_slug: cliproxyapi-signature-antigravity
+    story_id: 01KYW6RDK0JZ250EV52QPA0KK4
+    status: planned
+    goal: Adapt CAIS/provider signature validation and remaining Antigravity replay/schema gaps.
+    depends_on: cliproxyapi-auth-codex-controls
+    requirement_trace: [R2, R10, R14]
     waves:
-      - wave: live-protocol-core
+      - wave: signature-validation
         tasks:
-          - task_id: define-live-session-sideband
-            goal: Implement session state, sideband message framing, request correlation, cancellation, deadlines, and terminal errors using deterministic in-memory transports.
-            depends_on: none
-            touched_surfaces: [`internal/client/codex/live/live.go`, `sideband.go`, focused tests]
-            expected_output: Race-safe protocol core independent of concrete media transport.
+          - task_id: adapt-cais-provider-signatures
+            goal: Add missing CAIS/Claude/provider signature validation and sanitization APIs without weakening existing Gemini validation.
+            touched_surfaces: [`internal/signature/`, `internal/translator/antigravity/`]
+            expected_output: Malformed signatures are rejected/sanitized per provider with compatibility tests.
             checks:
-              - `go test ./internal/client/codex/live -run 'Test.*(Live|Session|Sideband|Cancel|Deadline)' -count=1`
-              - `go test -race ./internal/client/codex/live -run 'Test.*(Session|Sideband)' -count=1`
-          - task_id: define-live-database-config
-            goal: Load validated Live enablement, limits, bind/target policy, and timeouts from revisioned Postgres settings with disabled defaults.
-            depends_on: none
-            touched_surfaces: [Codex Live domain/store files, service settings loader]
-            expected_output: Database-only settings snapshot and reload contract.
-            checks:
-              - `go test ./internal/store ./sdk/cliproxy ./internal/client/codex/live -run 'Test.*CodexLive.*(Config|Settings|Reload|Default)' -count=1`
-      - wave: live-service-integration
+              - `go test ./internal/signature/... ./internal/translator/antigravity/... -run 'Test.*(Signature|CAIS|Sanitize|Provider)' -count=1`
+      - wave: antigravity-replay
         tasks:
-          - task_id: wire-live-service-lifecycle
-            goal: Register Live routes/handlers, bind Codex executors, propagate config diffs, and stop sessions cleanly during reload/shutdown.
-            depends_on: define-live-session-sideband
-            touched_surfaces: [`internal/api/`, `sdk/cliproxy/service.go`, Codex executor binding, logging hooks]
-            expected_output: Disabled-by-default lifecycle with authorized routing and no impact on ordinary Codex requests.
+          - task_id: verify-or-adapt-antigravity-replay-gaps
+            goal: Reconcile Antigravity replay/provenance/schema gaps that Phase 2 marked mixed already-present/adapt.
+            touched_surfaces: [`internal/cache/`, `internal/runtime/executor/antigravity*`, `internal/translator/antigravity/`, `internal/util/`]
+            expected_output: Bounded replay and provenance recovery without cross-session leakage.
             checks:
-              - `go test ./internal/api ./sdk/cliproxy ./internal/runtime/executor ./internal/client/codex/live -run 'Test.*CodexLive.*(Route|Lifecycle|Reload|Shutdown|Binding)' -count=1`
-              - `go test -race ./sdk/cliproxy ./internal/client/codex/live -run 'Test.*CodexLive.*(Lifecycle|Shutdown)' -count=1`
+              - `go test ./internal/cache ./internal/runtime/executor ./internal/translator/antigravity/... ./internal/util -run 'Test.*Antigravity.*(Replay|Reasoning|Provenance|Schema|Drift)' -count=1`
+              - `go test -race ./internal/cache ./internal/runtime/executor -run 'Test.*Antigravity.*Replay' -count=1`
     phase_checks:
-      - `go test ./internal/client/codex/live ./internal/api ./sdk/cliproxy ./internal/runtime/executor ./internal/store -count=1`
-      - `go vet ./internal/client/codex/live ./internal/api ./sdk/cliproxy ./internal/runtime/executor ./internal/store`
+      - `go test ./internal/cache ./internal/signature/... ./internal/runtime/executor ./internal/translator/antigravity/... ./internal/util -count=1`
       - `git diff --check`
     stop_conditions:
-      - Live affects non-Live Codex routing, leaks sessions, or accepts unbounded/unvalidated sideband input.
-      - Configuration becomes file-authoritative.
-    escalation: Keep Live disabled and retain only isolated protocol tests until lifecycle integration is safe.
+      - Signature recovery accepts malformed provider data or replay leaks across sessions.
 
-  - phase_slug: codex-live-media-relay
-    story_id: 01KYTYK4GR4MR6FEJGDX3392R2
-    status: checked
-    goal: Implement Codex Live WebRTC media and TCP relay with bounded resources, observability, and safe shutdown.
-    depends_on: codex-live-session-core
-    requirement_trace: [R7, R10, R18, R21]
-    allowed_surfaces:
-      - additive `internal/client/codex/live/media.go`, `tcp_proxy.go`, and tests
-      - focused service/listener lifecycle wiring
-      - request logging/redaction helpers
-      - database settings fields already defined in the prior phase
-    avoided_surfaces:
-      - general-purpose unrestricted proxying
-      - public bind by default
-      - credential logging
-      - management web controls
+  - phase_slug: cliproxyapi-management-runtime-ui
+    story_id: 01KYW6RDK704SB7063EKQ0TRP9
+    status: planned
+    goal: Expose approved management/runtime controls through authorized APIs and current llmhub web UI.
+    depends_on: cliproxyapi-signature-antigravity
+    requirement_trace: [R13, R16, R17]
     waves:
-      - wave: media-relay
+      - wave: management-api
         tasks:
-          - task_id: implement-webrtc-media-relay
-            goal: Relay negotiated realtime media with bounded packet/frame sizes, deadlines, cancellation, target allow policy, and per-session resource accounting.
-            depends_on: none
-            touched_surfaces: [`internal/client/codex/live/media.go`, test doubles/fixtures]
-            expected_output: Deterministic loopback media relay and clean cancellation/timeout behavior.
+          - task_id: adapt-management-runtime-contracts
+            goal: Port missing auth identity filtering, runtime control exposure, request metadata logging, and watcher config diff/relay propagation behind existing management authorization and DB-backed settings.
+            touched_surfaces: [`internal/api/handlers/management/`, `internal/api/`, `internal/logging/`, `internal/watcher/`, `internal/store/`, `sdk/cliproxy/`]
+            expected_output: Additive authorized API/diff/logging behavior with no secret disclosure and no file authority.
             checks:
-              - `go test ./internal/client/codex/live -run 'Test.*(Media|WebRTC|Relay|Packet|Cancel|Timeout)' -count=1`
-              - `go test -race ./internal/client/codex/live -run 'Test.*(Media|Relay)' -count=1`
-      - wave: tcp-relay-observability
+              - `go test ./internal/api/handlers/management ./internal/api ./internal/logging ./internal/watcher/... ./internal/store ./sdk/cliproxy -run 'Test.*(Management|Runtime|Control|Auth|Weight|Diff|Reload|Log|Redact)' -count=1`
+      - wave: web-ui
         tasks:
-          - task_id: implement-bounded-tcp-proxy
-            goal: Add half-close-aware TCP forwarding with validated target, bind restrictions, connection limits, idle deadlines, byte accounting, and shutdown cancellation.
-            depends_on: implement-webrtc-media-relay
-            touched_surfaces: [`internal/client/codex/live/tcp_proxy.go`, listener lifecycle, tests]
-            expected_output: Loopback-proven TCP relay that cannot become an unrestricted open proxy.
-            checks:
-              - `go test ./internal/client/codex/live -run 'Test.*TCP.*(Proxy|HalfClose|Limit|Timeout|Shutdown|Target)' -count=1`
-              - `go test -race ./internal/client/codex/live -run 'Test.*TCP' -count=1`
-          - task_id: add-live-relay-observability
-            goal: Emit structured start/stop/failure and byte/session metrics without logging tokens, SDP secrets, or media payloads.
-            depends_on: implement-bounded-tcp-proxy
-            touched_surfaces: [`internal/logging/`, Codex Live relay lifecycle]
-            expected_output: Redacted structured logs and failure reporting suitable for operations.
-            checks:
-              - `go test ./internal/logging ./internal/client/codex/live -run 'Test.*(Live|Media|TCP).*(Log|Redact|Failure)' -count=1`
-      - wave: media-service-integration
-        tasks:
-          - task_id: wire-media-relay-lifecycle
-            goal: Attach media/TCP relays to Live sessions and service shutdown/reload without leaking listeners or goroutines.
-            depends_on: add-live-relay-observability
-            touched_surfaces: [`sdk/cliproxy/`, `internal/api/`, `internal/client/codex/live/`]
-            expected_output: Independent enable/disable controls and complete cleanup on reload/shutdown.
-            checks:
-              - `go test ./sdk/cliproxy ./internal/api ./internal/client/codex/live -run 'Test.*CodexLive.*(Media|TCP|Reload|Shutdown)' -count=1`
-              - `go test -race ./sdk/cliproxy ./internal/client/codex/live -run 'Test.*(Media|TCP|Shutdown)' -count=1`
-    phase_checks:
-      - `go test ./internal/client/codex/live ./internal/logging ./internal/api ./sdk/cliproxy -count=1`
-      - `go vet ./internal/client/codex/live ./internal/logging ./internal/api ./sdk/cliproxy`
-      - `git diff --check`
-    stop_conditions:
-      - The relay can connect to arbitrary unvalidated targets, binds publicly by default, leaks secrets, or cannot terminate promptly.
-    escalation: Ship no media/TCP enablement; preserve disabled protocol core and isolate the unsafe transport for plan refinement.
-
-  - phase_slug: management-web-control-parity
-    story_id: 01KYTYK4GYRNFA5SYBMSKKFX5E
-    status: checked
-    goal: Expose approved weights, cloaking, Home, and Codex Live controls through authorized management APIs and the current llmhub web UI/UX.
-    depends_on: codex-live-media-relay
-    requirement_trace: [R12, R16, R18, R19, R20, R21]
-    allowed_surfaces:
-      - `internal/api/handlers/management/`
-      - management route registration and store interfaces
-      - `web/src/services/api/`, `web/src/types/`, `web/src/pages/`, `web/src/features/`, `web/src/components/ui/`
-      - `web/src/i18n/locales/en.json` and `vi.json`
-      - existing design tokens in `web/src/index.css` only if an approved control cannot be expressed without an additive token
-    avoided_surfaces:
-      - new frontend test files
-      - upstream web layout, branding, or component system
-      - YAML/config editor as the persistence path for new controls
-    waves:
-      - wave: management-control-api
-        tasks:
-          - task_id: expose-runtime-control-api
-            goal: Add authorized revisioned GET/PUT contracts for cloaking, Home, and Codex Live settings with redaction, validation, conflict handling, and hot-reload hooks.
-            depends_on: none
-            touched_surfaces: [`internal/api/handlers/management/`, API server route wiring, handler/store tests]
-            expected_output: Additive database-backed management API with no secret disclosure and deterministic reload behavior.
-            checks:
-              - `go test ./internal/api/handlers/management ./internal/api ./internal/store ./sdk/cliproxy -run 'Test.*(RuntimeControl|CodexLive|Cloak|Home|Revision|Management)' -count=1`
-          - task_id: finalize-auth-weight-api-contract
-            goal: Confirm credential weight fields and identity filtering compose with existing auth-file DTOs, quota actions, and optimistic updates.
-            depends_on: none
-            touched_surfaces: [`internal/api/handlers/management/auth_files*`, focused API tests]
-            expected_output: One coherent auth management contract used by the web client.
-            checks:
-              - `go test ./internal/api/handlers/management -run 'Test.*Auth.*(Weight|Identity|Filter|Quota)' -count=1`
-      - wave: web-data-model
-        tasks:
-          - task_id: add-web-api-types-services
-            goal: Add typed API clients and state adapters for runtime controls and credential weights using existing error/revision patterns.
-            depends_on: expose-runtime-control-api
-            touched_surfaces: [`web/src/services/api/`, `web/src/types/`, existing stores/hooks only when shared state is required]
-            expected_output: Typed, localized error handling with no direct YAML writes.
-            checks:
-              - `cd web && bun run type-check`
-              - `cd web && bun run lint`
-      - wave: web-current-ux
-        tasks:
-          - task_id: add-auth-weight-control-ui
-            goal: Add credential weight editing to the existing auth-file/provider resource flow using current cards, sheets, form controls, confirmation, loading, and error patterns.
-            depends_on: add-web-api-types-services
-            touched_surfaces: [`web/src/features/authFiles/`, relevant provider sheets, existing UI components, i18n]
-            expected_output: Accessible validated weight editing without redesigning Auth Files UX.
+          - task_id: adapt-current-web-controls
+            goal: Add or adjust current-UX management controls only for approved backend contracts: weights, cloaking, Home, and Codex Live/runtime settings.
+            touched_surfaces: [`web/src/services/api/`, `web/src/types/`, existing pages/features/components, i18n]
+            expected_output: Current-design controls with loading/error/conflict states and no new frontend test files.
             checks:
               - `cd web && bun run type-check`
               - `cd web && bun run lint`
               - `cd web && bun run build`
-          - task_id: add-runtime-control-ui
-            goal: Add cloaking, Home, and Codex Live settings to the existing System/Config information architecture using current typography, cards, switches, forms, save/conflict feedback, and responsive behavior.
-            depends_on: add-web-api-types-services
-            touched_surfaces: [`web/src/pages/SystemPage.tsx` or existing config surface, focused feature components, i18n]
-            expected_output: Current-design operator controls with safe defaults, dependent-field disabling, and no upstream visual import.
-            checks:
-              - `cd web && bun run type-check`
-              - `cd web && bun run lint`
-              - `cd web && bun run build`
-          - task_id: browser-verify-management-controls
-            goal: Run the built app against a local database-backed server and verify desktop/mobile navigation, load/save/conflict/error states, disabled dependencies, weight editing, and persisted reload behavior.
-            depends_on: add-auth-weight-control-ui
+          - task_id: browser-verify-controls
+            goal: Verify browser behavior for load/save/conflict/error states, persisted reload, and responsive layout.
             touched_surfaces: [runtime evidence only]
-            expected_output: Browser evidence for current UI/UX consistency and API persistence; no code changes unless a defect is found.
+            expected_output: Browser evidence for Auth Files and runtime/System control surfaces.
             checks:
               - `make build-web`
               - `make build`
-              - Browser runtime check at desktop and mobile widths for Auth Files and System/Config control surfaces
+              - Browser runtime check at desktop and mobile widths
     phase_checks:
-      - `go test ./internal/api/handlers/management ./internal/api ./internal/store ./sdk/cliproxy -count=1`
-      - `cd web && bun run type-check`
-      - `cd web && bun run lint`
-      - `cd web && bun run build`
+      - `go test ./internal/api/handlers/management ./internal/api ./internal/logging ./internal/watcher/... ./internal/store ./sdk/cliproxy -count=1`
+      - `cd web && bun run type-check && bun run lint && bun run build`
       - `make build`
       - `git diff --check`
     stop_conditions:
-      - A control writes YAML/files, exposes a secret, bypasses revision conflicts, or requires replacing existing UI patterns.
-      - Browser verification shows broken responsive/navigation/loading/error behavior.
-    escalation: Keep backend behavior at safe defaults and defer only the affected web control while preserving API compatibility.
+      - A control writes YAML/files, exposes secrets, bypasses revision conflicts, or requires replacing existing web patterns.
 
-  - phase_slug: upstream-checkpoint-final-gate
-    story_id: 01KYTYK4H5G6W1Y7A7Z2KPF9VE
+  - phase_slug: cliproxyapi-final-checkpoint-gate
+    story_id: 01KYW6RDKE1T78Q3DTNY2CRSQM
     status: planned
-    goal: Run full integration verification, reconcile the current stable upstream release, and close the immutable checkpoint with complete evidence.
-    depends_on: management-web-control-parity
-    requirement_trace: [R1, R2, R4, R18, R20, R21, R22, R23]
-    allowed_surfaces:
-      - `docs/upstream/cliproxyapi-checkpoint.json`
-      - append-only `Progress`, `Decisions`, and `Validation` entries in this plan
-      - defects strictly required to pass an already-defined check, routed back to their owning phase surfaces
-      - final Git checkpoint ref
-    avoided_surfaces:
-      - new product features
-      - scope expansion without plan refinement
-      - commit, push, PR, merge, release, or deployment
+    goal: Run full verification and refresh the latest upstream checkpoint without silent scope growth.
+    depends_on: cliproxyapi-management-runtime-ui
+    requirement_trace: [R1, R17, R18, R19]
     waves:
       - wave: full-product-gate
         tasks:
-          - task_id: run-full-go-gate
-            goal: Run complete deterministic Go tests, race-focused high-risk packages, vet, build, and whitespace checks.
-            depends_on: none
+          - task_id: run-full-go-web-gate
+            goal: Run complete deterministic Go/frontend/build verification.
             touched_surfaces: [validation evidence only unless an owning-phase defect is found]
-            expected_output: Clean Go product gate with exact command outputs recorded.
+            expected_output: All repository gates pass with exact command output recorded.
             checks:
               - `go test ./... -count=1`
-              - `go test -race ./internal/home ./sdk/cliproxy/auth ./sdk/cliproxy/executionregistry ./internal/client/codex/live ./internal/runtime/executor ./sdk/api/handlers/openai -count=1`
               - `go vet ./...`
               - `go build ./...`
-              - `git diff --check`
-          - task_id: run-full-web-binary-gate
-            goal: Run frontend type/lint/build, embed the panel, compile the final binary, and repeat browser smoke checks against the embedded management asset.
-            depends_on: none
-            touched_surfaces: [validation evidence only unless an owning-phase defect is found]
-            expected_output: Production web and binary artifacts build successfully and changed controls work from the embedded panel.
-            checks:
-              - `cd web && bun run type-check`
-              - `cd web && bun run lint`
-              - `cd web && bun run build`
-              - `make embed`
+              - `cd web && bun run type-check && bun run lint && bun run build`
               - `make build`
-              - Browser runtime smoke check against the embedded management panel
+              - `git diff --check`
       - wave: checkpoint-refresh
         tasks:
-          - task_id: refresh-final-upstream-checkpoint
-            goal: Re-query the latest stable release, fetch its tag commit, update the checkpoint metadata and ledger, and classify every delta since the initial checkpoint.
-            depends_on: run-full-go-gate
-            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, final Git checkpoint ref, append-only plan validation]
-            expected_output: Final checkpoint version/tag/SHA/time agree across GitHub, Git ref, JSON, and plan validation.
+          - task_id: refresh-latest-upstream
+            goal: Re-query latest stable release, fetch immutable ref, update checkpoint/gap/ledger if needed, and classify any new delta.
+            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, `docs/upstream/cliproxyapi-ledger-*.md`, `docs/upstream/cliproxyapi-semantic-review-*.md`, Git checkpoint refs]
+            expected_output: Latest release tag/SHA/time agree across GitHub, Git ref, JSON, ledger, and plan evidence.
             checks:
-              - `gh api repos/router-for-me/CLIProxyAPI/releases/latest --jq '{tag_name,published_at,html_url,target_commitish}'`
+              - `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi`
+              - `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi`
+              - `python3 .claude/skills/upstream/scripts/upstream_ledger.py --slug cliproxyapi`
               - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null`
-              - `git show-ref | rg 'refs/upstream-checkpoints/cliproxyapi/'`
-          - task_id: reconcile-final-release-delta
-            goal: For a changed stable release, prove every new commit is already covered, non-product/rejected, or blocked pending refinement; never silently declare parity over an unreviewed delta.
-            depends_on: refresh-final-upstream-checkpoint
-            touched_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, plan Decisions/Validation]
-            expected_output: Zero unclassified final-delta commits and an explicit completed checkpoint or refinement blocker.
+          - task_id: reconcile-release-delta
+            goal: For any newer stable release, prove every new commit is already covered, rejected, deferred, or requires approved plan refinement.
+            touched_surfaces: [checkpoint/ledger/plan evidence only]
+            expected_output: Zero unclassified final-delta commits and no silent scope growth.
             checks:
-              - `python3 - <<'PY'
-import json
-p='docs/upstream/cliproxyapi-checkpoint.json'
-d=json.load(open(p))
-assert d['checkpoint']['tag']
-assert d['checkpoint']['commit']
-assert not [e for e in d['entries'] if not e.get('disposition')]
-print(d['checkpoint']['tag'], d['checkpoint']['commit'])
-PY`
-      - wave: closure-consistency
-        tasks:
-          - task_id: verify-harness-plan-consistency
-            goal: Confirm phase/story IDs, lifecycle states, evidence, checkpoint metadata, and next action are internally consistent before handing off to check.
-            depends_on: reconcile-final-release-delta
-            touched_surfaces: [append-only plan Validation and Current State lifecycle metadata]
-            expected_output: One story per phase, no missing evidence, and no second initiative markdown.
-            checks:
+              - `grep -n "|  |" docs/upstream/cliproxyapi-ledger-*.md || true`
               - `zharness query phases --json`
-              - `find docs/plans/active -maxdepth 1 -type f -name '*cliproxyapi*parity*.md' -print`
-              - `git status --short`
     phase_checks:
       - `go test ./... -count=1`
       - `go vet ./...`
@@ -914,13 +437,10 @@ PY`
       - `git diff --check`
       - `zharness query phases --json`
     stop_conditions:
-      - Any required test/build/lint/browser check fails.
-      - Latest stable release metadata, Git ref, JSON checkpoint, and plan evidence disagree.
-      - A final release delta contains product behavior outside the locked requirements.
-    escalation: Route defects to the owning phase; route new product scope to `brainstorm refine`; do not mark the initiative complete or publish repository state.
+      - Any full gate fails or a newer upstream release contains product behavior outside locked requirements.
 
-- first_executable_phase: upstream-parity-ledger
-- execution_handoff: `work full` starts `upstream-parity-ledger` and may not begin production-code phases until its checkpoint and dispositions are verified.
+- first_executable_phase: cliproxyapi-ledger-scope-freeze
+- execution_handoff: `work full` starts `cliproxyapi-ledger-scope-freeze`; production-code phases may not begin until checkpoint policy and phase-2 artifact consistency are verified.
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
@@ -1205,6 +725,38 @@ PY`
   trace_id: 01KYVB6GWDKT2FMEYZWQB029E4
   changed_surfaces: [`internal/translator/gemini/openai/chat-completions/gemini_openai_request.go`, `internal/translator/gemini/openai/chat-completions/gemini_openai_request_test.go`]
   verification: `go test ./internal/translator/... -run 'Test.*(ResponseFormat|JSONSchema|JSONObject|Structured|Format)' -count=1 && git diff --check` -> pass after gofmt
+  blocker: none
+
+- timestamp: 2026-07-31T13:52:00Z
+  phase: cliproxyapi-ledger-scope-freeze
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KYW7667ENWDNMS1YEAG38W60
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-ledger-scope-freeze --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KYW7667ENWDNMS1YEAG38W60`
+  blocker: none
+
+- timestamp: 2026-07-31T13:54:00Z
+  phase: cliproxyapi-ledger-scope-freeze
+  wave: artifact-consistency
+  task: verify-phase2-artifacts
+  task_status: DONE
+  run_id: 01KYW7667ENWDNMS1YEAG38W60
+  trace_id: 01KYW77BEEDY2R70P87EP5P6FZ
+  changed_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`, `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md`]
+  verification: `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null`; `python3 -m json.tool docs/upstream/cliproxyapi-gap-v7.2.93..v7.2.112.json >/dev/null`; ledger assertion -> `ledger rows 113 {'adapt': 54, 'defer': 2, 'reject': 15, 'already-present': 42}`
+  blocker: none
+- timestamp: 2026-07-31T13:54:00Z
+  phase: cliproxyapi-ledger-scope-freeze
+  wave: artifact-consistency
+  task: record-scope-policy
+  task_status: DONE
+  run_id: 01KYW7667ENWDNMS1YEAG38W60
+  trace_id: 01KYW77BEEDY2R70P87EP5P6FZ
+  changed_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`]
+  verification: `python3 - <<'PY' ... scope_policy assertions ... PY` -> `scope policy 21 4 2`
   blocker: none
 
 ## Decisions
@@ -1581,14 +1133,28 @@ PY`
   verdict: INCOMPLETE_HANDOFF_RECORDED
   proof_gaps: lifecycle DB/plan cannot be closed until a proper management/final check is recorded or harness drift is reconciled
 
+- timestamp: 2026-07-31T13:58:00Z
+  phase: cliproxyapi-ledger-scope-freeze
+  run_id: 01KYW7667ENWDNMS1YEAG38W60
+  check_id: 01KYW7AA3ZHM4A05HX59MYE46C
+  verdict: APPROVED
+  evidence:
+    - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null` -> pass
+    - `python3 -m json.tool docs/upstream/cliproxyapi-gap-v7.2.93..v7.2.112.json >/dev/null` -> pass
+    - ledger disposition assertion -> `ledger-ok 113 {'adapt': 54, 'already-present': 42, 'reject': 15, 'defer': 2}`
+    - scope policy assertion -> `policy-ok 21 4 2`
+    - `git diff --check` -> pass
+    - `zharness audit --json` -> `pointer_drift=[]`, `contract_violations=[]`, `unlinked_proofs=[]`
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: upstream-checkpoint-final-gate
-- lifecycle_status: checked-with-follow-up; handoff-recorded; zharness-lifecycle-drifted
-- latest_run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
-- latest_trace_ids: []
-- latest_check_id: none
-- latest_handoff_id: 01KYVSBYYMMYBJY21F7P7G6HMT
-- branch_state: `chore/upstream-parity-v7-2-111` pushed to `origin/chore/upstream-parity-v7-2-111` at `ebfff0aa`
-- blockers: [`zharness` drift: DB current phase remains `management-web-control-parity` in-progress and latest approved check belongs to `codex-live-media-relay`, not the management/final gate; `v7.2.112` product delta requires explicit refinement before implementation: thinking-summary behavior and Home 401 revert]
-- open_items: [record/reconcile a proper check for `management-web-control-parity` and/or `upstream-checkpoint-final-gate` before closing phases, review `v7.2.112` thinking-summary delta, review `v7.2.112` Home 401 revert, ignore or clean local untracked `.kit/` scratch]
-- exact_next_action: run `zharness query check --latest --json` and record a check for `management-web-control-parity` or final gate if ní wants lifecycle closure; otherwise start a new refinement for `v7.2.112` thinking-summary/Home deltas
+- active_phase: cliproxyapi-ledger-scope-freeze
+- lifecycle_status: checked
+- latest_run_id: 01KYW7667ENWDNMS1YEAG38W60
+- latest_trace_id: 01KYW77BEEDY2R70P87EP5P6FZ
+- latest_check_id: 01KYW7AA3ZHM4A05HX59MYE46C
+- blockers: none
+- open_items:
+  - Phase `cliproxyapi-ledger-scope-freeze` is checked and ready for commit/handoff.
+  - Next implementation phase is `cliproxyapi-present-proof`.
+- exact_next_action: Commit the checked ledger/scope artifacts or run `work full phase cliproxyapi-present-proof` after preserving this phase state.

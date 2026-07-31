@@ -1037,6 +1037,182 @@ func TestExtractSessionID_AmpThreadIdPriority(t *testing.T) {
 	}
 }
 
+func TestExtractSessionIDNativeSignals(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		headers http.Header
+		payload string
+		want    string
+	}{
+		{
+			name:    "claude code header",
+			headers: http.Header{"X-Claude-Code-Session-Id": []string{"claude-session"}},
+			want:    "claude:claude-session",
+		},
+		{
+			name:    "lowercase claude code header",
+			headers: http.Header{"x-claude-code-session-id": []string{"lowercase-session"}},
+			want:    "claude:lowercase-session",
+		},
+		{
+			name:    "codex hyphen header",
+			headers: http.Header{"Session-Id": []string{"codex-session"}},
+			want:    "codex:codex-session",
+		},
+		{
+			name:    "open code session affinity",
+			headers: http.Header{"X-Session-Affinity": []string{"ses_opencode"}},
+			want:    "affinity:ses_opencode",
+		},
+		{
+			name:    "prompt cache key",
+			payload: `{"prompt_cache_key":"prompt-session"}`,
+			want:    "pck:prompt-session",
+		},
+		{
+			name:    "responses conversation object",
+			payload: `{"conversation":{"id":"conv-object"}}`,
+			want:    "conv:conv-object",
+		},
+		{
+			name:    "responses conversation string",
+			payload: `{"conversation":"conv-string"}`,
+			want:    "conv:conv-string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ExtractSessionID(tt.headers, []byte(tt.payload), nil); got != tt.want {
+				t.Fatalf("ExtractSessionID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractSessionIDNativeSignalPriority(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		headers http.Header
+		payload string
+		want    string
+	}{
+		{
+			name: "claude header beats metadata",
+			headers: http.Header{
+				"X-Claude-Code-Session-Id": []string{"header-session"},
+			},
+			payload: `{"metadata":{"user_id":"user_hash_account__session_22222222-2222-4222-8222-222222222222"}}`,
+			want:    "claude:header-session",
+		},
+		{
+			name: "claude metadata beats codex header",
+			headers: http.Header{
+				"Session-Id": []string{"codex-session"},
+			},
+			payload: `{"metadata":{"user_id":"user_hash_account__session_22222222-2222-4222-8222-222222222222"}}`,
+			want:    "claude:22222222-2222-4222-8222-222222222222",
+		},
+		{
+			name: "codex header beats x session id and prompt key",
+			headers: http.Header{
+				"Session-Id":   []string{"codex-session"},
+				"X-Session-Id": []string{"generic-session"},
+			},
+			payload: `{"prompt_cache_key":"prompt-session"}`,
+			want:    "codex:codex-session",
+		},
+		{
+			name: "x session id beats amp and affinity",
+			headers: http.Header{
+				"X-Session-Id":       []string{"generic-session"},
+				"X-Amp-Thread-Id":    []string{"amp-session"},
+				"X-Session-Affinity": []string{"affinity-session"},
+			},
+			want: "header:generic-session",
+		},
+		{
+			name:    "prompt cache key beats conversation id",
+			payload: `{"conversation":{"id":"conversation-session"},"prompt_cache_key":"shared-cache-bucket"}`,
+			want:    "pck:shared-cache-bucket",
+		},
+		{
+			name: "client request id beats body fallbacks",
+			headers: http.Header{
+				"X-Client-Request-Id": []string{"client-session"},
+			},
+			payload: `{"prompt_cache_key":"prompt-session","conversation":{"id":"conversation-session"}}`,
+			want:    "clientreq:client-session",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ExtractSessionID(tt.headers, []byte(tt.payload), nil); got != tt.want {
+				t.Fatalf("ExtractSessionID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractSessionIDRejectsInvalidExplicitSignals(t *testing.T) {
+	t.Parallel()
+	tooLong := strings.Repeat("a", 257)
+	tests := []struct {
+		name    string
+		headers http.Header
+		payload string
+		want    string
+	}{
+		{
+			name:    "whitespace",
+			headers: http.Header{"X-Claude-Code-Session-Id": []string{"   "}},
+			want:    "",
+		},
+		{
+			name:    "newline",
+			headers: http.Header{"X-Session-Id": []string{"bad\nsession"}},
+			want:    "",
+		},
+		{
+			name:    "control character",
+			headers: http.Header{"Session-Id": []string{"bad\x00session"}},
+			want:    "",
+		},
+		{
+			name:    "too long",
+			headers: http.Header{"X-Client-Request-Id": []string{tooLong}},
+			want:    "",
+		},
+		{
+			name: "invalid stronger signal falls through",
+			headers: http.Header{
+				"X-Claude-Code-Session-Id": []string{"bad\nsession"},
+				"Session-Id":               []string{"valid-codex"},
+			},
+			want: "codex:valid-codex",
+		},
+		{
+			name:    "invalid prompt key falls through to conversation",
+			payload: `{"prompt_cache_key":"   ","conversation":{"id":"valid-conversation"}}`,
+			want:    "conv:valid-conversation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ExtractSessionID(tt.headers, []byte(tt.payload), nil); got != tt.want {
+				t.Fatalf("ExtractSessionID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestExtractSessionID_IdempotencyKey verifies that idempotency_key is intentionally
 // ignored for session affinity (it's auto-generated per-request, causing cache misses).
 func TestExtractSessionID_IdempotencyKey(t *testing.T) {

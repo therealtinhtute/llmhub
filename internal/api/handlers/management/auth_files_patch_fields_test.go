@@ -282,6 +282,61 @@ func TestPatchAuthFileFields_ArbitraryFieldsPersistToFile(t *testing.T) {
 	}
 }
 
+func TestPatchAuthFileFields_ValidatesCredentialWeight(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	if _, errRegister := manager.Register(context.Background(), &coreauth.Auth{
+		ID:       "weighted.json",
+		FileName: "weighted.json",
+		Provider: "codex",
+		Attributes: map[string]string{
+			"source": "postgres",
+		},
+		Metadata: map[string]any{"type": "codex"},
+	}); errRegister != nil {
+		t.Fatalf("failed to register auth record: %v", errRegister)
+	}
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, manager)
+	h.tokenStore = store
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"id":"weighted.json","weight":5}`))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req
+	h.PatchAuthFileFields(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	updated, _ := manager.GetByID("weighted.json")
+	if got := updated.Attributes["weight"]; got != "5" {
+		t.Fatalf("weight attr = %q, want 5", got)
+	}
+	entry := firstAuthFileEntry(t, h)
+	if got := entry["weight"]; got != float64(5) && got != int64(5) && got != int(5) {
+		t.Fatalf("listed weight = %#v, want 5", got)
+	}
+
+	badRec := httptest.NewRecorder()
+	badCtx, _ := gin.CreateTestContext(badRec)
+	badReq := httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"id":"weighted.json","weight":0}`))
+	badReq.Header.Set("Content-Type", "application/json")
+	badCtx.Request = badReq
+	h.PatchAuthFileFields(badCtx)
+
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid weight status %d, got %d with body %s", http.StatusBadRequest, badRec.Code, badRec.Body.String())
+	}
+	updated, _ = manager.GetByID("weighted.json")
+	if got := updated.Attributes["weight"]; got != "5" {
+		t.Fatalf("invalid patch changed weight attr to %q", got)
+	}
+}
+
 func TestPatchAuthFileFields_SaveErrorReturnsFailure(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)

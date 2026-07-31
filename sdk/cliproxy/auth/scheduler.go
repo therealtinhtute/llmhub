@@ -53,6 +53,7 @@ type scheduledAuthMeta struct {
 	priority          int
 	virtualParent     string
 	websocketEnabled  bool
+	weight            int64
 	supportedModelSet map[string]struct{}
 }
 
@@ -568,6 +569,7 @@ func buildScheduledAuthMeta(auth *Auth) *scheduledAuthMeta {
 		priority:          authPriority(auth),
 		virtualParent:     virtualParent,
 		websocketEnabled:  authWebsocketsEnabled(auth),
+		weight:            CredentialWeight(auth),
 		supportedModelSet: supportedModelSetForAuth(auth.ID),
 	}
 }
@@ -680,10 +682,12 @@ func (m *modelScheduler) upsertEntryLocked(meta *scheduledAuthMeta, now time.Tim
 	previousPriority := 0
 	previousParent := ""
 	previousWebsocketEnabled := false
+	previousWeight := int64(DefaultCredentialWeight)
 	if entry.meta != nil {
 		previousPriority = entry.meta.priority
 		previousParent = entry.meta.virtualParent
 		previousWebsocketEnabled = entry.meta.websocketEnabled
+		previousWeight = entry.meta.weight
 	}
 
 	entry.meta = meta
@@ -703,7 +707,7 @@ func (m *modelScheduler) upsertEntryLocked(meta *scheduledAuthMeta, now time.Tim
 		entry.nextRetryAt = next
 	}
 
-	if ok && previousState == entry.state && previousNextRetryAt.Equal(entry.nextRetryAt) && previousPriority == meta.priority && previousParent == meta.virtualParent && previousWebsocketEnabled == meta.websocketEnabled {
+	if ok && previousState == entry.state && previousNextRetryAt.Equal(entry.nextRetryAt) && previousPriority == meta.priority && previousParent == meta.virtualParent && previousWebsocketEnabled == meta.websocketEnabled && previousWeight == meta.weight {
 		return
 	}
 	m.rebuildIndexesLocked()
@@ -1008,23 +1012,68 @@ func (v *readyView) pickRoundRobin(predicate func(*scheduledAuth) bool) *schedul
 	if len(v.parentOrder) > 1 && len(v.children) > 0 {
 		return v.pickGroupedRoundRobin(predicate)
 	}
-	if len(v.flat) == 0 {
+	return pickWeightedRoundRobin(v.flat, &v.cursor, predicate)
+}
+
+func pickWeightedRoundRobin(entries []*scheduledAuth, cursor *int, predicate func(*scheduledAuth) bool) *scheduledAuth {
+	if len(entries) == 0 {
+		return nil
+	}
+	totalWeight := weightedEntriesTotal(entries, predicate)
+	if totalWeight <= 0 {
 		return nil
 	}
 	start := 0
-	if len(v.flat) > 0 {
-		start = v.cursor % len(v.flat)
+	if cursor != nil && *cursor > 0 {
+		start = *cursor % totalWeight
 	}
-	for offset := 0; offset < len(v.flat); offset++ {
-		index := (start + offset) % len(v.flat)
-		entry := v.flat[index]
-		if predicate != nil && !predicate(entry) {
+	for offset := 0; offset < totalWeight; offset++ {
+		slot := (start + offset) % totalWeight
+		entry := weightedEntryAtSlot(entries, slot, predicate)
+		if entry == nil {
 			continue
 		}
-		v.cursor = index + 1
+		if cursor != nil {
+			*cursor = slot + 1
+		}
 		return entry
 	}
 	return nil
+}
+
+func weightedEntriesTotal(entries []*scheduledAuth, predicate func(*scheduledAuth) bool) int {
+	total := 0
+	for _, entry := range entries {
+		if entry == nil || (predicate != nil && !predicate(entry)) {
+			continue
+		}
+		total += effectiveScheduledAuthWeight(entry)
+	}
+	return total
+}
+
+func weightedEntryAtSlot(entries []*scheduledAuth, slot int, predicate func(*scheduledAuth) bool) *scheduledAuth {
+	for _, entry := range entries {
+		if entry == nil || (predicate != nil && !predicate(entry)) {
+			continue
+		}
+		weight := effectiveScheduledAuthWeight(entry)
+		if slot < weight {
+			return entry
+		}
+		slot -= weight
+	}
+	return nil
+}
+
+func effectiveScheduledAuthWeight(entry *scheduledAuth) int {
+	if entry == nil || entry.meta == nil || entry.meta.weight <= DefaultCredentialWeight {
+		return int(DefaultCredentialWeight)
+	}
+	if entry.meta.weight > int64(2_147_483_647) {
+		return 2_147_483_647
+	}
+	return int(entry.meta.weight)
 }
 
 // pickGroupedRoundRobin rotates across parents first and then within the selected parent.

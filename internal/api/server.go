@@ -25,6 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/access"
+	codexLiveHandlers "github.com/therealtinhtute/llmhub/internal/api/handlers/codexlive"
 	managementHandlers "github.com/therealtinhtute/llmhub/internal/api/handlers/management"
 	"github.com/therealtinhtute/llmhub/internal/api/middleware"
 	"github.com/therealtinhtute/llmhub/internal/api/modules"
@@ -36,6 +37,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/managementasset"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
+	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
@@ -67,6 +69,7 @@ type serverOptionConfig struct {
 	managementConfigChangeHook func(*config.Config)
 	quotaAlertStore            quotaalert.Store
 	quotaAlertCipher           *quotaalert.SecretCipher
+	runtimeSettingsStore       runtimecontrol.SettingsStore
 	runtimeStoragePolicy       runtimepolicy.RuntimeStorage
 }
 
@@ -159,6 +162,12 @@ func WithQuotaAlertSecretCipher(cipher *quotaalert.SecretCipher) ServerOption {
 	}
 }
 
+func WithRuntimeSettingsStore(store runtimecontrol.SettingsStore) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.runtimeSettingsStore = store
+	}
+}
+
 func WithRuntimeStoragePolicy(policy runtimepolicy.RuntimeStorage) ServerOption {
 	return func(cfg *serverOptionConfig) {
 		cfg.runtimeStoragePolicy = policy
@@ -194,9 +203,10 @@ type Server struct {
 	accessManager *sdkaccess.Manager
 
 	// requestLogger is the request logger instance for dynamic configuration updates.
-	requestLogger logging.RequestLogger
-	loggerToggle  func(bool)
-	runtimePolicy runtimepolicy.RuntimeStorage
+	requestLogger        logging.RequestLogger
+	loggerToggle         func(bool)
+	runtimePolicy        runtimepolicy.RuntimeStorage
+	runtimeSettingsStore runtimecontrol.SettingsStore
 
 	// configFilePath is the absolute path to the YAML config file for persistence.
 	configFilePath string
@@ -472,6 +482,13 @@ func (s *Server) setupRoutes() {
 		codexDirect.GET("/responses", openaiResponsesHandlers.ResponsesWebsocket)
 		codexDirect.POST("/responses", openaiResponsesHandlers.Responses)
 		codexDirect.POST("/responses/compact", openaiResponsesHandlers.Compact)
+		if s.runtimeSettingsStore != nil {
+			liveHandler := codexLiveHandlers.New(s.handlers.AuthManager, s.runtimeSettingsStore)
+			codexDirect.POST("/realtime/calls", liveHandler.CreateCall)
+			codexDirect.GET("/realtime/calls/:call_id", liveHandler.Sideband)
+			codexDirect.GET("/realtime", liveHandler.Sideband)
+			codexDirect.GET("/live/:call_id", liveHandler.Sideband)
+		}
 	}
 
 	// Gemini compatible API routes

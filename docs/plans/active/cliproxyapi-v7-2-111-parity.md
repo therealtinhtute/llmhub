@@ -1568,13 +1568,27 @@ PY`
   verdict: CHECKED_WITH_FOLLOW_UP
   proof_gaps: `v7.2.112` thinking-summary and Home 401 revert deltas remain classified follow-up; no live ChatGPT credential/runtime validation; no commit/push performed
 
+
+- timestamp: 2026-07-31T09:51:55Z
+  phase: handoff
+  commands:
+    - `zharness preflight handoff --json` -> durable ready with playbook `docs/playbooks/handoff.md`
+    - `zharness resume --json` -> drifted; current DB phase `management-web-control-parity` remains `in-progress`, latest check `01KYVPF015XXH6D9FWSJ4WERJP` belongs to `codex-live-media-relay` run `01KYVMT19Z4ZNQADEE2RDWHP7V`, not latest management run `01KYVPH81P5CFGMQFCPEW04MGZ`
+    - `zharness handoff record --run-id 01KYVPH81P5CFGMQFCPEW04MGZ --open-items ... --json` -> handoff `01KYVSBYYMMYBJY21F7P7G6HMT`
+    - `git status --short --branch` -> branch `chore/upstream-parity-v7-2-111` synced with origin; only untracked `.kit/`
+  run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
+  check_id: none
+  verdict: INCOMPLETE_HANDOFF_RECORDED
+  proof_gaps: lifecycle DB/plan cannot be closed until a proper management/final check is recorded or harness drift is reconciled
+
 ## Current State and Next Action
 - active_phase: upstream-checkpoint-final-gate
-- lifecycle_status: checked-with-follow-up
+- lifecycle_status: checked-with-follow-up; handoff-recorded; zharness-lifecycle-drifted
 - latest_run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
 - latest_trace_ids: []
 - latest_check_id: none
-- latest_handoff_id: 01KYVF0SDQQ6JE7HA73EQ3ECGP
-- blockers: [`v7.2.112` product delta requires explicit refinement before implementation: thinking-summary behavior and Home 401 revert]
-- open_items: [report green gates and follow-up scope, await explicit commit/push authorization if ní wants repository publication]
-- exact_next_action: report completed v7.2.111 implementation, full Codex Live sideband/media relay closure, and v7.2.112 follow-up delta
+- latest_handoff_id: 01KYVSBYYMMYBJY21F7P7G6HMT
+- branch_state: `chore/upstream-parity-v7-2-111` pushed to `origin/chore/upstream-parity-v7-2-111` at `ebfff0aa`
+- blockers: [`zharness` drift: DB current phase remains `management-web-control-parity` in-progress and latest approved check belongs to `codex-live-media-relay`, not the management/final gate; `v7.2.112` product delta requires explicit refinement before implementation: thinking-summary behavior and Home 401 revert]
+- open_items: [record/reconcile a proper check for `management-web-control-parity` and/or `upstream-checkpoint-final-gate` before closing phases, review `v7.2.112` thinking-summary delta, review `v7.2.112` Home 401 revert, ignore or clean local untracked `.kit/` scratch]
+- exact_next_action: run `zharness query check --latest --json` and record a check for `management-web-control-parity` or final gate if ní wants lifecycle closure; otherwise start a new refinement for `v7.2.112` thinking-summary/Home deltas

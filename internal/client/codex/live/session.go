@@ -141,6 +141,24 @@ func (s *Store) Complete(session Session) {
 	EndSession(entry.session)
 }
 
+func (s *Store) CompleteCall(callID string) {
+	if s == nil || !ValidCallID(callID) {
+		return
+	}
+	s.mu.Lock()
+	entry := s.sessions[callID]
+	if entry == nil {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.sessions, callID)
+	if entry.timer != nil {
+		entry.timer.Stop()
+	}
+	s.mu.Unlock()
+	EndSession(entry.session)
+}
+
 func (s *Store) CloseAll() {
 	if s == nil {
 		return

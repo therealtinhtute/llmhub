@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/proxy"
 )
@@ -156,12 +157,18 @@ type httpConnectDialer struct {
 }
 
 func (d *httpConnectDialer) Dial(network, addr string) (net.Conn, error) {
-	proxyConn, errDial := d.dialer.Dial(network, proxyDialAddr(d.proxyURL))
+	return d.DialContext(context.Background(), network, addr)
+}
+
+func (d *httpConnectDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	proxyConn, errDial := contextDial(ctx, d.dialer, network, proxyDialAddr(d.proxyURL))
 	if errDial != nil {
 		return nil, fmt.Errorf("dial HTTP proxy failed: %w", errDial)
 	}
-
 	conn := proxyConn
+	stopCancel := closeOnContextCancel(ctx, conn)
+	defer stopCancel()
+
 	if d.proxyURL.Scheme == "https" {
 		tlsConn := tls.Client(conn, &tls.Config{ServerName: d.proxyURL.Hostname()})
 		if errHandshake := tlsConn.Handshake(); errHandshake != nil {
@@ -207,10 +214,53 @@ func (d *httpConnectDialer) Dial(network, addr string) (net.Conn, error) {
 		return nil, fmt.Errorf("proxy CONNECT returned status %s", resp.Status)
 	}
 
+	stopCancel()
 	if reader.Buffered() > 0 {
 		return &bufferedConn{Conn: conn, reader: reader}, nil
 	}
 	return conn, nil
+}
+
+func contextDial(ctx context.Context, dialer proxy.Dialer, network, addr string) (net.Conn, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
+		return contextDialer.DialContext(ctx, network, addr)
+	}
+	result := make(chan struct {
+		conn net.Conn
+		err  error
+	}, 1)
+	go func() {
+		conn, err := dialer.Dial(network, addr)
+		result <- struct {
+			conn net.Conn
+			err  error
+		}{conn: conn, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case got := <-result:
+		return got.conn, got.err
+	}
+}
+
+func closeOnContextCancel(ctx context.Context, conn net.Conn) func() {
+	if ctx == nil || conn == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
 
 func proxyDialAddr(proxyURL *url.URL) string {

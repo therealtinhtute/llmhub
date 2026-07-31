@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/therealtinhtute/llmhub/internal/client/codex/live"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -112,7 +114,7 @@ func TestCreateCallForwardsPreparedRequestAndStoresSession(t *testing.T) {
 	}
 }
 
-func TestSidebandRequiresStoredSessionBeforeMediaPhase(t *testing.T) {
+func TestSidebandRequiresStoredSessionAndWebsocketUpgrade(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	settings := runtimecontrol.DefaultSettings()
 	settings.CodexLive.Enabled = true
@@ -123,18 +125,122 @@ func TestSidebandRequiresStoredSessionBeforeMediaPhase(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/backend-api/codex/live/call-123", nil)
 	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUpgradeRequired {
+		t.Fatalf("non-websocket status = %d, want %d body=%s", rec.Code, http.StatusUpgradeRequired, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/backend-api/codex/live/call-123", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-Websocket-Version", "13")
+	req.Header.Set("Sec-Websocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing session status = %d, want %d body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
 	}
+}
 
+func TestHandleSidebandPinsAuthAndRelaysBidirectionally(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstreamGot := make(chan string, 1)
+	upstreamAuth := make(chan string, 1)
+	upstreamPath := make(chan string, 1)
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath <- r.URL.RequestURI()
+		upstreamAuth <- r.Header.Get("Authorization")
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade upstream websocket: %v", err)
+			return
+		}
+		defer conn.Close()
+		msgType, payload, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read upstream websocket: %v", err)
+			return
+		}
+		upstreamGot <- string(payload)
+		if err = conn.WriteMessage(msgType, []byte("from-upstream")); err != nil {
+			t.Errorf("write upstream websocket: %v", err)
+		}
+	}))
+	defer upstreamServer.Close()
+	oldBaseURL := sidebandBaseURL
+	sidebandBaseURL = func() string { return "ws" + strings.TrimPrefix(upstreamServer.URL, "http") }
+	defer func() { sidebandBaseURL = oldBaseURL }()
+
+	executor := &liveHTTPExecutor{}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	_, _ = manager.Register(context.Background(), &coreauth.Auth{ID: "codex-auth", Provider: "codex"})
+	settings := runtimecontrol.DefaultSettings()
+	settings.CodexLive.Enabled = true
+	handler := New(manager, &liveSettingsStore{settings: settings})
 	handler.sessions.Put("call-123", liveSession("codex-auth"))
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("stored session status = %d, want %d body=%s", rec.Code, http.StatusNotImplemented, rec.Body.String())
+
+	router := gin.New()
+	router.GET("/backend-api/codex/live/:call_id", handler.Sideband)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/backend-api/codex/live/call-123", nil)
+	if err != nil {
+		t.Fatalf("dial downstream websocket: %v", err)
+	}
+	defer conn.Close()
+	if err = conn.WriteMessage(websocket.TextMessage, []byte("from-client")); err != nil {
+		t.Fatalf("write downstream websocket: %v", err)
+	}
+	_, payload, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read downstream websocket: %v", err)
+	}
+	if string(payload) != "from-upstream" {
+		t.Fatalf("downstream payload = %q", payload)
+	}
+	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+
+	select {
+	case got := <-upstreamGot:
+		if got != "from-client" {
+			t.Fatalf("upstream payload = %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream payload")
+	}
+	select {
+	case got := <-upstreamAuth:
+		if got != "Bearer prepared" {
+			t.Fatalf("upstream authorization = %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream auth")
+	}
+	select {
+	case got := <-upstreamPath:
+		if got != "/live/call-123" {
+			t.Fatalf("upstream path = %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream path")
+	}
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, ok := handler.sessions.Peek("call-123"); !ok {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("session still stored after sideband relay closed")
+		case <-ticker.C:
+		}
 	}
 }
 
 func liveSession(authID string) live.Session {
-	return live.Session{AuthID: authID, Model: "gpt-live-1-codex"}
+	return live.Session{AuthID: authID, Model: "gpt-live-1-codex", Resources: &live.SessionResources{}}
 }

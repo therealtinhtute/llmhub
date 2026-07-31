@@ -49,6 +49,26 @@ func TestPrepareCallRequestDefaultsJSONModel(t *testing.T) {
 	}
 }
 
+func TestCallSDPHelpersParseAndRewrite(t *testing.T) {
+	payload := []byte(`{"sdp":"client-offer","session":{"model":"gpt-live-1-codex"}}`)
+	if got, err := CallRequestSDP(payload, "application/json"); err != nil || got != "client-offer" {
+		t.Fatalf("CallRequestSDP() = %q, %v", got, err)
+	}
+	rewritten, contentType, err := ReplaceCallRequestSDP(payload, "", "upstream-offer")
+	if err != nil {
+		t.Fatalf("ReplaceCallRequestSDP() error = %v", err)
+	}
+	if contentType != "application/json" || !strings.Contains(string(rewritten), "upstream-offer") || strings.Contains(string(rewritten), "client-offer") {
+		t.Fatalf("rewritten/contentType = %s/%q", rewritten, contentType)
+	}
+	if got, err := CallResponseSDP([]byte(`{"sdp":"upstream-answer"}`), "application/json"); err != nil || got != "upstream-answer" {
+		t.Fatalf("CallResponseSDP(JSON) = %q, %v", got, err)
+	}
+	if got, err := CallResponseSDP([]byte("raw-answer"), "application/sdp"); err != nil || got != "raw-answer" {
+		t.Fatalf("CallResponseSDP(SDP) = %q, %v", got, err)
+	}
+}
+
 func TestPrepareCallRequestRejectsBadMultipart(t *testing.T) {
 	tests := []struct {
 		name        string

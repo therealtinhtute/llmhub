@@ -207,6 +207,7 @@ type Server struct {
 	loggerToggle         func(bool)
 	runtimePolicy        runtimepolicy.RuntimeStorage
 	runtimeSettingsStore runtimecontrol.SettingsStore
+	codexLiveHandler     *codexLiveHandlers.Handler
 
 	// configFilePath is the absolute path to the YAML config file for persistence.
 	configFilePath string
@@ -308,17 +309,18 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 
 	// Create server instance
 	s := &Server{
-		engine:              engine,
-		handlers:            handlers.NewBaseAPIHandlers(&cfg.SDKConfig, authManager),
-		cfg:                 cfg,
-		accessManager:       accessManager,
-		requestLogger:       requestLogger,
-		loggerToggle:        toggle,
-		runtimePolicy:       optionState.runtimeStoragePolicy,
-		configFilePath:      configFilePath,
-		currentPath:         wd,
-		envManagementSecret: envManagementSecret,
-		wsRoutes:            make(map[string]struct{}),
+		engine:               engine,
+		handlers:             handlers.NewBaseAPIHandlers(&cfg.SDKConfig, authManager),
+		cfg:                  cfg,
+		accessManager:        accessManager,
+		requestLogger:        requestLogger,
+		loggerToggle:         toggle,
+		runtimePolicy:        optionState.runtimeStoragePolicy,
+		runtimeSettingsStore: optionState.runtimeSettingsStore,
+		configFilePath:       configFilePath,
+		currentPath:          wd,
+		envManagementSecret:  envManagementSecret,
+		wsRoutes:             make(map[string]struct{}),
 	}
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	// Save initial YAML snapshot
@@ -483,11 +485,11 @@ func (s *Server) setupRoutes() {
 		codexDirect.POST("/responses", openaiResponsesHandlers.Responses)
 		codexDirect.POST("/responses/compact", openaiResponsesHandlers.Compact)
 		if s.runtimeSettingsStore != nil {
-			liveHandler := codexLiveHandlers.New(s.handlers.AuthManager, s.runtimeSettingsStore)
-			codexDirect.POST("/realtime/calls", liveHandler.CreateCall)
-			codexDirect.GET("/realtime/calls/:call_id", liveHandler.Sideband)
-			codexDirect.GET("/realtime", liveHandler.Sideband)
-			codexDirect.GET("/live/:call_id", liveHandler.Sideband)
+			s.codexLiveHandler = codexLiveHandlers.New(s.handlers.AuthManager, s.runtimeSettingsStore)
+			codexDirect.POST("/realtime/calls", s.codexLiveHandler.CreateCall)
+			codexDirect.GET("/realtime/calls/:call_id", s.codexLiveHandler.Sideband)
+			codexDirect.GET("/realtime", s.codexLiveHandler.Sideband)
+			codexDirect.GET("/live/:call_id", s.codexLiveHandler.Sideband)
 		}
 	}
 
@@ -1378,6 +1380,9 @@ func (s *Server) Stop(ctx context.Context) error {
 		if errClose := s.muxBaseListener.Close(); errClose != nil && !errors.Is(errClose, net.ErrClosed) {
 			log.Debugf("failed to close shared listener: %v", errClose)
 		}
+	}
+	if s.codexLiveHandler != nil {
+		s.codexLiveHandler.Close()
 	}
 
 	// Shutdown the HTTP server.

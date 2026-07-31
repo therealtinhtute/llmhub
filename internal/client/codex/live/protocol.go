@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	UpstreamCallURL  = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
-	DefaultLiveModel = "gpt-live-1-codex"
-	MaxBodySize      = 16 << 20
+	UpstreamCallURL         = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
+	UpstreamSidebandBaseURL = "wss://chatgpt.com/backend-api/codex"
+	DefaultLiveModel        = "gpt-live-1-codex"
+	MaxBodySize             = 16 << 20
 )
 
 var ErrBodyTooLarge = errors.New("Codex live request body too large")
@@ -141,6 +142,123 @@ func EncodeCallRequest(sdp string, session json.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("failed to encode Codex live request: %w", err)
 	}
 	return encoded, nil
+}
+
+func CallRequestSDP(body []byte, contentType string) (string, error) {
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err == nil && strings.EqualFold(mediaType, "multipart/form-data") {
+		return multipartSDP(body, strings.TrimSpace(params["boundary"]))
+	}
+	var payload struct {
+		SDP string `json:"sdp"`
+	}
+	if errJSON := json.Unmarshal(body, &payload); errJSON != nil {
+		return "", fmt.Errorf("failed to parse Codex live JSON SDP: %w", errJSON)
+	}
+	if strings.TrimSpace(payload.SDP) == "" {
+		return "", errors.New("Codex live request missing SDP")
+	}
+	return payload.SDP, nil
+}
+
+func ReplaceCallRequestSDP(body []byte, contentType, sdp string) ([]byte, string, error) {
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err == nil && strings.EqualFold(mediaType, "multipart/form-data") {
+		_, session, errParts := multipartCallParts(body, strings.TrimSpace(params["boundary"]))
+		if errParts != nil {
+			return nil, "", errParts
+		}
+		encoded, errEncode := EncodeCallRequest(sdp, session)
+		if errEncode != nil {
+			return nil, "", errEncode
+		}
+		return encoded, "application/json", nil
+	}
+	var payload map[string]json.RawMessage
+	if errJSON := json.Unmarshal(body, &payload); errJSON != nil {
+		return nil, "", fmt.Errorf("failed to parse Codex live JSON request: %w", errJSON)
+	}
+	encodedSDP, errMarshal := json.Marshal(sdp)
+	if errMarshal != nil {
+		return nil, "", fmt.Errorf("failed to encode Codex live SDP: %w", errMarshal)
+	}
+	payload["sdp"] = encodedSDP
+	rewritten, errJSON := json.Marshal(payload)
+	if errJSON != nil {
+		return nil, "", fmt.Errorf("failed to encode Codex live JSON request: %w", errJSON)
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/json"
+	}
+	return rewritten, contentType, nil
+}
+
+func CallResponseSDP(body []byte, contentType string) (string, error) {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil && strings.EqualFold(mediaType, "application/sdp") {
+		if strings.TrimSpace(string(body)) == "" {
+			return "", errors.New("Codex live response missing SDP")
+		}
+		return string(body), nil
+	}
+	var payload struct {
+		SDP string `json:"sdp"`
+	}
+	if errJSON := json.Unmarshal(body, &payload); errJSON != nil {
+		return "", fmt.Errorf("failed to parse Codex live JSON response SDP: %w", errJSON)
+	}
+	if strings.TrimSpace(payload.SDP) == "" {
+		return "", errors.New("Codex live response missing SDP")
+	}
+	return payload.SDP, nil
+}
+
+func multipartSDP(body []byte, boundary string) (string, error) {
+	sdp, _, err := multipartCallParts(body, boundary)
+	if err != nil {
+		return "", err
+	}
+	return sdp, nil
+}
+
+func multipartCallParts(body []byte, boundary string) (string, json.RawMessage, error) {
+	if boundary == "" {
+		return "", nil, errors.New("Codex live multipart boundary is missing")
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	var sdp *string
+	var session json.RawMessage
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to parse Codex live multipart body: %w", err)
+		}
+		partBody, readErr := io.ReadAll(part)
+		closeErr := part.Close()
+		if readErr != nil {
+			return "", nil, fmt.Errorf("failed to read Codex live multipart field: %w", readErr)
+		}
+		if closeErr != nil {
+			return "", nil, fmt.Errorf("failed to close Codex live multipart field: %w", closeErr)
+		}
+		switch part.FormName() {
+		case "sdp":
+			value := string(partBody)
+			sdp = &value
+		case "session":
+			if !json.Valid(partBody) {
+				return "", nil, errors.New("Codex live session field must contain valid JSON")
+			}
+			session = append(json.RawMessage(nil), partBody...)
+		}
+	}
+	if sdp == nil || strings.TrimSpace(*sdp) == "" {
+		return "", nil, errors.New("Codex live multipart body requires an sdp field")
+	}
+	return *sdp, session, nil
 }
 
 func ModelFromJSON(body []byte) string {

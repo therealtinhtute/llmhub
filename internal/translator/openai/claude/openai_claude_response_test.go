@@ -352,6 +352,17 @@ func TestStreamingTool_LateIDAfterFinalization(t *testing.T) {
 	}
 }
 
+func TestConvertOpenAIResponseToClaude_EmitsOneUsageMessageDelta(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}`,
+	)
+	if got := countByType(events, "message_delta"); got != 1 {
+		t.Fatalf("message_delta count = %d, want 1 (events=%+v)", got, events)
+	}
+}
+
 func TestStreamingTool_StopReasonMixedSuppressedAndValid(t *testing.T) {
 	events := runStream(t, streamReq,
 		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[

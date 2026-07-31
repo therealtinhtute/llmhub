@@ -22,6 +22,22 @@ func CleanJSONSchemaForAntigravity(jsonStr string) string {
 	return cleanJSONSchema(jsonStr, true)
 }
 
+// CleanJSONSchemaForAntigravityResponse transforms a response schema without applying
+// tool-only compatibility rewrites that would alter the client's structured output contract.
+func CleanJSONSchemaForAntigravityResponse(jsonStr string) string {
+	jsonStr = convertRefsToHints(jsonStr)
+	jsonStr = convertConstToEnum(jsonStr)
+	jsonStr = convertEnumValuesToStringsPreservingType(jsonStr)
+	jsonStr = addEnumHints(jsonStr)
+	jsonStr = addAdditionalPropertiesHints(jsonStr)
+	jsonStr = moveConstraintsToDescription(jsonStr)
+	jsonStr = mergeAllOf(jsonStr)
+	jsonStr = flattenTypeArrays(jsonStr)
+	jsonStr = removeUnsupportedKeywords(jsonStr)
+	jsonStr = cleanupRequiredFields(jsonStr)
+	return jsonStr
+}
+
 // CleanJSONSchemaForGemini transforms a JSON schema to be compatible with Gemini tool calling.
 // It removes unsupported keywords and simplifies schemas, without adding empty-schema placeholders.
 func CleanJSONSchemaForGemini(jsonStr string) string {
@@ -45,9 +61,11 @@ func cleanJSONSchema(jsonStr string, addPlaceholder bool) string {
 
 	// Phase 3: Cleanup
 	jsonStr = removeUnsupportedKeywords(jsonStr)
+	// Remove schema metadata title values while preserving properties named "title".
+	jsonStr = removeKeywords(jsonStr, []string{"title"})
 	if !addPlaceholder {
-		// Gemini schema cleanup: remove nullable/title and placeholder-only fields.
-		jsonStr = removeKeywords(jsonStr, []string{"nullable", "title"})
+		// Gemini schema cleanup: remove nullable and placeholder-only fields.
+		jsonStr = removeKeywords(jsonStr, []string{"nullable"})
 		jsonStr = removePlaceholderFields(jsonStr)
 	}
 	jsonStr = cleanupRequiredFields(jsonStr)
@@ -206,6 +224,24 @@ func convertEnumValuesToStrings(jsonStr string) string {
 		jsonStr = string(updated)
 		parentPath := trimSuffix(p, ".enum")
 		updated, _ = sjson.SetBytes([]byte(jsonStr), joinPath(parentPath, "type"), "string")
+		jsonStr = string(updated)
+	}
+	return jsonStr
+}
+
+func convertEnumValuesToStringsPreservingType(jsonStr string) string {
+	for _, p := range findPaths(jsonStr, "enum") {
+		arr := gjson.Get(jsonStr, p)
+		if !arr.IsArray() {
+			continue
+		}
+
+		var stringVals []string
+		for _, item := range arr.Array() {
+			stringVals = append(stringVals, item.String())
+		}
+
+		updated, _ := sjson.SetBytes([]byte(jsonStr), p, stringVals)
 		jsonStr = string(updated)
 	}
 	return jsonStr
@@ -438,7 +474,7 @@ func flattenTypeArrays(jsonStr string) string {
 
 func removeUnsupportedKeywords(jsonStr string) string {
 	keywords := append(unsupportedConstraints,
-		"$schema", "$defs", "definitions", "const", "$ref", "$id", "additionalProperties",
+		"$schema", "$defs", "definitions", "const", "$ref", "$id", "$comment", "additionalProperties",
 		"propertyNames", "patternProperties", // Gemini doesn't support these schema keywords
 		"enumTitles", "prefill", "deprecated", // Schema metadata fields unsupported by Gemini
 	)

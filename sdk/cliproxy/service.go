@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor"
+	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/therealtinhtute/llmhub/internal/watcher"
@@ -65,6 +67,7 @@ type Service struct {
 
 	// managementConfigStore persists management config changes outside local files.
 	managementConfigStore api.ManagementConfigStore
+	runtimeSettingsStore  runtimecontrol.SettingsStore
 
 	quotaAlertStore  quotaalert.Store
 	quotaAlertCipher *quotaalert.SecretCipher
@@ -112,6 +115,7 @@ type Service struct {
 	homeReleaseCancel  context.CancelFunc
 	homeRegistry       *executionregistry.Registry
 	homeDispatchBundle *coreauth.HomeDispatchBundle
+	homeGeneration     uint64
 	homeLifetimeMu     sync.Mutex
 	homeReleaseFlusher interface {
 		Flush(context.Context) error
@@ -502,11 +506,15 @@ func (s *Service) applyConfigUpdate(newCfg *config.Config) {
 	previousStrategy := ""
 	var previousSessionAffinity bool
 	var previousSessionAffinityTTL string
+	var previousHome config.HomeConfig
+	var previousHomeSet bool
 	s.cfgMu.RLock()
 	if s.cfg != nil {
 		previousStrategy = strings.ToLower(strings.TrimSpace(s.cfg.Routing.Strategy))
 		previousSessionAffinity = s.cfg.Routing.SessionAffinity
 		previousSessionAffinityTTL = s.cfg.Routing.SessionAffinityTTL
+		previousHome = s.cfg.Home
+		previousHomeSet = true
 	}
 	s.cfgMu.RUnlock()
 
@@ -574,6 +582,9 @@ func (s *Service) applyConfigUpdate(newCfg *config.Config) {
 	if s.coreManager != nil {
 		s.coreManager.SetConfig(newCfg)
 		s.coreManager.SetOAuthModelAlias(newCfg.OAuthModelAlias)
+	}
+	if previousHomeSet && !reflect.DeepEqual(previousHome, newCfg.Home) {
+		s.reconcileHomeLifetime(context.Background(), newCfg)
 	}
 	if newCfg.Home.Enabled {
 		s.registerHomeExecutors()
@@ -723,7 +734,11 @@ func (s *Service) startHomeSubscriber(ctx context.Context) {
 	s.cfgMu.RLock()
 	cfg := s.cfg
 	s.cfgMu.RUnlock()
-	if cfg == nil || !cfg.Home.Enabled {
+	s.startHomeSubscriberWithConfig(ctx, cfg)
+}
+
+func (s *Service) startHomeSubscriberWithConfig(ctx context.Context, cfg *config.Config) {
+	if s == nil || cfg == nil || !cfg.Home.Enabled {
 		return
 	}
 
@@ -754,7 +769,8 @@ func (s *Service) startHomeSubscriber(ctx context.Context) {
 	s.homeReleaseFlusher = releaseFlusher
 	home.SetCurrent(client)
 	if s.coreManager != nil {
-		s.homeDispatchBundle = s.coreManager.PublishHomeDispatch(client, registry, 1)
+		s.homeGeneration++
+		s.homeDispatchBundle = s.coreManager.PublishHomeDispatch(client, registry, s.homeGeneration)
 		if publisherConfig, errPublisher := coreauth.HomeInFlightPublisherConfigFromConfig(cfg.CredentialInFlight); errPublisher == nil {
 			s.coreManager.ApplyHomeInFlightPublisherConfig(publisherConfig)
 		}
@@ -785,6 +801,17 @@ func (s *Service) startHomeSubscriber(ctx context.Context) {
 		return nil
 	})
 	s.startHomeUsageForwarder(homeCtx, client)
+}
+
+func (s *Service) reconcileHomeLifetime(ctx context.Context, cfg *config.Config) {
+	if s == nil || cfg == nil {
+		return
+	}
+	if cfg.Home.Enabled {
+		s.startHomeSubscriberWithConfig(ctx, cfg)
+		return
+	}
+	s.stopHomeLifetime(ctx)
 }
 
 func (s *Service) stopHomeLifetime(ctx context.Context) {
@@ -887,6 +914,11 @@ func (s *Service) Run(ctx context.Context) error {
 			log.Warnf("failed to load auth store: %v", errLoad)
 		}
 		s.registerLoadedCoreAuths(ctx)
+		if restored, errRestore := s.coreManager.RestoreCooldownState(ctx); errRestore != nil {
+			log.Warnf("failed to restore cooldown state: %v", errRestore)
+		} else if restored > 0 {
+			log.Debugf("restored %d cooldown state records", restored)
+		}
 	}
 
 	if !homeEnabled {
@@ -919,6 +951,9 @@ func (s *Service) Run(ctx context.Context) error {
 				s.applyConfigUpdate(newCfg)
 			}),
 		)
+	}
+	if s.runtimeSettingsStore != nil {
+		serverOptions = append(serverOptions, api.WithRuntimeSettingsStore(s.runtimeSettingsStore))
 	}
 	if s.quotaAlertStore != nil {
 		serverOptions = append(serverOptions, api.WithQuotaAlertStore(s.quotaAlertStore))

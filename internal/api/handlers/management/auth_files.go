@@ -70,6 +70,13 @@ type pathlessAuthStore interface {
 	LoadAuthContent(ctx context.Context, id string) ([]byte, error)
 }
 
+type authFileSelector struct {
+	Name      string
+	ID        string
+	AuthIndex string
+	Provider  string
+}
+
 func extractLastRefreshTimestamp(meta map[string]any) (time.Time, bool) {
 	if len(meta) == 0 {
 		return time.Time{}, false
@@ -433,33 +440,12 @@ func (h *Handler) SetKiroOverage(c *gin.Context) {
 }
 
 func (h *Handler) findKiroAuthForQuota(name, id, authIndex string) *coreauth.Auth {
-	if h == nil || h.authManager == nil {
-		return nil
-	}
-	name = strings.TrimSpace(name)
-	id = strings.TrimSpace(id)
-	authIndex = strings.TrimSpace(authIndex)
-	if id != "" {
-		if auth, ok := h.authManager.GetByID(id); ok && auth != nil && strings.EqualFold(strings.TrimSpace(auth.Provider), kiroauth.Provider) {
-			return auth
-		}
-	}
-	auths := h.authManager.List()
-	for _, auth := range auths {
-		if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), kiroauth.Provider) {
-			continue
-		}
-		auth.EnsureIndex()
-		switch {
-		case name != "" && (strings.TrimSpace(auth.FileName) == name || strings.TrimSpace(auth.ID) == name):
-			return auth
-		case name != "" && filepath.Base(strings.TrimSpace(authAttribute(auth, "path"))) == name:
-			return auth
-		case authIndex != "" && strings.TrimSpace(auth.Index) == authIndex:
-			return auth
-		}
-	}
-	return nil
+	return h.findAuthFileBySelector(authFileSelector{
+		Name:      name,
+		ID:        id,
+		AuthIndex: authIndex,
+		Provider:  kiroauth.Provider,
+	})
 }
 
 func (h *Handler) applyKiroQuotaRefreshError(ctx context.Context, auth *coreauth.Auth, err error) {
@@ -684,6 +670,11 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 				}
 			}
 		}
+	}
+	if weight, ok := coreauth.CredentialWeightValue(auth); ok {
+		entry["weight"] = weight
+	} else {
+		entry["weight"] = coreauth.DefaultCredentialWeight
 	}
 	// Expose note from Attributes (set by synthesizer from JSON "note" field).
 	// Fall back to Metadata for auths registered via UploadAuthFile (no synthesizer).
@@ -950,7 +941,11 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 		return
 	}
 	if err = h.writeAuthFile(ctx, filepath.Base(name), data); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if isInvalidAuthFileError(err) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(200, gin.H{"status": "ok"})
@@ -1071,6 +1066,14 @@ func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.Fil
 		return "", err
 	}
 	return name, nil
+}
+
+func isInvalidAuthFileError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid auth file") || strings.Contains(msg, "credential weight")
 }
 
 func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) error {
@@ -1205,29 +1208,57 @@ func (h *Handler) deleteAuthFileByName(ctx context.Context, name string) (string
 }
 
 func (h *Handler) findAuthForDelete(name string) *coreauth.Auth {
+	return h.findAuthFileBySelector(authFileSelector{Name: name, ID: name})
+}
+
+func (h *Handler) findAuthFileBySelector(selector authFileSelector) *coreauth.Auth {
 	if h == nil || h.authManager == nil {
 		return nil
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil
-	}
-	if auth, ok := h.authManager.GetByID(name); ok {
-		return auth
-	}
-	auths := h.authManager.List()
-	for _, auth := range auths {
-		if auth == nil {
-			continue
-		}
-		if strings.TrimSpace(auth.FileName) == name {
+	selector.Name = strings.TrimSpace(selector.Name)
+	selector.ID = strings.TrimSpace(selector.ID)
+	selector.AuthIndex = strings.TrimSpace(selector.AuthIndex)
+	selector.Provider = strings.ToLower(strings.TrimSpace(selector.Provider))
+	if selector.ID != "" {
+		if auth, ok := h.authManager.GetByID(selector.ID); ok && auth != nil && authMatchesProvider(auth, selector.Provider) {
 			return auth
 		}
-		if filepath.Base(strings.TrimSpace(authAttribute(auth, "path"))) == name {
+	}
+	if selector.Name == "" && selector.AuthIndex == "" {
+		return nil
+	}
+	auths := h.authManager.List()
+	if selector.AuthIndex != "" {
+		for _, auth := range auths {
+			if auth == nil || !authMatchesProvider(auth, selector.Provider) {
+				continue
+			}
+			auth.EnsureIndex()
+			if strings.TrimSpace(auth.Index) == selector.AuthIndex {
+				return auth
+			}
+		}
+		return nil
+	}
+	for _, auth := range auths {
+		if auth == nil || !authMatchesProvider(auth, selector.Provider) {
+			continue
+		}
+		switch {
+		case selector.Name != "" && (strings.TrimSpace(auth.FileName) == selector.Name || strings.TrimSpace(auth.ID) == selector.Name):
+			return auth
+		case selector.Name != "" && filepath.Base(strings.TrimSpace(authAttribute(auth, "path"))) == selector.Name:
 			return auth
 		}
 	}
 	return nil
+}
+
+func authMatchesProvider(auth *coreauth.Auth, provider string) bool {
+	if provider == "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(auth.Provider), provider)
 }
 
 func (h *Handler) authIDForPath(path string) string {
@@ -1348,6 +1379,9 @@ func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Aut
 		}
 	}
 	coreauth.ApplyCustomHeadersFromMetadata(auth)
+	if err := coreauth.ApplyCredentialWeightFromMetadata(auth); err != nil {
+		return nil, err
+	}
 	return auth, nil
 }
 
@@ -1372,17 +1406,25 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Name     string `json:"name"`
-		Disabled *bool  `json:"disabled"`
+		Name      string `json:"name"`
+		ID        string `json:"id"`
+		AuthIndex string `json:"auth_index"`
+		Provider  string `json:"provider"`
+		Disabled  *bool  `json:"disabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+	selector := authFileSelector{
+		Name:      req.Name,
+		ID:        req.ID,
+		AuthIndex: req.AuthIndex,
+		Provider:  req.Provider,
+	}
+	if strings.TrimSpace(selector.Name) == "" && strings.TrimSpace(selector.ID) == "" && strings.TrimSpace(selector.AuthIndex) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name, id, or auth_index is required"})
 		return
 	}
 	if req.Disabled == nil {
@@ -1391,20 +1433,7 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-
-	// Find auth by name or ID
-	var targetAuth *coreauth.Auth
-	if auth, ok := h.authManager.GetByID(name); ok {
-		targetAuth = auth
-	} else {
-		auths := h.authManager.List()
-		for _, auth := range auths {
-			if auth.FileName == name {
-				targetAuth = auth
-				break
-			}
-		}
-	}
+	targetAuth := h.findAuthFileBySelector(selector)
 
 	if targetAuth == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
@@ -1445,43 +1474,24 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		return
 	}
 
-	nameRaw, ok := req["name"]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
-		return
-	}
-	var nameValue string
-	if err := json.Unmarshal(nameRaw, &nameValue); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
-		return
-	}
-	name := strings.TrimSpace(nameValue)
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+	selector, errSelector := decodeAuthFileSelector(req)
+	if errSelector != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errSelector.Error()})
 		return
 	}
 	delete(req, "name")
+	delete(req, "id")
+	delete(req, "auth_index")
+	delete(req, "provider")
 
 	ctx := c.Request.Context()
-
-	// Find auth by name or ID
-	var targetAuth *coreauth.Auth
-	if auth, ok := h.authManager.GetByID(name); ok {
-		targetAuth = auth
-	} else {
-		auths := h.authManager.List()
-		for _, auth := range auths {
-			if auth.FileName == name {
-				targetAuth = auth
-				break
-			}
-		}
-	}
+	targetAuth := h.findAuthFileBySelector(selector)
 
 	if targetAuth == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
 		return
 	}
+	targetAuth = targetAuth.Clone()
 
 	changed := false
 	touchedRoots := make(map[string]struct{}, len(req))
@@ -1512,7 +1522,10 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		changed = true
 	}
 	if changed {
-		syncAuthFileMetadataFields(targetAuth, touchedRoots)
+		if errSync := syncAuthFileMetadataFields(targetAuth, touchedRoots); errSync != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errSync.Error()})
+			return
+		}
 	}
 
 	if !changed {
@@ -1528,6 +1541,30 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func decodeAuthFileSelector(req map[string]json.RawMessage) (authFileSelector, error) {
+	selector := authFileSelector{
+		Name:      decodeAuthFileSelectorString(req["name"]),
+		ID:        decodeAuthFileSelectorString(req["id"]),
+		AuthIndex: decodeAuthFileSelectorString(req["auth_index"]),
+		Provider:  decodeAuthFileSelectorString(req["provider"]),
+	}
+	if strings.TrimSpace(selector.Name) == "" && strings.TrimSpace(selector.ID) == "" && strings.TrimSpace(selector.AuthIndex) == "" {
+		return authFileSelector{}, fmt.Errorf("name, id, or auth_index is required")
+	}
+	return selector, nil
+}
+
+func decodeAuthFileSelectorString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func decodeAuthFileFieldValue(raw json.RawMessage) (any, error) {
@@ -1637,9 +1674,9 @@ func authFileHeadersStringMap(value any) (map[string]string, bool) {
 	}
 }
 
-func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]struct{}) {
+func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]struct{}) error {
 	if auth == nil || len(touchedRoots) == 0 {
-		return
+		return nil
 	}
 	if _, ok := touchedRoots["prefix"]; ok {
 		if prefix, okString := auth.Metadata["prefix"].(string); okString {
@@ -1657,6 +1694,11 @@ func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]str
 	if _, ok := touchedRoots["priority"]; ok {
 		syncAuthFilePriorityAttribute(auth)
 	}
+	if _, ok := touchedRoots["weight"]; ok {
+		if err := syncAuthFileWeightAttribute(auth); err != nil {
+			return err
+		}
+	}
 	if _, ok := touchedRoots["note"]; ok {
 		syncAuthFileNoteAttribute(auth)
 	}
@@ -1666,6 +1708,7 @@ func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]str
 	if _, ok := touchedRoots["disabled"]; ok {
 		syncAuthFileDisabledState(auth)
 	}
+	return nil
 }
 
 func syncAuthFileHeaderAttributes(auth *coreauth.Auth) {
@@ -1702,6 +1745,33 @@ func syncAuthFilePriorityAttribute(auth *coreauth.Auth) {
 		return
 	}
 	auth.Attributes["priority"] = strconv.Itoa(priority)
+}
+
+func syncAuthFileWeightAttribute(auth *coreauth.Auth) error {
+	if auth == nil {
+		return nil
+	}
+	if auth.Attributes == nil {
+		auth.Attributes = make(map[string]string)
+	}
+	raw, exists := auth.Metadata["weight"]
+	if !exists || raw == nil {
+		delete(auth.Attributes, "weight")
+		return nil
+	}
+	weight, ok := coreauth.ParseCredentialWeight(raw)
+	if !ok {
+		return fmt.Errorf("credential weight must be an integer")
+	}
+	if err := coreauth.ValidateCredentialWeight(weight); err != nil {
+		return err
+	}
+	if weight == coreauth.DefaultCredentialWeight {
+		delete(auth.Attributes, "weight")
+		return nil
+	}
+	auth.Attributes["weight"] = strconv.FormatInt(weight, 10)
+	return nil
 }
 
 func authFileIntValue(value any) (int, bool) {

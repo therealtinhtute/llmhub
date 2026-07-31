@@ -42,7 +42,8 @@ type PostgresStore struct {
 
 	cfg PostgresStoreConfig
 
-	mu sync.Mutex
+	mu            sync.Mutex
+	cooldownStore *postgresCooldownStateStore
 }
 
 type ConfigSnapshot struct {
@@ -82,10 +83,12 @@ func NewPostgresStore(ctx context.Context, cfg PostgresStoreConfig) (*PostgresSt
 		return nil, postgresPingError(cfg.DSN, err)
 	}
 
-	return &PostgresStore{
+	store := &PostgresStore{
 		db:  db,
 		cfg: cfg,
-	}, nil
+	}
+	store.cooldownStore = &postgresCooldownStateStore{store: store}
+	return store, nil
 }
 
 func postgresPingError(dsn string, err error) error {
@@ -176,6 +179,12 @@ func (s *PostgresStore) EnsureSchema(ctx context.Context) error {
 		return fmt.Errorf("postgres store: create usage created index: %w", err)
 	}
 	if err := s.ensureQuotaAlertSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureRuntimeControlSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureCooldownSchema(ctx); err != nil {
 		return err
 	}
 	return nil

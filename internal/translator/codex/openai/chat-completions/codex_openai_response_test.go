@@ -91,6 +91,87 @@ func TestConvertCodexResponseToOpenAI_ToolCallArgumentsDeltaOmitsNullContentFiel
 	}
 }
 
+func TestConvertCodexResponseToOpenAI_CustomToolCallStreamDeltas(t *testing.T) {
+	ctx := context.Background()
+	var param any
+	send := func(event string) [][]byte {
+		return ConvertCodexResponseToOpenAI(ctx, "gpt-5.5", nil, nil, []byte("data: "+event), &param)
+	}
+
+	out := send(`{"type":"response.output_item.added","item":{"type":"custom_tool_call","call_id":"call_apply","name":"ApplyPatch","input":"unexpected input"}}`)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 announcement chunk, got %d", len(out))
+	}
+	if got := gjson.GetBytes(out[0], "choices.0.delta.tool_calls.0.function.name").String(); got != "ApplyPatch" {
+		t.Fatalf("expected custom tool name, got %q; chunk=%s", got, out[0])
+	}
+
+	out = send(`{"type":"response.custom_tool_call_input.delta","delta":"patch"}`)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 input delta chunk, got %d", len(out))
+	}
+	if got := gjson.GetBytes(out[0], "choices.0.delta.tool_calls.0.function.arguments").String(); got != "patch" {
+		t.Fatalf("expected patch arguments, got %q; chunk=%s", got, out[0])
+	}
+
+	out = send(`{"type":"response.custom_tool_call_input.done","input":"patch"}`)
+	if len(out) != 0 {
+		t.Fatalf("expected custom input done to be suppressed after delta, got %d chunks", len(out))
+	}
+	out = send(`{"type":"response.output_item.done","item":{"type":"custom_tool_call","call_id":"call_apply","name":"ApplyPatch","input":"patch"}}`)
+	if len(out) != 0 {
+		t.Fatalf("expected output item done to be suppressed after delta, got %d chunks", len(out))
+	}
+}
+
+func TestConvertCodexResponseToOpenAI_InterleavedToolCallsKeepStateByItem(t *testing.T) {
+	ctx := context.Background()
+	var param any
+	send := func(event string) [][]byte {
+		return ConvertCodexResponseToOpenAI(ctx, "gpt-5.5", nil, nil, []byte("data: "+event), &param)
+	}
+
+	out := send(`{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":""}}`)
+	if got := gjson.GetBytes(out[0], "choices.0.delta.tool_calls.0.index").Int(); got != 0 {
+		t.Fatalf("expected function call index 0, got %d; chunk=%s", got, out[0])
+	}
+	out = send(`{"type":"response.output_item.added","output_index":1,"item":{"id":"ctc_2","type":"custom_tool_call","call_id":"call_apply","name":"ApplyPatch","input":""}}`)
+	if got := gjson.GetBytes(out[0], "choices.0.delta.tool_calls.0.index").Int(); got != 1 {
+		t.Fatalf("expected custom call index 1, got %d; chunk=%s", got, out[0])
+	}
+
+	out = send(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"{\\"query\\":"}`)
+	if got := gjson.GetBytes(out[0], "choices.0.delta.tool_calls.0.index").Int(); got != 0 {
+		t.Fatalf("expected interleaved function delta index 0, got %d; chunk=%s", got, out[0])
+	}
+	out = send(`{"type":"response.custom_tool_call_input.done","output_index":1,"input":"patch"}`)
+	if len(out) != 1 {
+		t.Fatalf("expected custom done fallback, got %d chunks", len(out))
+	}
+	if got := gjson.GetBytes(out[0], "choices.0.delta.tool_calls.0.index").Int(); got != 1 {
+		t.Fatalf("expected custom done index 1, got %d; chunk=%s", got, out[0])
+	}
+}
+
+func TestConvertCodexResponseToOpenAI_MapsCacheWriteUsage(t *testing.T) {
+	ctx := context.Background()
+	var param any
+
+	out := ConvertCodexResponseToOpenAI(ctx, "gpt-5.5", nil, nil, []byte(`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":4}}}}`), &param)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 stream chunk, got %d", len(out))
+	}
+	if got := gjson.GetBytes(out[0], "usage.prompt_tokens_details.cached_creation_tokens").Int(); got != 4 {
+		t.Fatalf("stream cached_creation_tokens = %d, want 4; chunk=%s", got, out[0])
+	}
+
+	raw := []byte(`{"type":"response.completed","response":{"id":"resp_123","created_at":1700000000,"model":"gpt-5.5","status":"completed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":4}},"output":[]}}`)
+	body := ConvertCodexResponseToOpenAINonStream(ctx, "gpt-5.5", nil, nil, raw, nil)
+	if got := gjson.GetBytes(body, "usage.prompt_tokens_details.cached_creation_tokens").Int(); got != 4 {
+		t.Fatalf("nonstream cached_creation_tokens = %d, want 4; body=%s", got, body)
+	}
+}
+
 func TestConvertCodexResponseToOpenAI_StreamPartialImageEmitsDeltaImages(t *testing.T) {
 	ctx := context.Background()
 	var param any

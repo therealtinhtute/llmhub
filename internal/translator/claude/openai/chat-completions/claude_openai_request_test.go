@@ -6,6 +6,32 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestConvertOpenAIRequestToClaudeNormalizesToolInputSchema(t *testing.T) {
+	inputJSON := `{
+		"model": "gpt-4.1",
+		"messages": [{"role":"user","content":"Use lookup"}],
+		"tools": [
+			{"type":"function","function":{
+				"name":"lookup",
+				"description":"Lookup",
+				"parameters":{"anyOf":[{"type":"null"},{"type":"object","properties":{"query":{"type":"string"}}}]}
+			}}
+		]
+	}`
+
+	result := ConvertOpenAIRequestToClaude("claude-sonnet-4-5", []byte(inputJSON), false)
+	tool := gjson.GetBytes(result, "tools.0")
+	if got := tool.Get("input_schema.type").String(); got != "object" {
+		t.Fatalf("input_schema.type = %q, want object; result=%s", got, result)
+	}
+	if tool.Get("input_schema.anyOf").Exists() {
+		t.Fatalf("input_schema.anyOf remained: %s", tool.Get("input_schema").Raw)
+	}
+	if got := tool.Get("input_schema.properties.query.type").String(); got != "string" {
+		t.Fatalf("query type = %q, want string; schema=%s", got, tool.Get("input_schema").Raw)
+	}
+}
+
 func TestConvertOpenAIRequestToClaude_ToolResultTextAndBase64Image(t *testing.T) {
 	inputJSON := `{
 		"model": "gpt-4.1",

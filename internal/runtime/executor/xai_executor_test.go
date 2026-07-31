@@ -18,6 +18,28 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestXAIExecutionSessionIDUsesDerivedFallback(t *testing.T) {
+	id := xaiExecutionSessionID(cliproxyexecutor.Request{}, cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.DerivedSessionIDMetadataKey: "ctx:v1:xai-root",
+	}})
+	if id == "" {
+		t.Fatal("expected derived session UUID")
+	}
+	if repeated := xaiExecutionSessionID(cliproxyexecutor.Request{}, cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.DerivedSessionIDMetadataKey: "ctx:v1:xai-root",
+	}}); repeated != id {
+		t.Fatalf("derived session UUID is not stable: first=%q repeated=%q", id, repeated)
+	}
+
+	explicit := xaiExecutionSessionID(cliproxyexecutor.Request{}, cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.ExecutionSessionMetadataKey: "explicit-session",
+		cliproxyexecutor.DerivedSessionIDMetadataKey: "ctx:v1:xai-root",
+	}})
+	if explicit != "explicit-session" {
+		t.Fatalf("explicit execution session = %q, want explicit-session", explicit)
+	}
+}
+
 func TestXAIExecutorExecuteShapesResponsesRequest(t *testing.T) {
 	var gotPath string
 	var gotAuth string

@@ -147,6 +147,41 @@ func TestGeminiProductionAndPreviewModelsCoexist(t *testing.T) {
 	}
 }
 
+func TestUpstreamCheckpointModelCatalogAdditions(t *testing.T) {
+	tests := []struct {
+		channel string
+		models  []*ModelInfo
+		ids     []string
+	}{
+		{channel: "claude", models: GetClaudeModels(), ids: []string{"claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable-5"}},
+		{channel: "gemini", models: GetGeminiModels(), ids: []string{"gemini-3.5-flash-lite", "gemini-3.6-flash"}},
+		{channel: "vertex", models: GetGeminiVertexModels(), ids: []string{"gemini-3.5-flash-lite", "gemini-3.6-flash"}},
+		{channel: "aistudio", models: GetAIStudioModels(), ids: []string{"gemini-3.5-flash-lite", "gemini-3.6-flash"}},
+		{channel: "codex-free", models: GetCodexFreeModels(), ids: []string{"gpt-5.6-terra", "gpt-5.6-luna"}},
+		{channel: "codex-team", models: GetCodexTeamModels(), ids: []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}},
+		{channel: "codex-plus", models: GetCodexPlusModels(), ids: []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}},
+		{channel: "codex-pro", models: GetCodexProModels(), ids: []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}},
+		{channel: "kimi", models: GetKimiModels(), ids: []string{"kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k3", "kimi-k3-256k"}},
+		{channel: "antigravity", models: GetAntigravityModels(), ids: []string{"gemini-3.6-flash-high", "gemini-3.5-flash-extra-low"}},
+		{channel: "xai", models: GetXAIModels(), ids: []string{"grok-composer-2.5-fast"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.channel, func(t *testing.T) {
+			for _, id := range tt.ids {
+				requireModelDefinition(t, tt.models, id)
+			}
+		})
+	}
+}
+
+func TestLocalKiroModelDefinitionsRemainAvailable(t *testing.T) {
+	models := GetKiroModels()
+	for _, id := range []string{"auto", "claude-sonnet-4.5", "claude-sonnet-4.5-thinking", "claude-sonnet-4.5-agentic", "claude-sonnet-4.5-thinking-agentic"} {
+		requireModelDefinition(t, models, id)
+	}
+}
+
 func requireModelDefinition(t *testing.T, models []*ModelInfo, id string) *ModelInfo {
 	t.Helper()
 	for _, model := range models {

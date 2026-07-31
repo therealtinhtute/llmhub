@@ -384,7 +384,7 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 		return nil, &Error{Code: "home_unavailable", Message: "home execution registry unavailable", Retryable: true, HTTPStatus: http.StatusServiceUnavailable}
 	}
 
-	sessionID := ExtractSessionID(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	sessionID := m.homeDispatchSessionID(opts)
 	raw, errRPop := client.RPopAuth(ctx, requestedModel, sessionID, homeDispatchHeaders(ctx, opts.Headers), homeAuthCountFromMetadata(opts.Metadata))
 	if errRPop != nil {
 		if home.IsAmbiguousDispatchError(errRPop) {

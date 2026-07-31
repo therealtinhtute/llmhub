@@ -17,6 +17,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
+	log "github.com/sirupsen/logrus"
 	claudeauth "github.com/therealtinhtute/llmhub/internal/auth/claude"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/misc"
@@ -27,7 +28,6 @@ import (
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
@@ -1737,6 +1737,11 @@ func buildTextBlock(text string, cacheControl map[string]string) string {
 // prependToFirstUserMessage prepends text content to the first user message.
 // This avoids putting non-Claude-Code system instructions in system[] which
 // triggers Anthropic's extra usage billing for OAuth-proxied requests.
+func leadsWithToolResult(content gjson.Result) bool {
+	first := content.Get("0")
+	return first.Exists() && first.Get("type").String() == "tool_result"
+}
+
 func prependToFirstUserMessage(payload []byte, text string) []byte {
 	messages := gjson.GetBytes(payload, "messages")
 	if !messages.Exists() || !messages.IsArray() {
@@ -1771,9 +1776,13 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 	if content.IsArray() {
 		newBlock := fmt.Sprintf(`{"type":"text","text":%q}`, prefixBlock)
 		var newArray string
-		if content.Raw == "[]" || content.Raw == "" {
+		switch {
+		case content.Raw == "[]" || content.Raw == "":
 			newArray = "[" + newBlock + "]"
-		} else {
+		case leadsWithToolResult(content):
+			trimmed := strings.TrimRight(content.Raw, " \t\r\n")
+			newArray = trimmed[:len(trimmed)-1] + "," + newBlock + "]"
+		default:
 			newArray = "[" + newBlock + "," + content.Raw[1:]
 		}
 		payload, _ = sjson.SetRawBytes(payload, contentPath, []byte(newArray))
@@ -2263,8 +2272,8 @@ func injectMessagesCacheControl(payload []byte) []byte {
 	return payload
 }
 
-// injectToolsCacheControl adds cache_control to the last tool in the tools array.
-// Per Anthropic docs: "The cache_control parameter on the last tool definition caches all tool definitions."
+// injectToolsCacheControl adds cache_control to the last non-deferred tool in the tools array.
+// Deferred tools cannot use prompt caching, so trailing deferred tools are skipped.
 // This only adds cache_control if NO tool in the array already has it.
 func injectToolsCacheControl(payload []byte) []byte {
 	tools := gjson.GetBytes(payload, "tools")
@@ -2272,26 +2281,24 @@ func injectToolsCacheControl(payload []byte) []byte {
 		return payload
 	}
 
-	toolCount := int(tools.Get("#").Int())
-	if toolCount == 0 {
-		return payload
-	}
-
-	// Check if ANY tool already has cache_control - if so, don't modify tools
+	// Check if ANY tool already has cache_control and find the last eligible tool.
 	hasCacheControlInTools := false
-	tools.ForEach(func(_, tool gjson.Result) bool {
+	lastEligibleToolIndex := -1
+	tools.ForEach(func(index, tool gjson.Result) bool {
 		if tool.Get("cache_control").Exists() {
 			hasCacheControlInTools = true
 			return false
 		}
+		if !tool.Get("defer_loading").Bool() {
+			lastEligibleToolIndex = int(index.Int())
+		}
 		return true
 	})
-	if hasCacheControlInTools {
+	if hasCacheControlInTools || lastEligibleToolIndex < 0 {
 		return payload
 	}
 
-	// Add cache_control to the last tool
-	lastToolPath := fmt.Sprintf("tools.%d.cache_control", toolCount-1)
+	lastToolPath := fmt.Sprintf("tools.%d.cache_control", lastEligibleToolIndex)
 	result, err := sjson.SetBytes(payload, lastToolPath, map[string]string{"type": "ephemeral"})
 	if err != nil {
 		log.Warnf("failed to inject cache_control into tools array: %v", err)

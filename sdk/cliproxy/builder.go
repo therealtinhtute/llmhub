@@ -11,6 +11,7 @@ import (
 	configaccess "github.com/therealtinhtute/llmhub/internal/access/config_access"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
+	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
@@ -49,11 +50,15 @@ type Builder struct {
 	// coreManager handles core authentication and execution.
 	coreManager *coreauth.Manager
 
+	// cooldownStateStore persists runtime cooldown snapshots.
+	cooldownStateStore coreauth.CooldownStateStore
+
 	// serverOptions contains additional server configuration options.
 	serverOptions []api.ServerOption
 
 	// managementConfigStore persists management config changes outside the filesystem.
 	managementConfigStore api.ManagementConfigStore
+	runtimeSettingsStore  runtimecontrol.SettingsStore
 
 	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 
@@ -150,6 +155,12 @@ func (b *Builder) WithCoreAuthManager(mgr *coreauth.Manager) *Builder {
 	return b
 }
 
+// WithCooldownStateStore overrides the runtime cooldown snapshot store.
+func (b *Builder) WithCooldownStateStore(store coreauth.CooldownStateStore) *Builder {
+	b.cooldownStateStore = store
+	return b
+}
+
 // WithServerOptions appends server configuration options used during construction.
 func (b *Builder) WithServerOptions(opts ...api.ServerOption) *Builder {
 	b.serverOptions = append(b.serverOptions, opts...)
@@ -177,6 +188,14 @@ func (b *Builder) WithPostAuthHook(hook coreauth.PostAuthHook) *Builder {
 
 func (b *Builder) WithManagementConfigStore(store api.ManagementConfigStore) *Builder {
 	b.managementConfigStore = store
+	if runtimeStore, ok := store.(runtimecontrol.SettingsStore); ok {
+		b.runtimeSettingsStore = runtimeStore
+	}
+	return b
+}
+
+func (b *Builder) WithRuntimeSettingsStore(store runtimecontrol.SettingsStore) *Builder {
+	b.runtimeSettingsStore = store
 	return b
 }
 
@@ -275,6 +294,13 @@ func (b *Builder) Build() (*Service, error) {
 
 		coreManager = coreauth.NewManager(tokenStore, selector, nil)
 	}
+	cooldownStateStore := b.cooldownStateStore
+	if cooldownStateStore == nil {
+		if provider, ok := sdkAuth.GetTokenStore().(coreauth.CooldownStateStoreProvider); ok {
+			cooldownStateStore = provider.CooldownStateStore()
+		}
+	}
+	coreManager.SetCooldownStateStore(cooldownStateStore)
 	// Attach a default RoundTripper provider so providers can opt-in per-auth transports.
 	coreManager.SetRoundTripperProvider(newDefaultRoundTripperProvider())
 	coreManager.SetConfig(b.cfg)

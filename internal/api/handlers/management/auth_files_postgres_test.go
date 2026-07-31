@@ -95,6 +95,50 @@ func TestUploadAuthFile_PathlessStorePersistsAndLists(t *testing.T) {
 	}
 }
 
+func TestUploadAuthFile_PathlessStoreValidatesAndListsWeight(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	store := &pathlessMemoryAuthStore{}
+	manager := coreauth.NewManager(store, nil, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, manager)
+	h.tokenStore = store
+
+	rec := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(rec)
+	ginCtx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v0/management/auth-files?name=weighted-postgres-user.json",
+		bytes.NewBufferString(`{"type":"codex","email":"weighted@example.com","weight":4}`),
+	)
+	ginCtx.Request.Header.Set("Content-Type", "application/json")
+
+	h.UploadAuthFile(ginCtx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected upload status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	entry := firstAuthFileEntry(t, h)
+	if got := entry["weight"]; got != float64(4) && got != int64(4) && got != int(4) {
+		t.Fatalf("expected listed weight 4, got %#v", got)
+	}
+
+	badRec := httptest.NewRecorder()
+	badCtx, _ := gin.CreateTestContext(badRec)
+	badCtx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v0/management/auth-files?name=bad-weight-postgres-user.json",
+		bytes.NewBufferString(`{"type":"codex","email":"bad-weight@example.com","weight":0}`),
+	)
+	badCtx.Request.Header.Set("Content-Type", "application/json")
+
+	h.UploadAuthFile(badCtx)
+
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid weight upload status %d, got %d with body %s", http.StatusBadRequest, badRec.Code, badRec.Body.String())
+	}
+}
+
 func TestUploadAuthFile_PathlessStoreSaveErrorReturnsFailure(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)

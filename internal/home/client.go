@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -71,13 +72,53 @@ func IsAmbiguousDispatchError(err error) bool {
 }
 
 var (
-	ErrDisabled       = errors.New("home client disabled")
-	ErrNotConnected   = errors.New("home not connected")
-	ErrEmptyResponse  = errors.New("home returned empty response")
-	ErrAuthNotFound   = errors.New("home auth not found")
-	ErrConfigNotFound = errors.New("home config not found")
-	ErrModelsNotFound = errors.New("home models not found")
-	ErrDispatchFenced = errors.New("home auth dispatch is fenced")
+	ErrDisabled                  = errors.New("home client disabled")
+	ErrNotConnected              = errors.New("home not connected")
+	ErrEmptyResponse             = errors.New("home returned empty response")
+	ErrAuthNotFound              = errors.New("home auth not found")
+	ErrConfigNotFound            = errors.New("home config not found")
+	ErrModelsNotFound            = errors.New("home models not found")
+	ErrDispatchFenced            = errors.New("home auth dispatch is fenced")
+	ErrCompareAndSwapUnsupported = errors.New("home compare-and-swap is unsupported")
+	errClusterDiscoveryTransport = errors.New("home cluster discovery transport failed")
+)
+
+func isHomeCommandUnsupported(err error) bool {
+	for err != nil {
+		message := strings.ToLower(strings.TrimSpace(err.Error()))
+		if strings.Contains(message, "unknown command") || strings.Contains(message, "unsupported command") {
+			return true
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
+}
+
+// IsMembershipTakeoverUnavailableError reports whether Home cannot preserve the previous membership state.
+func IsMembershipTakeoverUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.TrimSpace(strings.ToLower(err.Error()))
+	return message == "membership_takeover_unavailable" || message == "err membership_takeover_unavailable"
+}
+
+// IsLegacyMembershipProtocolError reports whether Home rejected protocol-one subscription arguments.
+func IsLegacyMembershipProtocolError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.TrimSpace(strings.ToLower(err.Error()))
+	return message == "wrong number of arguments for 'subscribe' command" || message == "err wrong number of arguments for 'subscribe' command"
+}
+
+type recoveryState uint32
+
+const (
+	recoveryStateStable recoveryState = iota
+	recoveryStateTakeoverEligible
+	recoveryStateSwitching
+	recoveryStateSwitchingTakeover
 )
 
 type clusterNode struct {
@@ -93,6 +134,13 @@ type clusterNodesEnvelope struct {
 	Nodes []clusterNode `json:"nodes"`
 }
 
+type KVSetOptions struct {
+	EX time.Duration
+	PX time.Duration
+	NX bool
+	XX bool
+}
+
 type Client struct {
 	mu sync.Mutex
 
@@ -100,23 +148,86 @@ type Client struct {
 	seedHost string
 	seedPort int
 
-	cmd     *redis.Client
-	sub     *redis.Client
-	release *redis.Client
-	limiter atomic.Pointer[config.CredentialConcurrencyConfig]
+	cmd         *redis.Client
+	sub         *redis.Client
+	release     *redis.Client
+	connections map[*homeDispatchConn]struct{}
+	closing     chan struct{}
+	limiter     atomic.Pointer[config.CredentialConcurrencyConfig]
 
 	heartbeatOK       atomic.Bool
 	dispatchFenced    atomic.Bool
+	ambiguousDispatch atomic.Bool
+	recoveryState     atomic.Uint32
+	casUnsupported    atomic.Bool
+	instanceID        string
+	legacyMembership  bool
 	clusterNodes      []clusterNode
 	reconnectFailures int
 }
 
 func New(homeCfg config.HomeConfig) *Client {
 	return &Client{
-		homeCfg:  homeCfg,
-		seedHost: strings.TrimSpace(homeCfg.Host),
-		seedPort: homeCfg.Port,
+		homeCfg:    homeCfg,
+		seedHost:   strings.TrimSpace(homeCfg.Host),
+		seedPort:   homeCfg.Port,
+		instanceID: uuid.NewString(),
 	}
+}
+
+// NewLifetime creates a fresh client while preserving cluster failover and membership recovery state.
+func (c *Client) NewLifetime() *Client {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	next := &Client{
+		homeCfg:           c.homeCfg,
+		seedHost:          c.seedHost,
+		seedPort:          c.seedPort,
+		clusterNodes:      append([]clusterNode(nil), c.clusterNodes...),
+		reconnectFailures: c.reconnectFailures,
+		instanceID:        c.instanceID,
+		legacyMembership:  c.legacyMembership,
+	}
+	state := c.recoveryState.Load()
+	if c.ambiguousDispatch.Load() && state == uint32(recoveryStateSwitchingTakeover) {
+		state = uint32(recoveryStateSwitching)
+	}
+	next.recoveryState.Store(state)
+	return next
+}
+
+// MembershipInstanceID returns the process-scoped Home membership identity.
+func (c *Client) MembershipInstanceID() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.instanceID
+}
+
+// LegacyMembership reports whether this subscriber has downgraded to the legacy protocol.
+func (c *Client) LegacyMembership() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.legacyMembership
+}
+
+// EnableLegacyMembership permanently downgrades this subscriber lifetime chain.
+func (c *Client) EnableLegacyMembership() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.legacyMembership = true
+	c.mu.Unlock()
+	c.SuppressTakeover()
 }
 
 func (c *Client) Enabled() bool {
@@ -145,23 +256,81 @@ func (c *Client) Close() {
 	c.heartbeatOK.Store(false)
 	c.dispatchFenced.Store(true)
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.closeClientsLocked()
+	cmd, sub, connections := c.detachClientsLocked()
+	release := c.release
+	c.release = nil
+	closing := c.closing
+	c.mu.Unlock()
+	closeDetachedClients(cmd, sub, connections)
+	if release != nil {
+		_ = release.Close()
+	}
+	if closing != nil {
+		<-closing
+	}
+}
+
+func (c *Client) detachClientsLocked() (*redis.Client, *redis.Client, []*homeDispatchConn) {
+	connections := make([]*homeDispatchConn, 0, len(c.connections))
+	for conn := range c.connections {
+		connections = append(connections, conn)
+	}
+	cmd := c.cmd
+	sub := c.sub
+	c.cmd = nil
+	c.sub = nil
+	c.connections = nil
+	return cmd, sub, connections
+}
+
+func closeDetachedClients(cmd *redis.Client, sub *redis.Client, connections []*homeDispatchConn) {
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	if cmd != nil {
+		_ = cmd.Close()
+	}
+	if sub != nil {
+		_ = sub.Close()
+	}
 }
 
 func (c *Client) closeClientsLocked() {
-	if c.cmd != nil {
-		_ = c.cmd.Close()
-	}
-	if c.sub != nil {
-		_ = c.sub.Close()
-	}
-	if c.release != nil {
-		_ = c.release.Close()
-	}
-	c.cmd = nil
-	c.sub = nil
+	cmd, sub, connections := c.detachClientsLocked()
+	release := c.release
 	c.release = nil
+	previousClosing := c.closing
+	done := make(chan struct{})
+	c.closing = done
+	go func() {
+		defer close(done)
+		if previousClosing != nil {
+			<-previousClosing
+		}
+		closeDetachedClients(cmd, sub, connections)
+		if release != nil {
+			_ = release.Close()
+		}
+	}()
+}
+
+func (c *Client) waitForClientsClosed() {
+	for {
+		c.mu.Lock()
+		closing := c.closing
+		c.mu.Unlock()
+		if closing == nil {
+			return
+		}
+		<-closing
+		c.mu.Lock()
+		if c.closing == closing {
+			c.closing = nil
+			c.mu.Unlock()
+			return
+		}
+		c.mu.Unlock()
+	}
 }
 
 // AbortAmbiguousDispatch fences dispatch after a response whose accounting state is unknown.
@@ -169,11 +338,42 @@ func (c *Client) AbortAmbiguousDispatch() {
 	if c == nil {
 		return
 	}
+	c.ambiguousDispatch.Store(true)
+	c.SuppressTakeover()
 	c.dispatchFenced.Store(true)
 	c.heartbeatOK.Store(false)
 	c.mu.Lock()
-	c.closeClientsLocked()
+	cmd, sub, connections := c.detachClientsLocked()
+	release := c.release
+	c.release = nil
 	c.mu.Unlock()
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	if cmd != nil {
+		go func() { _ = cmd.Close() }()
+	}
+	if sub != nil {
+		go func() { _ = sub.Close() }()
+	}
+	if release != nil {
+		go func() { _ = release.Close() }()
+	}
+}
+
+// AmbiguousDispatch reports whether this lifetime observed an issued dispatch with an unknown delivery result.
+func (c *Client) AmbiguousDispatch() bool {
+	return c != nil && c.ambiguousDispatch.Load()
+}
+
+// SuppressTakeover forces the next subscriber lifetime through normal membership recovery.
+func (c *Client) SuppressTakeover() {
+	if c == nil {
+		return
+	}
+	if !c.recoveryState.CompareAndSwap(uint32(recoveryStateTakeoverEligible), uint32(recoveryStateStable)) {
+		c.recoveryState.CompareAndSwap(uint32(recoveryStateSwitchingTakeover), uint32(recoveryStateSwitching))
+	}
 }
 
 func (c *Client) addr() (string, bool) {
@@ -200,11 +400,18 @@ func (c *Client) ensureClients() error {
 	if c == nil {
 		return ErrDisabled
 	}
+	if c.dispatchFenced.Load() {
+		return ErrDispatchFenced
+	}
 	if !c.Enabled() {
 		return ErrDisabled
 	}
+	c.waitForClientsClosed()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.dispatchFenced.Load() {
+		return ErrDispatchFenced
+	}
 
 	addr, ok := c.addrLocked()
 	if !ok {
@@ -233,7 +440,7 @@ func (c *Client) redisOptionsLocked(addr string) (*redis.Options, error) {
 	if errTLS != nil {
 		return nil, errTLS
 	}
-	return &redis.Options{
+	options := &redis.Options{
 		Addr:                  addr,
 		TLSConfig:             tlsConfig,
 		DialTimeout:           homeRedisOperationTimeout,
@@ -242,7 +449,56 @@ func (c *Client) redisOptionsLocked(addr string) (*redis.Options, error) {
 		MaxRetries:            -1,
 		DialerRetries:         1,
 		ContextTimeoutEnabled: true,
-	}, nil
+	}
+	options.Dialer = c.trackedRedisDialer(redis.NewDialer(options))
+	return options, nil
+}
+
+type homeDispatchConn struct {
+	net.Conn
+	client *Client
+	once   sync.Once
+}
+
+func (c *Client) trackedRedisDialer(dialer func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network string, address string) (net.Conn, error) {
+		conn, errDial := dialer(ctx, network, address)
+		if errDial != nil {
+			return nil, errDial
+		}
+		wrapped := &homeDispatchConn{Conn: conn, client: c}
+		if c == nil {
+			return wrapped, nil
+		}
+		c.mu.Lock()
+		if c.dispatchFenced.Load() {
+			c.mu.Unlock()
+			_ = wrapped.Close()
+			return nil, ErrDispatchFenced
+		}
+		if c.connections == nil {
+			c.connections = make(map[*homeDispatchConn]struct{})
+		}
+		c.connections[wrapped] = struct{}{}
+		c.mu.Unlock()
+		return wrapped, nil
+	}
+}
+
+func (c *homeDispatchConn) Close() error {
+	if c == nil {
+		return nil
+	}
+	var err error
+	c.once.Do(func() {
+		if c.client != nil {
+			c.client.mu.Lock()
+			delete(c.client.connections, c)
+			c.client.mu.Unlock()
+		}
+		err = c.Conn.Close()
+	})
+	return err
 }
 
 func (c *Client) homeTLSConfigLocked(addr string) (*tls.Config, error) {
@@ -320,29 +576,39 @@ func newHomeTLSConfig(cfg config.HomeTLSConfig, fallbackServerName string) (*tls
 }
 
 func (c *Client) commandClient() (*redis.Client, error) {
+	if c == nil || c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
 	if errEnsure := c.ensureClients(); errEnsure != nil {
 		return nil, errEnsure
 	}
 	c.mu.Lock()
-	cmd := c.cmd
-	c.mu.Unlock()
-	if cmd == nil {
+	defer c.mu.Unlock()
+	if c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
+	if c.cmd == nil {
 		return nil, ErrNotConnected
 	}
-	return cmd, nil
+	return c.cmd, nil
 }
 
 func (c *Client) subscriptionClient() (*redis.Client, error) {
+	if c == nil || c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
 	if errEnsure := c.ensureClients(); errEnsure != nil {
 		return nil, errEnsure
 	}
 	c.mu.Lock()
-	sub := c.sub
-	c.mu.Unlock()
-	if sub == nil {
+	defer c.mu.Unlock()
+	if c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
+	if c.sub == nil {
 		return nil, ErrNotConnected
 	}
-	return sub, nil
+	return c.sub, nil
 }
 
 func (c *Client) Ping(ctx context.Context) error {
@@ -366,20 +632,21 @@ func (c *Client) clusterDiscoveryEnabledLocked() bool {
 	return !c.homeCfg.DisableClusterDiscovery
 }
 
-func (c *Client) refreshBestClusterNode(ctx context.Context) {
+func (c *Client) refreshBestClusterNode(ctx context.Context) error {
 	if !c.clusterDiscoveryEnabled() {
-		return
+		return nil
 	}
 	switched, errRefresh := c.refreshClusterNodes(ctx)
 	if errRefresh != nil {
 		log.Debugf("home cluster nodes unavailable: %v", errRefresh)
-		return
+		return errRefresh
 	}
 	if switched {
 		if addr, ok := c.addr(); ok {
 			log.Infof("home cluster target switched to %s", addr)
 		}
 	}
+	return nil
 }
 
 func (c *Client) refreshClusterNodes(ctx context.Context) (bool, error) {
@@ -391,11 +658,20 @@ func (c *Client) refreshClusterNodes(ctx context.Context) (bool, error) {
 	}
 	cmd, errClient := c.commandClient()
 	if errClient != nil {
-		return false, errClient
+		return false, fmt.Errorf("%w: %w", errClusterDiscoveryTransport, errClient)
 	}
-	raw, errDo := cmd.Do(ctx, "CLUSTER", "NODES").Text()
+	nodesCommand := cmd.Do(ctx, "CLUSTER", "NODES")
+	errDo := nodesCommand.Err()
 	if errDo != nil {
+		var redisErr redis.Error
+		if !errors.As(errDo, &redisErr) {
+			return false, fmt.Errorf("%w: %w", errClusterDiscoveryTransport, errDo)
+		}
 		return false, errDo
+	}
+	raw, errText := nodesCommand.Text()
+	if errText != nil {
+		return false, errText
 	}
 
 	nodes, errParse := parseClusterNodesPayload([]byte(raw))
@@ -463,6 +739,9 @@ func (c *Client) switchToNodeLocked(node clusterNode) bool {
 	}
 	c.homeCfg.Host = host
 	c.homeCfg.Port = node.Port
+	if !c.recoveryState.CompareAndSwap(uint32(recoveryStateStable), uint32(recoveryStateSwitching)) {
+		c.recoveryState.CompareAndSwap(uint32(recoveryStateTakeoverEligible), uint32(recoveryStateSwitchingTakeover))
+	}
 	c.closeClientsLocked()
 	return true
 }
@@ -549,7 +828,9 @@ func (c *Client) resetReconnectFailures() {
 }
 
 func (c *Client) GetConfig(ctx context.Context) ([]byte, error) {
-	c.refreshBestClusterNode(ctx)
+	if errRefresh := c.refreshBestClusterNode(ctx); errors.Is(errRefresh, errClusterDiscoveryTransport) {
+		return nil, errRefresh
+	}
 	cmd, errClient := c.commandClient()
 	if errClient != nil {
 		return nil, errClient
@@ -715,9 +996,128 @@ func (c *Client) LPushInFlightSnapshot(ctx context.Context, payload []byte) erro
 }
 
 // PushConcurrencyRelease sends one cumulative concurrency release frame.
+func buildKVSetArgs(key string, value []byte, opts KVSetOptions) ([]any, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("home kv: key is empty")
+	}
+	if opts.EX > 0 && opts.PX > 0 {
+		return nil, fmt.Errorf("home kv: EX and PX are mutually exclusive")
+	}
+	if opts.EX < 0 || opts.PX < 0 {
+		return nil, fmt.Errorf("home kv: ttl must not be negative")
+	}
+	if opts.NX && opts.XX {
+		return nil, fmt.Errorf("home kv: NX and XX are mutually exclusive")
+	}
+
+	args := []any{key, append([]byte(nil), value...)}
+	if opts.EX > 0 {
+		args = append(args, "EX", durationCeil(opts.EX, time.Second))
+	}
+	if opts.PX > 0 {
+		args = append(args, "PX", durationCeil(opts.PX, time.Millisecond))
+	}
+	if opts.NX {
+		args = append(args, "NX")
+	}
+	if opts.XX {
+		args = append(args, "XX")
+	}
+	return args, nil
+}
+
+func durationCeil(value time.Duration, unit time.Duration) int64 {
+	if value <= 0 || unit <= 0 {
+		return 0
+	}
+	return int64((value + unit - 1) / unit)
+}
+
+func (c *Client) KVGet(ctx context.Context, key string) ([]byte, bool, error) {
+	cmd, errClient := c.commandClient()
+	if errClient != nil {
+		return nil, false, errClient
+	}
+	raw, errGet := cmd.Get(ctx, key).Bytes()
+	if errors.Is(errGet, redis.Nil) {
+		return nil, false, nil
+	}
+	if errGet != nil {
+		return nil, false, errGet
+	}
+	return append([]byte(nil), raw...), true, nil
+}
+
+func (c *Client) KVSet(ctx context.Context, key string, value []byte, opts KVSetOptions) (bool, error) {
+	cmd, errClient := c.commandClient()
+	if errClient != nil {
+		return false, errClient
+	}
+	args, errArgs := buildKVSetArgs(key, value, opts)
+	if errArgs != nil {
+		return false, errArgs
+	}
+	result, errSet := cmd.Do(ctx, append([]any{"SET"}, args...)...).Result()
+	if errors.Is(errSet, redis.Nil) {
+		return false, nil
+	}
+	if errSet != nil {
+		return false, errSet
+	}
+	if result == nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (c *Client) KVCompareAndSwap(ctx context.Context, key string, expected []byte, expectedExists bool, value []byte, ttl time.Duration) (bool, error) {
+	if c == nil {
+		return false, ErrNotConnected
+	}
+	if c.casUnsupported.Load() {
+		return false, ErrCompareAndSwapUnsupported
+	}
+	cmd, errClient := c.commandClient()
+	if errClient != nil {
+		return false, errClient
+	}
+	expectedFlag := "0"
+	if expectedExists {
+		expectedFlag = "1"
+	}
+	args := make([]any, 0, 7)
+	args = append(args, "CAS", key, expectedFlag, expected, value)
+	if milliseconds := durationCeil(ttl, time.Millisecond); milliseconds > 0 {
+		args = append(args, "PX", milliseconds)
+	}
+	result, errCAS := cmd.Do(ctx, args...).Int64()
+	if errCAS != nil {
+		if isHomeCommandUnsupported(errCAS) {
+			if c.casUnsupported.CompareAndSwap(false, true) {
+				log.Warnf("home kv: this Home does not implement the CAS command; reasoning replay is disabled until Home is upgraded")
+			}
+			return false, ErrCompareAndSwapUnsupported
+		}
+		return false, errCAS
+	}
+	return result == 1, nil
+}
+
+func (c *Client) KVExpire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	cmd, errClient := c.commandClient()
+	if errClient != nil {
+		return false, errClient
+	}
+	return cmd.Expire(ctx, key, ttl).Result()
+}
+
 func (c *Client) PushConcurrencyRelease(ctx context.Context, frame ConcurrencyReleaseFrame) error {
 	if frame.CredentialID == "" || frame.Model == "" || frame.ReleaseSeq <= 0 {
 		return fmt.Errorf("invalid concurrency release frame")
+	}
+	if !c.membershipReadyForRelease() {
+		return ErrNotConnected
 	}
 	cmd, errClient := c.concurrencyReleaseClient()
 	if errClient != nil {
@@ -730,6 +1130,14 @@ func (c *Client) PushConcurrencyRelease(ctx context.Context, frame ConcurrencyRe
 	return cmd.LPush(ctx, redisKeyConcurrencyRelease, payload).Err()
 }
 
+func (c *Client) membershipReadyForRelease() bool {
+	if c == nil {
+		return false
+	}
+	state := recoveryState(c.recoveryState.Load())
+	return state != recoveryStateTakeoverEligible && state != recoveryStateSwitching && state != recoveryStateSwitchingTakeover
+}
+
 func (c *Client) concurrencyReleaseClient() (*redis.Client, error) {
 	if c == nil || c.dispatchFenced.Load() {
 		return nil, ErrDispatchFenced
@@ -739,6 +1147,9 @@ func (c *Client) concurrencyReleaseClient() (*redis.Client, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.dispatchFenced.Load() {
+		return nil, ErrDispatchFenced
+	}
 	if c.release != nil {
 		return c.release, nil
 	}
@@ -750,6 +1161,7 @@ func (c *Client) concurrencyReleaseClient() (*redis.Client, error) {
 	if errOptions != nil {
 		return nil, errOptions
 	}
+	options.Dialer = redis.NewDialer(options)
 	c.release = redis.NewClient(options)
 	return c.release, nil
 }
@@ -774,6 +1186,40 @@ func (c *Client) LimiterConfig() config.CredentialConcurrencyConfig {
 		return *cfg
 	}
 	return config.CredentialConcurrencyConfig{}.WithDefaults()
+}
+
+func (c *Client) subscriptionParameters() ([]string, time.Duration) {
+	if c == nil {
+		return []string{redisChannelConfig}, config.CredentialConcurrencyConfig{}.WithDefaults().CPAHeartbeatTimeout
+	}
+	cfg := c.LimiterConfig().WithDefaults()
+	c.mu.Lock()
+	instanceID := c.instanceID
+	legacyMembership := c.legacyMembership
+	c.mu.Unlock()
+
+	args := []string{redisChannelConfig}
+	if cfg.LifecycleConfigRevision > 0 {
+		args = append(args, strconv.FormatInt(cfg.LifecycleConfigRevision, 10))
+		if legacyMembership {
+			return args, cfg.CPAHeartbeatTimeout
+		}
+		state := recoveryState(c.recoveryState.Load())
+		if state == recoveryStateTakeoverEligible || state == recoveryStateSwitchingTakeover {
+			args = append(args, "takeover")
+		}
+		args = append(args, instanceID)
+	}
+	return args, cfg.CPAHeartbeatTimeout
+}
+
+func (c *Client) markMembershipTakeoverEligible() {
+	if c == nil {
+		return
+	}
+	if !c.recoveryState.CompareAndSwap(uint32(recoveryStateStable), uint32(recoveryStateTakeoverEligible)) {
+		c.recoveryState.CompareAndSwap(uint32(recoveryStateSwitching), uint32(recoveryStateSwitchingTakeover))
+	}
 }
 
 func (c *Client) RPushRequestLog(ctx context.Context, payload []byte) error {
@@ -870,7 +1316,8 @@ func (c *Client) StartConfigSubscriber(ctx context.Context, onConfig func([]byte
 			continue
 		}
 
-		pubsub := sub.Subscribe(ctx, redisChannelConfig)
+		args, receiveTimeout := c.subscriptionParameters()
+		pubsub := sub.Subscribe(ctx, args...)
 		if pubsub == nil {
 			c.markReconnectFailure("subscribe")
 			sleepWithContext(ctx, homeReconnectInterval)
@@ -878,18 +1325,27 @@ func (c *Client) StartConfigSubscriber(ctx context.Context, onConfig func([]byte
 		}
 
 		// Ensure the subscription is established before marking heartbeat OK.
-		if _, errReceive := pubsub.ReceiveTimeout(ctx, homeSubscriptionReceiveTimeout); errReceive != nil {
+		if _, errReceive := pubsub.ReceiveTimeout(ctx, receiveTimeout); errReceive != nil {
 			_ = pubsub.Close()
+			if IsLegacyMembershipProtocolError(errReceive) {
+				c.EnableLegacyMembership()
+			} else if IsMembershipTakeoverUnavailableError(errReceive) {
+				c.SuppressTakeover()
+			}
 			c.markReconnectFailure("subscribe")
 			sleepWithContext(ctx, homeReconnectInterval)
 			continue
+		}
+		if len(args) > 1 {
+			c.markMembershipTakeoverEligible()
 		}
 
 		c.resetReconnectFailures()
 		c.heartbeatOK.Store(true)
 
 		for {
-			event, errMsg := pubsub.ReceiveTimeout(ctx, homeSubscriptionReceiveTimeout)
+			_, receiveTimeout = c.subscriptionParameters()
+			event, errMsg := pubsub.ReceiveTimeout(ctx, receiveTimeout)
 			if errMsg != nil {
 				_ = pubsub.Close()
 				c.heartbeatOK.Store(false)

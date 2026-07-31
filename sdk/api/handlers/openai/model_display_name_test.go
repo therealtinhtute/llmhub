@@ -49,20 +49,50 @@ func TestCodexClientModelsUsesConfiguredDisplayNameForTemplate(t *testing.T) {
 		"display_name": "Configured GPT 5.5",
 	}})
 
-	var target map[string]any
-	for _, model := range models {
-		if stringModelValue(model, "slug") == "gpt-5.5" {
-			target = model
-			break
-		}
-	}
-	if target == nil {
-		t.Fatal("gpt-5.5 template model not found")
-	}
-	if got := stringModelValue(target, "slug"); got != "gpt-5.5" {
-		t.Fatalf("slug = %q", got)
-	}
+	target := requireCodexClientModel(t, models, "gpt-5.5")
 	if got := stringModelValue(target, "display_name"); got != "Configured GPT 5.5" {
 		t.Fatalf("display_name = %q", got)
 	}
+}
+
+func TestCodexClientModelsIncludesCheckpointTemplates(t *testing.T) {
+	models := buildCodexClientModels([]map[string]any{
+		{"id": "gpt-5.6-sol"},
+		{"id": "gpt-5.6-terra"},
+		{"id": "gpt-5.6-luna"},
+		{"id": "gpt-5.3-codex-spark"},
+	})
+
+	tests := []struct {
+		slug        string
+		displayName string
+	}{
+		{slug: "gpt-5.6-sol", displayName: "GPT-5.6-Sol"},
+		{slug: "gpt-5.6-terra", displayName: "GPT-5.6-Terra"},
+		{slug: "gpt-5.6-luna", displayName: "GPT-5.6-Luna"},
+		{slug: "gpt-5.3-codex-spark", displayName: "GPT-5.3-Codex-Spark"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.slug, func(t *testing.T) {
+			model := requireCodexClientModel(t, models, tt.slug)
+			if got := stringModelValue(model, "display_name"); got != tt.displayName {
+				t.Fatalf("display_name = %q, want %q", got, tt.displayName)
+			}
+			if got := stringModelValue(model, "visibility"); got != "list" {
+				t.Fatalf("visibility = %q, want list", got)
+			}
+		})
+	}
+}
+
+func requireCodexClientModel(t *testing.T, models []map[string]any, slug string) map[string]any {
+	t.Helper()
+	for _, model := range models {
+		if stringModelValue(model, "slug") == slug {
+			return model
+		}
+	}
+	t.Fatalf("codex client model %q not found", slug)
+	return nil
 }

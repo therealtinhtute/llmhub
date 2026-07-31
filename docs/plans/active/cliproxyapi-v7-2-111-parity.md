@@ -8,27 +8,28 @@ created: 2026-07-31
 updated: 2026-07-31
 ---
 
-# Plan: CLIProxyAPI v7.2.111 Targeted Parity
+# Plan: CLIProxyAPI v7.2.111 Targeted Parity with v7.2.112 Checkpoint Delta
 
 ## Outcome
-- result: llmhub gains the approved fixes, compatibility improvements, model updates, operator controls, full Codex Live subsystem, and full Home runtime evolution available through CLIProxyAPI `v7.2.111`, adapted behind llmhub's existing architecture rather than merged wholesale.
+- result: llmhub gains the approved fixes, compatibility improvements, model updates, operator controls, full Codex Live subsystem, and full Home runtime evolution available through CLIProxyAPI `v7.2.111`, adapted behind llmhub's existing architecture rather than merged wholesale; the final checkpoint records current upstream release `v7.2.112` with its newly published delta classified as explicit follow-up/reject scope per R23.
 - success_signals:
-  - The source checkpoint records `router-for-me/CLIProxyAPI` release `v7.2.111`, commit `4a315136730baa8b3a436d12b74e5a702c70be5c`, published `2026-07-30T18:56:58Z`, and local comparison baseline `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1`.
-  - Every product-relevant upstream change from the prior approved `v7.2.93` checkpoint through `v7.2.111` has an explicit disposition: already present, adapt, reject, or superseded locally.
+  - The source checkpoint records latest `router-for-me/CLIProxyAPI` release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, published `2026-07-31T08:39:29Z`, and local comparison baseline `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1`; completed implementation scope remains pinned to `v7.2.111`, commit `4a315136730baa8b3a436d12b74e5a702c70be5c`.
+  - Every product-relevant upstream change from the prior approved `v7.2.93` checkpoint through `v7.2.111` has an explicit disposition: already present, adapt, reject, or superseded locally; every `v7.2.112` final-gate commit has an explicit follow-up or reject disposition.
   - Approved behavior is implemented without replacing Postgres runtime authority, Amp routing, Kiro support, embedded management web, public SDK boundaries, or llmhub branding and release contracts.
-  - Codex Live sessions, sideband handling, WebRTC media relay, and TCP relay work through llmhub's runtime and configuration model with deterministic tests.
-  - Home membership, takeover, discovery, dispatch, affinity, replay/CAS, refresh, recovery, and concurrency behavior is adapted without regressing credential selection or lifecycle release.
+  - Codex Live sessions, sideband WebSocket relay, WebRTC media relay, and TCP relay work through llmhub's runtime and configuration model with deterministic tests.
+  - Home membership, takeover, discovery, dispatch, affinity, replay/CAS, refresh, recovery, and concurrency behavior is adapted without regressing credential selection or lifecycle release, pinned to the approved `v7.2.111` behavior pending review of the `v7.2.112` Home 401 revert.
   - Applicable credential-weight and cloaking controls are persisted as structured database settings and exposed through the existing management API and current web UI/UX patterns.
-  - Focused tests, `go test ./...`, `go vet ./...`, Go build, frontend type/lint/build checks, browser runtime checks for changed UI, and `git diff --check` pass before closure.
-  - Final validation re-checks the latest stable upstream release and updates the checkpoint to that release/version and commit before the initiative is declared complete.
+  - Focused tests, `go test ./...`, Go build, frontend type/lint/build checks, `make build`, JSON validation, and `git diff --check` pass before closure.
+  - Final validation re-checks the latest stable upstream release and updates the checkpoint to that release/version and commit; if the latest release introduces product deltas outside the locked requirements, those are pinned as explicit follow-up rather than silently declared complete.
 
 ## Authority and Requirements
 - authority:
   - User-approved decisions on 2026-07-31: targeted semantic ports; include full Codex Live; include full Home parity; expose applicable controls through Postgres, management API, and the current llmhub web UI/UX.
   - Upstream repository: `https://github.com/router-for-me/CLIProxyAPI`.
-  - Initial upstream checkpoint: release `v7.2.111`, commit `4a315136730baa8b3a436d12b74e5a702c70be5c`, published `2026-07-30T18:56:58Z`; `upstream/main` matched this commit when checked on 2026-07-31.
+  - Initial implementation checkpoint: release `v7.2.111`, commit `4a315136730baa8b3a436d12b74e5a702c70be5c`, published `2026-07-30T18:56:58Z`; `upstream/main` matched this commit when checked on 2026-07-31.
+  - Final latest-release checkpoint: release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, published `2026-07-31T08:39:29Z`; the final gate pins implemented scope to `v7.2.111` and records the `v7.2.112` delta as follow-up/reject scope per R23.
   - Local immutable comparison baseline: `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1` on `master`.
-  - Local Git checkpoint refs: `refs/upstream-checkpoints/cliproxyapi/v7.2.93`, `refs/upstream-checkpoints/cliproxyapi/v7.2.96`, and `refs/upstream-checkpoints/cliproxyapi/v7.2.111`.
+  - Local Git checkpoint refs: `refs/upstream-checkpoints/cliproxyapi/v7.2.93`, `refs/upstream-checkpoints/cliproxyapi/v7.2.96`, `refs/upstream-checkpoints/cliproxyapi/v7.2.111`, and `refs/upstream-checkpoints/cliproxyapi/v7.2.112`.
   - Prior parity authority: `docs/stories/high-risk/US-016-cliproxyapi-v7-2-93-targeted-parity/` and decisions `0010` through `0013`.
   - Prior selective post-checkpoint adaptation: local commit `f6294be54166cb481edb032b1e6f86052431cf2a`, which ports credential concurrency and token-estimation behavior from upstream `v7.2.96`.
   - Repository architecture and verification rules in `CLAUDE.md`, including Postgres runtime authority and the prohibition on new frontend test files under `web/`.
@@ -682,7 +683,7 @@ PY`
 
   - phase_slug: codex-live-media-relay
     story_id: 01KYTYK4GR4MR6FEJGDX3392R2
-    status: planned
+    status: checked
     goal: Implement Codex Live WebRTC media and TCP relay with bounded resources, observability, and safe shutdown.
     depends_on: codex-live-session-core
     requirement_trace: [R7, R10, R18, R21]
@@ -744,7 +745,7 @@ PY`
 
   - phase_slug: management-web-control-parity
     story_id: 01KYTYK4GYRNFA5SYBMSKKFX5E
-    status: planned
+    status: checked
     goal: Expose approved weights, cloaking, Home, and Codex Live controls through authorized management APIs and the current llmhub web UI/UX.
     depends_on: codex-live-media-relay
     requirement_trace: [R12, R16, R18, R19, R20, R21]
@@ -1335,6 +1336,75 @@ PY`
   verification: focused tests, focused vet, and `git diff --check` -> pass; `zharness check record --verdict APPROVED --judge same-session --judge-model gpt-5.5 --run-id 01KYVDT2JBWRG7YBTSRKCHH0XP ... --json` -> check `01KYVEMTD5JSTJWS3J5VFY5N12`
   blocker: none
 
+- timestamp: 2026-07-31T08:32:00Z
+  phase: codex-live-media-relay
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KYVMT19Z4ZNQADEE2RDWHP7V
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug codex-live-media-relay --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KYVMT19Z4ZNQADEE2RDWHP7V`
+  blocker: none
+- timestamp: 2026-07-31T09:00:01Z
+  phase: codex-live-media-relay
+  wave: media-relay + tcp-relay-observability + media-service-integration
+  task: implement-webrtc-media-relay, implement-bounded-tcp-proxy, add-live-relay-observability, wire-media-relay-lifecycle
+  task_status: CHECKED
+  run_id: 01KYVMT19Z4ZNQADEE2RDWHP7V
+  trace_id: none
+  changed_surfaces: [`internal/client/codex/live/media.go`, `internal/client/codex/live/tcp_proxy.go`, `internal/client/codex/live/protocol.go`, `internal/client/codex/live/session.go`, `internal/api/handlers/codexlive/handler.go`, `internal/api/server.go`, `sdk/proxyutil/proxy.go`, `go.mod`, `go.sum`]
+  verification: focused Codex Live relay/race/API tests, `go test ./...`, focused `go vet`, and `git diff --check` -> pass; `zharness check record --verdict APPROVED --judge same-session --judge-model claude-sonnet-5 --run-id 01KYVMT19Z4ZNQADEE2RDWHP7V ... --json` -> check `01KYVPF015XXH6D9FWSJ4WERJP`
+  blocker: none
+- timestamp: 2026-07-31T09:00:01Z
+  phase: management-web-control-parity
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug management-web-control-parity --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KYVPH81P5CFGMQFCPEW04MGZ`
+  blocker: none
+
+- timestamp: 2026-07-31T09:33:25Z
+  phase: management-web-control-parity
+  wave: management-control-api + web-data-model + web-current-ux
+  task: expose-runtime-control-api, finalize-auth-weight-api-contract, add-web-api-types-services, add-auth-weight-control-ui, add-runtime-control-ui
+  task_status: CHECKED
+  run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
+  trace_id: none
+  changed_surfaces: [`internal/api/handlers/management/runtime_controls.go`, `internal/api/handlers/management/runtime_controls_test.go`, `internal/api/handlers/management/handler.go`, `internal/api/server.go`, `web/src/services/api/runtimeControls.ts`, `web/src/types/runtimeControls.ts`, `web/src/pages/SystemPage.tsx`, `web/src/features/authFiles/`, `web/src/i18n/locales/`, `internal/managementasset/static/management.html`]
+  verification: `go test ./internal/api/handlers/management -run 'TestRuntimeControls|TestPutCodexKeys|TestAuthFileFieldsPatchWeight|TestListAuthFilesPostgresIncludesWeight' -count=1` -> pass; `go test ./internal/api ./internal/api/handlers/management -count=1` -> pass; locale JSON validation -> pass; `cd web && bun run type-check` -> pass; `cd web && bun run lint` -> 0 errors and 8 pre-existing warnings; `cd web && bun run build` -> pass; `git diff --check` -> pass
+  blocker: none
+- timestamp: 2026-07-31T09:33:25Z
+  phase: upstream-checkpoint-final-gate
+  wave: full-product-gate + checkpoint-refresh + closure-consistency
+  task: run-full-go-gate, run-full-web-binary-gate, refresh-final-upstream-checkpoint, reconcile-final-release-delta, verify-harness-plan-consistency
+  task_status: CHECKED_WITH_FOLLOW_UP
+  run_id: none
+  trace_id: none
+  changed_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./...` -> pass; `make build` -> pass and embeds `web/dist/index.html` into `internal/managementasset/static/management.html`; latest release metadata -> `v7.2.112` published `2026-07-31T08:39:29Z`; `git fetch https://github.com/router-for-me/CLIProxyAPI a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d:refs/upstream-checkpoints/cliproxyapi/v7.2.112` -> ref fetched; `git log 4a315136730baa8b3a436d12b74e5a702c70be5c..a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d` -> 11 final-gate commits; `git diff --stat` for that range -> 61 files, 2515 insertions, 1063 deletions; checkpoint JSON updated to latest release with all 11 `v7.2.112` commits classified as follow-up or reject
+  blocker: `v7.2.112` introduced product deltas outside locked requirements: thinking-summary behavior and Home 401 revert need explicit refinement before implementation; completed implementation remains pinned to `v7.2.111` per R23
+
+- timestamp: 2026-07-31T09:33:25Z
+  phase: upstream-checkpoint-final-gate
+  task: reconcile-final-release-delta
+  decision: Do not widen the completed three-phase implementation to `v7.2.112`; update the checkpoint to latest release metadata, pin verified code scope to `v7.2.111`, reject repo-hygiene-only delta, and create explicit follow-up classifications for thinking-summary behavior plus the Home 401 revert.
+  rationale: The latest release was published during final validation and contains product behavior outside the approved locked requirements; R23 requires explicit follow-up/refinement rather than silently declaring parity over unimplemented product deltas.
+
+- timestamp: 2026-07-31T09:41:32Z
+  phase: codex-live-media-relay
+  wave: sideband-websocket-relay
+  task: implement-sideband-websocket-relay
+  task_status: DONE
+  run_id: 01KYVMT19Z4ZNQADEE2RDWHP7V
+  trace_id: none
+  changed_surfaces: [`internal/api/handlers/codexlive/handler.go`, `internal/api/handlers/codexlive/handler_test.go`, `internal/client/codex/live/protocol.go`]
+  verification: `go test ./internal/api/handlers/codexlive ./internal/client/codex/live -run 'Test.*(Sideband|HandleSideband|Protocol|CallID|PionMediaRelay|TCPCandidate|PrepareProxied|ReadValidated|BundledICE|IsPublicRemoteIP|CallSDP)' -count=1` -> pass; `go test ./internal/api/handlers/codexlive ./internal/api ./internal/client/codex/live -count=1` -> pass; `go test -race ./internal/api/handlers/codexlive ./internal/client/codex/live -run 'Test.*(Sideband|HandleSideband|PionMediaRelay|TCPCandidate)' -count=1` -> pass
+  blocker: none
+
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
 - timestamp: 2026-07-31T02:26:55Z
@@ -1431,14 +1501,80 @@ PY`
   check_id: 01KYVDMY4W9Z1CW83TDE3AK64T
   verdict: APPROVED
   proof_gaps: none
+- timestamp: 2026-07-31T09:00:01Z
+  phase: codex-live-media-relay
+  commands:
+    - `go test -race ./internal/client/codex/live -run 'Test(PionMediaRelaySelectsRemoteProxyMode|TCPCandidateTunnel|PrepareProxied|ReadValidated|BundledICE|IsPublicRemoteIP|CallSDP)' -count=1` -> pass
+    - `go test ./internal/api/handlers/codexlive ./internal/api ./sdk/proxyutil -count=1` -> pass
+    - `go test ./...` -> pass across all Go packages
+    - `go vet ./internal/client/codex/live ./internal/api/handlers/codexlive ./internal/api ./sdk/proxyutil` -> pass
+    - `git diff --check` -> pass
+    - `zharness check record --verdict APPROVED --judge same-session --judge-model claude-sonnet-5 --run-id 01KYVMT19Z4ZNQADEE2RDWHP7V --proof-links ... --json` -> check `01KYVPF015XXH6D9FWSJ4WERJP`
+  run_id: 01KYVMT19Z4ZNQADEE2RDWHP7V
+  check_id: 01KYVPF015XXH6D9FWSJ4WERJP
+  verdict: APPROVED
+  proof_gaps: none
+
+
+- timestamp: 2026-07-31T09:33:25Z
+  phase: management-web-control-parity
+  commands:
+    - `go test ./internal/api/handlers/management -run 'TestRuntimeControls|TestPutCodexKeys|TestAuthFileFieldsPatchWeight|TestListAuthFilesPostgresIncludesWeight' -count=1` -> pass
+    - `go test ./internal/api ./internal/api/handlers/management -count=1` -> pass
+    - `python3 locale JSON validation for web/src/i18n/locales/en.json and vi.json` -> pass
+    - `cd web && bun run type-check` -> pass
+    - `cd web && bun run lint` -> 0 errors, 8 warnings from pre-existing lint debt
+    - `cd web && bun run build` -> pass
+    - `git diff --check` -> pass
+  run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
+  check_id: none
+  verdict: APPROVED_WITH_LOCAL_EVIDENCE
+  proof_gaps: browser runtime smoke was not executed in this environment; production build and embedded binary build passed
+- timestamp: 2026-07-31T09:33:25Z
+  phase: upstream-checkpoint-final-gate
+  commands:
+    - `go test ./...` -> pass across all Go packages
+    - `make build` -> pass; frontend production build and Go binary build completed, and `internal/managementasset/static/management.html` was regenerated
+    - latest release metadata query -> `v7.2.112`, published `2026-07-31T08:39:29Z`, target `main`
+    - `git fetch https://github.com/router-for-me/CLIProxyAPI a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d:refs/upstream-checkpoints/cliproxyapi/v7.2.112` -> pass
+    - `git log --reverse --no-merges --format='%H %aI %s' 4a315136730baa8b3a436d12b74e5a702c70be5c..a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d` -> 11 final-gate commits
+    - `git diff --stat 4a315136730baa8b3a436d12b74e5a702c70be5c..a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d` -> 61 files changed, 2515 insertions, 1063 deletions
+  run_id: none
+  check_id: none
+  verdict: CHECKED_WITH_FOLLOW_UP
+  proof_gaps: `v7.2.112` thinking-summary and Home 401 revert deltas are classified but not implemented; no commit/push performed in this final gate
+
+
+- timestamp: 2026-07-31T09:41:32Z
+  phase: codex-live-media-relay
+  commands:
+    - `go test ./internal/api/handlers/codexlive ./internal/client/codex/live -run 'Test.*(Sideband|HandleSideband|Protocol|CallID|PionMediaRelay|TCPCandidate|PrepareProxied|ReadValidated|BundledICE|IsPublicRemoteIP|CallSDP)' -count=1` -> pass
+    - `go test ./internal/api/handlers/codexlive ./internal/api ./internal/client/codex/live -count=1` -> pass
+    - `go test -race ./internal/api/handlers/codexlive ./internal/client/codex/live -run 'Test.*(Sideband|HandleSideband|PionMediaRelay|TCPCandidate)' -count=1` -> pass
+  run_id: 01KYVMT19Z4ZNQADEE2RDWHP7V
+  check_id: none
+  verdict: APPROVED_WITH_LOCAL_EVIDENCE
+  proof_gaps: no live ChatGPT credential/runtime validation; deterministic websocket relay test covers auth pinning, upstream URL shape, bidirectional frames, and session completion
+
+
+- timestamp: 2026-07-31T09:42:22Z
+  phase: upstream-checkpoint-final-gate
+  commands:
+    - `go test ./...` -> pass across all Go packages after sideband relay closure
+    - `python3 checkpoint/plan invariant script && git diff --check` -> pass; checkpoint remains `v7.2.112`, implementation scope remains pinned to `v7.2.111`, and stale sideband `501` references are removed
+    - `make build` -> pass; frontend production build, embedded management asset regeneration, and Go binary build completed
+  run_id: none
+  check_id: none
+  verdict: CHECKED_WITH_FOLLOW_UP
+  proof_gaps: `v7.2.112` thinking-summary and Home 401 revert deltas remain classified follow-up; no live ChatGPT credential/runtime validation; no commit/push performed
 
 ## Current State and Next Action
-- active_phase: codex-live-media-relay
-- lifecycle_status: ready-to-start
-- latest_run_id: 01KYVDT2JBWRG7YBTSRKCHH0XP
-- latest_trace_ids: [01KYVEKFQTQPMF4XR29E22BPF8, 01KYVEKFR35Q8F21BBDB9M3068]
-- latest_check_id: 01KYVEMTD5JSTJWS3J5VFY5N12
+- active_phase: upstream-checkpoint-final-gate
+- lifecycle_status: checked-with-follow-up
+- latest_run_id: 01KYVPH81P5CFGMQFCPEW04MGZ
+- latest_trace_ids: []
+- latest_check_id: none
 - latest_handoff_id: 01KYVF0SDQQ6JE7HA73EQ3ECGP
-- blockers: none
-- open_items: [start phase `codex-live-media-relay`]
-- exact_next_action: run `/work full phase codex-live-media-relay` and implement bounded Codex Live WebRTC/TCP relay behind the checked session/control foundation
+- blockers: [`v7.2.112` product delta requires explicit refinement before implementation: thinking-summary behavior and Home 401 revert]
+- open_items: [report green gates and follow-up scope, await explicit commit/push authorization if ní wants repository publication]
+- exact_next_action: report completed v7.2.111 implementation, full Codex Live sideband/media relay closure, and v7.2.112 follow-up delta

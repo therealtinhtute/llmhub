@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-31T02:25:45Z",
+  "generated_at": "2026-07-31T09:30:29Z",
   "upstream": {
     "repository": "https://github.com/router-for-me/CLIProxyAPI",
     "remote": "upstream"
@@ -21,13 +21,13 @@
     ]
   },
   "checkpoint": {
-    "tag": "v7.2.111",
-    "commit": "4a315136730baa8b3a436d12b74e5a702c70be5c",
-    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.111",
-    "published_at": "2026-07-30T18:56:58Z",
-    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.111",
+    "tag": "v7.2.112",
+    "commit": "a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d",
+    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.112",
+    "published_at": "2026-07-31T08:39:29Z",
+    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.112",
     "target_commitish": "main",
-    "checked_at": "2026-07-31T02:15:47Z"
+    "checked_at": "2026-07-31T09:30:29Z"
   },
   "local_baseline": {
     "commit": "234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1",
@@ -49,7 +49,7 @@
   ],
   "source_range": {
     "from_exclusive": "v7.2.93",
-    "to_inclusive": "v7.2.111"
+    "to_inclusive": "v7.2.112"
   },
   "releases": [
     {
@@ -159,14 +159,21 @@
       "commit": "4a315136730baa8b3a436d12b74e5a702c70be5c",
       "published_at": "2026-07-30T18:56:58Z",
       "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.111"
+    },
+    {
+      "tag": "v7.2.112",
+      "commit": "a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d",
+      "published_at": "2026-07-31T08:39:29Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.112"
     }
   ],
   "summary": {
-    "entries": 102,
+    "entries": 113,
     "by_disposition": {
       "adapt": 80,
       "already-present": 4,
-      "reject": 16,
+      "follow-up": 10,
+      "reject": 17,
       "superseded-local": 2
     },
     "by_category": {
@@ -175,20 +182,16 @@
       "codex-live": 5,
       "docs-release": 8,
       "executor-runtime": 19,
-      "home": 14,
+      "home": 15,
       "model-catalog": 13,
       "plugin": 5,
+      "repo-hygiene": 1,
       "storage-excluded": 1,
       "tests-only": 2,
+      "thinking-summary": 9,
       "translator-protocol": 19
     },
     "by_first_release": {
-      "v7.2.94": 4,
-      "v7.2.95": 4,
-      "v7.2.96": 3,
-      "v7.2.97": 6,
-      "v7.2.98": 2,
-      "v7.2.99": 8,
       "v7.2.100": 9,
       "v7.2.101": 7,
       "v7.2.102": 14,
@@ -200,7 +203,14 @@
       "v7.2.108": 1,
       "v7.2.109": 1,
       "v7.2.110": 1,
-      "v7.2.111": 3
+      "v7.2.111": 3,
+      "v7.2.112": 11,
+      "v7.2.94": 4,
+      "v7.2.95": 4,
+      "v7.2.96": 3,
+      "v7.2.97": 6,
+      "v7.2.98": 2,
+      "v7.2.99": 8
     },
     "path_states": {
       "total": 411,
@@ -209,7 +219,8 @@
       "missing_local_path": 68,
       "synced_target": 11,
       "unchanged_from_base": 17
-    }
+    },
+    "path_states_scope": "Initial structural path-state scan remains scoped to v7.2.93..v7.2.111; v7.2.112 final-gate delta is classified by commit entries and final_release_delta."
   },
   "entries": [
     {
@@ -3164,6 +3175,413 @@
       "verification_targets": [
         "go test ./internal/home/... ./sdk/cliproxy/auth/... ./sdk/cliproxy/executionregistry/..."
       ]
+    },
+    {
+      "commit": "b3046d29b9859c22c797b86cc99c52ac6ca1a2fc",
+      "short_commit": "b3046d29",
+      "authored_at": "2026-07-30T21:53:30+08:00",
+      "first_release": "v7.2.112",
+      "subject": "feat(thinking): preserve cross-protocol summary visibility",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/runtime/executor/aistudio_executor.go",
+        "internal/runtime/executor/antigravity_executor_execute.go",
+        "internal/runtime/executor/antigravity_executor_stream.go",
+        "internal/runtime/executor/antigravity_executor_tokens.go",
+        "internal/runtime/executor/claude_executor_execute.go",
+        "internal/runtime/executor/claude_executor_request.go",
+        "internal/runtime/executor/claude_executor_stream.go",
+        "internal/runtime/executor/claude_executor_test.go",
+        "internal/runtime/executor/codex_openai_images.go",
+        "internal/runtime/executor/gemini_executor_test.go",
+        "internal/runtime/executor/helps/model_capabilities.go",
+        "internal/runtime/executor/helps/thinking.go",
+        "internal/runtime/executor/kimi_executor.go",
+        "internal/thinking/apply.go",
+        "internal/thinking/apply_configured_api_key_test.go",
+        "internal/thinking/provider/antigravity/apply.go",
+        "internal/thinking/provider/claude/apply.go",
+        "internal/thinking/provider/gemini/apply.go",
+        "internal/thinking/provider/interactions/apply.go",
+        "internal/thinking/strip.go",
+        "internal/thinking/summary.go",
+        "internal/thinking/summary_test.go",
+        "internal/translator/antigravity/claude/antigravity_claude_request.go",
+        "internal/translator/antigravity/claude/antigravity_claude_request_test.go",
+        "internal/translator/antigravity/interactions/interactions_antigravity_request.go",
+        "internal/translator/antigravity/openai/chat-completions/antigravity_openai_request.go",
+        "internal/translator/antigravity/openai/chat-completions/antigravity_openai_request_test.go",
+        "internal/translator/codex/claude/codex_claude_request.go",
+        "internal/translator/codex/gemini/codex_gemini_request.go",
+        "internal/translator/codex/interactions/interactions_codex_request.go",
+        "internal/translator/codex/openai/chat-completions/codex_openai_request.go",
+        "internal/translator/gemini/claude/gemini_claude_request.go",
+        "internal/translator/gemini/interactions/interactions_gemini_common.go",
+        "internal/translator/gemini/openai/chat-completions/gemini_openai_request.go",
+        "internal/translator/gemini/openai/responses/gemini_openai-responses_request.go",
+        "sdk/translator/registry.go",
+        "sdk/translator/registry_summary_test.go",
+        "test/summary_intent_translation_test.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "b63a38d566ab04bf2237084771d7bc303475031c",
+      "short_commit": "b63a38d5",
+      "authored_at": "2026-07-30T22:38:07+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): avoid enabling Claude for hidden summaries",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/thinking/apply_configured_api_key_test.go",
+        "internal/thinking/summary.go",
+        "internal/thinking/summary_test.go",
+        "sdk/translator/registry_summary_test.go",
+        "test/summary_intent_translation_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "76008b4720823747560705a8b0f2baa2a10bd1df",
+      "short_commit": "76008b47",
+      "authored_at": "2026-07-30T22:44:01+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): decouple Interactions effort summaries",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/translator/antigravity/interactions/interactions_antigravity_request.go",
+        "internal/translator/antigravity/interactions/interactions_antigravity_test.go",
+        "test/summary_intent_translation_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "92b6bc4a868a3e5ecf2804f24239c213c9d6f575",
+      "short_commit": "92b6bc4a",
+      "authored_at": "2026-07-30T23:05:14+08:00",
+      "first_release": "v7.2.112",
+      "subject": "docs(thinking): clarify Claude model defaults",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/thinking/summary.go",
+        "internal/thinking/summary_test.go",
+        "test/summary_intent_translation_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "5d307c195dd23c533f9c5ca9f59216e192101eab",
+      "short_commit": "5d307c19",
+      "authored_at": "2026-07-30T23:26:20+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): close summary translation gaps",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/runtime/executor/aistudio_executor.go",
+        "internal/runtime/executor/aistudio_executor_test.go",
+        "internal/thinking/summary.go",
+        "internal/thinking/summary_test.go",
+        "internal/translator/claude/gemini/claude_gemini_request.go",
+        "sdk/translator/registry.go",
+        "sdk/translator/registry_summary_test.go",
+        "test/summary_intent_translation_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "87ceaf83bb702ab4053623ffad78205df7f37d08",
+      "short_commit": "87ceaf83",
+      "authored_at": "2026-07-31T00:05:59+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): honor provider visibility semantics",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/thinking/apply.go",
+        "internal/thinking/apply_configured_api_key_test.go",
+        "internal/thinking/provider/antigravity/apply.go",
+        "internal/thinking/provider/gemini/apply.go",
+        "internal/thinking/summary.go",
+        "internal/thinking/summary_test.go",
+        "test/summary_intent_translation_test.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "0c2ec7da235d4f5b1bcd9ab1c03ec77bccfb93f3",
+      "short_commit": "0c2ec7da",
+      "authored_at": "2026-07-31T12:45:13+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): honor normalized summary payloads",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/runtime/executor/aistudio_executor.go",
+        "internal/runtime/executor/antigravity_executor_execute.go",
+        "internal/runtime/executor/antigravity_executor_stream.go",
+        "internal/runtime/executor/antigravity_executor_tokens.go",
+        "internal/runtime/executor/codex_openai_images.go",
+        "internal/runtime/executor/helps/model_capabilities.go",
+        "internal/runtime/executor/helps/thinking.go",
+        "internal/runtime/executor/helps/thinking_test.go",
+        "internal/runtime/executor/kimi_executor.go",
+        "internal/thinking/apply.go",
+        "internal/thinking/summary.go",
+        "internal/thinking/summary_test.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "c4dcd8703ad964ab7ca1f0c98b74948d7de7d1ce",
+      "short_commit": "c4dcd870",
+      "authored_at": "2026-07-31T13:28:14+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): respect final summary authority",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/runtime/executor/helps/model_capabilities_test.go",
+        "internal/thinking/apply.go",
+        "internal/thinking/apply_configured_api_key_test.go",
+        "internal/thinking/summary.go",
+        "sdk/translator/registry.go",
+        "sdk/translator/registry_summary_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "24323ee4b7c33ec7268abf15728fe712888f90c4",
+      "short_commit": "24323ee4",
+      "authored_at": "2026-07-31T13:40:41+08:00",
+      "first_release": "v7.2.112",
+      "subject": "fix(thinking): drop disabled Interactions summaries",
+      "category": "thinking-summary",
+      "upstream_paths": [
+        "internal/thinking/provider/interactions/apply.go",
+        "test/summary_intent_translation_test.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-thinking-summary-refinement",
+      "owner_depends_on": "upstream-checkpoint-final-gate",
+      "local_evidence": [
+        "internal/thinking/",
+        "internal/runtime/executor/helps/",
+        "sdk/translator/registry.go",
+        "test/thinking_conversion_test.go"
+      ],
+      "rationale": "Published after the v7.2.111 implementation lock and changes product behavior for cross-protocol thinking/summary visibility; per R23 it requires explicit refinement before any code is adapted.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/thinking/... ./internal/runtime/executor/... ./internal/translator/... ./sdk/translator/... -run 'Test.*(Thinking|Summary)' -count=1"
+      ]
+    },
+    {
+      "commit": "3a995bd801e4ac57d8aed65bcf0491c0dd254ab9",
+      "short_commit": "3a995bd8",
+      "authored_at": "2026-07-31T15:29:02+08:00",
+      "first_release": "v7.2.112",
+      "subject": "chore: ignore root logs directory",
+      "category": "repo-hygiene",
+      "upstream_paths": [
+        ".gitignore"
+      ],
+      "disposition": "reject",
+      "owner_phase": "upstream-checkpoint-final-gate",
+      "owner_depends_on": "none",
+      "local_evidence": [
+        ".gitignore"
+      ],
+      "rationale": "Root log ignore policy is upstream repository hygiene, not an approved llmhub product parity behavior in this run; no local code change is required unless local logs become a tracked artifact risk.",
+      "verification_targets": [
+        "git status --short",
+        "git diff --check"
+      ]
+    },
+    {
+      "commit": "a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d",
+      "short_commit": "a63da8ae",
+      "authored_at": "2026-07-31T16:35:33+08:00",
+      "first_release": "v7.2.112",
+      "subject": "Revert \"Merge pull request #4687 from router-for-me/fix/home-401-refresh-recovery\"",
+      "category": "home",
+      "upstream_paths": [
+        "internal/home/client.go",
+        "internal/home/requests.go",
+        "internal/redisqueue/plugin.go",
+        "internal/runtime/executor/helps/home_refresh.go",
+        "internal/runtime/executor/helps/home_refresh_test.go",
+        "internal/runtime/executor/helps/usage_helpers.go",
+        "sdk/cliproxy/auth/conductor_execution.go",
+        "sdk/cliproxy/auth/conductor_home.go",
+        "sdk/cliproxy/auth/conductor_home_execution.go",
+        "sdk/cliproxy/auth/conductor_refresh.go",
+        "sdk/cliproxy/auth/conductor_selection.go",
+        "sdk/cliproxy/auth/conductor_stream.go",
+        "sdk/cliproxy/auth/home_selection.go",
+        "sdk/cliproxy/auth/home_selection_test.go",
+        "sdk/cliproxy/auth/home_unauthorized_refresh_test.go",
+        "sdk/cliproxy/usage/manager.go"
+      ],
+      "disposition": "follow-up",
+      "owner_phase": "cliproxyapi-v7.2.112-home-401-refinement",
+      "owner_depends_on": "home-runtime-full-parity",
+      "local_evidence": [
+        "internal/home/",
+        "sdk/cliproxy/auth/home_*",
+        "internal/runtime/executor/helps/home_refresh.go"
+      ],
+      "rationale": "This reverts upstream Home 401 refresh recovery that was inside the approved v7.2.111 Home parity scope; changing llmhub behavior now would silently widen/reverse the locked phase and must be reviewed as a separate refinement.",
+      "verification_targets": [
+        "follow-up refinement required before implementation",
+        "go test ./internal/home ./sdk/cliproxy/auth ./internal/runtime/executor/helps -run 'Test.*(Home|401|Refresh|OAuth|Unauthorized)' -count=1"
+      ]
     }
-  ]
+  ],
+  "completed_implementation_scope": {
+    "tag": "v7.2.111",
+    "commit": "4a315136730baa8b3a436d12b74e5a702c70be5c",
+    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.111",
+    "published_at": "2026-07-30T18:56:58Z",
+    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.111",
+    "target_commitish": "main",
+    "checked_at": "2026-07-31T09:00:01Z",
+    "status": "implemented-and-verified",
+    "note": "The approved three-phase implementation scope remains pinned to v7.2.111. v7.2.112 was published during the final gate and is classified below as follow-up/rejected delta per R23 rather than silently widened into this run."
+  },
+  "final_release_delta": {
+    "from_checkpoint": {
+      "tag": "v7.2.111",
+      "commit": "4a315136730baa8b3a436d12b74e5a702c70be5c",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.111",
+      "published_at": "2026-07-30T18:56:58Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.111"
+    },
+    "latest_release": {
+      "tag": "v7.2.112",
+      "commit": "a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.112",
+      "published_at": "2026-07-31T08:39:29Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.112"
+    },
+    "checked_at": "2026-07-31T09:30:29Z",
+    "commit_count": 11,
+    "file_delta": {
+      "files": 61,
+      "insertions": 2515,
+      "deletions": 1063
+    },
+    "disposition": "pinned-v7.2.111-with-explicit-v7.2.112-follow-up",
+    "blocked_product_categories": [
+      "thinking-summary",
+      "home"
+    ],
+    "rejected_categories": [
+      "repo-hygiene"
+    ],
+    "rationale": "v7.2.112 was published during the final gate after the v7.2.111 phase scope had been implemented and verified. Its thinking-summary behavior and Home 401 revert are product deltas outside the locked requirements, so the completed implementation remains pinned to v7.2.111 and v7.2.112 is recorded as follow-up per R23."
+  }
 }

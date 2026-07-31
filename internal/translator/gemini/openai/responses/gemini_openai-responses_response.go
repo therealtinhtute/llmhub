@@ -43,6 +43,7 @@ type geminiToResponsesState struct {
 	FuncCallIDs      map[int]string
 	FuncDone         map[int]bool
 	SanitizedNameMap map[string]string
+	Completed        bool
 }
 
 // responseIDCounter provides a process-wide unique counter for synthesized response identifiers.
@@ -121,8 +122,14 @@ func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string,
 	}
 
 	rawJSON = bytes.TrimSpace(rawJSON)
-	if len(rawJSON) == 0 || bytes.Equal(rawJSON, []byte("[DONE]")) {
+	if len(rawJSON) == 0 || st.Completed {
 		return [][]byte{}
+	}
+	if bytes.Equal(rawJSON, []byte("[DONE]")) {
+		if !st.Started {
+			return [][]byte{}
+		}
+		rawJSON = []byte(`{"candidates":[{"finishReason":"STOP"}]}`)
 	}
 
 	root := gjson.ParseBytes(rawJSON)
@@ -562,6 +569,7 @@ func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string,
 		}
 
 		out = append(out, emitEvent("response.completed", completed))
+		st.Completed = true
 	}
 
 	return out

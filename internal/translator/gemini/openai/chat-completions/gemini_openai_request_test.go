@@ -6,6 +6,65 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestConvertOpenAIRequestToGeminiMapsJSONSchemaResponseFormat(t *testing.T) {
+	input := []byte(`{
+		"generationConfig": {
+			"temperature": 0.2,
+			"responseSchema": {"type":"string"},
+			"responseJsonSchema": {"type":"number"}
+		},
+		"messages": [{"role":"user","content":"Return JSON"}],
+		"response_format": {
+			"type": "json_schema",
+			"json_schema": {
+				"name": "answer",
+				"schema": {"type":"object","properties":{"ok":{"type":"boolean"}},"additionalProperties":false}
+			}
+		}
+	}`)
+
+	out := ConvertOpenAIRequestToGemini("gemini-test", input, false)
+	if got := gjson.GetBytes(out, "generationConfig.responseMimeType").String(); got != "application/json" {
+		t.Fatalf("responseMimeType = %q, want application/json; out=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "generationConfig.responseJsonSchema.properties.ok.type").String(); got != "boolean" {
+		t.Fatalf("responseJsonSchema ok.type = %q, want boolean; out=%s", got, out)
+	}
+	if gjson.GetBytes(out, "generationConfig.responseSchema").Exists() {
+		t.Fatalf("stale responseSchema survived: %s", out)
+	}
+	if got := gjson.GetBytes(out, "generationConfig.responseJsonSchema.additionalProperties"); !got.Exists() || got.Bool() {
+		t.Fatalf("responseJsonSchema.additionalProperties = %s, want false; out=%s", got.Raw, out)
+	}
+	if got := gjson.GetBytes(out, "generationConfig.temperature").Float(); got != 0.2 {
+		t.Fatalf("temperature = %v, want 0.2; out=%s", got, out)
+	}
+}
+
+func TestConvertOpenAIRequestToGeminiMapsJSONObjectResponseFormat(t *testing.T) {
+	input := []byte(`{"generationConfig":{"responseJsonSchema":{"type":"string"}},"messages":[{"role":"user","content":"Return JSON"}],"response_format":{"type":"json_object"}}`)
+
+	out := ConvertOpenAIRequestToGemini("gemini-test", input, false)
+	if got := gjson.GetBytes(out, "generationConfig.responseMimeType").String(); got != "application/json" {
+		t.Fatalf("responseMimeType = %q, want application/json; out=%s", got, out)
+	}
+	if gjson.GetBytes(out, "generationConfig.responseJsonSchema").Exists() {
+		t.Fatalf("responseJsonSchema should not be set for json_object; out=%s", out)
+	}
+}
+
+func TestConvertOpenAIRequestToGeminiJSONSchemaWithoutSchemaDoesNotSetStaleSchema(t *testing.T) {
+	input := []byte(`{"generationConfig":{"responseJsonSchema":{"type":"string"}},"messages":[{"role":"user","content":"Return JSON"}],"response_format":{"type":"json_schema","json_schema":{"name":"answer"}}}`)
+
+	out := ConvertOpenAIRequestToGemini("gemini-test", input, false)
+	if got := gjson.GetBytes(out, "generationConfig.responseMimeType").String(); got != "application/json" {
+		t.Fatalf("responseMimeType = %q, want application/json; out=%s", got, out)
+	}
+	if gjson.GetBytes(out, "generationConfig.responseJsonSchema").Exists() {
+		t.Fatalf("responseJsonSchema should not be set without schema; out=%s", out)
+	}
+}
+
 func TestConvertOpenAIRequestToGeminiNormalizesFileData(t *testing.T) {
 	input := []byte(`{
 		"messages": [

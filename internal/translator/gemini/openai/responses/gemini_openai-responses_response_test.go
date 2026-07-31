@@ -153,6 +153,34 @@ func TestConvertGeminiResponseToOpenAIResponses_UnwrapAndAggregateText(t *testin
 	}
 }
 
+func TestConvertGeminiResponseToOpenAIResponses_DoneMarkerCompletesStartedStream(t *testing.T) {
+	var param any
+	out := ConvertGeminiResponseToOpenAIResponses(context.Background(), "test-model", nil, nil, []byte(`data: {"responseId":"req_done","candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]}}]}`), &param)
+	if len(out) == 0 {
+		t.Fatalf("expected initial stream events")
+	}
+
+	out = ConvertGeminiResponseToOpenAIResponses(context.Background(), "test-model", nil, nil, []byte(`data: [DONE]`), &param)
+	var completed bool
+	for _, chunk := range out {
+		event, data := parseSSEEvent(t, chunk)
+		if event == "response.completed" {
+			completed = true
+			if got := data.Get("response.status").String(); got != "completed" {
+				t.Fatalf("response status = %q, want completed", got)
+			}
+		}
+	}
+	if !completed {
+		t.Fatalf("missing response.completed from [DONE], events=%d", len(out))
+	}
+
+	out = ConvertGeminiResponseToOpenAIResponses(context.Background(), "test-model", nil, nil, []byte(`data: {"candidates":[{"finishReason":"STOP"}]}`), &param)
+	if len(out) != 0 {
+		t.Fatalf("expected chunks after completion to be suppressed, got %d", len(out))
+	}
+}
+
 func TestConvertGeminiResponseToOpenAIResponses_ReasoningEncryptedContent(t *testing.T) {
 	sig := "RXE0RENrZ0lDeEFDR0FJcVFOZDdjUzlleGFuRktRdFcvSzNyZ2MvWDNCcDQ4RmxSbGxOWUlOVU5kR1l1UHMrMGdkMVp0Vkg3ekdKU0g4YVljc2JjN3lNK0FrdGpTNUdqamI4T3Z0VVNETzdQd3pmcFhUOGl3U3hXUEJvTVFRQ09mWTFyMEtTWGZxUUlJakFqdmFGWk83RW1XRlBKckJVOVpkYzdDKw=="
 	in := []string{

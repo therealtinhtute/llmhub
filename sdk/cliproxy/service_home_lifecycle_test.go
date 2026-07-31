@@ -29,6 +29,27 @@ func (f *serviceHomeReleaseFlusher) Flush(context.Context) error {
 	return nil
 }
 
+func TestApplyConfigUpdateStopsHomeLifetimeWhenDisabled(t *testing.T) {
+	manager := coreauth.NewManager(nil, nil, nil)
+	registry := executionregistry.New()
+	bundle := manager.PublishHomeDispatch(serviceHomeDispatcher{}, registry, 1)
+	service := &Service{
+		cfg:                &config.Config{Home: config.HomeConfig{Enabled: true}},
+		coreManager:        manager,
+		homeRegistry:       registry,
+		homeDispatchBundle: bundle,
+	}
+
+	service.applyConfigUpdate(&config.Config{})
+
+	if manager.HomeDispatchBundle() != nil {
+		t.Fatal("Home dispatch bundle remained published after Home was disabled")
+	}
+	if service.homeRegistry != nil || service.homeDispatchBundle != nil {
+		t.Fatal("Home lifetime state remained attached after Home was disabled")
+	}
+}
+
 func TestStopHomeLifetimeDetachesDrainsAndFlushes(t *testing.T) {
 	manager := coreauth.NewManager(nil, nil, nil)
 	registry := executionregistry.New()

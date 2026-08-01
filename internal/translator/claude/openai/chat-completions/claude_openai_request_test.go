@@ -162,6 +162,49 @@ func TestConvertOpenAIRequestToClaude_ToolResultURLImageOnly(t *testing.T) {
 	}
 }
 
+func TestConvertOpenAIRequestToClaude_GroupsConsecutiveToolResults(t *testing.T) {
+	inputJSON := `{
+		"model": "gpt-4.1",
+		"messages": [
+			{
+				"role": "assistant",
+				"content": "",
+				"tool_calls": [
+					{"id":"call_1","type":"function","function":{"name":"first","arguments":"{}"}},
+					{"id":"call_2","type":"function","function":{"name":"second","arguments":"{}"}}
+				]
+			},
+			{"role":"tool","tool_call_id":"call_1","content":"first ok"},
+			{"role":"tool","tool_call_id":"call_2","content":"second ok"},
+			{"role":"user","content":"next"}
+		]
+	}`
+
+	result := ConvertOpenAIRequestToClaude("claude-sonnet-4-5", []byte(inputJSON), false)
+	resultJSON := gjson.ParseBytes(result)
+	messages := resultJSON.Get("messages").Array()
+
+	if len(messages) != 3 {
+		t.Fatalf("Expected 3 messages, got %d. Messages: %s", len(messages), resultJSON.Get("messages").Raw)
+	}
+	if got := messages[1].Get("role").String(); got != "user" {
+		t.Fatalf("Expected grouped tool results role %q, got %q", "user", got)
+	}
+	contents := messages[1].Get("content").Array()
+	if len(contents) != 2 {
+		t.Fatalf("Expected 2 grouped tool results, got %d. Message: %s", len(contents), messages[1].Raw)
+	}
+	if got := contents[0].Get("tool_use_id").String(); got != "call_1" {
+		t.Fatalf("Expected first tool_use_id %q, got %q", "call_1", got)
+	}
+	if got := contents[1].Get("tool_use_id").String(); got != "call_2" {
+		t.Fatalf("Expected second tool_use_id %q, got %q", "call_2", got)
+	}
+	if got := messages[2].Get("content.0.text").String(); got != "next" {
+		t.Fatalf("Expected following user message to remain separate, got %q", got)
+	}
+}
+
 func TestConvertOpenAIRequestToClaude_SystemRoleBecomesTopLevelSystem(t *testing.T) {
 	inputJSON := `{
 		"model": "gpt-4.1",

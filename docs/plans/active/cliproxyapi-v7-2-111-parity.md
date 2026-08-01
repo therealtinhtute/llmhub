@@ -219,7 +219,7 @@ PY`
 
   - phase_slug: cliproxyapi-translator-fidelity
     story_id: 01KYW6RDJCWZ392M33PQFQD3DE
-    status: planned
+    status: checked
     goal: Adapt upstream translator streaming, tool, schema, usage, and response-format fidelity gaps.
     depends_on: cliproxyapi-thinking-summary
     requirement_trace: [R2, R10, R14]
@@ -851,6 +851,47 @@ PY`
   verification: `go test ./internal/thinking/... ./internal/runtime/executor ./internal/translator/... ./sdk/translator -count=1` -> pass; `go vet ./internal/thinking/... ./internal/runtime/executor ./internal/translator/...` -> pass; `git diff --check` -> pass
   blocker: none
 
+- timestamp: 2026-08-01T10:28:05Z
+  phase: cliproxyapi-translator-fidelity
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KYYDVJMPDY601ES7A98JE1WY
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-translator-fidelity --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KYYDVJMPDY601ES7A98JE1WY`
+  blocker: none
+- timestamp: 2026-08-01T10:53:27Z
+  phase: cliproxyapi-translator-fidelity
+  wave: request-conversion
+  task: adapt-tool-schema-request-parity
+  task_status: DONE
+  run_id: 01KYYDVJMPDY601ES7A98JE1WY
+  trace_id: 01KYYF97REBN7R6JWBYT4KCD6E
+  changed_surfaces: [`internal/translator/claude/openai/chat-completions/claude_openai_request.go`, `internal/translator/claude/openai/chat-completions/claude_openai_request_test.go`, `internal/translator/openai/openai/responses/openai_openai-responses_request.go`, `internal/translator/openai/openai/responses/openai_openai-responses_request_test.go`]
+  verification: `go test ./internal/translator/claude/openai/chat-completions -run 'TestConvertOpenAIRequestToClaude_(GroupsConsecutiveToolResults|ToolResult|Normalizes)' -count=1` -> pass; `go test ./internal/translator/openai/openai/responses -run 'TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_(ConvertsAdditionalTools|ConvertsNamespaceTools|OmitsToolSettingsWithoutTools|PreservesToolSettingsWithTools|MergeConsecutiveFunctionCalls|DefersMessageUntilToolOutput)' -count=1` -> pass; request regex gate -> pass
+  blocker: none
+- timestamp: 2026-08-01T10:53:27Z
+  phase: cliproxyapi-translator-fidelity
+  wave: response-streaming
+  task: adapt-stream-tool-function-parity
+  task_status: DONE
+  run_id: 01KYYDVJMPDY601ES7A98JE1WY
+  trace_id: 01KYYF97RPFZ29Q5S85Q7E8E36
+  changed_surfaces: [`internal/translator/codex/claude/codex_claude_response.go`, `internal/translator/codex/claude/codex_claude_response_test.go`]
+  verification: `go test ./internal/translator/codex/claude -run TestConvertCodexResponseToClaude_StreamInterleavedFunctionCallArgumentsAreSerialized -count=1` -> failed before fix with dropped trailing argument delta; focused Codex function/thinking/output-index suite -> pass; stream regex gate -> pass
+  blocker: none
+- timestamp: 2026-08-01T10:53:27Z
+  phase: cliproxyapi-translator-fidelity
+  wave: phase-checks
+  task: local-phase-checks
+  task_status: DONE
+  run_id: 01KYYDVJMPDY601ES7A98JE1WY
+  trace_id: none
+  changed_surfaces: [`internal/translator/claude/openai/chat-completions/`, `internal/translator/codex/claude/`, `internal/translator/openai/openai/responses/`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/translator/... ./internal/util ./sdk/translator -count=1` -> pass; `go vet ./internal/translator/... ./internal/util ./sdk/translator` -> pass; `git diff --check` -> pass
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1267,19 +1308,39 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass; summary intent is applied only after registered request transforms, fallback payloads are preserved, and plugin platform remains out of scope
   proof_gaps: none
 
+- timestamp: 2026-08-01T10:53:27Z
+  phase: cliproxyapi-translator-fidelity
+  run_id: 01KYYDVJMPDY601ES7A98JE1WY
+  check_id: 01KYYFE22QYGX7CV7H4T37JKCD
+  verdict: APPROVED
+  evidence:
+    - `go test ./internal/translator/claude/openai/chat-completions -run 'TestConvertOpenAIRequestToClaude_(GroupsConsecutiveToolResults|ToolResult|Normalizes)' -count=1` -> pass
+    - `go test ./internal/translator/openai/openai/responses -run 'TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_(ConvertsAdditionalTools|ConvertsNamespaceTools|OmitsToolSettingsWithoutTools|PreservesToolSettingsWithTools|MergeConsecutiveFunctionCalls|DefersMessageUntilToolOutput)' -count=1` -> pass
+    - `go test ./internal/translator/codex/claude -run 'TestConvertCodexResponseToClaude_.*(FunctionCall|Thinking|OutputIndex|Text)' -count=1` -> pass
+    - `go test ./internal/translator/... ./internal/util -run 'Test.*(Tool|Schema|InputImage|ResponseFormat|Summary|Structured)' -count=1` -> pass
+    - `go test ./internal/translator/... -run 'Test.*(Done|Completion|ToolCall|FunctionCall|Delta|OutputIndex|Cached|Usage)' -count=1` -> pass
+    - `go test ./internal/translator/... ./internal/util ./sdk/translator -count=1` -> pass
+    - `go vet ./internal/translator/... ./internal/util ./sdk/translator` -> pass
+    - `git diff --check` -> pass
+    - full Security, Performance, Architecture, and Code Quality review -> pass; translator changes stay within planned request/stream surfaces and do not widen plugin, runtime, or provider-route scope
+  proof_gaps: none
+
 ## Current State and Next Action
 - active_phase: cliproxyapi-translator-fidelity
-- lifecycle_status: planned
-- latest_run_id: 01KYWC1C4QXJV5GM403W2CERK4
-- latest_trace_id: 01KYWCGA9VK6TMJ3836QBMBVAW
-- latest_check_id: 01KYWCKW3W9WN29N6FDY0N2PKX
-- latest_handoff_id: 01KYYATHPVF5QZ7513RRA1A6ZQ
+- lifecycle_status: checked
+- latest_run_id: 01KYYDVJMPDY601ES7A98JE1WY
+- latest_trace_id: 01KYYF97RPFZ29Q5S85Q7E8E36
+- latest_check_id: 01KYYFE22QYGX7CV7H4T37JKCD
+- latest_handoff_id: none
 - completed_work:
   - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
   - Closed `cliproxyapi-present-proof` with handoff `01KYYAT6F6ZSBQXNXQ3PRQD520`.
   - Closed `cliproxyapi-thinking-summary` with handoff `01KYYATHPVF5QZ7513RRA1A6ZQ` after check `01KYWCKW3W9WN29N6FDY0N2PKX`.
+  - Committed `cliproxyapi-thinking-summary` as `cdcd5d17`.
+  - Completed `cliproxyapi-translator-fidelity` request wave with trace `01KYYF97REBN7R6JWBYT4KCD6E`.
+  - Completed `cliproxyapi-translator-fidelity` response-streaming wave with trace `01KYYF97RPFZ29Q5S85Q7E8E36`.
+  - Checked `cliproxyapi-translator-fidelity` with check `01KYYFE22QYGX7CV7H4T37JKCD`.
 - blockers: none
 - open_items:
-  - Commit the checked `cliproxyapi-thinking-summary` implementation and lifecycle update before starting more product work.
-  - Next implementation phase is `cliproxyapi-translator-fidelity`.
-- exact_next_action: Commit the checked `cliproxyapi-thinking-summary` implementation and lifecycle update, then run `work full phase cliproxyapi-translator-fidelity`.
+  - Commit checked translator-fidelity implementation and lifecycle artifacts.
+- exact_next_action: Run `/git cm checked cliproxyapi-translator-fidelity implementation and lifecycle update only; do not push`.

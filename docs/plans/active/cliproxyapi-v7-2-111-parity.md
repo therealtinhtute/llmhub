@@ -5,7 +5,7 @@ intake_id: 01KYTYE1AK42PW4BGH0V6H5G8D
 lane: high-risk
 status: active
 created: 2026-07-31
-updated: 2026-07-31
+updated: 2026-08-01
 ---
 
 # Plan: CLIProxyAPI v7.2.111 Targeted Parity with v7.2.112 Checkpoint Delta
@@ -111,7 +111,7 @@ updated: 2026-07-31
 - phases:
   - phase_slug: cliproxyapi-ledger-scope-freeze
     story_id: 01KYW6RDHMC6YVHJXD8X1TTDKR
-    status: checked
+    status: done
     goal: Freeze the v7.2.93..v7.2.112 ledger, path dispositions, and checkpoint scope policy before code work.
     depends_on: none
     requirement_trace: [R1, R2, R3, R4, R5, R6, R18, R19]
@@ -156,7 +156,7 @@ PY`
 
   - phase_slug: cliproxyapi-present-proof
     story_id: 01KYW6RDHWRM7171YT75A9K1PV
-    status: checked
+    status: done
     goal: Verify already-present upstream parity slices and block duplicate implementations.
     depends_on: cliproxyapi-ledger-scope-freeze
     requirement_trace: [R3, R7, R8, R15]
@@ -183,7 +183,7 @@ PY`
 
   - phase_slug: cliproxyapi-thinking-summary
     story_id: 01KYW6RDJ3P9B8X2C1ZGKMQVSS
-    status: planned
+    status: done
     goal: Adapt upstream thinking summary visibility and provider application semantics.
     depends_on: cliproxyapi-present-proof
     requirement_trace: [R2, R9, R10, R11]
@@ -800,6 +800,57 @@ PY`
   verification: `go test ./internal/client/codex/live ./internal/home ./sdk/cliproxy/auth ./internal/store ./internal/runtime/executor/helps ./internal/registry ./internal/util ./internal/translator/... -count=1` -> pass; `git diff --check` -> pass
   blocker: none
 
+- timestamp: 2026-07-31T15:17:52Z
+  phase: cliproxyapi-thinking-summary
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KYWC1C4QXJV5GM403W2CERK4
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-thinking-summary --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KYWC1C4QXJV5GM403W2CERK4`
+  blocker: none
+- timestamp: 2026-07-31T15:25:53Z
+  phase: cliproxyapi-thinking-summary
+  wave: thinking-core
+  task: add-summary-authority-model
+  task_status: DONE
+  run_id: 01KYWC1C4QXJV5GM403W2CERK4
+  trace_id: 01KYWCGA8PWGZT4NS3NW2152KG
+  changed_surfaces: [`internal/thinking/summary.go`, `internal/thinking/summary_test.go`, `sdk/translator/registry.go`, `sdk/translator/registry_summary_test.go`]
+  verification: `go test ./internal/thinking ./sdk/translator -run 'Test.*(Summary|Visibility|Hidden|Final|Provider)' -count=1` -> pass
+  blocker: none
+- timestamp: 2026-07-31T15:25:53Z
+  phase: cliproxyapi-thinking-summary
+  wave: thinking-core
+  task: add-provider-thinking-application
+  task_status: DONE
+  run_id: 01KYWC1C4QXJV5GM403W2CERK4
+  trace_id: 01KYWCGA8PWGZT4NS3NW2152KG
+  changed_surfaces: [`internal/thinking/`, `internal/thinking/provider/`, `internal/runtime/executor/`]
+  verification: `go test ./internal/thinking/... ./internal/runtime/executor -run 'Test.*(Thinking|Summary|Effort)' -count=1` -> pass
+  blocker: none
+- timestamp: 2026-07-31T15:25:53Z
+  phase: cliproxyapi-thinking-summary
+  wave: thinking-integration
+  task: replace-scattered-thinking-hooks
+  task_status: DONE
+  run_id: 01KYWC1C4QXJV5GM403W2CERK4
+  trace_id: 01KYWCGA9VK6TMJ3836QBMBVAW
+  changed_surfaces: [`sdk/translator/registry.go`, `internal/runtime/executor/`, `internal/translator/`]
+  verification: `go test ./internal/runtime/executor ./internal/translator/... -run 'Test.*(Thinking|Summary|Visibility)' -count=1` -> pass
+  blocker: none
+- timestamp: 2026-07-31T15:25:53Z
+  phase: cliproxyapi-thinking-summary
+  wave: phase-checks
+  task: phase-checks
+  task_status: DONE
+  run_id: 01KYWC1C4QXJV5GM403W2CERK4
+  trace_id: 01KYWCGA9VK6TMJ3836QBMBVAW
+  changed_surfaces: [`internal/thinking/summary.go`, `internal/thinking/summary_test.go`, `sdk/translator/registry.go`, `sdk/translator/registry_summary_test.go`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/thinking/... ./internal/runtime/executor ./internal/translator/... ./sdk/translator -count=1` -> pass; `go vet ./internal/thinking/... ./internal/runtime/executor ./internal/translator/...` -> pass; `git diff --check` -> pass
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1201,14 +1252,34 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass; no product code changed, already-present proof stayed inside planned surfaces, and duplicate implementation risk is blocked by the checked proof record
   proof_gaps: none
 
+- timestamp: 2026-07-31T15:27:58Z
+  phase: cliproxyapi-thinking-summary
+  run_id: 01KYWC1C4QXJV5GM403W2CERK4
+  check_id: 01KYWCKW3W9WN29N6FDY0N2PKX
+  verdict: APPROVED
+  evidence:
+    - `go test ./internal/thinking ./sdk/translator -run 'Test.*(Summary|Visibility|Hidden|Final|Provider)' -count=1` -> pass
+    - `go test ./internal/thinking/... ./internal/runtime/executor -run 'Test.*(Thinking|Summary|Effort)' -count=1` -> pass
+    - `go test ./internal/runtime/executor ./internal/translator/... -run 'Test.*(Thinking|Summary|Visibility)' -count=1` -> pass
+    - `go test ./internal/thinking/... ./internal/runtime/executor ./internal/translator/... ./sdk/translator -count=1` -> pass
+    - `go vet ./internal/thinking/... ./internal/runtime/executor ./internal/translator/...` -> pass
+    - `git diff --check` -> pass
+    - full Security, Performance, Architecture, and Code Quality review -> pass; summary intent is applied only after registered request transforms, fallback payloads are preserved, and plugin platform remains out of scope
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: cliproxyapi-present-proof
-- lifecycle_status: checked
-- latest_run_id: 01KYWAKMPF17K20B37Q153557E
-- latest_trace_id: 01KYWAQJ2M28643YZ1WKZKNGMH
-- latest_check_id: 01KYWATY3N87QHYDFPJBCD90RB
+- active_phase: cliproxyapi-translator-fidelity
+- lifecycle_status: planned
+- latest_run_id: 01KYWC1C4QXJV5GM403W2CERK4
+- latest_trace_id: 01KYWCGA9VK6TMJ3836QBMBVAW
+- latest_check_id: 01KYWCKW3W9WN29N6FDY0N2PKX
+- latest_handoff_id: 01KYYATHPVF5QZ7513RRA1A6ZQ
+- completed_work:
+  - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
+  - Closed `cliproxyapi-present-proof` with handoff `01KYYAT6F6ZSBQXNXQ3PRQD520`.
+  - Closed `cliproxyapi-thinking-summary` with handoff `01KYYATHPVF5QZ7513RRA1A6ZQ` after check `01KYWCKW3W9WN29N6FDY0N2PKX`.
 - blockers: none
 - open_items:
-  - Phase `cliproxyapi-present-proof` is checked and ready for commit/handoff.
-  - Next implementation phase is `cliproxyapi-thinking-summary`.
-- exact_next_action: Commit the checked `cliproxyapi-present-proof` plan lifecycle update or run `work full phase cliproxyapi-thinking-summary` after preserving this checked state.
+  - Commit the checked `cliproxyapi-thinking-summary` implementation and lifecycle update before starting more product work.
+  - Next implementation phase is `cliproxyapi-translator-fidelity`.
+- exact_next_action: Commit the checked `cliproxyapi-thinking-summary` implementation and lifecycle update, then run `work full phase cliproxyapi-translator-fidelity`.

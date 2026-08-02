@@ -1462,6 +1462,7 @@
       "proxyUrl": "Proxy URL",
       "prefix": "Prefix",
       "priority": "Priority",
+      "weight": "Weight",
       "disabled": "Disable this entry",
       "disabledHint": "Disabled entries won't be used by the gateway",
       "websockets": "Enable WebSockets",

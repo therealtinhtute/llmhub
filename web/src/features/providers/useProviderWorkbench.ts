@@ -138,6 +138,7 @@ const buildProviderKeyConfig = (
   const next: ProviderKeyConfig = {
     apiKey: apiKeyChanged ? input.apiKey.trim() : (existing?.apiKey ?? ''),
     priority: input.priority,
+    weight: input.weight,
     prefix: input.prefix.trim() || undefined,
     baseUrl: input.baseUrl.trim() || undefined,
     proxyUrl: input.proxyUrl.trim() || undefined,
@@ -196,6 +197,7 @@ const buildOpenAIConfig = (
     headers: Object.keys(headers).length ? headers : undefined,
     models: models.length ? models : undefined,
     priority: input.priority,
+    weight: input.weight,
     testModel: input.testModel?.trim() || undefined,
   };
 };

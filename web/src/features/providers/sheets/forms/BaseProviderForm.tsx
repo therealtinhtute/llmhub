@@ -78,6 +78,7 @@ function buildInitialForm(
       prefix: '',
       disabled: false,
       priority: undefined,
+      weight: undefined,
       models: [emptyModel()],
       headers: [emptyHeader()],
       excludedModelsText: '',
@@ -104,6 +105,7 @@ function buildInitialForm(
       prefix: cfg.prefix ?? '',
       disabled: cfg.disabled === true,
       priority: cfg.priority,
+      weight: cfg.weight,
       models: cfg.models?.length
         ? cfg.models.map((m) => ({
             name: m.name,
@@ -139,6 +141,7 @@ function buildInitialForm(
     prefix: cfg.prefix ?? '',
     disabled,
     priority: cfg.priority,
+    weight: cfg.weight,
     models: cfg.models?.length
       ? cfg.models.map((m) => ({
           name: m.name,
@@ -541,6 +544,27 @@ export function BaseProviderForm({
                   onChange={(e) =>
                     updateField(
                       'priority',
+                      e.target.value === '' ? undefined : Number(e.target.value)
+                    )
+                  }
+                  disabled={mutating}
+                />
+              </div>
+            ) : null}
+            {descriptor.supportsWeight ? (
+              <div className="grid gap-1.5">
+                <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-weight`}>
+                  {t('providersPage.form.weight')}
+                </label>
+                <input
+                  id={`${fid}-weight`}
+                  type="number"
+                  min={1}
+                  className={inputCls}
+                  value={form.weight ?? ''}
+                  onChange={(e) =>
+                    updateField(
+                      'weight',
                       e.target.value === '' ? undefined : Number(e.target.value)
                     )
                   }

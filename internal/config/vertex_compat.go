@@ -17,6 +17,9 @@ type VertexCompatKey struct {
 	// Higher values are preferred; defaults to 0.
 	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
 
+	// Weight controls weighted credential routing. Zero means default weight.
+	Weight int64 `yaml:"weight,omitempty" json:"weight,omitempty"`
+
 	// Prefix optionally namespaces model aliases for this credential (e.g., "teamA/vertex-pro").
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 

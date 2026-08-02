@@ -396,6 +396,9 @@ type ClaudeKey struct {
 	// Higher values are preferred; defaults to 0.
 	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
 
+	// Weight controls weighted credential routing. Zero means default weight.
+	Weight int64 `yaml:"weight,omitempty" json:"weight,omitempty"`
+
 	// Prefix optionally namespaces models for this credential (e.g., "teamA/claude-sonnet-4").
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
@@ -456,6 +459,9 @@ type CodexKey struct {
 	// Higher values are preferred; defaults to 0.
 	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
 
+	// Weight controls weighted credential routing. Zero means default weight.
+	Weight int64 `yaml:"weight,omitempty" json:"weight,omitempty"`
+
 	// Prefix optionally namespaces models for this credential (e.g., "teamA/gpt-5-codex").
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
@@ -511,6 +517,9 @@ type GeminiKey struct {
 	// Higher values are preferred; defaults to 0.
 	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
 
+	// Weight controls weighted credential routing. Zero means default weight.
+	Weight int64 `yaml:"weight,omitempty" json:"weight,omitempty"`
+
 	// Prefix optionally namespaces models for this credential (e.g., "teamA/gemini-3-pro-preview").
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
@@ -561,6 +570,9 @@ type OpenAICompatibility struct {
 	// Priority controls selection preference when multiple providers or credentials match.
 	// Higher values are preferred; defaults to 0.
 	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
+
+	// Weight controls weighted credential routing. Zero means default weight.
+	Weight int64 `yaml:"weight,omitempty" json:"weight,omitempty"`
 
 	// Disabled prevents this provider from being used for routing.
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`

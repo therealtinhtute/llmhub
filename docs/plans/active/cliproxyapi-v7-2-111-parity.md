@@ -351,7 +351,7 @@ PY`
 
   - phase_slug: cliproxyapi-management-runtime-ui
     story_id: 01KYW6RDK704SB7063EKQ0TRP9
-    status: planned
+    status: checked
     goal: Expose approved management/runtime controls through authorized APIs and current llmhub web UI.
     depends_on: cliproxyapi-signature-antigravity
     requirement_trace: [R13, R16, R17]
@@ -1040,6 +1040,17 @@ PY`
   verification: `go test ./internal/signature/... ./internal/translator/antigravity/... ./internal/runtime/executor -count=1` -> pass; `go vet ./internal/signature ./internal/translator/antigravity/claude ./internal/translator/antigravity/gemini ./internal/runtime/executor` -> pass; `git diff --check` -> pass
   blocker: none
 
+- timestamp: 2026-08-02T04:25:58Z
+  phase: cliproxyapi-management-runtime-ui
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ0BHDV4CYFFWS6C4AAYDV8A
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-management-runtime-ui --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ0BHDV4CYFFWS6C4AAYDV8A`
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1527,12 +1538,26 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass; shared signature APIs stay in `internal/signature`, Antigravity keeps thin wrappers and existing cache/strict/non-strict behavior, CAIS is classified but not replayed into Antigravity Claude bypass, Gemini validation remains unchanged, and no SDK/internal or runtime-authority boundary changed
   proof_gaps: none
 
+- timestamp: 2026-08-02T05:05:00Z
+  phase: cliproxyapi-management-runtime-ui
+  run_id: 01KZ0BHDV4CYFFWS6C4AAYDV8A
+  check_id: 01KZ0DV92J3PPS9ZYWZQ92E08H
+  verdict: APPROVE_WITH_REQUESTS
+  evidence:
+    - `go test ./internal/api/handlers/management ./internal/api ./internal/logging ./internal/watcher/... ./internal/store ./sdk/cliproxy -count=1` -> pass
+    - `cd web && bun run type-check && bun run lint && bun run build` -> pass; lint returned 0 errors and 8 pre-existing warnings outside this phase's changed files
+    - `make build` -> pass; web asset embedded and `llmhub` binary built
+    - `git diff --check` plus intent-to-add whitespace check for `internal/logging/global_logger_test.go` -> pass
+    - `zharness audit --json` -> pre-check expected out_of_order drift only before recording this check; `contract_violations=[]`, `unlinked_proofs=[]`
+    - full Security, Performance, Architecture, and Code Quality review -> pass; static provider config weights validate through authorized management APIs, synthesize only non-default numeric weights into auth attrs, diff/log output avoids secret material, and web changes reuse current provider form patterns without frontend test files
+  proof_gaps: browser desktop/mobile runtime smoke not executed in this environment; deterministic frontend type/lint/build and embedded binary build passed
+
 ## Current State and Next Action
 - active_phase: cliproxyapi-management-runtime-ui
-- lifecycle_status: planned
-- latest_run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
-- latest_trace_id: 01KZ0B6MPS2CSSS0699X7Q4779
-- latest_check_id: 01KZ0BA4JXG4R0S8FM5C1WVN3A
+- lifecycle_status: checked
+- latest_run_id: 01KZ0BHDV4CYFFWS6C4AAYDV8A
+- latest_trace_id: none
+- latest_check_id: 01KZ0DV92J3PPS9ZYWZQ92E08H
 - latest_handoff_id: none
 - completed_work:
   - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
@@ -1550,8 +1575,9 @@ PY`
   - Committed `cliproxyapi-auth-codex-controls` as `dca77b75`.
   - Verified `cliproxyapi-signature-antigravity` signature-validation and antigravity-replay waves with traces `01KZ0B6MNVHZ0P2Z0XRRAVA880` and `01KZ0B6MPS2CSSS0699X7Q4779`.
   - Checked `cliproxyapi-signature-antigravity` with check `01KZ0BA4JXG4R0S8FM5C1WVN3A`.
+  - Committed `cliproxyapi-signature-antigravity` as `45171cf7`.
+  - Checked `cliproxyapi-management-runtime-ui` with check `01KZ0DV92J3PPS9ZYWZQ92E08H`.
 - blockers: none
 - open_items:
-  - Commit `cliproxyapi-signature-antigravity` approved changes without pushing.
-  - Start `cliproxyapi-management-runtime-ui` after the signature commit.
-- exact_next_action: Stage only signature-phase files, run staged secret scanning, commit the approved signature phase, then invoke `/work full phase cliproxyapi-management-runtime-ui`.
+  - Browser desktop/mobile runtime smoke remains unexecuted in this environment; type-check, lint, production build, embedded build, and manual diff review passed.
+- exact_next_action: Stage only `cliproxyapi-management-runtime-ui` files, run staged secret scan, and commit the checked phase without pushing.

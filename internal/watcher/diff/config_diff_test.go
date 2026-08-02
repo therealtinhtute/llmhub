@@ -537,6 +537,27 @@ func TestBuildConfigChangeDetails_CountBranches(t *testing.T) {
 	expectContains(t, changes, "vertex-api-key count: 0 -> 1")
 }
 
+func TestBuildConfigChangeDetails_StaticProviderWeights(t *testing.T) {
+	oldCfg := &config.Config{
+		GeminiKey:          []config.GeminiKey{{APIKey: "g", Weight: 1}},
+		ClaudeKey:          []config.ClaudeKey{{APIKey: "c", Weight: 2}},
+		CodexKey:           []config.CodexKey{{APIKey: "x", Weight: 3}},
+		VertexCompatAPIKey: []config.VertexCompatKey{{APIKey: "v", BaseURL: "http://v", Weight: 4}},
+	}
+	newCfg := &config.Config{
+		GeminiKey:          []config.GeminiKey{{APIKey: "g", Weight: 5}},
+		ClaudeKey:          []config.ClaudeKey{{APIKey: "c", Weight: 6}},
+		CodexKey:           []config.CodexKey{{APIKey: "x", Weight: 7}},
+		VertexCompatAPIKey: []config.VertexCompatKey{{APIKey: "v", BaseURL: "http://v", Weight: 8}},
+	}
+
+	changes := BuildConfigChangeDetails(oldCfg, newCfg)
+	expectContains(t, changes, "gemini[0].weight: 1 -> 5")
+	expectContains(t, changes, "claude[0].weight: 2 -> 6")
+	expectContains(t, changes, "codex[0].weight: 3 -> 7")
+	expectContains(t, changes, "vertex[0].weight: 4 -> 8")
+}
+
 func TestTrimStrings(t *testing.T) {
 	out := trimStrings([]string{" a ", "b", "  c"})
 	if len(out) != 3 || out[0] != "a" || out[1] != "b" || out[2] != "c" {

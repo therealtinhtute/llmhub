@@ -13,6 +13,7 @@ export interface ProviderDescriptor {
   supportsHeaders: boolean;
   supportsExcludedModels: boolean;
   supportsPriority: boolean;
+  supportsWeight: boolean;
   supportsTestModel: boolean;
   supportsWebsockets: boolean;
   supportsCloak: boolean;
@@ -36,6 +37,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderBrand, ProviderDescriptor> = {
     supportsHeaders: true,
     supportsExcludedModels: true,
     supportsPriority: true,
+    supportsWeight: true,
     supportsTestModel: false,
     supportsWebsockets: false,
     supportsCloak: false,
@@ -56,6 +58,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderBrand, ProviderDescriptor> = {
     supportsHeaders: true,
     supportsExcludedModels: true,
     supportsPriority: true,
+    supportsWeight: true,
     supportsTestModel: false,
     supportsWebsockets: true,
     supportsCloak: false,
@@ -76,6 +79,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderBrand, ProviderDescriptor> = {
     supportsHeaders: true,
     supportsExcludedModels: true,
     supportsPriority: true,
+    supportsWeight: true,
     supportsTestModel: true,
     supportsWebsockets: false,
     supportsCloak: true,
@@ -96,6 +100,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderBrand, ProviderDescriptor> = {
     supportsHeaders: true,
     supportsExcludedModels: true,
     supportsPriority: true,
+    supportsWeight: true,
     supportsTestModel: false,
     supportsWebsockets: false,
     supportsCloak: false,
@@ -116,6 +121,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderBrand, ProviderDescriptor> = {
     supportsHeaders: true,
     supportsExcludedModels: false,
     supportsPriority: true,
+    supportsWeight: true,
     supportsTestModel: true,
     supportsWebsockets: false,
     supportsCloak: false,
@@ -136,6 +142,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderBrand, ProviderDescriptor> = {
     supportsHeaders: false,
     supportsExcludedModels: false,
     supportsPriority: false,
+    supportsWeight: false,
     supportsTestModel: false,
     supportsWebsockets: false,
     supportsCloak: false,

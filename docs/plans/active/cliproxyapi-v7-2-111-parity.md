@@ -321,7 +321,7 @@ PY`
 
   - phase_slug: cliproxyapi-signature-antigravity
     story_id: 01KYW6RDK0JZ250EV52QPA0KK4
-    status: planned
+    status: checked
     goal: Adapt CAIS/provider signature validation and remaining Antigravity replay/schema gaps.
     depends_on: cliproxyapi-auth-codex-controls
     requirement_trace: [R2, R10, R14]
@@ -996,6 +996,50 @@ PY`
   verification: `go test ./sdk/auth ./sdk/cliproxy/auth ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/api ./internal/api/modules/amp ./internal/api/handlers/management ./internal/config ./internal/runtime/executor ./sdk/api/handlers ./sdk/cliproxy/executor -count=1` -> pass; `go vet ./internal/api ./internal/api/modules/amp ./internal/runtime/executor ./sdk/api/handlers ./sdk/cliproxy/executor` -> pass; `git diff --check` -> pass
   blocker: none
 
+- timestamp: 2026-08-02T04:02:05Z
+  phase: cliproxyapi-signature-antigravity
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-signature-antigravity --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ0A5P9G8HZP87Y02ZYV84AB`
+  blocker: none
+
+- timestamp: 2026-08-02T04:22:33Z
+  phase: cliproxyapi-signature-antigravity
+  wave: signature-validation
+  task: adapt-cais-provider-signatures
+  task_status: DONE
+  run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
+  trace_id: 01KZ0B6MNVHZ0P2Z0XRRAVA880
+  changed_surfaces: [`internal/signature/`, `internal/translator/antigravity/claude/`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/signature/... ./internal/translator/antigravity/... -run 'Test.*(Signature|CAIS|Sanitize|Provider)' -count=1` -> pass; shared Claude E/R validation, CAIS inspection, provider compatibility decisions, and Claude message sanitization are covered without weakening Gemini validation
+  blocker: none
+
+- timestamp: 2026-08-02T04:22:33Z
+  phase: cliproxyapi-signature-antigravity
+  wave: antigravity-replay
+  task: verify-or-adapt-antigravity-replay-gaps
+  task_status: DONE
+  run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
+  trace_id: 01KZ0B6MPS2CSSS0699X7Q4779
+  changed_surfaces: [`internal/signature/`, `internal/translator/antigravity/claude/`, `internal/runtime/executor`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/runtime/executor -run 'TestAntigravity.*(Signature|Replay|Pairing)' -count=1` -> pass; Antigravity strict/cache/non-strict signature behavior and replay pairing remain compatible
+  blocker: none
+
+- timestamp: 2026-08-02T04:22:33Z
+  phase: cliproxyapi-signature-antigravity
+  wave: phase-checks
+  task: local-phase-checks
+  task_status: DONE
+  run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
+  trace_id: 01KZ0B6MPS2CSSS0699X7Q4779
+  changed_surfaces: [`internal/signature/`, `internal/translator/antigravity/claude/`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/signature/... ./internal/translator/antigravity/... ./internal/runtime/executor -count=1` -> pass; `go vet ./internal/signature ./internal/translator/antigravity/claude ./internal/translator/antigravity/gemini ./internal/runtime/executor` -> pass; `git diff --check` -> pass
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1468,12 +1512,27 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass after extending runtime-control propagation to Amp provider aliases; Postgres remains the runtime authority, SDK/internal boundary is preserved through request-scoped context, explicit client/custom Codex headers still pass through, and required WebSocket beta transport headers remain enabled
   proof_gaps: none
 
+- timestamp: 2026-08-02T04:22:33Z
+  phase: cliproxyapi-signature-antigravity
+  run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
+  check_id: 01KZ0BA4JXG4R0S8FM5C1WVN3A
+  verdict: APPROVED
+  evidence:
+    - `go test ./internal/signature/... ./internal/translator/antigravity/... -run 'Test.*(Signature|CAIS|Sanitize|Provider)' -count=1` -> pass
+    - `go test ./internal/runtime/executor -run 'TestAntigravity.*(Signature|Replay|Pairing)' -count=1` -> pass
+    - `go test ./internal/signature/... ./internal/translator/antigravity/... ./internal/runtime/executor -count=1` -> pass
+    - `go vet ./internal/signature ./internal/translator/antigravity/claude ./internal/translator/antigravity/gemini ./internal/runtime/executor` -> pass
+    - `git diff --check` -> pass
+    - `zharness audit --json` -> pre-check expected out_of_order drift only before recording this check; `contract_violations=[]`, `unlinked_proofs=[]`
+    - full Security, Performance, Architecture, and Code Quality review -> pass; shared signature APIs stay in `internal/signature`, Antigravity keeps thin wrappers and existing cache/strict/non-strict behavior, CAIS is classified but not replayed into Antigravity Claude bypass, Gemini validation remains unchanged, and no SDK/internal or runtime-authority boundary changed
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: cliproxyapi-auth-codex-controls
-- lifecycle_status: checked
-- latest_run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
-- latest_trace_id: 01KZ098JTCTBQKV743W5EKQNFG
-- latest_check_id: 01KZ09Z41ETNFXBTNJKZMJNTRV
+- active_phase: cliproxyapi-management-runtime-ui
+- lifecycle_status: planned
+- latest_run_id: 01KZ0A5P9G8HZP87Y02ZYV84AB
+- latest_trace_id: 01KZ0B6MPS2CSSS0699X7Q4779
+- latest_check_id: 01KZ0BA4JXG4R0S8FM5C1WVN3A
 - latest_handoff_id: none
 - completed_work:
   - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
@@ -1488,7 +1547,11 @@ PY`
   - Checked `cliproxyapi-executor-websocket` with check `01KZ08G99Y1P0XW6XW1YGJHH02`.
   - Committed `cliproxyapi-executor-websocket` as `94c1fe54`.
   - Checked `cliproxyapi-auth-codex-controls` with check `01KZ09Z41ETNFXBTNJKZMJNTRV`.
+  - Committed `cliproxyapi-auth-codex-controls` as `dca77b75`.
+  - Verified `cliproxyapi-signature-antigravity` signature-validation and antigravity-replay waves with traces `01KZ0B6MNVHZ0P2Z0XRRAVA880` and `01KZ0B6MPS2CSSS0699X7Q4779`.
+  - Checked `cliproxyapi-signature-antigravity` with check `01KZ0BA4JXG4R0S8FM5C1WVN3A`.
 - blockers: none
 - open_items:
-  - Commit checked `cliproxyapi-auth-codex-controls` phase without pushing.
-- exact_next_action: Stage only `cliproxyapi-auth-codex-controls` files, run staged secret scan, and commit without pushing.
+  - Commit `cliproxyapi-signature-antigravity` approved changes without pushing.
+  - Start `cliproxyapi-management-runtime-ui` after the signature commit.
+- exact_next_action: Stage only signature-phase files, run staged secret scanning, commit the approved signature phase, then invoke `/work full phase cliproxyapi-management-runtime-ui`.

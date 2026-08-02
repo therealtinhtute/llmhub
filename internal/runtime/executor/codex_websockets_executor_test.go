@@ -870,6 +870,38 @@ func TestApplyCodexWebsocketHeadersConfigUserAgentOverridesClientHeader(t *testi
 	}
 }
 
+func TestApplyCodexWebsocketHeadersDisablesInjectedCloaking(t *testing.T) {
+	cfg := &config.Config{
+		CodexHeaderDefaults: config.CodexHeaderDefaults{
+			UserAgent:    "config-ua",
+			BetaFeatures: "config-beta",
+		},
+	}
+	auth := &cliproxyauth.Auth{
+		Provider: "codex",
+		Metadata: map[string]any{"account_id": "acct-1"},
+	}
+	ctx := cliproxyexecutor.WithCodexCloakingDisabled(context.Background())
+
+	headers := applyCodexWebsocketHeaders(ctx, http.Header{}, auth, "", cfg)
+
+	if got := headers.Get("User-Agent"); got != "" {
+		t.Fatalf("User-Agent = %s, want empty", got)
+	}
+	if got := headers.Get("x-codex-beta-features"); got != "" {
+		t.Fatalf("x-codex-beta-features = %q, want empty", got)
+	}
+	if got := headers.Get("Originator"); got != "" {
+		t.Fatalf("Originator = %s, want empty", got)
+	}
+	if got := headerValueCaseInsensitive(headers, "ChatGPT-Account-ID"); got != "" {
+		t.Fatalf("ChatGPT-Account-ID = %s, want empty", got)
+	}
+	if got := headers.Get("OpenAI-Beta"); got != codexResponsesWebsocketBetaHeaderValue {
+		t.Fatalf("OpenAI-Beta = %s, want %s", got, codexResponsesWebsocketBetaHeaderValue)
+	}
+}
+
 func TestApplyCodexWebsocketHeadersIgnoresConfigForAPIKeyAuth(t *testing.T) {
 	cfg := &config.Config{
 		CodexHeaderDefaults: config.CodexHeaderDefaults{
@@ -1014,6 +1046,35 @@ func TestParseCodexWebsocketErrorPreservesWrappedBodyAndHeaders(t *testing.T) {
 	withHeaders, ok := err.(interface{ Headers() http.Header })
 	if !ok || withHeaders.Headers().Get("x-request-id") != "req-1" {
 		t.Fatalf("headers = %#v, want x-request-id", err)
+	}
+}
+
+func TestApplyCodexHeadersDisablesInjectedCloaking(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/responses", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	cfg := &config.Config{
+		CodexHeaderDefaults: config.CodexHeaderDefaults{
+			UserAgent: "config-ua",
+		},
+	}
+	auth := &cliproxyauth.Auth{
+		Provider: "codex",
+		Metadata: map[string]any{"account_id": "acct-1"},
+	}
+	req = req.WithContext(cliproxyexecutor.WithCodexCloakingDisabled(req.Context()))
+
+	applyCodexHeaders(req, auth, "oauth-token", true, cfg)
+
+	if got := req.Header.Get("User-Agent"); got != "" {
+		t.Fatalf("User-Agent = %s, want empty", got)
+	}
+	if got := req.Header.Get("Originator"); got != "" {
+		t.Fatalf("Originator = %s, want empty", got)
+	}
+	if got := req.Header.Get("Chatgpt-Account-Id"); got != "" {
+		t.Fatalf("Chatgpt-Account-Id = %s, want empty", got)
 	}
 }
 

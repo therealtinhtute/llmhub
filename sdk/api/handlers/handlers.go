@@ -391,6 +391,9 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 		}
 	}
 	newCtx, cancel := context.WithCancel(parentCtx)
+	if requestCtx != nil && coreexecutor.CodexCloakingDisabled(requestCtx) {
+		newCtx = coreexecutor.WithCodexCloakingDisabled(newCtx)
+	}
 
 	endpoint := ""
 	if c != nil && c.Request != nil {

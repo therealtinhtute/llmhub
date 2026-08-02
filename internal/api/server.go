@@ -47,6 +47,7 @@ import (
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers/openai"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	"golang.org/x/net/http2"
 	"gopkg.in/yaml.v3"
 )
@@ -165,6 +166,34 @@ func WithQuotaAlertSecretCipher(cipher *quotaalert.SecretCipher) ServerOption {
 func WithRuntimeSettingsStore(store runtimecontrol.SettingsStore) ServerOption {
 	return func(cfg *serverOptionConfig) {
 		cfg.runtimeSettingsStore = store
+	}
+}
+
+func (s *Server) runtimeControlRequestContext() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c == nil {
+			return
+		}
+		if s == nil || s.runtimeSettingsStore == nil || c.Request == nil {
+			c.Next()
+			return
+		}
+		settings, err := s.runtimeSettingsStore.LoadRuntimeSettings(c.Request.Context())
+		if err != nil {
+			log.Debugf("runtime controls unavailable for request context: %v", err)
+			c.Next()
+			return
+		}
+		settings, err = settings.Normalize()
+		if err != nil {
+			log.Debugf("runtime controls invalid for request context: %v", err)
+			c.Next()
+			return
+		}
+		if settings.Cloaking.DisableCodex {
+			c.Request = c.Request.WithContext(coreexecutor.WithCodexCloakingDisabled(c.Request.Context()))
+		}
+		c.Next()
 	}
 }
 
@@ -372,10 +401,11 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// Register Amp module using V2 interface with Context
 	s.ampModule = ampmodule.NewLegacy(accessManager, AuthMiddleware(accessManager))
 	ctx := modules.Context{
-		Engine:         engine,
-		BaseHandler:    s.handlers,
-		Config:         cfg,
-		AuthMiddleware: AuthMiddleware(accessManager),
+		Engine:                   engine,
+		BaseHandler:              s.handlers,
+		Config:                   cfg,
+		AuthMiddleware:           AuthMiddleware(accessManager),
+		RuntimeControlMiddleware: s.runtimeControlRequestContext(),
 	}
 	if err := modules.RegisterModule(ctx, s.ampModule); err != nil {
 		log.Errorf("Failed to register Amp module: %v", err)
@@ -453,7 +483,7 @@ func (s *Server) setupRoutes() {
 
 	// OpenAI compatible API routes
 	v1 := s.engine.Group("/v1")
-	v1.Use(AuthMiddleware(s.accessManager))
+	v1.Use(AuthMiddleware(s.accessManager), s.runtimeControlRequestContext())
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
@@ -482,7 +512,7 @@ func (s *Server) setupRoutes() {
 
 	// Codex CLI direct route aliases (chatgpt_base_url compatible)
 	codexDirect := s.engine.Group("/backend-api/codex")
-	codexDirect.Use(AuthMiddleware(s.accessManager))
+	codexDirect.Use(AuthMiddleware(s.accessManager), s.runtimeControlRequestContext())
 	{
 		codexDirect.GET("/responses", openaiResponsesHandlers.ResponsesWebsocket)
 		codexDirect.POST("/responses", openaiResponsesHandlers.Responses)

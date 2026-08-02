@@ -144,6 +144,36 @@ func TestRegisterProviderAliases_AllProvidersRegistered(t *testing.T) {
 	}
 }
 
+func TestRegisterProviderAliases_AppliesRuntimeControlMiddleware(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	base := &handlers.BaseAPIHandler{}
+	runtimeControlCalled := false
+	runtimeControl := func(c *gin.Context) {
+		runtimeControlCalled = true
+		c.Request = c.Request.WithContext(coreexecutor.WithCodexCloakingDisabled(c.Request.Context()))
+		if !coreexecutor.CodexCloakingDisabled(c.Request.Context()) {
+			t.Fatal("runtime control middleware did not mark request context")
+		}
+		c.AbortWithStatus(http.StatusNoContent)
+	}
+
+	m := &AmpModule{}
+	m.registerProviderAliases(r, base, func(c *gin.Context) { c.Next() }, runtimeControl)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/provider/openai/v1/responses", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+	if !runtimeControlCalled {
+		t.Fatal("runtime control middleware was not executed")
+	}
+}
+
 func TestRegisterProviderAliases_DynamicModelsHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -286,7 +286,7 @@ PY`
 
   - phase_slug: cliproxyapi-auth-codex-controls
     story_id: 01KYW6RDJTPRNWKRB251K4VT2C
-    status: planned
+    status: checked
     goal: Adapt auth/session fixes, Codex model resolution, weight API parsing, and cloaking controls.
     depends_on: cliproxyapi-executor-websocket
     requirement_trace: [R2, R7, R8, R12, R13, R16]
@@ -944,6 +944,58 @@ PY`
   verification: `go test ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/... -count=1` -> pass; `go vet ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/...` -> pass; `git diff --check` -> pass
   blocker: none
 
+- timestamp: 2026-08-02T03:35:33Z
+  phase: cliproxyapi-auth-codex-controls
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-auth-codex-controls --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ08N0WGZDTWRRBC41BNEEQ4`
+  blocker: none
+
+- timestamp: 2026-08-02T03:46:11Z
+  phase: cliproxyapi-auth-codex-controls
+  wave: auth-session
+  task: adapt-auth-session-affinity
+  task_status: DONE
+  run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+  trace_id: 01KZ098JRXBQDK5G8ER2KZCS9W
+  changed_surfaces: [`sdk/auth/`, `sdk/cliproxy/auth/`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./sdk/auth ./sdk/cliproxy/auth -run 'Test.*(Auth|Session|Alias|Affinity|Selector|Scheduler|Weight)' -count=1` -> pass; existing auth-file equality, session affinity, alias, selector, scheduler, and weight behavior remained stable without duplicate implementation
+  blocker: none
+- timestamp: 2026-08-02T03:46:11Z
+  phase: cliproxyapi-auth-codex-controls
+  wave: codex-controls
+  task: adapt-codex-resolution-and-cloaking
+  task_status: DONE
+  run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+  trace_id: 01KZ098JTCTBQKV743W5EKQNFG
+  changed_surfaces: [`internal/api/server.go`, `internal/api/server_test.go`, `internal/api/modules/modules.go`, `internal/api/modules/amp/amp.go`, `internal/api/modules/amp/routes.go`, `internal/api/modules/amp/routes_test.go`, `internal/runtime/executor/codex_executor.go`, `internal/runtime/executor/codex_websockets_executor.go`, `internal/runtime/executor/codex_websockets_executor_test.go`, `sdk/api/handlers/handlers.go`, `sdk/cliproxy/executor/context.go`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/config ./internal/runtime/executor -run 'Test.*Codex.*(Model|Configured|Resolution|Cloak|Header|Alias)' -count=1` -> pass; DB-backed runtime `disable_codex` now disables generated/configured Codex identity headers for HTTP and WebSocket while preserving explicit client/custom headers, required WebSocket beta headers, and Amp provider-alias route selection
+  blocker: none
+- timestamp: 2026-08-02T03:46:11Z
+  phase: cliproxyapi-auth-codex-controls
+  wave: codex-controls
+  task: adapt-credential-weight-api-parsing
+  task_status: DONE
+  run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+  trace_id: 01KZ098JTCTBQKV743W5EKQNFG
+  changed_surfaces: [`internal/api/handlers/management/`, `sdk/cliproxy/auth/`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/api/handlers/management ./sdk/cliproxy/auth -run 'Test.*(Weight|Patch|AuthFile|Management)' -count=1` -> pass; existing credential weight parsing and validation rejects malformed, zero, negative, and overflow values
+  blocker: none
+- timestamp: 2026-08-02T03:46:11Z
+  phase: cliproxyapi-auth-codex-controls
+  wave: phase-checks
+  task: local-phase-checks
+  task_status: DONE
+  run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+  trace_id: 01KZ098JTCTBQKV743W5EKQNFG
+  changed_surfaces: [`internal/api/server.go`, `internal/api/server_test.go`, `internal/api/modules/modules.go`, `internal/api/modules/amp/amp.go`, `internal/api/modules/amp/routes.go`, `internal/api/modules/amp/routes_test.go`, `internal/runtime/executor/codex_executor.go`, `internal/runtime/executor/codex_websockets_executor.go`, `internal/runtime/executor/codex_websockets_executor_test.go`, `sdk/api/handlers/handlers.go`, `sdk/cliproxy/executor/context.go`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./sdk/auth ./sdk/cliproxy/auth ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/api ./internal/api/modules/amp ./internal/api/handlers/management ./internal/config ./internal/runtime/executor ./sdk/api/handlers ./sdk/cliproxy/executor -count=1` -> pass; `go vet ./internal/api ./internal/api/modules/amp ./internal/runtime/executor ./sdk/api/handlers ./sdk/cliproxy/executor` -> pass; `git diff --check` -> pass
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1141,6 +1193,12 @@ PY`
   changed_surfaces: [`internal/api/handlers/codexlive/handler.go`, `internal/api/handlers/codexlive/handler_test.go`, `internal/client/codex/live/protocol.go`]
   verification: `go test ./internal/api/handlers/codexlive ./internal/client/codex/live -run 'Test.*(Sideband|HandleSideband|Protocol|CallID|PionMediaRelay|TCPCandidate|PrepareProxied|ReadValidated|BundledICE|IsPublicRemoteIP|CallSDP)' -count=1` -> pass; `go test ./internal/api/handlers/codexlive ./internal/api ./internal/client/codex/live -count=1` -> pass; `go test -race ./internal/api/handlers/codexlive ./internal/client/codex/live -run 'Test.*(Sideband|HandleSideband|PionMediaRelay|TCPCandidate)' -count=1` -> pass
   blocker: none
+
+- timestamp: 2026-08-02T03:57:53Z
+  phase: cliproxyapi-auth-codex-controls
+  task: adapt-codex-resolution-and-cloaking
+  decision: Adapt upstream `disable-codex-cloaking` as the existing Postgres runtime `disable_codex` setting propagated through a request-scoped SDK executor context, including Amp provider aliases.
+  rationale: llmhub runtime controls are database-authoritative; adding YAML/config-file authority or importing internal runtime-control types into SDK/executors would break the approved storage and SDK/internal boundaries.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -1393,12 +1451,29 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass; no product-code delta was required because the planned executor/WebSocket gaps are already covered by focused local tests, and no SDK/internal boundary or protected provider-route behavior changed
   proof_gaps: none
 
+- timestamp: 2026-08-02T03:57:53Z
+  phase: cliproxyapi-auth-codex-controls
+  run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+  check_id: 01KZ09Z41ETNFXBTNJKZMJNTRV
+  verdict: APPROVED
+  evidence:
+    - `go test ./sdk/auth ./sdk/cliproxy/auth -run 'Test.*(Auth|Session|Alias|Affinity|Selector|Scheduler|Weight)' -count=1` -> pass
+    - `go test ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/config ./internal/runtime/executor -run 'Test.*Codex.*(Model|Configured|Resolution|Cloak|Header|Alias)' -count=1` -> pass
+    - `go test ./internal/api/handlers/management ./sdk/cliproxy/auth -run 'Test.*(Weight|Patch|AuthFile|Management)' -count=1` -> pass
+    - `go test ./internal/runtime/executor -run 'TestApplyCodex(Websocket)?Headers.*(Cloak|Config|Identity|APIKey|Canonical|Prompt)' -count=1` -> pass
+    - `go test ./internal/api ./internal/api/modules/amp -run 'Test.*(RuntimeControl|RegisterProviderAliases)' -count=1` -> pass
+    - `go test ./sdk/auth ./sdk/cliproxy/auth ./sdk/cliproxy ./sdk/api/handlers/openai ./internal/api ./internal/api/modules/amp ./internal/api/handlers/management ./internal/config ./internal/runtime/executor ./sdk/api/handlers ./sdk/cliproxy/executor -count=1` -> pass
+    - `go vet ./internal/api ./internal/api/modules/amp ./internal/runtime/executor ./sdk/api/handlers ./sdk/cliproxy/executor` -> pass
+    - `git diff --check` -> pass
+    - full Security, Performance, Architecture, and Code Quality review -> pass after extending runtime-control propagation to Amp provider aliases; Postgres remains the runtime authority, SDK/internal boundary is preserved through request-scoped context, explicit client/custom Codex headers still pass through, and required WebSocket beta transport headers remain enabled
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: cliproxyapi-executor-websocket
+- active_phase: cliproxyapi-auth-codex-controls
 - lifecycle_status: checked
-- latest_run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
-- latest_trace_id: 01KZ08CSF0A9GN29D54095NY4F
-- latest_check_id: 01KZ08G99Y1P0XW6XW1YGJHH02
+- latest_run_id: 01KZ08N0WGZDTWRRBC41BNEEQ4
+- latest_trace_id: 01KZ098JTCTBQKV743W5EKQNFG
+- latest_check_id: 01KZ09Z41ETNFXBTNJKZMJNTRV
 - latest_handoff_id: none
 - completed_work:
   - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
@@ -1410,7 +1485,10 @@ PY`
   - Checked `cliproxyapi-translator-fidelity` with check `01KYYFE22QYGX7CV7H4T37JKCD`.
   - Committed `cliproxyapi-translator-fidelity` as `84cc78cb`.
   - Verified `cliproxyapi-executor-websocket` executor-runtime and websocket-continuity waves with traces `01KZ08CSCX6379FDDTWJWBJ9VA` and `01KZ08CSF0A9GN29D54095NY4F`.
+  - Checked `cliproxyapi-executor-websocket` with check `01KZ08G99Y1P0XW6XW1YGJHH02`.
+  - Committed `cliproxyapi-executor-websocket` as `94c1fe54`.
+  - Checked `cliproxyapi-auth-codex-controls` with check `01KZ09Z41ETNFXBTNJKZMJNTRV`.
 - blockers: none
 - open_items:
-  - Commit checked `cliproxyapi-executor-websocket` lifecycle evidence.
-- exact_next_action: Run `/git cm checked cliproxyapi-executor-websocket implementation and lifecycle update only; do not push`.
+  - Commit checked `cliproxyapi-auth-codex-controls` phase without pushing.
+- exact_next_action: Stage only `cliproxyapi-auth-codex-controls` files, run staged secret scan, and commit without pushing.

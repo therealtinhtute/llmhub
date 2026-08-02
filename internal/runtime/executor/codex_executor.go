@@ -38,6 +38,13 @@ const (
 
 var dataTag = []byte("data:")
 
+func codexUserAgentForCloaking(disabled bool) string {
+	if disabled {
+		return ""
+	}
+	return codexUserAgent
+}
+
 // Streamed Codex responses may emit response.output_item.done events while leaving
 // response.completed.response.output empty. Keep the stream path aligned with the
 // already-patched non-stream path by reconstructing response.output from those items.
@@ -948,10 +955,14 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 	misc.EnsureHeader(r.Header, ginHeaders, "Version", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Codex-Turn-Metadata", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Client-Request-Id", "")
-	cfgUserAgent, _ := codexHeaderDefaults(cfg, auth)
-	ensureHeaderWithConfigPrecedence(r.Header, ginHeaders, "User-Agent", cfgUserAgent, codexUserAgent)
+	disableCloaking := cliproxyexecutor.CodexCloakingDisabled(r.Context())
+	cfgUserAgent := ""
+	if !disableCloaking {
+		cfgUserAgent, _ = codexHeaderDefaults(cfg, auth)
+	}
+	ensureHeaderWithConfigPrecedence(r.Header, ginHeaders, "User-Agent", cfgUserAgent, codexUserAgentForCloaking(disableCloaking))
 
-	if strings.Contains(r.Header.Get("User-Agent"), "Mac OS") {
+	if !disableCloaking && strings.Contains(r.Header.Get("User-Agent"), "Mac OS") {
 		misc.EnsureHeader(r.Header, ginHeaders, "Session_id", uuid.NewString())
 	}
 
@@ -970,10 +981,10 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 	}
 	if originator := strings.TrimSpace(ginHeaders.Get("Originator")); originator != "" {
 		r.Header.Set("Originator", originator)
-	} else if !isAPIKey {
+	} else if !isAPIKey && !disableCloaking {
 		r.Header.Set("Originator", codexOriginator)
 	}
-	if !isAPIKey {
+	if !isAPIKey && !disableCloaking {
 		if auth != nil && auth.Metadata != nil {
 			if accountID, ok := auth.Metadata["account_id"].(string); ok {
 				r.Header.Set("Chatgpt-Account-Id", accountID)

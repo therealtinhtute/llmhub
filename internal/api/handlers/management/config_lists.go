@@ -7,7 +7,26 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
+
+func validateConfigCredentialWeight(weight int64) error {
+	if weight == 0 {
+		return nil
+	}
+	return coreauth.ValidateCredentialWeight(weight)
+}
+
+func applyConfigCredentialWeight(target *int64, weight *int64) error {
+	if weight == nil {
+		return nil
+	}
+	if err := validateConfigCredentialWeight(*weight); err != nil {
+		return err
+	}
+	*target = *weight
+	return nil
+}
 
 // Generic helpers for list[string]
 func (h *Handler) putStringList(c *gin.Context, set func([]string), after func()) {
@@ -139,6 +158,12 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 		}
 		arr = obj.Items
 	}
+	for i := range arr {
+		if err := validateConfigCredentialWeight(arr[i].Weight); err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("gemini-api-key[%d].weight: %v", i, err)})
+			return
+		}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cfg.GeminiKey = append([]config.GeminiKey(nil), arr...)
@@ -148,6 +173,7 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	type geminiKeyPatch struct {
 		APIKey         *string            `json:"api-key"`
+		Weight         *int64             `json:"weight"`
 		Prefix         *string            `json:"prefix"`
 		BaseURL        *string            `json:"base-url"`
 		ProxyURL       *string            `json:"proxy-url"`
@@ -196,6 +222,10 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 			return
 		}
 		entry.APIKey = trimmed
+	}
+	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
 	}
 	if body.Value.Prefix != nil {
 		entry.Prefix = strings.TrimSpace(*body.Value.Prefix)
@@ -298,6 +328,10 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 	}
 	for i := range arr {
 		normalizeClaudeKey(&arr[i])
+		if err := validateConfigCredentialWeight(arr[i].Weight); err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("claude-api-key[%d].weight: %v", i, err)})
+			return
+		}
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -308,6 +342,7 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	type claudeKeyPatch struct {
 		APIKey         *string               `json:"api-key"`
+		Weight         *int64                `json:"weight"`
 		Prefix         *string               `json:"prefix"`
 		BaseURL        *string               `json:"base-url"`
 		ProxyURL       *string               `json:"proxy-url"`
@@ -348,6 +383,10 @@ func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	entry := h.cfg.ClaudeKey[targetIndex]
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
+	}
+	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
 	}
 	if body.Value.Prefix != nil {
 		entry.Prefix = strings.TrimSpace(*body.Value.Prefix)
@@ -450,6 +489,10 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 	filtered := make([]config.OpenAICompatibility, 0, len(arr))
 	for i := range arr {
 		normalizeOpenAICompatibilityEntry(&arr[i])
+		if err := validateConfigCredentialWeight(arr[i].Weight); err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("openai-compatibility[%d].weight: %v", i, err)})
+			return
+		}
 		if strings.TrimSpace(arr[i].BaseURL) != "" {
 			filtered = append(filtered, arr[i])
 		}
@@ -462,13 +505,15 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 }
 func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	type openAICompatPatch struct {
-		Name          *string                             `json:"name"`
-		Prefix        *string                             `json:"prefix"`
-		Disabled      *bool                               `json:"disabled"`
-		BaseURL       *string                             `json:"base-url"`
-		APIKeyEntries *[]config.OpenAICompatibilityAPIKey `json:"api-key-entries"`
-		Models        *[]config.OpenAICompatibilityModel  `json:"models"`
-		Headers       *map[string]string                  `json:"headers"`
+		Name                  *string                             `json:"name"`
+		Weight                *int64                              `json:"weight"`
+		Prefix                *string                             `json:"prefix"`
+		Disabled              *bool                               `json:"disabled"`
+		BaseURL               *string                             `json:"base-url"`
+		APIKeyEntries         *[]config.OpenAICompatibilityAPIKey `json:"api-key-entries"`
+		Models                *[]config.OpenAICompatibilityModel  `json:"models"`
+		Headers               *map[string]string                  `json:"headers"`
+		SupportPromptCacheKey *bool                               `json:"support-prompt-cache-key"`
 	}
 	var body struct {
 		Name  *string            `json:"name"`
@@ -504,6 +549,10 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	if body.Value.Name != nil {
 		entry.Name = strings.TrimSpace(*body.Value.Name)
 	}
+	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 	if body.Value.Prefix != nil {
 		entry.Prefix = strings.TrimSpace(*body.Value.Prefix)
 	}
@@ -528,6 +577,9 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	}
 	if body.Value.Headers != nil {
 		entry.Headers = config.NormalizeHeaders(*body.Value.Headers)
+	}
+	if body.Value.SupportPromptCacheKey != nil {
+		entry.SupportPromptCacheKey = *body.Value.SupportPromptCacheKey
 	}
 	normalizeOpenAICompatibilityEntry(&entry)
 	h.cfg.OpenAICompatibility[targetIndex] = entry
@@ -586,6 +638,10 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 	}
 	for i := range arr {
 		normalizeVertexCompatKey(&arr[i])
+		if err := validateConfigCredentialWeight(arr[i].Weight); err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("vertex-api-key[%d].weight: %v", i, err)})
+			return
+		}
 		if arr[i].APIKey == "" {
 			c.JSON(400, gin.H{"error": fmt.Sprintf("vertex-api-key[%d].api-key is required", i)})
 			return
@@ -600,6 +656,7 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	type vertexCompatPatch struct {
 		APIKey         *string                     `json:"api-key"`
+		Weight         *int64                      `json:"weight"`
 		Prefix         *string                     `json:"prefix"`
 		BaseURL        *string                     `json:"base-url"`
 		ProxyURL       *string                     `json:"proxy-url"`
@@ -649,6 +706,10 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 			return
 		}
 		entry.APIKey = trimmed
+	}
+	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
 	}
 	if body.Value.Prefix != nil {
 		entry.Prefix = strings.TrimSpace(*body.Value.Prefix)
@@ -942,6 +1003,10 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 	for i := range arr {
 		entry := arr[i]
 		normalizeCodexKey(&entry)
+		if err := validateConfigCredentialWeight(entry.Weight); err != nil {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("codex-api-key[%d].weight: %v", i, err)})
+			return
+		}
 		if entry.BaseURL == "" {
 			continue
 		}
@@ -956,8 +1021,10 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 func (h *Handler) PatchCodexKey(c *gin.Context) {
 	type codexKeyPatch struct {
 		APIKey         *string              `json:"api-key"`
+		Weight         *int64               `json:"weight"`
 		Prefix         *string              `json:"prefix"`
 		BaseURL        *string              `json:"base-url"`
+		AlphaSearch    *bool                `json:"alpha-search"`
 		ProxyURL       *string              `json:"proxy-url"`
 		Models         *[]config.CodexModel `json:"models"`
 		Headers        *map[string]string   `json:"headers"`
@@ -997,6 +1064,10 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
+	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 	if body.Value.Prefix != nil {
 		entry.Prefix = strings.TrimSpace(*body.Value.Prefix)
 	}
@@ -1009,6 +1080,9 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 			return
 		}
 		entry.BaseURL = trimmed
+	}
+	if body.Value.AlphaSearch != nil {
+		entry.AlphaSearch = *body.Value.AlphaSearch
 	}
 	if body.Value.ProxyURL != nil {
 		entry.ProxyURL = strings.TrimSpace(*body.Value.ProxyURL)

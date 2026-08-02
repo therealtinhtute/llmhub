@@ -327,6 +327,8 @@ type OpenAIResponsesAPIHandler struct {
 	*handlers.BaseAPIHandler
 }
 
+const codexAlphaSearchHandlerType = "codex-alpha-search"
+
 // NewOpenAIResponsesAPIHandler creates a new OpenAIResponses API handlers instance.
 // It takes an BaseAPIHandler instance as input and returns an OpenAIResponsesAPIHandler.
 //
@@ -390,6 +392,44 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 		h.handleNonStreamingResponse(c, rawJSON)
 	}
 
+}
+
+func (h *OpenAIResponsesAPIHandler) AlphaSearch(c *gin.Context) {
+	rawJSON, err := handlers.ReadRequestBody(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: fmt.Sprintf("Invalid request: %v", err),
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	if gjson.GetBytes(rawJSON, "stream").Type == gjson.True {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "Streaming not supported for alpha search",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	c.Header("Content-Type", "application/json")
+	modelName := gjson.GetBytes(rawJSON, "model").String()
+	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
+	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(cliCtx, codexAlphaSearchHandlerType, modelName, rawJSON, "")
+	stopKeepAlive()
+	if errMsg != nil {
+		h.WriteErrorResponse(c, errMsg)
+		cliCancel(errMsg.Error)
+		return
+	}
+	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
+	_, _ = c.Writer.Write(resp)
+	cliCancel()
 }
 
 func (h *OpenAIResponsesAPIHandler) Compact(c *gin.Context) {

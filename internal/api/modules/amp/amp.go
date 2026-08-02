@@ -9,10 +9,10 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api/modules"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
-	log "github.com/sirupsen/logrus"
 )
 
 // Option configures the AmpModule.
@@ -133,7 +133,7 @@ func (m *AmpModule) Register(ctx modules.Context) error {
 		m.setRestrictToLocalhost(settings.RestrictManagementToLocalhost)
 
 		// Always register provider aliases - these work without an upstream
-		m.registerProviderAliases(ctx.Engine, ctx.BaseHandler, auth)
+		m.registerProviderAliases(ctx.Engine, ctx.BaseHandler, auth, ctx.RuntimeControlMiddleware)
 
 		// Register management proxy routes once; middleware will gate access when upstream is unavailable.
 		// Pass auth middleware to require valid API key for all management routes.

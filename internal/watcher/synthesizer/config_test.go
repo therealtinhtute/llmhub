@@ -646,3 +646,65 @@ func TestConfigSynthesizer_AllProviders(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigSynthesizer_StaticProviderWeights(t *testing.T) {
+	synth := NewConfigSynthesizer()
+	ctx := &SynthesisContext{
+		Config: &config.Config{
+			GeminiKey: []config.GeminiKey{{APIKey: "gemini-key", Weight: 2}},
+			ClaudeKey: []config.ClaudeKey{{APIKey: "claude-key", Weight: 3}},
+			CodexKey:  []config.CodexKey{{APIKey: "codex-key", Weight: 4}},
+			OpenAICompatibility: []config.OpenAICompatibility{{
+				Name:    "compat",
+				BaseURL: "https://compat.api",
+				Weight:  5,
+				APIKeyEntries: []config.OpenAICompatibilityAPIKey{
+					{APIKey: "compat-key"},
+				},
+			}},
+			VertexCompatAPIKey: []config.VertexCompatKey{{APIKey: "vertex-key", BaseURL: "https://vertex.api", Weight: 6}},
+		},
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, err := synth.Synthesize(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]string{
+		"gemini": "2",
+		"claude": "3",
+		"codex":  "4",
+		"compat": "5",
+		"vertex": "6",
+	}
+	for _, auth := range auths {
+		if got, ok := want[auth.Provider]; ok && auth.Attributes["weight"] != got {
+			t.Fatalf("expected %s weight %s, got %q", auth.Provider, got, auth.Attributes["weight"])
+		}
+	}
+}
+
+func TestConfigSynthesizer_DefaultStaticProviderWeightsAreOmitted(t *testing.T) {
+	synth := NewConfigSynthesizer()
+	ctx := &SynthesisContext{
+		Config: &config.Config{
+			GeminiKey: []config.GeminiKey{{APIKey: "gemini-key", Weight: coreauth.DefaultCredentialWeight}},
+			ClaudeKey: []config.ClaudeKey{{APIKey: "claude-key"}},
+		},
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, err := synth.Synthesize(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, auth := range auths {
+		if _, ok := auth.Attributes["weight"]; ok {
+			t.Fatalf("expected default weight to be omitted for %s, got %v", auth.Provider, auth.Attributes)
+		}
+	}
+}

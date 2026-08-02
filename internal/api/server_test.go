@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,8 +17,10 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
+	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	sdkaccess "github.com/therealtinhtute/llmhub/sdk/access"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
 )
 
@@ -34,6 +37,18 @@ func newTestServerWithOptions(t *testing.T, options ...ServerOption) *Server {
 func newTestServerWithAuthManager(t *testing.T, authManager *auth.Manager) *Server {
 	t.Helper()
 	return newTestServerWithAuthManagerAndOptions(t, authManager)
+}
+
+type runtimeControlContextStore struct {
+	settings runtimecontrol.Settings
+}
+
+func (s *runtimeControlContextStore) LoadRuntimeSettings(context.Context) (runtimecontrol.Settings, error) {
+	return s.settings, nil
+}
+
+func (s *runtimeControlContextStore) SaveRuntimeSettings(context.Context, int64, runtimecontrol.Settings) (runtimecontrol.Settings, error) {
+	return runtimecontrol.Settings{}, nil
 }
 
 func newTestServerWithAuthManagerAndOptions(t *testing.T, authManager *auth.Manager, options ...ServerOption) *Server {
@@ -99,6 +114,31 @@ func TestHealthz(t *testing.T) {
 			t.Fatalf("expected empty body for HEAD request, got %q", rr.Body.String())
 		}
 	})
+}
+
+func TestRuntimeControlRequestContextDisablesCodexCloaking(t *testing.T) {
+	store := &runtimeControlContextStore{settings: runtimecontrol.Settings{Cloaking: runtimecontrol.CloakingSettings{DisableCodex: true}}}
+	server := newTestServerWithOptions(t, WithRuntimeSettingsStore(store))
+	router := gin.New()
+	router.Use(server.runtimeControlRequestContext())
+	router.GET("/probe", func(c *gin.Context) {
+		if !coreexecutor.CodexCloakingDisabled(c.Request.Context()) {
+			t.Fatal("request context did not disable Codex cloaking")
+		}
+		ctx, cancel := server.handlers.GetContextWithCancel(nil, c, context.Background())
+		defer cancel()
+		if !coreexecutor.CodexCloakingDisabled(ctx) {
+			t.Fatal("handler execution context did not preserve Codex cloaking disable")
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
 }
 
 func TestManagementUsageRequiresManagementAuthAndPopsArray(t *testing.T) {

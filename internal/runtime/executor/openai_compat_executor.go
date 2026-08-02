@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
@@ -22,6 +23,7 @@ import (
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -121,6 +123,12 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
 	translated = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", translated, originalTranslated, requestedModel, requestPath, opts.Headers)
+	if opts.Alt != "responses/compact" {
+		translated, err = e.applyPromptCacheKey(ctx, auth, req, opts, translated)
+		if err != nil {
+			return resp, err
+		}
+	}
 	if opts.Alt == "responses/compact" {
 		if updated, errDelete := sjson.DeleteBytes(translated, "stream"); errDelete == nil {
 			translated = updated
@@ -316,6 +324,10 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
 	translated = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", translated, originalTranslated, requestedModel, requestPath, opts.Headers)
+	translated, err = e.applyPromptCacheKey(ctx, auth, req, opts, translated)
+	if err != nil {
+		return nil, err
+	}
 
 	// Request usage data in the final streaming chunk so that token statistics
 	// are captured even when the upstream is an OpenAI-compatible provider.
@@ -760,6 +772,43 @@ func (e *OpenAICompatExecutor) resolveCompatConfig(auth *cliproxyauth.Auth) *con
 		}
 	}
 	return nil
+}
+
+func (e *OpenAICompatExecutor) applyPromptCacheKey(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, translated []byte) ([]byte, error) {
+	compat := e.resolveCompatConfig(auth)
+	if compat == nil || !compat.SupportPromptCacheKey {
+		return translated, nil
+	}
+	if promptCacheKey := strings.TrimSpace(gjson.GetBytes(req.Payload, "prompt_cache_key").String()); promptCacheKey != "" {
+		return sjson.SetBytes(translated, "prompt_cache_key", promptCacheKey)
+	}
+	if promptCacheKey := strings.TrimSpace(openAICompatMetadataString(opts.Metadata, cliproxyexecutor.ExecutionSessionMetadataKey)); promptCacheKey != "" {
+		return sjson.SetBytes(translated, "prompt_cache_key", promptCacheKey)
+	}
+	if promptCacheKey := strings.TrimSpace(openAICompatMetadataString(req.Metadata, cliproxyexecutor.ExecutionSessionMetadataKey)); promptCacheKey != "" {
+		return sjson.SetBytes(translated, "prompt_cache_key", promptCacheKey)
+	}
+	if derived := helps.DerivedSessionUUID(e.Identifier(), opts.Metadata, req.Metadata); derived != "" {
+		return sjson.SetBytes(translated, "prompt_cache_key", derived)
+	}
+	if apiKey := strings.TrimSpace(helps.APIKeyFromContext(ctx)); apiKey != "" {
+		return sjson.SetBytes(translated, "prompt_cache_key", uuid.NewSHA1(uuid.NameSpaceOID, []byte("llmhub:openai-compat:prompt-cache:"+apiKey)).String())
+	}
+	return translated, nil
+}
+
+func openAICompatMetadataString(meta map[string]any, key string) string {
+	if len(meta) == 0 || key == "" {
+		return ""
+	}
+	value, ok := meta[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return fmt.Sprint(value)
 }
 
 func (e *OpenAICompatExecutor) overrideModel(payload []byte, model string) []byte {

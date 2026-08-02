@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/thinking"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -52,7 +53,9 @@ func (r *Registry) TranslateRequest(from, to Format, model string, rawJSON []byt
 
 	if byTarget, ok := r.requests[from]; ok {
 		if fn, isOk := byTarget[to]; isOk && fn != nil {
-			return fn(model, rawJSON, stream)
+			summaryConfig := thinking.ExtractSummaryConfig(rawJSON, from.String())
+			body := fn(model, rawJSON, stream)
+			return thinking.ApplySummaryConfigForModel(body, to.String(), model, summaryConfig)
 		}
 	}
 	if model != "" && gjson.GetBytes(rawJSON, "model").String() != model {

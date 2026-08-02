@@ -94,6 +94,7 @@ func purgeExpiredCaches() {
 		}
 		return true
 	})
+	purgeExpiredKimiThinkingReplayCache(now)
 }
 
 // CacheSignature stores a thinking signature for a given model group and text.

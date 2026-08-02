@@ -166,6 +166,7 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 	// Process messages and transform them to Claude Code format
 	if messages := root.Get("messages"); messages.Exists() && messages.IsArray() {
 		messageIndex := 0
+		previousRole := ""
 		messages.ForEach(func(_, message gjson.Result) bool {
 			role := message.Get("role").String()
 			contentResult := message.Get("content")
@@ -213,6 +214,7 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 							if toolCallID == "" {
 								toolCallID = genToolCallID()
 							}
+							toolCallID = util.SanitizeClaudeToolID(toolCallID)
 
 							function := toolCall.Get("function")
 							toolUse := []byte(`{"type":"tool_use","id":"","name":"","input":{}}`)
@@ -258,9 +260,15 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 				} else {
 					msg, _ = sjson.SetBytes(msg, "content.0.content", toolResultContent)
 				}
-				out, _ = sjson.SetRawBytes(out, "messages.-1", msg)
-				messageIndex++
+				if previousRole == "tool" && messageIndex > 0 {
+					toolResult := gjson.GetBytes(msg, "content.0")
+					out, _ = sjson.SetRawBytes(out, fmt.Sprintf("messages.%d.content.-1", messageIndex-1), []byte(toolResult.Raw))
+				} else {
+					out, _ = sjson.SetRawBytes(out, "messages.-1", msg)
+					messageIndex++
+				}
 			}
+			previousRole = role
 			return true
 		})
 

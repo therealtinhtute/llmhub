@@ -391,6 +391,9 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 		}
 	}
 	newCtx, cancel := context.WithCancel(parentCtx)
+	if requestCtx != nil && coreexecutor.CodexCloakingDisabled(requestCtx) {
+		newCtx = coreexecutor.WithCodexCloakingDisabled(newCtx)
+	}
 
 	endpoint := ""
 	if c != nil && c.Request != nil {
@@ -566,6 +569,34 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 	if len(payload) == 0 {
 		payload = nil
 	}
+	headers := headersFromContext(ctx)
+	lifecycleReq := &RequestLifecycleRequest{
+		HandlerType:     handlerType,
+		Model:           modelName,
+		NormalizedModel: normalizedModel,
+		Alt:             alt,
+		Stream:          false,
+		Payload:         cloneBytes(payload),
+		Headers:         cloneHeader(headers),
+		Metadata:        cloneLifecycleMetadata(reqMeta),
+	}
+	plugin := requestLifecyclePlugin(ctx)
+	if plugin != nil {
+		decision, err := plugin.InterceptBefore(ctx, lifecycleReq)
+		if err != nil {
+			return nil, nil, lifecycleErrorMessage(err)
+		}
+		if decision != nil && decision.Termination != nil {
+			if errMsg := lifecycleTerminationError(decision.Termination); errMsg != nil {
+				return nil, nil, errMsg
+			}
+			body, addon := lifecycleTerminationPayload(decision.Termination)
+			return body, addon, nil
+		}
+		payload, headers = applyLifecycleDecision(payload, headers, decision)
+		lifecycleReq.Payload = cloneBytes(payload)
+		lifecycleReq.Headers = cloneHeader(headers)
+	}
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: payload,
@@ -575,7 +606,7 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 		Alt:             alt,
 		OriginalRequest: rawJSON,
 		SourceFormat:    sdktranslator.FromString(handlerType),
-		Headers:         headersFromContext(ctx),
+		Headers:         headers,
 	}
 	opts.Metadata = reqMeta
 	resp, err := h.AuthManager.Execute(ctx, providers, req, opts)
@@ -593,12 +624,35 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 				addon = hdr.Clone()
 			}
 		}
-		return nil, nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		if plugin != nil {
+			_, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: false, Error: errMsg})
+			if hookErr != nil {
+				return nil, nil, lifecycleErrorMessage(hookErr)
+			}
+		}
+		return nil, nil, errMsg
 	}
-	if !PassthroughHeadersEnabled(h.Cfg) {
-		return resp.Payload, nil, nil
+	upstreamHeaders := http.Header(nil)
+	if PassthroughHeadersEnabled(h.Cfg) {
+		upstreamHeaders = FilterUpstreamHeaders(resp.Headers)
 	}
-	return resp.Payload, FilterUpstreamHeaders(resp.Headers), nil
+	payload = resp.Payload
+	if plugin != nil {
+		decision, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: false, Payload: cloneBytes(payload), Headers: cloneHeader(upstreamHeaders)})
+		if hookErr != nil {
+			return nil, nil, lifecycleErrorMessage(hookErr)
+		}
+		if decision != nil && decision.Termination != nil {
+			if errMsg := lifecycleTerminationError(decision.Termination); errMsg != nil {
+				return nil, nil, errMsg
+			}
+			body, addon := lifecycleTerminationPayload(decision.Termination)
+			return body, addon, nil
+		}
+		payload, upstreamHeaders = applyLifecycleDecision(payload, upstreamHeaders, decision)
+	}
+	return payload, upstreamHeaders, nil
 }
 
 // ExecuteCountWithAuthManager executes a non-streaming request via the core auth manager.
@@ -677,6 +731,47 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 	if len(payload) == 0 {
 		payload = nil
 	}
+	headers := headersFromContext(ctx)
+	lifecycleReq := &RequestLifecycleRequest{
+		HandlerType:     handlerType,
+		Model:           modelName,
+		NormalizedModel: normalizedModel,
+		Alt:             alt,
+		Stream:          true,
+		Payload:         cloneBytes(payload),
+		Headers:         cloneHeader(headers),
+		Metadata:        cloneLifecycleMetadata(reqMeta),
+	}
+	plugin := requestLifecyclePlugin(ctx)
+	if plugin != nil {
+		decision, hookErr := plugin.InterceptBefore(ctx, lifecycleReq)
+		if hookErr != nil {
+			errChan := make(chan *interfaces.ErrorMessage, 1)
+			errChan <- lifecycleErrorMessage(hookErr)
+			close(errChan)
+			return nil, nil, errChan
+		}
+		if decision != nil && decision.Termination != nil {
+			errChan := make(chan *interfaces.ErrorMessage, 1)
+			if errMsg := lifecycleTerminationError(decision.Termination); errMsg != nil {
+				errChan <- errMsg
+			} else {
+				body, _ := lifecycleTerminationPayload(decision.Termination)
+				if len(body) > 0 {
+					dataChan := make(chan []byte, 1)
+					dataChan <- body
+					close(dataChan)
+					close(errChan)
+					return dataChan, cloneHeader(decision.Termination.Headers), errChan
+				}
+			}
+			close(errChan)
+			return nil, cloneHeader(decision.Termination.Headers), errChan
+		}
+		payload, headers = applyLifecycleDecision(payload, headers, decision)
+		lifecycleReq.Payload = cloneBytes(payload)
+		lifecycleReq.Headers = cloneHeader(headers)
+	}
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: payload,
@@ -686,7 +781,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		Alt:             alt,
 		OriginalRequest: rawJSON,
 		SourceFormat:    sdktranslator.FromString(handlerType),
-		Headers:         headersFromContext(ctx),
+		Headers:         headers,
 	}
 	opts.Metadata = reqMeta
 	streamResult, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
@@ -705,7 +800,16 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 				addon = hdr.Clone()
 			}
 		}
-		errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		if plugin != nil {
+			_, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: true, Error: errMsg})
+			if hookErr != nil {
+				errChan <- lifecycleErrorMessage(hookErr)
+				close(errChan)
+				return nil, nil, errChan
+			}
+		}
+		errChan <- errMsg
 		close(errChan)
 		return nil, nil, errChan
 	}
@@ -728,6 +832,19 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		sentPayload := false
 		bootstrapRetries := 0
 		maxBootstrapRetries := StreamingBootstrapRetries(h.Cfg)
+		emitter := NewSafeStreamEmitter(func(chunk []byte) bool {
+			if ctx == nil {
+				dataChan <- chunk
+				return true
+			}
+			select {
+			case <-ctx.Done():
+				return false
+			case dataChan <- chunk:
+				return true
+			}
+		})
+		defer func() { _ = emitter.Close() }()
 
 		sendErr := func(msg *interfaces.ErrorMessage) bool {
 			if ctx == nil {
@@ -743,16 +860,33 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		}
 
 		sendData := func(chunk []byte) bool {
-			if ctx == nil {
-				dataChan <- chunk
-				return true
-			}
-			select {
-			case <-ctx.Done():
+			result := emitter.Emit(chunk)
+			if result.Err != nil {
+				_ = sendErr(&interfaces.ErrorMessage{StatusCode: http.StatusInternalServerError, Error: result.Err})
 				return false
-			case dataChan <- chunk:
+			}
+			return result.Accepted
+		}
+
+		notifyAfter := func(resp *RequestLifecycleResponse) bool {
+			if plugin == nil {
 				return true
 			}
+			decision, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, resp)
+			if hookErr != nil {
+				return sendErr(lifecycleErrorMessage(hookErr))
+			}
+			if decision == nil || decision.Termination == nil {
+				return true
+			}
+			if errMsg := lifecycleTerminationError(decision.Termination); errMsg != nil {
+				return sendErr(errMsg)
+			}
+			body, _ := lifecycleTerminationPayload(decision.Termination)
+			if len(body) == 0 {
+				return true
+			}
+			return sendData(body)
 		}
 
 		bootstrapEligible := func(err error) bool {
@@ -784,6 +918,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 					chunk, ok = <-chunks
 				}
 				if !ok {
+					_ = notifyAfter(&RequestLifecycleResponse{Stream: true, Headers: cloneHeader(upstreamHeaders)})
 					return
 				}
 				if chunk.Err != nil {
@@ -817,7 +952,26 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 							addon = hdr.Clone()
 						}
 					}
-					_ = sendErr(&interfaces.ErrorMessage{StatusCode: status, Error: streamErr, Addon: addon})
+					errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: streamErr, Addon: addon}
+					if plugin != nil {
+						decision, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: true, Headers: cloneHeader(upstreamHeaders), Error: errMsg})
+						if hookErr != nil {
+							_ = sendErr(lifecycleErrorMessage(hookErr))
+							return
+						}
+						if decision != nil && decision.Termination != nil {
+							if hookErrMsg := lifecycleTerminationError(decision.Termination); hookErrMsg != nil {
+								_ = sendErr(hookErrMsg)
+								return
+							}
+							body, _ := lifecycleTerminationPayload(decision.Termination)
+							if len(body) > 0 {
+								_ = sendData(body)
+							}
+							return
+						}
+					}
+					_ = sendErr(errMsg)
 					return
 				}
 				if len(chunk.Payload) > 0 {

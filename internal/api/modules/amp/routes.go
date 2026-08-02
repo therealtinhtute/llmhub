@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers/claude"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers/gemini"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers/openai"
-	log "github.com/sirupsen/logrus"
 )
 
 // clientAPIKeyContextKey is the context key used to pass the client API key
@@ -263,7 +263,7 @@ func (m *AmpModule) registerManagementRoutes(engine *gin.Engine, baseHandler *ha
 //	/api/provider/openai/v1/chat/completions
 //	/api/provider/anthropic/v1/messages
 //	/api/provider/google/v1beta/models
-func (m *AmpModule) registerProviderAliases(engine *gin.Engine, baseHandler *handlers.BaseAPIHandler, auth gin.HandlerFunc) {
+func (m *AmpModule) registerProviderAliases(engine *gin.Engine, baseHandler *handlers.BaseAPIHandler, auth gin.HandlerFunc, runtimeControl ...gin.HandlerFunc) {
 	// Create handler instances for different providers
 	openaiHandlers := openai.NewOpenAIAPIHandler(baseHandler)
 	geminiHandlers := gemini.NewGeminiAPIHandler(baseHandler)
@@ -281,6 +281,9 @@ func (m *AmpModule) registerProviderAliases(engine *gin.Engine, baseHandler *han
 	ampProviders := engine.Group("/api/provider")
 	if auth != nil {
 		ampProviders.Use(auth)
+	}
+	if len(runtimeControl) > 0 && runtimeControl[0] != nil {
+		ampProviders.Use(runtimeControl[0])
 	}
 	// Inject client API key into request context for per-client upstream routing
 	ampProviders.Use(clientAPIKeyMiddleware())

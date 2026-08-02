@@ -677,6 +677,30 @@ func TestConvertCodexResponseToClaude_StreamNewFunctionCallClosesPreviousFunctio
 	assertClaudeContentLifecycle(t, chunks, 0, want)
 }
 
+func TestConvertCodexResponseToClaude_StreamInterleavedFunctionCallArgumentsAreSerialized(t *testing.T) {
+	chunks := [][]byte{
+		[]byte(`data: {"type":"response.output_item.added","output_index":3,"item":{"id":"function_3","type":"function_call","call_id":"call_3","name":"first"}}`),
+		[]byte(`data: {"type":"response.function_call_arguments.delta","output_index":3,"item_id":"function_3","delta":"{\"a\":"}`),
+		[]byte(`data: {"type":"response.output_item.added","output_index":9,"item":{"id":"function_9","type":"function_call","call_id":"call_9","name":"second"}}`),
+		[]byte(`data: {"type":"response.function_call_arguments.delta","output_index":9,"item_id":"function_9","delta":"{\"b\":2}"}`),
+		[]byte(`data: {"type":"response.function_call_arguments.delta","output_index":3,"item_id":"function_3","delta":"1}"}`),
+		[]byte(`data: {"type":"response.output_item.done","output_index":3,"item":{"id":"function_3","type":"function_call","call_id":"call_3","name":"first"}}`),
+		[]byte(`data: {"type":"response.output_item.done","output_index":9,"item":{"id":"function_9","type":"function_call","call_id":"call_9","name":"second"}}`),
+	}
+	want := `start:tool_use:3,delta:input_json_delta:3:,delta:input_json_delta:3:{"a":,delta:input_json_delta:3:1},stop:3,start:tool_use:9,delta:input_json_delta:9:,delta:input_json_delta:9:{"b":2},stop:9`
+	assertClaudeContentLifecycle(t, chunks, 0, want)
+}
+
+func TestConvertCodexResponseToClaude_StreamTerminalFunctionCallArgumentsAreNotDuplicated(t *testing.T) {
+	chunks := [][]byte{
+		[]byte(`data: {"type":"response.output_item.added","output_index":3,"item":{"id":"function_3","type":"function_call","call_id":"call_3","name":"first"}}`),
+		[]byte(`data: {"type":"response.function_call_arguments.done","output_index":3,"item_id":"function_3","arguments":"{\"a\":1}"}`),
+		[]byte(`data: {"type":"response.output_item.done","output_index":3,"item":{"id":"function_3","type":"function_call","call_id":"call_3","name":"first","arguments":"{\"a\":1}"}}`),
+	}
+	want := `start:tool_use:3,delta:input_json_delta:3:,delta:input_json_delta:3:{"a":1},stop:3`
+	assertClaudeContentLifecycle(t, chunks, 0, want)
+}
+
 func assertClaudeContentLifecycle(t *testing.T, chunks [][]byte, initialIndex int, want string) {
 	t.Helper()
 	ctx := context.Background()

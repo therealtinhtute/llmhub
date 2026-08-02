@@ -27,7 +27,7 @@ Priority = Value + Fit − Blast radius. Rank slices; do not treat the number as
 
 ## Step 3 — apply the invariant gate
 
-A slice that inverts any local invariant is `exclude`, regardless of score. For llmhub the
+A slice that inverts any local invariant is `exclude`, regardless of score, unless the user has explicitly mandated the scope. User-mandated scope must be recorded as `adapt` with constraints that preserve local invariants; use `AskUserQuestion` only when the requested behavior is impossible, destructive, or requires breaking a non-negotiable invariant. For llmhub the
 standing invariants are:
 
 1. Postgres is the authoritative runtime store for config, credentials, and state — no
@@ -71,8 +71,8 @@ Use `AskUserQuestion`. Scope is always the user's call.
 python3 .claude/skills/upstream/scripts/upstream_sync.py policy \
   --slug {slug} \
   --strategy targeted-semantic-ports \
-  --include codex-live-full postgres-backed-controls \
-  --exclude plugin-platform file-authoritative-runtime wholesale-source-merge
+  --include codex-live-full postgres-backed-controls plugin-platform \
+  --exclude file-authoritative-runtime wholesale-source-merge
 ```
 
 The recorded policy is the authority the plan cites. If the plan and the policy disagree,
@@ -81,7 +81,7 @@ the policy is wrong — rerun `policy`, do not edit the plan to match.
 ## Anti-patterns
 
 - **Porting everything because it is there.** A fork that tracks upstream commit-for-commit
-  is a fork with no reason to exist. Default to `reject` and let value argue upward.
+  is a fork with no reason to exist. Default to explicit evidence-based triage; do not reject user-mandated scope unless it is impossible, destructive, or breaks a non-negotiable invariant.
 - **Deferring without a trigger.** `defer` needs the condition that pulls it back in.
 - **Scoring after the decision.** If the slice list was written to justify a conclusion, the
   rubric added nothing.

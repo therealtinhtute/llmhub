@@ -28,6 +28,7 @@ const PROVIDER_KEY_FIELDS = [
   'api-key',
   'apiKey',
   'priority',
+  'weight',
   'prefix',
   'base-url',
   'baseUrl',
@@ -52,6 +53,7 @@ const VERTEX_KEY_FIELDS = GEMINI_KEY_FIELDS;
 const OPENAI_PROVIDER_FIELDS = [
   'name',
   'priority',
+  'weight',
   'disabled',
   'prefix',
   'base-url',
@@ -90,6 +92,7 @@ const API_KEY_ENTRY_FIELDS = [
   'proxy-url',
   'proxyUrl',
   'proxy_url',
+  'headers',
 ] as const;
 
 const CLOAK_FIELDS = [
@@ -331,6 +334,7 @@ const serializeApiKeyEntry = (entry: ApiKeyEntry) => {
 const serializeProviderKey = (config: ProviderKeyConfig) => {
   const payload: Record<string, unknown> = { 'api-key': config.apiKey };
   if (config.priority !== undefined) payload.priority = config.priority;
+  if (config.weight !== undefined) payload.weight = config.weight;
   if (config.prefix?.trim()) payload.prefix = config.prefix.trim();
   if (config.baseUrl) payload['base-url'] = config.baseUrl;
   if (config.websockets !== undefined) payload.websockets = config.websockets;
@@ -373,6 +377,7 @@ const serializeVertexModelAliases = (models?: ModelAlias[]) =>
 const serializeVertexKey = (config: ProviderKeyConfig) => {
   const payload: Record<string, unknown> = { 'api-key': config.apiKey };
   if (config.priority !== undefined) payload.priority = config.priority;
+  if (config.weight !== undefined) payload.weight = config.weight;
   if (config.prefix?.trim()) payload.prefix = config.prefix.trim();
   if (config.baseUrl) payload['base-url'] = config.baseUrl;
   if (config.proxyUrl) payload['proxy-url'] = config.proxyUrl;
@@ -389,6 +394,7 @@ const serializeVertexKey = (config: ProviderKeyConfig) => {
 const serializeGeminiKey = (config: GeminiKeyConfig) => {
   const payload: Record<string, unknown> = { 'api-key': config.apiKey };
   if (config.priority !== undefined) payload.priority = config.priority;
+  if (config.weight !== undefined) payload.weight = config.weight;
   if (config.prefix?.trim()) payload.prefix = config.prefix.trim();
   if (config.baseUrl) payload['base-url'] = config.baseUrl;
   if (config.proxyUrl) payload['proxy-url'] = config.proxyUrl;
@@ -417,6 +423,7 @@ const serializeOpenAIProvider = (provider: OpenAIProviderConfig) => {
   const models = serializeModelAliases(provider.models);
   if (models && models.length) payload.models = models;
   if (provider.priority !== undefined) payload.priority = provider.priority;
+  if (provider.weight !== undefined) payload.weight = provider.weight;
   if (provider.testModel) payload['test-model'] = provider.testModel;
   return payload;
 };

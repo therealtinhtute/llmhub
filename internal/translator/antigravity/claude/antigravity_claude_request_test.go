@@ -114,6 +114,34 @@ func testGeminiRawSignature(t *testing.T) string {
 	return signature
 }
 
+func testClaudeCAISSignature(t *testing.T) string {
+	t.Helper()
+
+	channelBlock := []byte{}
+	channelBlock = protowire.AppendTag(channelBlock, 1, protowire.VarintType)
+	channelBlock = protowire.AppendVarint(channelBlock, 12)
+	channelBlock = protowire.AppendTag(channelBlock, 5, protowire.BytesType)
+	channelBlock = protowire.AppendBytes(channelBlock, bytes.Repeat([]byte{0x44}, 64))
+	channelBlock = protowire.AppendTag(channelBlock, 6, protowire.BytesType)
+	channelBlock = protowire.AppendString(channelBlock, "claude-sonnet-4-6")
+
+	container := []byte{}
+	container = protowire.AppendTag(container, 1, protowire.BytesType)
+	container = protowire.AppendBytes(container, channelBlock)
+
+	payload := []byte{}
+	payload = protowire.AppendTag(payload, 1, protowire.VarintType)
+	payload = protowire.AppendVarint(payload, 1)
+	payload = protowire.AppendTag(payload, 2, protowire.BytesType)
+	payload = protowire.AppendBytes(payload, container)
+
+	signature := base64.StdEncoding.EncodeToString(payload)
+	if signature[0] != 'C' {
+		t.Fatalf("test setup: expected C-prefixed CAIS signature, got %q", signature[0])
+	}
+	return signature
+}
+
 func TestConvertClaudeRequestToAntigravity_BasicStructure(t *testing.T) {
 	inputJSON := []byte(`{
 		"model": "claude-3-5-sonnet-20240620",
@@ -279,6 +307,27 @@ func TestValidateBypassMode_RejectsMissingSignature(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing thinking signature") {
 		t.Fatalf("expected missing signature message, got: %v", err)
+	}
+}
+
+func TestValidateBypassMode_RejectsCAISSignature(t *testing.T) {
+	inputJSON := []byte(`{
+		"messages": [
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "one", "signature": "` + testClaudeCAISSignature(t) + `"}
+				]
+			}
+		]
+	}`)
+
+	err := ValidateClaudeBypassSignatures(inputJSON)
+	if err == nil {
+		t.Fatal("expected CAIS signature to be rejected for Antigravity Claude bypass")
+	}
+	if !strings.Contains(err.Error(), "expected 'E' or 'R'") {
+		t.Fatalf("unexpected CAIS rejection error: %v", err)
 	}
 }
 
@@ -778,6 +827,38 @@ func TestConvertClaudeRequestToAntigravity_BypassModeDropsGeminiSignature(t *tes
 	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
 	if len(parts) != 1 {
 		t.Fatalf("expected Gemini-signed thinking block to be dropped, got %d parts", len(parts))
+	}
+	if parts[0].Get("text").String() != "Answer" {
+		t.Fatalf("expected remaining text part, got %s", parts[0].Raw)
+	}
+}
+
+func TestConvertClaudeRequestToAntigravity_BypassModeDropsCAISSignature(t *testing.T) {
+	cache.ClearSignatureCache("")
+	previous := cache.SignatureCacheEnabled()
+	cache.SetSignatureCacheEnabled(false)
+	t.Cleanup(func() {
+		cache.SetSignatureCacheEnabled(previous)
+		cache.ClearSignatureCache("")
+	})
+
+	inputJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
+		"messages": [
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "hmm", "signature": "` + testClaudeCAISSignature(t) + `"},
+					{"type": "text", "text": "Answer"}
+				]
+			}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
+	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
+	if len(parts) != 1 {
+		t.Fatalf("expected CAIS-signed thinking block to be dropped, got %d parts", len(parts))
 	}
 	if parts[0].Get("text").String() != "Answer" {
 		t.Fatalf("expected remaining text part, got %s", parts[0].Raw)

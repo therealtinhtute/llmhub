@@ -111,6 +111,7 @@ export interface ProviderEntryFormInput {
   prefix: string;
   disabled: boolean;
   priority?: number;
+  weight?: number;
 
   /** 高级折叠区 */
   models: ModelEntryInput[];

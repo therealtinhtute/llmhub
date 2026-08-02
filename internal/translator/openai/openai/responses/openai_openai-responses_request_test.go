@@ -186,3 +186,54 @@ func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_PreservesToolSetti
 		t.Fatalf("tool_choice.function.name = %q, want run_command; output=%s", got, out)
 	}
 }
+
+func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_ConvertsAdditionalTools(t *testing.T) {
+	raw := []byte(`{
+		"input": [{
+			"type": "additional_tools",
+			"tools": [{"type":"custom","name":"ask_user","description":"Ask user"}]
+		}],
+		"tool_choice": "auto",
+		"parallel_tool_calls": true
+	}`)
+	out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("gpt-5.4", raw, false)
+	if got := gjson.GetBytes(out, "tools.0.function.name").String(); got != "ask_user" {
+		t.Fatalf("tools.0.function.name = %q, want ask_user; output=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "tools.0.function.parameters.properties.input.type").String(); got != "string" {
+		t.Fatalf("custom tool input schema type = %q, want string; output=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "tool_choice").String(); got != "auto" {
+		t.Fatalf("tool_choice = %q, want auto; output=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "parallel_tool_calls"); !got.Exists() || !got.Bool() {
+		t.Fatalf("parallel_tool_calls = %v, want true; output=%s", got.Value(), out)
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_ConvertsNamespaceTools(t *testing.T) {
+	raw := []byte(`{
+		"tools": [{
+			"type": "namespace",
+			"name": "shell",
+			"tools": [
+				{"type":"function","name":"run","description":"Run command","parameters":{"type":"object"}},
+				{"type":"custom","name":"edit","description":"Patch file"}
+			]
+		}],
+		"input": [{"type":"function_call","call_id":"call_1","namespace":"shell","name":"run","arguments":"{}"}]
+	}`)
+	out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("gpt-5.4", raw, false)
+	if got := gjson.GetBytes(out, "tools.0.function.name").String(); got != "shell__run" {
+		t.Fatalf("tools.0.function.name = %q, want shell__run; output=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "tools.1.function.name").String(); got != "shell__edit" {
+		t.Fatalf("tools.1.function.name = %q, want shell__edit; output=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "tools.1.function.parameters.properties.input.type").String(); got != "string" {
+		t.Fatalf("namespace custom input schema type = %q, want string; output=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "messages.0.tool_calls.0.function.name").String(); got != "shell__run" {
+		t.Fatalf("namespaced function call name = %q, want shell__run; output=%s", got, out)
+	}
+}

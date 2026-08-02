@@ -3900,6 +3900,25 @@ func (m *Manager) routeAwareSelectionRequired(auth *Auth, routeModel string) boo
 	return m.selectionModelKeyForAuth(auth, routeModel) != canonicalModelKey(routeModel)
 }
 
+func codexAlphaSearchRequired(opts cliproxyexecutor.Options) bool {
+	return strings.EqualFold(strings.TrimSpace(opts.SourceFormat.String()), "codex-alpha-search")
+}
+
+func authSupportsCodexAlphaSearch(auth *Auth) bool {
+	if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
+		return false
+	}
+	if auth.Attributes != nil && strings.EqualFold(strings.TrimSpace(auth.Attributes["alpha_search"]), "true") {
+		return true
+	}
+	if auth.Metadata != nil {
+		if enabled, ok := auth.Metadata["alpha_search"].(bool); ok {
+			return enabled
+		}
+	}
+	return false
+}
+
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
 	if m.HomeEnabled() {
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
@@ -3933,6 +3952,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 			continue
 		}
 		if disallowFreeAuth && isFreeCodexAuth(candidate) {
+			continue
+		}
+		if codexAlphaSearchRequired(opts) && !authSupportsCodexAlphaSearch(candidate) {
 			continue
 		}
 		if _, used := tried[candidate.ID]; used {
@@ -4016,7 +4038,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 		if selected == nil {
 			return nil, nil, &Error{Code: "auth_not_found", Message: "selector returned no auth"}
 		}
-		if disallowFreeAuth && isFreeCodexAuth(selected) {
+		if (disallowFreeAuth && isFreeCodexAuth(selected)) || (codexAlphaSearchRequired(opts) && !authSupportsCodexAlphaSearch(selected)) {
 			if tried == nil {
 				tried = make(map[string]struct{})
 			}
@@ -4075,6 +4097,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 			continue
 		}
 		if disallowFreeAuth && isFreeCodexAuth(candidate) {
+			continue
+		}
+		if codexAlphaSearchRequired(opts) && !authSupportsCodexAlphaSearch(candidate) {
 			continue
 		}
 		providerKey := strings.TrimSpace(strings.ToLower(candidate.Provider))
@@ -4176,6 +4201,9 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 			if _, used := tried[candidate.ID]; used {
 				continue
 			}
+			if codexAlphaSearchRequired(opts) && !authSupportsCodexAlphaSearch(candidate) {
+				continue
+			}
 			if m.routeAwareSelectionRequired(candidate, model) {
 				m.mu.RUnlock()
 				return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
@@ -4197,7 +4225,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 		if selected == nil {
 			return nil, nil, "", &Error{Code: "auth_not_found", Message: "selector returned no auth"}
 		}
-		if disallowFreeAuth && isFreeCodexAuth(selected) {
+		if (disallowFreeAuth && isFreeCodexAuth(selected)) || (codexAlphaSearchRequired(opts) && !authSupportsCodexAlphaSearch(selected)) {
 			if tried == nil {
 				tried = make(map[string]struct{})
 			}

@@ -1152,14 +1152,18 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 	}
 
 	isAPIKey := codexAuthUsesAPIKey(auth)
-	cfgUserAgent, cfgBetaFeatures := codexHeaderDefaults(cfg, auth)
+	disableCloaking := cliproxyexecutor.CodexCloakingDisabled(ctx)
+	cfgUserAgent, cfgBetaFeatures := "", ""
+	if !disableCloaking {
+		cfgUserAgent, cfgBetaFeatures = codexHeaderDefaults(cfg, auth)
+	}
 	ensureHeaderWithPriority(headers, ginHeaders, "x-codex-beta-features", cfgBetaFeatures, "")
 	misc.EnsureHeader(headers, ginHeaders, "x-codex-turn-state", "")
 	misc.EnsureHeader(headers, ginHeaders, "x-codex-turn-metadata", "")
 	misc.EnsureHeader(headers, ginHeaders, "x-client-request-id", "")
 	misc.EnsureHeader(headers, ginHeaders, "x-responsesapi-include-timing-metrics", "")
 	misc.EnsureHeader(headers, ginHeaders, "Version", "")
-	if isAPIKey {
+	if isAPIKey || disableCloaking {
 		ensureHeaderWithPriority(headers, ginHeaders, "User-Agent", "", "")
 	} else {
 		ensureHeaderWithConfigPrecedence(headers, ginHeaders, "User-Agent", cfgUserAgent, codexUserAgent)
@@ -1173,16 +1177,16 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 		betaHeader = codexResponsesWebsocketBetaHeaderValue
 	}
 	headers.Set("OpenAI-Beta", betaHeader)
-	if strings.Contains(headers.Get("User-Agent"), "Mac OS") {
+	if !disableCloaking && strings.Contains(headers.Get("User-Agent"), "Mac OS") {
 		ensureHeaderCasePreserved(headers, ginHeaders, "session_id", "", uuid.NewString())
 	}
 	ensureHeaderCasePreserved(headers, ginHeaders, "session_id", "", "")
 	if originator := strings.TrimSpace(ginHeaders.Get("Originator")); originator != "" {
 		headers.Set("Originator", originator)
-	} else if !isAPIKey {
+	} else if !isAPIKey && !disableCloaking {
 		headers.Set("Originator", codexOriginator)
 	}
-	if !isAPIKey {
+	if !isAPIKey && !disableCloaking {
 		if auth != nil && auth.Metadata != nil {
 			if accountID, ok := auth.Metadata["account_id"].(string); ok {
 				if trimmed := strings.TrimSpace(accountID); trimmed != "" {

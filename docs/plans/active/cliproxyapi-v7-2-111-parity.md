@@ -249,7 +249,7 @@ PY`
 
   - phase_slug: cliproxyapi-executor-websocket
     story_id: 01KYW6RDJKEF8V4H5AFNN30S8K
-    status: planned
+    status: checked
     goal: Adapt executor/runtime reliability, Codex multi-agent-v2, token counting, and websocket continuity gaps.
     depends_on: cliproxyapi-translator-fidelity
     requirement_trace: [R2, R8, R11, R13]
@@ -892,6 +892,58 @@ PY`
   verification: `go test ./internal/translator/... ./internal/util ./sdk/translator -count=1` -> pass; `go vet ./internal/translator/... ./internal/util ./sdk/translator` -> pass; `git diff --check` -> pass
   blocker: none
 
+- timestamp: 2026-08-02T03:28:56Z
+  phase: cliproxyapi-executor-websocket
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-executor-websocket --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ088SBFT4B2TFQSE5TZ91RJ`
+  blocker: none
+
+- timestamp: 2026-08-02T03:31:01Z
+  phase: cliproxyapi-executor-websocket
+  wave: executor-runtime
+  task: adapt-executor-binding-terminal-semantics
+  task_status: DONE
+  run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+  trace_id: 01KZ08CSCX6379FDDTWJWBJ9VA
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/runtime/executor/... ./sdk/cliproxy/... ./sdk/api/handlers/... -run 'Test.*(Executor|Binding|Deferred|ToolName|ToolResult|Video|Derived|Terminal|Completion)' -count=1` -> pass; existing focused coverage proves executor binding, deferred-tool cache control, tool-result ordering, derived sessions, video, and terminal/completion behavior without product changes
+  blocker: none
+- timestamp: 2026-08-02T03:31:01Z
+  phase: cliproxyapi-executor-websocket
+  wave: executor-runtime
+  task: adapt-token-counting-multiagent
+  task_status: DONE
+  run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+  trace_id: 01KZ08CSCX6379FDDTWJWBJ9VA
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/runtime/executor/... -run 'Test.*(InputToken|TokenCount|Estimate|MultiAgent|Usage)' -count=1` -> pass; existing local token-counting and Codex multi-agent-v2 coverage is present without duplicate implementation
+  blocker: none
+- timestamp: 2026-08-02T03:31:01Z
+  phase: cliproxyapi-executor-websocket
+  wave: websocket-continuity
+  task: adapt-websocket-cache-continuity
+  task_status: DONE
+  run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+  trace_id: 01KZ08CSF0A9GN29D54095NY4F
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*(WebSocket|Continuity|Transcript|Cache|Rollback|Compact)' -count=1` -> pass; `go test -race ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*WebSocket' -count=1` -> pass
+  blocker: none
+- timestamp: 2026-08-02T03:31:01Z
+  phase: cliproxyapi-executor-websocket
+  wave: phase-checks
+  task: local-phase-checks
+  task_status: DONE
+  run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+  trace_id: 01KZ08CSF0A9GN29D54095NY4F
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/... -count=1` -> pass; `go vet ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/...` -> pass; `git diff --check` -> pass
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
@@ -1325,12 +1377,28 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass; translator changes stay within planned request/stream surfaces and do not widen plugin, runtime, or provider-route scope
   proof_gaps: none
 
+- timestamp: 2026-08-02T03:32:59Z
+  phase: cliproxyapi-executor-websocket
+  run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+  check_id: 01KZ08G99Y1P0XW6XW1YGJHH02
+  verdict: APPROVED
+  evidence:
+    - `go test ./internal/runtime/executor/... ./sdk/cliproxy/... ./sdk/api/handlers/... -run 'Test.*(Executor|Binding|Deferred|ToolName|ToolResult|Video|Derived|Terminal|Completion)' -count=1` -> pass
+    - `go test ./internal/runtime/executor/... -run 'Test.*(InputToken|TokenCount|Estimate|MultiAgent|Usage)' -count=1` -> pass
+    - `go test ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*(WebSocket|Continuity|Transcript|Cache|Rollback|Compact)' -count=1` -> pass
+    - `go test -race ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*WebSocket' -count=1` -> pass
+    - `go test ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/... -count=1` -> pass
+    - `go vet ./internal/runtime/executor/... ./sdk/api/handlers/... ./sdk/cliproxy/...` -> pass
+    - `git diff --check` -> pass
+    - full Security, Performance, Architecture, and Code Quality review -> pass; no product-code delta was required because the planned executor/WebSocket gaps are already covered by focused local tests, and no SDK/internal boundary or protected provider-route behavior changed
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: cliproxyapi-translator-fidelity
+- active_phase: cliproxyapi-executor-websocket
 - lifecycle_status: checked
-- latest_run_id: 01KYYDVJMPDY601ES7A98JE1WY
-- latest_trace_id: 01KYYF97RPFZ29Q5S85Q7E8E36
-- latest_check_id: 01KYYFE22QYGX7CV7H4T37JKCD
+- latest_run_id: 01KZ088SBFT4B2TFQSE5TZ91RJ
+- latest_trace_id: 01KZ08CSF0A9GN29D54095NY4F
+- latest_check_id: 01KZ08G99Y1P0XW6XW1YGJHH02
 - latest_handoff_id: none
 - completed_work:
   - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
@@ -1340,7 +1408,9 @@ PY`
   - Completed `cliproxyapi-translator-fidelity` request wave with trace `01KYYF97REBN7R6JWBYT4KCD6E`.
   - Completed `cliproxyapi-translator-fidelity` response-streaming wave with trace `01KYYF97RPFZ29Q5S85Q7E8E36`.
   - Checked `cliproxyapi-translator-fidelity` with check `01KYYFE22QYGX7CV7H4T37JKCD`.
+  - Committed `cliproxyapi-translator-fidelity` as `84cc78cb`.
+  - Verified `cliproxyapi-executor-websocket` executor-runtime and websocket-continuity waves with traces `01KZ08CSCX6379FDDTWJWBJ9VA` and `01KZ08CSF0A9GN29D54095NY4F`.
 - blockers: none
 - open_items:
-  - Commit checked translator-fidelity implementation and lifecycle artifacts.
-- exact_next_action: Run `/git cm checked cliproxyapi-translator-fidelity implementation and lifecycle update only; do not push`.
+  - Commit checked `cliproxyapi-executor-websocket` lifecycle evidence.
+- exact_next_action: Run `/git cm checked cliproxyapi-executor-websocket implementation and lifecycle update only; do not push`.

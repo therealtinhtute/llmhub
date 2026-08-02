@@ -72,6 +72,9 @@ func describeOpenAICompatibilityUpdate(oldEntry, newEntry config.OpenAICompatibi
 	if oldEntry.Weight != newEntry.Weight {
 		details = append(details, fmt.Sprintf("weight %d -> %d", oldEntry.Weight, newEntry.Weight))
 	}
+	if oldEntry.SupportPromptCacheKey != newEntry.SupportPromptCacheKey {
+		details = append(details, fmt.Sprintf("support-prompt-cache-key %t -> %t", oldEntry.SupportPromptCacheKey, newEntry.SupportPromptCacheKey))
+	}
 	if oldKeyCount != newKeyCount {
 		details = append(details, fmt.Sprintf("api-keys %d -> %d", oldKeyCount, newKeyCount))
 	}

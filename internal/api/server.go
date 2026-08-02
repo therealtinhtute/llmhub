@@ -517,6 +517,7 @@ func (s *Server) setupRoutes() {
 		codexDirect.GET("/responses", openaiResponsesHandlers.ResponsesWebsocket)
 		codexDirect.POST("/responses", openaiResponsesHandlers.Responses)
 		codexDirect.POST("/responses/compact", openaiResponsesHandlers.Compact)
+		codexDirect.POST("/alpha/search", openaiResponsesHandlers.AlphaSearch)
 		if s.runtimeSettingsStore != nil {
 			s.codexLiveHandler = codexLiveHandlers.New(s.handlers.AuthManager, s.runtimeSettingsStore)
 			codexDirect.POST("/realtime/calls", s.codexLiveHandler.CreateCall)

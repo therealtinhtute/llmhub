@@ -51,8 +51,8 @@ inflates `diverged-absent` — verify a sample by hand after adding entries.
   "upstream": { "repository": "...", "remote": "cliproxyapi" },
   "scope_policy": {
     "strategy": "targeted-semantic-ports",
-    "include": ["full-codex-live", "postgres-backed-controls"],
-    "exclude": ["plugin-platform", "wholesale-source-merge"]
+    "include": ["full-codex-live", "postgres-backed-controls", "plugin-platform"],
+    "exclude": ["file-authoritative-runtime", "wholesale-source-merge"]
   },
   "checkpoint": {
     "tag": "v7.2.112",

@@ -6,9 +6,9 @@
 
 | Disposition | Paths |
 | --- | --- |
-| `adapt` | 105 |
+| `adapt` | 109 |
 | `already-present` | 64 |
-| `reject` | 6 |
+| `reject` | 2 |
 | `defer` | 6 |
 
 | Disposition | Upstream path | Local path | Slices | Commits |
@@ -190,7 +190,7 @@
 | `defer` | `sdk/cliproxy/usage/manager.go` | `sdk/cliproxy/usage/manager.go` | home-401-refresh, home-parity, usage-normalization | `a63da8ae76b1`, `4db8e1202942`, `416a08017447` |
 | `reject` | `.gitignore` | `.gitignore` | branding-docs | `3a995bd801e4` |
 | `reject` | `README.md` | `README.md` | branding-docs | `a14dfc779f43`, `9a52607f18e2`, `87750f9e2a7a`, `9ffc3baa848a`, `db82d65d1cc3`, `2457e01e8781` |
-| `reject` | `internal/logging/request_logger.go` | `internal/logging/request_logger.go` | plugin-platform | `fe4ae4989c4d` |
-| `reject` | `sdk/api/handlers/claude/code_handlers.go` | `sdk/api/handlers/claude/code_handlers.go` | claude-cloaking-toggle, model-catalog, plugin-platform | `30efd7c4fd16`, `69144785622a`, `0296600be60a` |
-| `reject` | `sdk/api/handlers/handlers_error_response_test.go` | `sdk/api/handlers/handlers_error_response_test.go` | home-parity, plugin-platform | `30efd7c4fd16`, `3ecd4afe808a` |
-| `reject` | `sdk/api/handlers/header_filter.go` | `sdk/api/handlers/header_filter.go` | plugin-platform | `30efd7c4fd16` |
+| `adapt` | `internal/logging/request_logger.go` | `internal/logging/request_logger.go` | plugin-platform | `fe4ae4989c4d` |
+| `adapt` | `sdk/api/handlers/claude/code_handlers.go` | `sdk/api/handlers/claude/code_handlers.go` | claude-cloaking-toggle, model-catalog, plugin-platform | `30efd7c4fd16`, `69144785622a`, `0296600be60a` |
+| `adapt` | `sdk/api/handlers/handlers_error_response_test.go` | `sdk/api/handlers/handlers_error_response_test.go` | home-parity, plugin-platform | `30efd7c4fd16`, `3ecd4afe808a` |
+| `adapt` | `sdk/api/handlers/header_filter.go` | `sdk/api/handlers/header_filter.go` | plugin-platform | `30efd7c4fd16` |

@@ -5,7 +5,7 @@ intake_id: 01KYTYE1AK42PW4BGH0V6H5G8D
 lane: high-risk
 status: active
 created: 2026-07-31
-updated: 2026-08-01
+updated: 2026-08-02
 ---
 
 # Plan: CLIProxyAPI v7.2.111 Targeted Parity with v7.2.112 Checkpoint Delta
@@ -14,11 +14,11 @@ updated: 2026-08-01
 - result: llmhub plans the full approved semantic parity scope from CLIProxyAPI `v7.2.93..v7.2.112` using the new phase-2 ledger, not the stale v7.2.111-only implementation scope. Work is bounded to the `adapt` slices; `already-present` slices require verification only; `reject` and `defer` slices are explicit non-work until refined.
 - success_signals:
   - The checkpoint remains pinned to `router-for-me/CLIProxyAPI` release `v7.2.112`, commit `a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d`, with local baseline `234daa3fe1aab28e6a0b849b2f4c81d8a383c5e1` and immutable refs under `refs/upstream-checkpoints/cliproxyapi/`.
-  - `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md` is the commit-level authority: 113 non-merge commits classified as 54 `adapt`, 42 `already-present`, 15 `reject`, and 2 `defer`, with zero blank or invalid dispositions.
-  - `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md` is the path-level authority for semantic-review files: 181 paths classified as 105 `adapt`, 64 `already-present`, 6 `reject`, and 6 `defer`.
+  - `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md` is the commit-level authority: 113 non-merge commits classified as 59 `adapt`, 42 `already-present`, 10 `reject`, and 2 `defer`, with zero blank or invalid dispositions.
+  - `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md` is the path-level authority for semantic-review files: 181 paths classified as 109 `adapt`, 64 `already-present`, 2 `reject`, and 6 `defer`.
   - Every `adapt` capability slice is planned behind llmhub's existing architecture and verification contract; no task may wholesale-merge upstream files just to match layout.
   - `already-present` capability slices are proved with focused tests and local symbol evidence before any code is changed; duplicate implementations are blocked.
-  - Rejected pluginhost/plugin framework, branding/docs/release churn, file-authoritative runtime state, and wholesale upstream tree replacement remain excluded.
+  - Pluginhost/plugin framework is now user-mandated `adapt` scope and must be re-expressed behind llmhub boundaries; branding/docs/release churn, file-authoritative runtime state, and wholesale upstream tree replacement remain excluded.
   - Deferred Home 401 refresh-revert reconciliation and Git store corruption recovery remain explicit follow-up decisions unless this same plan is refined.
   - Final validation re-checks the latest stable upstream release, refreshes the checkpoint/ledger if a new release exists, and records any new product delta as include/reject/defer rather than silently widening scope.
 
@@ -33,9 +33,9 @@ updated: 2026-08-01
   - Repository architecture and verification rules in `CLAUDE.md`, especially Postgres runtime authority and the ban on new frontend test files under `web/`.
 - requirements:
   - R1 [accepted]: Preserve the phase-2 ledger and path report as durable planning authority; every implementation task must trace to a ledger slice and one of the dispositions `adapt`, `already-present`, `reject`, or `defer`. | source: `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`; `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md`
-  - R2 [accepted]: Implement only the 54 `adapt` commit dispositions and the 105 `adapt` semantic-review paths, grouped by capability slice, behind existing llmhub interfaces. | source: phase-2 ledger counts
+  - R2 [accepted]: Implement only the 59 `adapt` commit dispositions and the 109 `adapt` semantic-review paths, grouped by capability slice, behind existing llmhub interfaces. | source: phase-2 ledger counts
   - R3 [accepted]: Verify the 42 `already-present` commit dispositions and 64 `already-present` semantic-review paths with focused tests or local symbol evidence before making duplicate code changes. | source: phase-2 ledger counts
-  - R4 [accepted]: Reject the 15 `reject` commit dispositions and 6 `reject` semantic-review paths, including upstream pluginhost/plugin platform and branding/docs/release churn. | source: phase-2 ledger reject rows; `scope_policy.exclude`
+  - R4 [accepted]: Reject the 10 `reject` commit dispositions and 2 `reject` semantic-review paths for branding/docs/release churn only; pluginhost/plugin platform is user-mandated `adapt` scope and must not be excluded without explicit user approval. | source: phase-2 ledger reject rows; `scope_policy.exclude`
   - R5 [accepted]: Defer the Home 401 refresh-revert reconciliation until upstream PR #4687/revert rationale is known or local regression evidence exists; do not remove `RefreshAuthViaHome` or widen Home behavior in this plan. | source: upstream `v7.2.112` commit `a63da8ae76b1`; local `internal/runtime/executor/helps/home_refresh.go:39`
   - R6 [accepted]: Defer Git store corruption recovery unless separately approved; Postgres remains the authoritative runtime store and Git/object stores are secondary persistence backends. | source: ledger slice `gitstore-recovery`; `CLAUDE.md`
   - R7 [accepted]: Preserve Postgres as the authoritative runtime source for configuration, credentials, cooldown state, usage, and new feature settings; no new runtime dependency may read authoritative state from local YAML, auth files, Git, or object store backends. | source: `CLAUDE.md`; `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md`
@@ -46,6 +46,7 @@ updated: 2026-08-01
   - R12 [accepted]: Plan and implement auth/session gaps: auth file equality fix, native client session affinity, live Home alias preservation, Codex configured-model resolution, credential-weight management API parsing, and safe Codex cloaking/header toggle behavior. | source: ledger slices `auth-session-fixes`, `codex-model-resolution`, `credential-weight-api`, `codex-cloaking-toggle`
   - R13 [accepted]: Plan and implement management/API/runtime diff gaps: auth identity filtering, runtime control exposure, request metadata logging, watcher config diff/relay propagation, and OpenAI Responses WebSocket continuity. | source: ledger slices `management-api`, `logging-metadata`, `watcher-config-diff`, `responses-websocket`
   - R14 [accepted]: Plan and implement CAIS/provider signature validation gaps and Antigravity schema/replay compatibility only where not already covered locally. | source: ledger slices `claude-cais-signatures`, `antigravity-replay`
+  - R20 [accepted]: Plan and implement upstream pluginhost/plugin platform parity as user-mandated `adapt` scope, re-expressed behind llmhub's existing runtime, API, and SDK boundaries rather than by wholesale source-tree merge. | source: ledger slice `plugin-platform`; upstream commits `119debe1f27e`, `3e7e0815aab9`, `520cfa102686`, `fe4ae4989c4d`, `30efd7c4fd16`
   - R15 [accepted]: Treat model catalog, Codex Live, Home parity, Postgres cooldown, weighted scheduler, usage normalization, Claude cloaking, and schema-normalization slices as verification-first because the phase-2 ledger classifies them as already present or substantially present locally. | source: ledger slice summary
   - R16 [accepted]: Frontend work is limited to approved management controls; it must reuse current llmhub UI/UX, i18n, and components, and must not add new frontend test files under `web/`. | source: `CLAUDE.md`; repository web panel rules
   - R17 [accepted]: Every phase must define observable verification commands before work starts, including focused Go tests, `go test ./...`, `go vet`, frontend type/lint/build when web changes exist, `make build`, JSON validation, and `git diff --check`. | source: prove-before-done rule
@@ -54,7 +55,7 @@ updated: 2026-08-01
 
 ## Non-goals
 - NG1: Wholesale merge, rebase, source-tree replacement, or source-layout parity with upstream is excluded.
-- NG2: Upstream pluginhost, pluginstore, plugin SDK/ABI, request-lifecycle plugin framework, plugin examples, and plugin synchronization are excluded.
+- NG2: Wholesale copying upstream pluginhost/pluginstore layout, plugin examples, or upstream visual/docs packaging is excluded; the plugin platform behavior itself is in `adapt` scope and must be implemented behind llmhub boundaries.
 - NG3: Upstream branding, README translation churn, sponsor/public-site references, release workflow churn, and root logs ignore changes are excluded.
 - NG4: Replacing Postgres runtime authority with `config.yaml`, auth files, Git store, object store, watcher-owned state, or any other file-authoritative state is excluded.
 - NG5: Removing or redesigning Amp, Kiro, Gemini CLI, provider-specific routes, embedded management web, quota-alert behavior, or public SDK surfaces is excluded unless a listed `adapt` requirement demands an additive compatible change.
@@ -70,12 +71,13 @@ updated: 2026-08-01
   2. Verify present slices to avoid duplicating Codex Live, Home parity, model catalog, cooldown, weighted scheduler, usage normalization, schema normalization, and Claude cloaking work.
   3. Implement thinking summary/provider semantics first because it crosses executors and translators.
   4. Implement translator fidelity before executor/websocket runtime changes so runtime paths call stable protocol helpers.
-  5. Implement executor, auth, Codex resolution, management/API, and signature/Antigravity gaps behind existing contracts.
-  6. Finish with full gate and latest-release checkpoint refresh.
+  5. Implement executor, auth, Codex resolution, management/API, signature/Antigravity, and plugin-platform gaps behind existing contracts.
+  6. Reconcile the pinned `v7.2.113` release delta explicitly: adapt required Kimi/Codex/OpenAI/Claude compatibility behavior and keep sponsor/docs churn rejected.
+  7. Finish with full gate and latest-release checkpoint refresh.
 - constraints:
   - Source comparisons use immutable refs under `refs/upstream-checkpoints/cliproxyapi/`; never diff against a moving branch as authority.
   - `docs/upstream/cliproxyapi-ledger-v7.2.93..v7.2.112.md` and `docs/upstream/cliproxyapi-semantic-review-v7.2.93..v7.2.112.md` are required inputs for every phase.
-  - Runtime state remains Postgres-authoritative; file, Git, object-store, or watcher-owned state cannot become the source of truth.
+  - Runtime state remains Postgres-authoritative; file, Git, object-store, plugin-owned state, or watcher-owned state cannot become the source of truth.
   - Amp, Kiro, Gemini CLI paths, provider-specific routes, public SDK boundaries, embedded management web, and llmhub branding remain protected.
   - Do not create new frontend test files under `web/`.
 - rejected_alternatives:
@@ -99,8 +101,11 @@ updated: 2026-08-01
   - risk: Upstream publishes another stable release during implementation.
     mitigation: Re-query and classify at final gate.
     recovery: Refine this same plan or pin the new delta as follow-up; do not silently widen scope.
+  - risk: Plugin platform parity can introduce unmanaged execution, request lifecycle mutation, or new public SDK contracts.
+    mitigation: Implement only the user-mandated plugin behavior behind explicit llmhub interfaces, authorization, and deterministic tests; keep runtime authority in Postgres.
+    recovery: Stop and refine the plugin slice if upstream behavior cannot be re-expressed without breaking protected boundaries.
 - stop_conditions:
-  - Stop if a task requires pluginhost/pluginstore, file-authoritative runtime state, wholesale file replacement, or a breaking public API change.
+  - Stop if plugin work requires file-authoritative runtime state, wholesale file replacement, unmanaged execution, or a breaking public API change; do not stop merely because the slice is pluginhost/pluginstore-related.
   - Stop if checkpoint JSON, ledger, path report, plan requirements, and DB phase rows disagree.
   - Stop if deterministic tests expose a regression in protected Amp/Kiro/Gemini CLI/provider route behavior.
 - recovery_policy: Reverse only the current bounded slice, preserve additive DB data, append evidence under Progress/Validation, and resume from the last planned phase whose checks passed.
@@ -144,7 +149,8 @@ import json
 d=json.load(open('docs/upstream/cliproxyapi-checkpoint.json'))
 p=d['scope_policy']
 assert 'home-401-refresh-revert' in p.get('defer', [])
-assert 'plugin-platform' in p['exclude']
+assert 'plugin-platform' in p['include']
+assert 'plugin-platform' not in p['exclude']
 assert 'thinking-summary-visibility' in p['include']
 print(len(p['include']), len(p['exclude']), len(p.get('defer', [])))
 PY`
@@ -390,11 +396,115 @@ PY`
     stop_conditions:
       - A control writes YAML/files, exposes secrets, bypasses revision conflicts, or requires replacing existing web patterns.
 
+  - phase_slug: cliproxyapi-plugin-platform
+    story_id: 01KZ0PG0T9BJC5CR5E9M8G1R7A
+    status: checked
+    goal: Adapt upstream pluginhost/plugin platform behavior behind llmhub runtime, API, and SDK boundaries without making plugin-owned files authoritative.
+    depends_on: cliproxyapi-management-runtime-ui
+    requirement_trace: [R7, R8, R17, R20]
+    waves:
+      - wave: plugin-lifecycle
+        tasks:
+          - task_id: adapt-plugin-lifecycle-contracts
+            goal: Port request lifecycle interception, accepted emit-result handling, stream close/send panic protection, and termination semantics through explicit llmhub interfaces.
+            touched_surfaces: [`internal/pluginhost/`, `internal/interfaces/`, `internal/api/`, `sdk/api/handlers/`, `sdk/cliproxy/`, `internal/runtime/executor/`]
+            expected_output: Additive plugin lifecycle behavior with deterministic cancellation/termination, safe stream emission, and no unmanaged execution or file-authoritative state.
+            checks:
+              - `go test ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor -run 'Test.*(Plugin|Lifecycle|Intercept|Terminate|Emit|Stream|Close|Panic)' -count=1`
+              - `go test -race ./internal/pluginhost ./sdk/api/handlers -run 'Test.*(Plugin|Stream|Emit|Close)' -count=1`
+    phase_checks:
+      - `go test ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor -count=1`
+      - `go vet ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor`
+      - `git diff --check`
+      - `zharness query phases --json`
+    stop_conditions:
+      - Plugin behavior requires file-authoritative runtime state, unmanaged execution, wholesale upstream layout replacement, or a breaking public API change.
+
+  - phase_slug: cliproxyapi-v7-2-113-delta
+    story_id: 01KZ0SSWRQRPGK6ZSA73H7B723
+    status: in-progress
+    goal: Classify and adapt required CLIProxyAPI v7.2.113 product deltas before final checkpoint closure.
+    depends_on: cliproxyapi-plugin-platform
+    requirement_trace: [R1, R2, R7, R8, R9, R10, R11, R12, R17, R18, R19]
+    waves:
+      - wave: delta-classification
+        tasks:
+          - task_id: classify-v7-2-113-ledger
+            goal: Record dispositions and evidence for all seven `v7.2.113` commits, adapting product behavior and rejecting sponsor/docs churn only.
+            touched_surfaces: [`docs/upstream/cliproxyapi-ledger-v7.2.112..v7.2.113.md`, `docs/upstream/cliproxyapi-checkpoint.json`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+            expected_output: 7 commits classified with zero blank dispositions: three `adapt`, three `already-present`, one sponsor/docs `reject`, with local/upstream evidence and checks.
+            checks:
+              - `python3 - <<'PY'
+from pathlib import Path
+allowed={'already-present','adapt','reject','defer','superseded-locally'}
+rows=[]
+for line in Path('docs/upstream/cliproxyapi-ledger-v7.2.112..v7.2.113.md').read_text().splitlines():
+    if line.startswith('| v7.2.113 |'):
+        cells=[c.strip() for c in line.strip('|').split('|')]
+        rows.append(cells)
+assert len(rows)==7, len(rows)
+counts={}
+for cells in rows:
+    disposition=cells[5].strip('` ')
+    evidence=cells[6].strip()
+    assert disposition in allowed and disposition, cells
+    assert evidence and evidence != '', cells
+    counts[disposition]=counts.get(disposition,0)+1
+assert counts.get('adapt')==3, counts
+assert counts.get('already-present')==3, counts
+assert counts.get('reject')==1, counts
+print(counts)
+PY`
+      - wave: runtime-compatibility
+        tasks:
+          - task_id: adapt-kimi-thinking-replay
+            goal: Adapt Kimi Thinking Replay cache and continuity without cross-session leakage or file-authoritative state.
+            touched_surfaces: [`internal/cache/`, `internal/runtime/executor/`, focused tests]
+            expected_output: Request continuity reuses only scoped thinking replay entries and expires/invalidates safely.
+            checks:
+              - `go test ./internal/cache ./internal/runtime/executor -run 'Test.*(Kimi|Thinking|Replay|Continuity|Cache)' -count=1`
+              - `go test -race ./internal/cache ./internal/runtime/executor -run 'Test.*(Kimi|Replay|Continuity)' -count=1`
+          - task_id: adapt-codex-alpha-search-and-cloaking
+            goal: Adapt Codex Alpha Search API key/endpoint support and WebSocket cloaking-header alignment through existing config/runtime controls.
+            touched_surfaces: [`internal/config/`, `sdk/config/`, `internal/runtime/executor/`, `sdk/api/handlers/openai/`, focused tests]
+            expected_output: Alpha Search key/endpoint are optional, redacted, and propagated only to Codex execution paths; WebSocket cloaking headers match HTTP behavior without overriding explicit client headers.
+            checks:
+              - `go test ./internal/config ./sdk/config ./internal/runtime/executor ./sdk/api/handlers/openai -run 'Test.*Codex.*(Alpha|Search|APIKey|Endpoint|Cloak|Header|WebSocket)' -count=1`
+          - task_id: adapt-claude-fast-mode-beta
+            goal: Adapt conditional Claude fast-mode beta behavior without changing non-fast-mode defaults.
+            touched_surfaces: [`internal/runtime/executor/`, `internal/translator/claude/`, focused tests]
+            expected_output: Fast-mode beta header/flag is emitted only when the local runtime path opts into fast mode.
+            checks:
+              - `go test ./internal/runtime/executor ./internal/translator/claude/... -run 'Test.*(Claude|Fast|Beta|Header|Mode)' -count=1`
+      - wave: translator-compatibility
+        tasks:
+          - task_id: adapt-openai-structured-tool-output
+            goal: Adapt OpenAI structured tool-output handling without regressing grouped tool results or existing structured output behavior.
+            touched_surfaces: [`internal/translator/openai/`, `internal/translator/claude/`, `internal/translator/codex/`, focused tests]
+            expected_output: Structured tool output is preserved through OpenAI Responses/chat conversions and provider-specific tool result grouping.
+            checks:
+              - `go test ./internal/translator/... -run 'Test.*(Structured|ToolOutput|ToolResult|ResponseFormat|Schema)' -count=1`
+          - task_id: adapt-openai-prompt-cache-key
+            goal: Adapt OpenAI prompt-cache-key compatibility through request metadata/config gates without adding file-authoritative runtime state.
+            touched_surfaces: [`internal/api/`, `sdk/api/handlers/`, `internal/translator/openai/`, `internal/runtime/executor/`, focused tests]
+            expected_output: Prompt cache keys pass through only on compatible OpenAI paths and do not leak across providers or sessions.
+            checks:
+              - `go test ./internal/api ./sdk/api/handlers ./internal/translator/openai/... ./internal/runtime/executor -run 'Test.*(PromptCacheKey|Prompt|Cache|OpenAI|Metadata)' -count=1`
+    phase_checks:
+      - `go test ./internal/cache ./internal/config ./sdk/config ./internal/api ./sdk/api/handlers ./internal/runtime/executor ./internal/translator/... -count=1`
+      - `go vet ./internal/cache ./internal/config ./sdk/config ./internal/api ./sdk/api/handlers ./internal/runtime/executor ./internal/translator/...`
+      - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null`
+      - `git diff --check`
+      - `zharness query phases --json`
+    stop_conditions:
+      - A `v7.2.113` product delta needs file-authoritative runtime state, exposes secrets, changes default provider behavior outside its compatibility gate, or contradicts protected Amp/Kiro/Gemini/provider-route behavior.
+      - The delta ledger still contains blank dispositions or sponsor/docs churn is widened into product implementation.
+
   - phase_slug: cliproxyapi-final-checkpoint-gate
     story_id: 01KYW6RDKE1T78Q3DTNY2CRSQM
-    status: planned
+    status: in-progress
     goal: Run full verification and refresh the latest upstream checkpoint without silent scope growth.
-    depends_on: cliproxyapi-management-runtime-ui
+    depends_on: cliproxyapi-plugin-platform
     requirement_trace: [R1, R17, R18, R19]
     waves:
       - wave: full-product-gate
@@ -492,7 +602,7 @@ PY`
   run_id: 01KYTZ7RXA43KZVEZ1GNQJX2T6
   trace_id: 01KYTZSQ4WZENCCA39ZY27D9Q2
   changed_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`]
-  verification: full manual classification review plus corrected semantic ledger assertions -> pass; 102 entries classified as 80 `adapt`, 4 `already-present`, 2 `superseded-local`, and 16 `reject`; all five plugin-only entries are rejected, while weighted auth scheduling and custom-executor preservation remain targeted adaptations
+  verification: full manual classification review plus corrected semantic ledger assertions -> pass; 102 entries classified as 80 `adapt`, 4 `already-present`, 2 `superseded-local`, and 16 `reject`; this historical classification was later superseded for all five plugin-platform entries by the 2026-08-02 user-mandated `adapt` scope correction, while weighted auth scheduling and custom-executor preservation remain targeted adaptations
   concern: Supersedes the earlier wave-2 count after correcting primary-behavior ownership for commits that also touched incidental plugin paths.
   blocker: none
 - timestamp: 2026-07-31T02:59:56Z
@@ -1051,13 +1161,107 @@ PY`
   verification: `zharness run create --slug cliproxyapi-management-runtime-ui --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ0BHDV4CYFFWS6C4AAYDV8A`
   blocker: none
 
+- timestamp: 2026-08-02T05:09:15Z
+  phase: cliproxyapi-final-checkpoint-gate
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ0E0N682PMXG5H4A9PBJNYQ
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-final-checkpoint-gate --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ0E0N682PMXG5H4A9PBJNYQ`
+  blocker: none
+
+- timestamp: 2026-08-02T05:11:02Z
+  phase: cliproxyapi-final-checkpoint-gate
+  wave: full-product-gate
+  task: run-full-go-web-gate
+  task_status: DONE
+  run_id: 01KZ0E0N682PMXG5H4A9PBJNYQ
+  trace_id: 01KZ0E43CKYPFMEXEVTWVCKSFP
+  changed_surfaces: [validation evidence only]
+  verification: `go test ./... -count=1 && go vet ./... && go build ./... && cd web && bun run type-check && bun run lint && bun run build && cd .. && make build && git diff --check && zharness query phases --json` -> pass; lint returned 0 errors and 8 pre-existing warnings
+  blocker: none
+
+- timestamp: 2026-08-02T05:12:15Z
+  phase: cliproxyapi-final-checkpoint-gate
+  wave: checkpoint-refresh
+  task: refresh-latest-upstream + reconcile-release-delta
+  task_status: BLOCKED_BY_SCOPE
+  run_id: 01KZ0E0N682PMXG5H4A9PBJNYQ
+  trace_id: 01KZ0EFX2VG6Z5A1BF654NB52Y
+  changed_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, `docs/upstream/cliproxyapi-gap-v7.2.112..v7.2.113.json`, `docs/upstream/cliproxyapi-ledger-v7.2.112..v7.2.113.md`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi` -> checkpoint advanced from `v7.2.112` to `v7.2.113` at `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`; `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi` -> 44 changed paths (`semantic-review=22`, `upstream-add-absent=8`, `diverged-absent=14`); `python3 .claude/skills/upstream/scripts/upstream_ledger.py --slug cliproxyapi` -> 7 non-merge commits, 1 release, 0 unassigned; `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null` -> pass
+  blocker: `v7.2.113` introduces product behavior outside the locked `v7.2.112` implementation scope: Kimi Thinking Replay, Codex Alpha Search API-key/endpoint support, OpenAI structured tool-output handling, Claude fast-mode beta, OpenAI prompt-cache-key compatibility, and Codex WebSocket cloaking-header alignment; sponsor/docs churn remains rejected
+
+- timestamp: 2026-08-02T08:15:53Z
+  phase: cliproxyapi-plugin-platform
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ0RP825SYN5AHD10KGWNAFV
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness story --slug cliproxyapi-plugin-platform --goal ... --depends-on cliproxyapi-management-runtime-ui --json` -> created missing DB phase row `01KZ0RNYXCPRQ7A05P5ZGYX1CZ`; `zharness run create --slug cliproxyapi-plugin-platform --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ0RP825SYN5AHD10KGWNAFV`
+  blocker: none
+
+- timestamp: 2026-08-02T08:28:05Z
+  phase: cliproxyapi-plugin-platform
+  wave: plugin-lifecycle
+  task: adapt-plugin-lifecycle-contracts
+  task_status: DONE
+  run_id: 01KZ0RP825SYN5AHD10KGWNAFV
+  trace_id: 01KZ0SCQZ6XDRB0SFH9BZW8H3H
+  changed_surfaces: [`sdk/api/handlers/lifecycle.go`, `sdk/api/handlers/handlers.go`, `sdk/api/handlers/lifecycle_test.go`, `internal/pluginhost/lifecycle.go`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor -run 'Test.*(Plugin|Lifecycle|Intercept|Terminate|Emit|Stream|Close|Panic)' -count=1` -> failed once on unused test import, then passed after removing it; `go test -race ./sdk/api/handlers ./internal/runtime/executor -run 'Test.*(Plugin|Stream|Emit|Close|Lifecycle)' -count=1` -> pass; `go test ./internal/api ./sdk/api/handlers -run 'Test.*(RouterConfigurator|Middleware|Route|Management)' -count=1` -> pass; planned phase package command initially failed because `internal/pluginhost` was intentionally absent, then passed after adding a minimal alias bridge package; `go test ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor -count=1` -> pass; `go vet ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor` -> pass; `git diff --check` -> pass; `zharness query phases --json` -> plugin phase `in-progress`
+  blocker: none
+
+- timestamp: 2026-08-02T08:37:37Z
+  phase: cliproxyapi-v7-2-113-delta
+  wave: phase-start
+  task: phase-start
+  task_status: in-progress
+  run_id: 01KZ0SXT5YQET1BX87DSAAE45X
+  trace_id: none
+  changed_surfaces: [`docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `zharness run create --slug cliproxyapi-v7-2-113-delta --plan-id 01KYTYDKMCXHN0TQAPH1RM5K71 --json` -> created run `01KZ0SXT5YQET1BX87DSAAE45X`
+  blocker: none
+
+- timestamp: 2026-08-02T09:47:38Z
+  phase: cliproxyapi-v7-2-113-delta
+  wave: phase-gate
+  task: validate-v7-2-113-delta
+  task_status: DONE
+  run_id: 01KZ0SXT5YQET1BX87DSAAE45X
+  trace_id: none
+  changed_surfaces: [`internal/cache/`, `internal/config/`, `internal/api/`, `sdk/api/handlers/`, `sdk/cliproxy/auth/`, `internal/runtime/executor/`, `internal/watcher/`, `docs/upstream/cliproxyapi-ledger-v7.2.112..v7.2.113.md`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: v7.2.113 ledger count check -> `{'adapt': 3, 'reject': 1, 'already-present': 3}`; active plan classification marker check -> pass; `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null` -> pass; `git diff --check` -> pass; `go test ./internal/cache ./internal/config ./sdk/config ./internal/api ./sdk/api/handlers ./internal/runtime/executor ./internal/translator/... -count=1` -> pass; `go vet ./internal/cache ./internal/config ./sdk/config ./internal/api ./sdk/api/handlers ./internal/runtime/executor ./internal/translator/...` -> pass; `zharness check record --run-id 01KZ0SXT5YQET1BX87DSAAE45X ... --json` -> check `01KZ0XYSWM3TNEVDGE14AWTCV4`; `zharness query phases --json` -> `cliproxyapi-v7-2-113-delta` checked
+  blocker: none
+
+- timestamp: 2026-08-02T09:51:08Z
+  phase: cliproxyapi-final-checkpoint-gate
+  wave: full-product-gate + checkpoint-refresh
+  task: run-full-go-web-gate + refresh-latest-upstream + reconcile-release-delta
+  task_status: DONE
+  run_id: 01KZ0E0N682PMXG5H4A9PBJNYQ
+  trace_id: 01KZ0Y4TDYX4ZVHNT14B2KGMG6
+  changed_surfaces: [`docs/upstream/cliproxyapi-checkpoint.json`, `docs/upstream/cliproxyapi-gap-v7.2.112..v7.2.113.json`, `docs/upstream/cliproxyapi-ledger-v7.2.112..v7.2.113.md`, `internal/managementasset/static/management.html`, `llmhub`, `docs/plans/active/cliproxyapi-v7-2-111-parity.md`]
+  verification: `go test ./... -count=1` -> pass; `go vet ./...` -> pass; `go build ./...` -> pass; initial `bun --cwd ... run ...` syntax was invalid, then `bun run --cwd web type-check` -> pass; `bun run --cwd web lint` -> pass with 0 errors and 8 pre-existing warnings; `bun run --cwd web build` -> pass; `make build` -> pass; `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi` -> checkpoint already at `v7.2.113`, no upstream delta; `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi` -> 44 changed paths; `python3 .claude/skills/upstream/scripts/upstream_ledger.py --slug cliproxyapi` -> 7 non-merge commits, 1 release, 0 unassigned; regenerated ledger dispositions restored and validated as `{'adapt': 3, 'reject': 1, 'already-present': 3}` with no blank ledger disposition/evidence cells; `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null` -> pass; `git diff --check` -> pass; `zharness check record --run-id 01KZ0E0N682PMXG5H4A9PBJNYQ ... --json` -> check `01KZ0Y5DFY15GQZC2DC168W91P`; `zharness query phases --json` -> `cliproxyapi-final-checkpoint-gate` checked
+  blocker: none
+
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - timestamp: 2026-07-31T02:24:40Z
   phase: upstream-parity-ledger
   task: ledger-semantic-disposition
-  decision: Classify commits by their primary portable product behavior before incidental touched paths; reject plugin-only behavior, but retain weighted auth scheduling and custom-executor preservation as targeted adaptations.
-  rationale: Path-only plugin classification would have incorrectly discarded two approved llmhub behaviors because the upstream commits also updated pluginhost integration.
+  decision: Classify commits by their primary portable product behavior before incidental touched paths; this initial plugin-only rejection was superseded on 2026-08-02 by the user-mandated `plugin-platform` `adapt` correction, while weighted auth scheduling and custom-executor preservation remain targeted adaptations.
+  rationale: Path-only plugin classification would have incorrectly discarded two approved llmhub behaviors because the upstream commits also updated pluginhost integration; explicit user-mandated scope now controls the plugin-platform disposition.
+
+- timestamp: 2026-08-02T07:35:00Z
+  phase: cliproxyapi-final-checkpoint-gate
+  task: plugin-scope-correction
+  decision: Move `plugin-platform` from rejected/excluded scope to user-mandated `adapt` scope, add `cliproxyapi-plugin-platform` before the final checkpoint gate, and update upstream skill rules so mandated scope cannot be rejected without explicit user approval or an impossible/destructive invariant conflict.
+  rationale: The user clarified plugin parity was required from the start; wholesale upstream pluginhost/pluginstore source layout remains excluded, but portable plugin platform behavior must be adapted behind llmhub boundaries.
 
 - timestamp: 2026-07-31T06:31:00Z
   phase: antigravity-signature-parity
@@ -1254,6 +1458,12 @@ PY`
   task: adapt-codex-resolution-and-cloaking
   decision: Adapt upstream `disable-codex-cloaking` as the existing Postgres runtime `disable_codex` setting propagated through a request-scoped SDK executor context, including Amp provider aliases.
   rationale: llmhub runtime controls are database-authoritative; adding YAML/config-file authority or importing internal runtime-control types into SDK/executors would break the approved storage and SDK/internal boundaries.
+
+- timestamp: 2026-08-02T05:12:15Z
+  phase: cliproxyapi-final-checkpoint-gate
+  task: reconcile-v7.2.113-final-delta
+  decision: Stop final closure and do not silently widen the completed parity implementation to `v7.2.113`; pin `v7.2.113` as a new follow-up/refinement delta, rejecting only sponsor/docs churn as already out of scope.
+  rationale: The refreshed release contains six product-behavior commits outside the locked `v7.2.112` requirements and one sponsor/docs commit already covered by Non-goals; R18/R19 require explicit include/reject/defer classification before implementation or PR closure.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -1470,7 +1680,7 @@ PY`
     - `go test ./internal/thinking/... ./internal/runtime/executor ./internal/translator/... ./sdk/translator -count=1` -> pass
     - `go vet ./internal/thinking/... ./internal/runtime/executor ./internal/translator/...` -> pass
     - `git diff --check` -> pass
-    - full Security, Performance, Architecture, and Code Quality review -> pass; summary intent is applied only after registered request transforms, fallback payloads are preserved, and plugin platform remains out of scope
+    - full Security, Performance, Architecture, and Code Quality review -> pass; summary intent is applied only after registered request transforms, fallback payloads are preserved, and no plugin platform behavior was changed in this phase
   proof_gaps: none
 
 - timestamp: 2026-08-01T10:53:27Z
@@ -1487,7 +1697,7 @@ PY`
     - `go test ./internal/translator/... ./internal/util ./sdk/translator -count=1` -> pass
     - `go vet ./internal/translator/... ./internal/util ./sdk/translator` -> pass
     - `git diff --check` -> pass
-    - full Security, Performance, Architecture, and Code Quality review -> pass; translator changes stay within planned request/stream surfaces and do not widen plugin, runtime, or provider-route scope
+    - full Security, Performance, Architecture, and Code Quality review -> pass; translator changes stay within planned request/stream surfaces and do not change plugin, runtime, or provider-route behavior
   proof_gaps: none
 
 - timestamp: 2026-08-02T03:32:59Z
@@ -1552,12 +1762,75 @@ PY`
     - full Security, Performance, Architecture, and Code Quality review -> pass; static provider config weights validate through authorized management APIs, synthesize only non-default numeric weights into auth attrs, diff/log output avoids secret material, and web changes reuse current provider form patterns without frontend test files
   proof_gaps: browser desktop/mobile runtime smoke not executed in this environment; deterministic frontend type/lint/build and embedded binary build passed
 
+- timestamp: 2026-08-02T05:12:15Z
+  phase: cliproxyapi-final-checkpoint-gate
+  commands:
+    - `go test ./... -count=1` -> pass
+    - `go vet ./...` -> pass
+    - `go build ./...` -> pass
+    - `cd web && bun run type-check` -> pass
+    - `cd web && bun run lint` -> pass with 0 errors and 8 pre-existing warnings
+    - `cd web && bun run build` -> pass
+    - `make build` -> pass; frontend asset embedded and Go binary built
+    - `git diff --check` -> pass
+    - `zharness query phases --json` -> pass during full-product gate
+    - `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi` -> latest stable release `v7.2.113`, commit `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`, ref `refs/upstream-checkpoints/cliproxyapi/v7.2.113`
+    - `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi` -> 44 changed paths, including 22 semantic-review, 8 upstream-add-absent, 14 diverged-absent
+    - `python3 .claude/skills/upstream/scripts/upstream_ledger.py --slug cliproxyapi` -> 7 non-merge commits, 1 release, 0 unassigned
+    - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null` -> pass
+    - `zharness trace add --wave 2 --summary "Latest checkpoint refresh found v7.2.113 product deltas outside locked scope; final gate blocked for plan refinement" --run-id 01KZ0E0N682PMXG5H4A9PBJNYQ --json` -> trace `01KZ0EFX2VG6Z5A1BF654NB52Y`
+    - `zharness check record --verdict REQUEST_CHANGES --judge same-session --judge-model gpt-5.5 --run-id 01KZ0E0N682PMXG5H4A9PBJNYQ --proof-links ... --json` -> check `01KZ0EKK89963S65R82T44BK9K`
+  run_id: 01KZ0E0N682PMXG5H4A9PBJNYQ
+  check_id: 01KZ0EKK89963S65R82T44BK9K
+  verdict: REQUEST_CHANGES
+  proof_gaps: `v7.2.113` product deltas are not implemented or fully classified into the active plan; final PR closure is blocked until refinement records include/reject/defer disposition for the new release
+
+- timestamp: 2026-08-02T09:51:08Z
+  phase: cliproxyapi-final-checkpoint-gate
+  commands:
+    - `go test ./... -count=1` -> pass
+    - `go vet ./...` -> pass
+    - `go build ./...` -> pass
+    - `bun run --cwd web type-check` -> pass
+    - `bun run --cwd web lint` -> pass with 0 errors and 8 pre-existing warnings
+    - `bun run --cwd web build` -> pass
+    - `make build` -> pass; frontend asset embedded and `llmhub` binary built
+    - `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi` -> checkpoint already at `v7.2.113`, no upstream delta
+    - `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi` -> 44 changed paths: 8 upstream-add-absent, 14 diverged-absent, 22 semantic-review
+    - `python3 .claude/skills/upstream/scripts/upstream_ledger.py --slug cliproxyapi` -> 7 non-merge commits, 1 release, 0 unassigned; regenerated dispositions restored
+    - v7.2.113 ledger invariant checks -> `{'adapt': 3, 'reject': 1, 'already-present': 3}` and no blank ledger disposition/evidence cells
+    - `python3 -m json.tool docs/upstream/cliproxyapi-checkpoint.json >/dev/null` -> pass
+    - `git diff --check` -> pass
+    - `zharness trace add --wave 3 --summary "Final checkpoint gate passed after v7.2.113 delta classification and verification; latest upstream remains v7.2.113 with zero blank ledger dispositions" --run-id 01KZ0E0N682PMXG5H4A9PBJNYQ --json` -> trace `01KZ0Y4TDYX4ZVHNT14B2KGMG6`
+    - `zharness check record --verdict APPROVED --judge same-session --judge-model gpt-5.5 --run-id 01KZ0E0N682PMXG5H4A9PBJNYQ --proof-links ... --json` -> check `01KZ0Y5DFY15GQZC2DC168W91P`
+    - `zharness query phases --json` -> `cliproxyapi-final-checkpoint-gate` checked
+  run_id: 01KZ0E0N682PMXG5H4A9PBJNYQ
+  check_id: 01KZ0Y5DFY15GQZC2DC168W91P
+  verdict: APPROVED
+  proof_gaps: none
+
+- timestamp: 2026-08-02T08:32:48Z
+  phase: cliproxyapi-plugin-platform
+  commands:
+    - `go test ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor -run 'Test.*(Plugin|Lifecycle|Intercept|Terminate|Emit|Stream|Close|Panic)' -count=1` -> pass
+    - `go test -race ./sdk/api/handlers ./internal/runtime/executor -run 'Test.*(Plugin|Stream|Emit|Close|Lifecycle)' -count=1` -> pass
+    - `go test ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor -count=1` -> pass
+    - `go vet ./internal/pluginhost ./internal/interfaces ./internal/api ./sdk/api/handlers ./sdk/cliproxy ./internal/runtime/executor` -> pass
+    - `git diff --check` -> pass
+    - `zharness audit --json` -> expected pre-check pointer drift only; `contract_violations=[]`, `unlinked_proofs=[]`
+    - full Security, Performance, Architecture, and Code Quality review -> pass after fixing duplicate stream terminal behavior; lifecycle hooks are opt-in via context, request/response payloads and headers are cloned, accepted emit-result replacement suppresses original stream errors, stream send/close panics become errors, and the internal pluginhost bridge is aliases only with no plugin-owned file/runtime authority
+    - `zharness check record --verdict APPROVED --judge same-session --judge-model gpt-5.5 --run-id 01KZ0RP825SYN5AHD10KGWNAFV --proof-links ... --json` -> check `01KZ0SNS6TV4NE66AJ0KZZ3F7F`
+  run_id: 01KZ0RP825SYN5AHD10KGWNAFV
+  check_id: 01KZ0SNS6TV4NE66AJ0KZZ3F7F
+  verdict: APPROVED
+  proof_gaps: none
+
 ## Current State and Next Action
-- active_phase: cliproxyapi-management-runtime-ui
-- lifecycle_status: checked
-- latest_run_id: 01KZ0BHDV4CYFFWS6C4AAYDV8A
+- active_phase: cliproxyapi-v7-2-113-delta
+- lifecycle_status: in-progress
+- latest_run_id: 01KZ0SXT5YQET1BX87DSAAE45X
 - latest_trace_id: none
-- latest_check_id: 01KZ0DV92J3PPS9ZYWZQ92E08H
+- latest_check_id: 01KZ0SNS6TV4NE66AJ0KZZ3F7F
 - latest_handoff_id: none
 - completed_work:
   - Closed `cliproxyapi-ledger-scope-freeze` with handoff `01KYYASSGZRBYB15WKW1K32EWS`.
@@ -1577,7 +1850,15 @@ PY`
   - Checked `cliproxyapi-signature-antigravity` with check `01KZ0BA4JXG4R0S8FM5C1WVN3A`.
   - Committed `cliproxyapi-signature-antigravity` as `45171cf7`.
   - Checked `cliproxyapi-management-runtime-ui` with check `01KZ0DV92J3PPS9ZYWZQ92E08H`.
-- blockers: none
+  - Committed `cliproxyapi-management-runtime-ui` as `6984b74e`.
+  - Created missing DB phase row for `cliproxyapi-plugin-platform` as `01KZ0RNYXCPRQ7A05P5ZGYX1CZ` and started run `01KZ0RP825SYN5AHD10KGWNAFV`.
+  - Verified `cliproxyapi-plugin-platform` plugin-lifecycle wave with trace `01KZ0SCQZ6XDRB0SFH9BZW8H3H`.
+  - Checked `cliproxyapi-plugin-platform` with check `01KZ0SNS6TV4NE66AJ0KZZ3F7F`.
+  - Planned `cliproxyapi-v7-2-113-delta` with story `01KZ0SSWRQRPGK6ZSA73H7B723` and started run `01KZ0SXT5YQET1BX87DSAAE45X`.
+- blockers:
+  - `cliproxyapi-final-checkpoint-gate` remains blocked by refreshed `v7.2.113` product scope until plugin-platform and delta reconciliation complete.
 - open_items:
   - Browser desktop/mobile runtime smoke remains unexecuted in this environment; type-check, lint, production build, embedded build, and manual diff review passed.
-- exact_next_action: Stage only `cliproxyapi-management-runtime-ui` files, run staged secret scan, and commit the checked phase without pushing.
+  - Classify `v7.2.113` commits into include/reject/defer before any final `/check`, commit, push, or PR closure.
+  - Complete `cliproxyapi-v7-2-113-delta` classification/runtime/translator waves before any final `/check`, commit, push, or PR closure.
+- exact_next_action: Classify all seven `v7.2.113` commits in `docs/upstream/cliproxyapi-ledger-v7.2.112..v7.2.113.md`, then implement required runtime and translator compatibility deltas.

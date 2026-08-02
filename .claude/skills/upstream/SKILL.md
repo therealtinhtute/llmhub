@@ -82,9 +82,10 @@ Convert the ledger into a scope decision. Follow `references/triage-rubric.md`.
 
 1. Score each candidate on value, blast radius, and architectural fit against the local design.
 2. Reject anything that would invert a local architectural invariant — record it under `exclude`, do not silently drop it.
-3. Group survivors into coherent capability slices, not per-commit tasks.
-4. Present include / exclude / defer with `AskUserQuestion`. Scope is the user's decision, never assumed.
-5. Write the approved decision into the checkpoint `scope_policy` via `upstream_sync.py policy --slug {slug} --include ... --exclude ...`.
+3. Explicit user-mandated scope cannot be unilaterally rejected or excluded. Record it as `adapt` with the architectural constraints needed to preserve local invariants; use `AskUserQuestion` only when the requested behavior is impossible, destructive, or would require breaking a non-negotiable invariant.
+4. Group survivors into coherent capability slices, not per-commit tasks.
+5. Present include / exclude / defer with `AskUserQuestion`. Scope is the user's decision, never assumed.
+6. Write the approved decision into the checkpoint `scope_policy` via `upstream_sync.py policy --slug {slug} --include ... --exclude ...`.
 
 ## Phase 4 — plan handoff
 
@@ -119,7 +120,7 @@ Load as needed from `.claude/skills/upstream/references/`:
 
 ### Example 3: Decide a single feature
 **Input**: "should we port their plugin platform?"
-**Output**: Ledger rows for the plugin commits, triage score, recommendation to exclude with the invariant it would invert, written to `scope_policy.exclude`.
+**Output**: Ledger rows for the plugin commits, triage score, include/adapt recommendation if user value is explicit, and the architectural constraints required to preserve local invariants; write only the user-approved disposition to `scope_policy`.
 
 ### Example 4: Lock the parity plan
 **Input**: "lock the parity plan for the approved scope"

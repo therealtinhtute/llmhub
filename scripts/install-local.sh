@@ -147,32 +147,10 @@ prompt_init_config() {
     env_file="$1"
     current_b64="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_B64 2>/dev/null || true)"
     current_yaml="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_YAML 2>/dev/null || true)"
-    if [ -n "$current_b64" ] || [ -n "$current_yaml" ]; then
+    if [ -n "${LLMHUB_INIT_CONFIG_B64:-}" ] || [ -n "${LLMHUB_INIT_CONFIG_YAML:-}" ] || [ -n "$current_b64" ] || [ -n "$current_yaml" ]; then
         return 0
     fi
-    if [ ! -t 0 ]; then
-        echo "error: missing LLMHUB_INIT_CONFIG_B64/LLMHUB_INIT_CONFIG_YAML in $env_file for first boot" >&2
-        exit 1
-    fi
-    echo ""
-    echo "Paste initial LLMHub config YAML for database bootstrap."
-    echo "Press Enter on an empty first line to skip when Postgres is already initialized."
-    echo "Finish with a line containing only END."
-    tmp_yaml="$(mktemp)"
-    while IFS= read -r line; do
-        if [ -z "$line" ] && [ ! -s "$tmp_yaml" ]; then
-            rm -f "$tmp_yaml"
-            return 0
-        fi
-        [ "$line" = "END" ] && break
-        printf '%s\n' "$line" >>"$tmp_yaml"
-    done
-    if [ ! -s "$tmp_yaml" ]; then
-        rm -f "$tmp_yaml"
-        return 0
-    fi
-    PROMPTED_INIT_CONFIG_B64="$(base64 <"$tmp_yaml" | tr -d '\n')"
-    rm -f "$tmp_yaml"
+    PROMPTED_INIT_CONFIG_B64="$(printf 'host: %s\nport: %s\n' "$DEFAULT_HOST" "$DEFAULT_PORT" | base64 | tr -d '\n')"
 }
 
 ensure_env_runtime() {
@@ -390,7 +368,8 @@ LLMHUB_PORT=${DEFAULT_PORT}
 PGSTORE_DSN=
 PGSTORE_SCHEMA=llmhub
 PGSTORE_USAGE_RETENTION_SECONDS=60
-# First boot only. Keep one of these set until init succeeds.
+# Optional advanced override for first-boot config seed. If left unset, the
+# installer derives it automatically from LLMHUB_HOST/LLMHUB_PORT above.
 # LLMHUB_INIT_CONFIG_B64=
 # LLMHUB_INIT_CONFIG_YAML=
 ENV

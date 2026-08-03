@@ -25,8 +25,8 @@ already-seeded VPS must work with the existing `.env` file and DB state.
 
 - `install-local.sh` reuses existing `PGSTORE_*` and `LLMHUB_INIT_CONFIG_*`
   values from the destination env file instead of ignoring them.
-- Interactive installs may skip the YAML paste prompt when the operator is
-  targeting an already-seeded Postgres runtime.
+- Installer never prompts for YAML; it auto-derives the init config from
+  `LLMHUB_HOST`/`LLMHUB_PORT` unless an explicit override env var is set.
 - `llmhub init-db-from-env` exits successfully without init config env when the
   Postgres config row already exists.
 - First-boot behavior still fails clearly when Postgres has no config row and
@@ -63,6 +63,6 @@ No Harness behavior changes expected.
 
 - `go test ./cmd/server`
 - `sh -n scripts/install-local.sh`
-- Static review confirmed reruns can skip YAML paste, env-file values are
-  reused, and `init-db-from-env` now checks current config version before
-  requiring init config env.
+- Static review confirmed the installer no longer prompts for YAML, env-file
+  values are reused, and `init-db-from-env` now checks current config version
+  before requiring init config env.

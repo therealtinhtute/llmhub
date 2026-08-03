@@ -78,9 +78,10 @@ For Postgres-backed runtime storage, the installer can prompt for
 `PGSTORE_USAGE_RETENTION_SECONDS` during the run, or you can put them in the
 same `.env` file ahead of time. The installer keeps runtime metadata under
 `/var/lib/llmhub/pgstore` by setting `WRITABLE_PATH=/var/lib/llmhub`.
-`LLMHUB_INIT_CONFIG_B64` or `LLMHUB_INIT_CONFIG_YAML` is needed only for the
-first seed of an empty Postgres runtime; rerunning the installer against an
-already-seeded VPS can skip the YAML paste step.
+The installer never prompts for YAML: it auto-derives the first-boot config
+seed from `LLMHUB_HOST`/`LLMHUB_PORT`. Set `LLMHUB_INIT_CONFIG_B64` or
+`LLMHUB_INIT_CONFIG_YAML` in the `.env` file ahead of time only if you need a
+richer initial config than host/port.
 
 Example `.env`:
 

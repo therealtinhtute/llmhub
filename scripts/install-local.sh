@@ -19,6 +19,8 @@ ENV_FILE="${ENV_FILE:-${CONFIG_DIR}/llmhub.env}"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 CADDY_DOMAIN="${CADDY_DOMAIN:-}"
 CADDYFILE_PATH="${CADDYFILE_PATH:-/etc/caddy/Caddyfile}"
+CADDY_SITES_DIR="${CADDY_SITES_DIR:-/etc/caddy/conf.d}"
+CADDY_SITE_FILE="${CADDY_SITE_FILE:-${CADDY_SITES_DIR}/${SERVICE_NAME:-llmhub}.caddy}"
 SERVICE_RESTART="${SERVICE_RESTART:-always}"
 SERVICE_RESTART_SEC="${SERVICE_RESTART_SEC:-3s}"
 SERVICE_START_LIMIT_INTERVAL="${SERVICE_START_LIMIT_INTERVAL:-0}"
@@ -160,11 +162,17 @@ ensure_env_runtime() {
     current_retention="$(read_env_value "$env_file" PGSTORE_USAGE_RETENTION_SECONDS 2>/dev/null || true)"
     current_b64="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_B64 2>/dev/null || true)"
     current_yaml="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_YAML 2>/dev/null || true)"
+    current_mgmt_password="$(read_env_value "$env_file" MANAGEMENT_PASSWORD 2>/dev/null || true)"
     pg_dsn="${PGSTORE_DSN:-${PROMPTED_PGSTORE_DSN:-$current_dsn}}"
     pg_schema="${PGSTORE_SCHEMA:-${PROMPTED_PGSTORE_SCHEMA:-${current_schema:-llmhub}}}"
     pg_retention="${PGSTORE_USAGE_RETENTION_SECONDS:-${PROMPTED_PGSTORE_USAGE_RETENTION_SECONDS:-${current_retention:-60}}}"
     init_b64="${LLMHUB_INIT_CONFIG_B64:-${PROMPTED_INIT_CONFIG_B64:-$current_b64}}"
     init_yaml="${LLMHUB_INIT_CONFIG_YAML:-$current_yaml}"
+    mgmt_password="${MANAGEMENT_PASSWORD:-$current_mgmt_password}"
+    if [ -z "$mgmt_password" ]; then
+        mgmt_password="$(generate_secret)"
+    fi
+    MGMT_PASSWORD_DISPLAY="$mgmt_password"
     if [ -z "$pg_dsn" ]; then
         echo "error: PGSTORE_DSN is required" >&2
         exit 1
@@ -178,7 +186,8 @@ ensure_env_runtime() {
         -v schema="$pg_schema" \
         -v retention="$pg_retention" \
         -v init_b64="$init_b64" \
-        -v init_yaml="$init_yaml" '
+        -v init_yaml="$init_yaml" \
+        -v mgmt_password="$mgmt_password" '
         BEGIN {
             wrote_host = 0
             wrote_port = 0
@@ -187,6 +196,7 @@ ensure_env_runtime() {
             wrote_retention = 0
             wrote_b64 = 0
             wrote_yaml = 0
+            wrote_mgmt = 0
         }
         /^[[:space:]]*LLMHUB_HOST=/ && !wrote_host { print "LLMHUB_HOST=" host; wrote_host = 1; next }
         /^[[:space:]]*LLMHUB_PORT=/ && !wrote_port { print "LLMHUB_PORT=" port; wrote_port = 1; next }
@@ -203,6 +213,7 @@ ensure_env_runtime() {
             wrote_yaml = 1
             next
         }
+        /^[[:space:]]*MANAGEMENT_PASSWORD=/ && !wrote_mgmt { print "MANAGEMENT_PASSWORD=" mgmt_password; wrote_mgmt = 1; next }
         { print }
         END {
             if (!wrote_host) print "LLMHUB_HOST=" host
@@ -212,6 +223,7 @@ ensure_env_runtime() {
             if (!wrote_retention) print "PGSTORE_USAGE_RETENTION_SECONDS=" retention
             if (!wrote_b64 && init_b64 != "") print "LLMHUB_INIT_CONFIG_B64=" init_b64
             if (!wrote_yaml && init_yaml != "") print "LLMHUB_INIT_CONFIG_YAML=" init_yaml
+            if (!wrote_mgmt) print "MANAGEMENT_PASSWORD=" mgmt_password
         }
     ' "$env_file" >"$tmp_env"
     install -m 0640 -o root -g "$SERVICE_GROUP" "$tmp_env" "$env_file"
@@ -233,6 +245,14 @@ prompt_domain() {
         printf "Domain for Caddy HTTPS (leave blank to skip): "
         read -r CADDY_DOMAIN
         [ -z "$CADDY_DOMAIN" ] || valid_domain "$CADDY_DOMAIN" || { echo "error: invalid domain: $CADDY_DOMAIN" >&2; exit 1; }
+    fi
+}
+
+generate_secret() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 24
+    else
+        head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
     fi
 }
 
@@ -261,12 +281,24 @@ install_caddy_if_needed() {
     apt-get install -y -qq caddy
 }
 
+ensure_caddyfile_import() {
+    import_line="import ${CADDY_SITES_DIR}/*.caddy"
+    install -d -m 0755 "$(dirname -- "$CADDYFILE_PATH")"
+    if [ ! -f "$CADDYFILE_PATH" ]; then
+        printf '%s\n' "$import_line" >"$CADDYFILE_PATH"
+        return 0
+    fi
+    grep -qxF "$import_line" "$CADDYFILE_PATH" && return 0
+    printf '\n%s\n' "$import_line" >>"$CADDYFILE_PATH"
+}
+
 configure_caddy() {
     domain="$1"
     upstream_port="$2"
     install_caddy_if_needed
-    install -d -m 0755 "$(dirname -- "$CADDYFILE_PATH")"
-    cat >"$CADDYFILE_PATH" <<EOF
+    install -d -m 0755 "$CADDY_SITES_DIR"
+    ensure_caddyfile_import
+    cat >"$CADDY_SITE_FILE" <<EOF
 $domain {
     encode gzip
     reverse_proxy 127.0.0.1:$upstream_port
@@ -439,6 +471,7 @@ else
     echo "    Management panel: http://${SERVER_IP}:${SERVER_PORT}/management.html"
 fi
 echo ""
+echo "    Management password: ${MGMT_PASSWORD_DISPLAY:-see $ENV_FILE}"
 echo "    Bootstrap env: $ENV_FILE"
 echo "    Logs: journalctl -u ${SERVICE_NAME} -f"
 if [ -n "$CADDY_DOMAIN" ]; then

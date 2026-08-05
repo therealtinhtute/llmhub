@@ -14,7 +14,7 @@ provider inventory.
 | Plan | File | Effort | Ships alone | Status |
 |---|---|---|---|---|
 | **A** — Unified error classification | [`error-classification.md`](error-classification.md) | S | yes | awaiting approval |
-| **B+C** — Preset catalog, passthrough, OpenCode Free | [`provider-presets.md`](provider-presets.md) | S | yes | awaiting approval |
+| **B+C** — Preset catalog (opencode, openrouter, nvidia), passthrough | [`provider-presets.md`](provider-presets.md) | S | yes | awaiting approval |
 | **D** — Model combos (cross-provider fallback) | [`model-combos.md`](model-combos.md) | L | yes | awaiting approval |
 
 Recommended order: **A → B+C → D**.
@@ -38,6 +38,7 @@ B+C before D so D has real free candidates to fall back onto.
 | Excluded | Why |
 |---|---|
 | RTK / Headroom / Caveman token compression | Out of the agreed analysis scope |
+| GLM / MiniMax as `openai-compatibility` | They are Anthropic-messages format (`x-api-key`, `/anthropic/v1/messages`). Possible later as `claude-api-key` entries; see `provider-presets.md` §Not building |
 | Format-translation rework | LLMHub's translator registry already covers it |
 | Declarative provider registry in Go | `openai-compatibility` already is this mechanism; see `references/porting-map.md` |
 | Account round-robin, per-model cooldown, backoff, weighted credentials | Already exist and are more thorough than 9router's (`sdk/cliproxy/auth/`) |

@@ -25,8 +25,27 @@ existing `openai-compatibility` config block (`internal/config/config.go:569`) v
 
 openrouter · deepseek · groq · cerebras · together · fireworks · nvidia · siliconflow · mistral ·
 cohere · perplexity · hyperbolic · sambanova · nebius · featherless · venice · chutes · blackbox ·
-huggingface · glm · glm-cn · minimax · minimax-cn · llm7 · tokenrouter · vercel-ai-gateway ·
-volcengine-ark · byteplus · baidu · tencent · morph · ollama · kilo-gateway
+huggingface · llm7 · tokenrouter · vercel-ai-gateway · volcengine-ark · byteplus · baidu ·
+tencent · morph · ollama · kilo-gateway
+
+### Not on that list — check `format:` before assuming OpenAI
+
+`glm` · `glm-cn` · `minimax` · `minimax-cn` are **Anthropic-messages format**, not OpenAI:
+
+```
+glm      https://api.z.ai/api/anthropic/v1/messages?beta=true   format: "claude"
+minimax  https://api.minimax.io/anthropic/v1/messages           format: "claude"
+         auth: header x-api-key, scheme raw   (not Authorization: Bearer)
+```
+
+They belong in LLMHub's `claude-api-key` config, which has its own `BaseURL`
+(`internal/config/config.go:391`) — **not** `openai-compatibility`. Dropping them into an
+`openai-compatibility` block fails on the first request.
+
+Rule: read the registry entry's `transport` block and its `format:` field before classifying. A
+grep for `format:` alone will also hit media sub-configs — `nvidia` matches `format: "nvidia-tts"`
+from its TTS block while its LLM transport (`https://integrate.api.nvidia.com/v1/chat/completions`)
+is plain OpenAI.
 
 Example — OpenRouter (`open-sse/providers/registry/openrouter.js`):
 

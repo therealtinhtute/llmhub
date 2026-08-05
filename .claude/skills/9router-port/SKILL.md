@@ -84,7 +84,8 @@ either already covered by LLMHub or is provider inventory.
 
 | Ask | Verdict |
 |---|---|
-| "Add OpenRouter / Groq / DeepSeek / GLM / MiniMax" | Config only. `openai-compatibility` block. No Go code. |
+| "Add OpenRouter / Groq / DeepSeek / NVIDIA" | Config only. `openai-compatibility` block. No Go code. |
+| "Add GLM / MiniMax" | Config only, but `claude-api-key`, **not** `openai-compatibility` — they are Anthropic-messages format with `x-api-key`. See `references/providers.md`. |
 | "Add OpenCode Free" | Small executor or an `openai-compatibility` entry with a static `Authorization: Bearer public`. Lowest-effort real win. |
 | "Add auto-fallback across providers" | Real gap. Needs a combo layer above `Manager.ExecuteStream`. See `references/routing.md`. |
 | "Add multi-account round-robin" | Already exists. `sdk/cliproxy/auth/selector.go`. |

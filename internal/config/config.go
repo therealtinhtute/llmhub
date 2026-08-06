@@ -600,6 +600,10 @@ type OpenAICompatibility struct {
 
 	// DisableCooling disables auth/model cooldown scheduling for this provider when true.
 	DisableCooling bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+
+	// Passthrough forwards the client's model id to the upstream unchanged instead of
+	// requiring an explicit Models entry. Intended for aggregators (OpenRouter, OpenCode).
+	Passthrough bool `yaml:"passthrough,omitempty" json:"passthrough,omitempty"`
 }
 
 // OpenAICompatibilityAPIKey represents an API key configuration with optional proxy setting.

@@ -75,6 +75,14 @@ func TestDiffOpenAICompatibility_WeightUpdate(t *testing.T) {
 	expectContains(t, changes, "provider updated: provider-a (weight 1 -> 9)")
 }
 
+func TestDiffOpenAICompatibility_PassthroughUpdate(t *testing.T) {
+	oldList := []config.OpenAICompatibility{{Name: "provider-a", Passthrough: false}}
+	newList := []config.OpenAICompatibility{{Name: "provider-a", Passthrough: true}}
+
+	changes := DiffOpenAICompatibility(oldList, newList)
+	expectContains(t, changes, "provider updated: provider-a (passthrough false -> true)")
+}
+
 func TestOpenAICompatKeyFallbacks(t *testing.T) {
 	entry := config.OpenAICompatibility{
 		BaseURL: "http://base",

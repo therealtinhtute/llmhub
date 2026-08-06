@@ -1,0 +1,37 @@
+[
+  {
+    "id": "opencode",
+    "display_name": "OpenCode Free",
+    "base_url": "https://opencode.ai/zen/v1",
+    "headers": { "x-opencode-client": "desktop" },
+    "models_url": "https://opencode.ai/zen/v1/models",
+    "free_tier_note": "No credentials required. Best-effort, undocumented endpoint.",
+    "passthrough": true,
+    "default_api_key": "public",
+    "verified": true,
+    "verified_at": "2026-08-06"
+  },
+  {
+    "id": "openrouter",
+    "display_name": "OpenRouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "headers": { "HTTP-Referer": "https://llmhub.local", "X-Title": "LLMHub" },
+    "models_url": "https://openrouter.ai/api/v1/models",
+    "signup_url": "https://openrouter.ai/settings/keys",
+    "free_tier_note": "27+ free models, no card, 200 req/day (1000 after any credit purchase).",
+    "passthrough": true,
+    "verified": true,
+    "verified_at": "2026-08-06"
+  },
+  {
+    "id": "nvidia",
+    "display_name": "NVIDIA NIM",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "models_url": "https://integrate.api.nvidia.com/v1/models",
+    "signup_url": "https://build.nvidia.com/settings/api-keys",
+    "free_tier_note": "Free for NVIDIA Developer Program members (prototyping & testing).",
+    "passthrough": true,
+    "verified": true,
+    "verified_at": "2026-08-06"
+  }
+]

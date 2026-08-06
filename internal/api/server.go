@@ -716,6 +716,8 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/quota-exceeded/switch-preview-model", s.mgmt.PutSwitchPreviewModel)
 		mgmt.POST("/reset-quota", s.mgmt.ResetQuota)
 
+		mgmt.GET("/provider-presets", s.mgmt.GetProviderPresets)
+
 		mgmt.GET("/runtime-controls", s.mgmt.GetRuntimeControls)
 		mgmt.PUT("/runtime-controls", s.mgmt.PutRuntimeControls)
 		mgmt.PATCH("/runtime-controls", s.mgmt.PutRuntimeControls)

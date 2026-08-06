@@ -1047,7 +1047,31 @@ func (m *Manager) authSupportsRouteModel(registryRef *registry.ModelRegistry, au
 		return true
 	}
 	selectionKey := m.selectionModelKeyForAuth(auth, routeModel)
-	return selectionKey != "" && selectionKey != routeKey && registryRef.ClientSupportsModel(auth.ID, selectionKey)
+	if selectionKey != "" && selectionKey != routeKey && registryRef.ClientSupportsModel(auth.ID, selectionKey) {
+		return true
+	}
+	return m.authAllowsPassthroughModel(auth)
+}
+
+// authAllowsPassthroughModel reports whether auth's resolved openai-compatibility
+// config entry has Passthrough enabled, letting a model id absent from the
+// registry (because Models is empty) still pass eligibility instead of the
+// candidate being filtered out as unsupported.
+func (m *Manager) authAllowsPassthroughModel(auth *Auth) bool {
+	if m == nil || !isOpenAICompatAPIKeyAuth(auth) {
+		return false
+	}
+	cfg, _ := m.runtimeConfig.Load().(*internalconfig.Config)
+	if cfg == nil {
+		return false
+	}
+	providerKey, compatName := "", ""
+	if auth.Attributes != nil {
+		providerKey = strings.TrimSpace(auth.Attributes["provider_key"])
+		compatName = strings.TrimSpace(auth.Attributes["compat_name"])
+	}
+	entry := resolveOpenAICompatConfig(cfg, providerKey, compatName, auth.Provider)
+	return entry != nil && entry.Passthrough
 }
 
 func discardStreamChunks(ch <-chan cliproxyexecutor.StreamChunk) {

@@ -65,3 +65,17 @@ export interface OpenAIProviderConfig {
   authIndex?: string;
   [key: string]: unknown;
 }
+
+export interface ProviderPreset {
+  id: string;
+  displayName: string;
+  baseUrl: string;
+  headers?: Record<string, string>;
+  modelsUrl?: string;
+  signupUrl?: string;
+  freeTierNote?: string;
+  passthrough: boolean;
+  defaultApiKey?: string;
+  verified: boolean;
+  verifiedAt?: string;
+}

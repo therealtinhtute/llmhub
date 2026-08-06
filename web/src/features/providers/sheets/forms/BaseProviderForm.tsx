@@ -15,8 +15,10 @@ import type {
   GeminiKeyConfig,
   OpenAIProviderConfig,
   ProviderKeyConfig,
+  ProviderPreset,
 } from '@/types';
 import type { ModelInfo } from '@/utils/models';
+import { providersApi } from '@/services/api/providers';
 import { PROVIDER_DESCRIPTORS } from '../../descriptors';
 import type {
   ApiKeyEntryInput,
@@ -213,6 +215,44 @@ export function BaseProviderForm({
     JSON.stringify(buildInitialForm(brand, resource, mode))
   );
   const [error, setError] = useState<string | null>(null);
+
+  const showPresetPicker = brand === 'openaiCompatibility' && mode === 'create';
+  const [presets, setPresets] = useState<ProviderPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+
+  useEffect(() => {
+    if (!showPresetPicker) return;
+    let cancelled = false;
+    void providersApi
+      .getProviderPresets()
+      .then((list) => {
+        if (!cancelled) setPresets(list);
+      })
+      .catch(() => {
+        if (!cancelled) setPresets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showPresetPicker]);
+
+  const selectedPreset = useMemo(
+    () => presets.find((p) => p.id === selectedPresetId) ?? null,
+    [presets, selectedPresetId]
+  );
+
+  const applyPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const preset = presets.find((p) => p.id === presetId);
+    if (!preset) return;
+    setForm((prev) => ({
+      ...prev,
+      baseUrl: preset.baseUrl,
+      headers: preset.headers && Object.keys(preset.headers).length
+        ? Object.entries(preset.headers).map(([key, value]) => ({ key, value }))
+        : prev.headers,
+    }));
+  };
 
   const isDirty = useMemo(
     () => JSON.stringify(form) !== initialFormSignature,
@@ -443,6 +483,50 @@ export function BaseProviderForm({
     <form id={formId} className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
       {/* Base fields */}
       <div className="flex flex-col gap-3">
+        {showPresetPicker && presets.length ? (
+          <div className="grid gap-1.5">
+            <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-preset`}>
+              {t('providersPage.form.presetLabel')}
+            </label>
+            <Select
+              id={`${fid}-preset`}
+              value={selectedPresetId}
+              options={[
+                { value: '', label: t('providersPage.form.presetNone') },
+                ...presets.map((p) => ({
+                  value: p.id,
+                  label: p.verified
+                    ? p.displayName
+                    : `${p.displayName} (${t('providersPage.form.presetUnverified')})`,
+                })),
+              ]}
+              onChange={applyPreset}
+              disabled={mutating}
+              ariaLabel={t('providersPage.form.presetLabel')}
+            />
+            {selectedPreset ? (
+              <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                {!selectedPreset.verified ? (
+                  <span className="inline-flex items-center gap-1 self-start px-1.5 py-0.5 border border-[var(--destructive-30)] text-destructive font-medium">
+                    {t('providersPage.form.presetUnverified')}
+                  </span>
+                ) : null}
+                {selectedPreset.freeTierNote ? <span>{selectedPreset.freeTierNote}</span> : null}
+                {selectedPreset.signupUrl ? (
+                  <a
+                    href={selectedPreset.signupUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary hover:underline self-start"
+                  >
+                    {t('providersPage.form.presetSignup')}
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {descriptor.supportsName ? (
           <div className="grid gap-1.5">
             <label className="text-[12px] font-medium text-foreground" htmlFor={`${fid}-name`}>

@@ -1453,6 +1453,10 @@
     "form": {
       "createEyebrow": "New",
       "editEyebrow": "Edit",
+      "presetLabel": "Preset",
+      "presetNone": "None (blank)",
+      "presetUnverified": "Unverified",
+      "presetSignup": "Sign up",
       "name": "Name",
       "apiKey": "API key",
       "apiKeyCreatePlaceholder": "Enter API key",

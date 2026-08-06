@@ -12,6 +12,7 @@ import type {
   GeminiKeyConfig,
   OpenAIProviderConfig,
   ProviderKeyConfig,
+  ProviderPreset,
   ApiKeyEntry,
   ModelAlias,
 } from '@/types';
@@ -428,6 +429,34 @@ const serializeOpenAIProvider = (provider: OpenAIProviderConfig) => {
   return payload;
 };
 
+const normalizeProviderPreset = (preset: unknown): ProviderPreset | null => {
+  if (!isRecord(preset)) return null;
+  const id = getStringField(preset, ['id']);
+  const displayName = getStringField(preset, ['display_name', 'displayName']);
+  const baseUrl = getStringField(preset, ['base_url', 'baseUrl']);
+  if (!id || !baseUrl) return null;
+
+  const headers = isRecord(preset.headers)
+    ? Object.fromEntries(
+        Object.entries(preset.headers).map(([k, v]) => [k, String(v)])
+      )
+    : undefined;
+
+  return {
+    id,
+    displayName: displayName || id,
+    baseUrl,
+    headers,
+    modelsUrl: getStringField(preset, ['models_url', 'modelsUrl']) || undefined,
+    signupUrl: getStringField(preset, ['signup_url', 'signupUrl']) || undefined,
+    freeTierNote: getStringField(preset, ['free_tier_note', 'freeTierNote']) || undefined,
+    passthrough: preset.passthrough === true,
+    defaultApiKey: getStringField(preset, ['default_api_key', 'defaultApiKey']) || undefined,
+    verified: preset.verified === true,
+    verifiedAt: getStringField(preset, ['verified_at', 'verifiedAt']) || undefined,
+  };
+};
+
 export const providersApi = {
   async getGeminiKeys(): Promise<GeminiKeyConfig[]> {
     const data = await apiClient.get('/gemini-api-key');
@@ -559,4 +588,10 @@ export const providersApi = {
 
   deleteOpenAIProvider: (name: string) =>
     apiClient.delete(`/openai-compatibility?name=${encodeURIComponent(name)}`),
+
+  async getProviderPresets(): Promise<ProviderPreset[]> {
+    const data = await apiClient.get('/provider-presets');
+    const list = extractArrayPayload(data, 'presets');
+    return list.map((item) => normalizeProviderPreset(item)).filter(Boolean) as ProviderPreset[];
+  },
 };

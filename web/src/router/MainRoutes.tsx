@@ -4,7 +4,6 @@ import { ProvidersWorkbenchPage } from '@/features/providers/ProvidersWorkbenchP
 import { AuthFilesPage } from '@/pages/AuthFilesPage';
 import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEditPage';
 import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAliasEditPage';
-import { OAuthPage } from '@/pages/OAuthPage';
 import { QuotaPage } from '@/pages/QuotaPage';
 import { QuotaMonitoringPage } from '@/pages/QuotaMonitoringPage';
 import { ConfigPage } from '@/pages/ConfigPage';
@@ -23,7 +22,10 @@ const mainRoutes = [
   { path: '/auth-files', element: <AuthFilesPage /> },
   { path: '/auth-files/oauth-excluded', element: <AuthFilesOAuthExcludedEditPage /> },
   { path: '/auth-files/oauth-model-alias', element: <AuthFilesOAuthModelAliasEditPage /> },
-  { path: '/oauth', element: <OAuthPage /> },
+  {
+    path: '/oauth',
+    element: <Navigate to="/ai-providers?entry=oauth:anthropic" replace />,
+  },
   { path: '/models', element: <ModelsPage /> },
   { path: '/quota', element: <QuotaPage /> },
   { path: '/quota/monitoring', element: <QuotaMonitoringPage /> },

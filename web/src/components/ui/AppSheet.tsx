@@ -13,12 +13,13 @@ const SIZE_MAP: Record<string, string> = {
   md: 'sm:max-w-md',
   lg: 'sm:max-w-lg',
   xl: 'sm:max-w-xl',
+  '2xl': 'sm:max-w-4xl',
 };
 
 interface AppSheetProps {
   open: boolean;
   onClose: () => void;
-  size?: 'md' | 'lg' | 'xl';
+  size?: 'md' | 'lg' | 'xl' | '2xl';
   eyebrow?: ReactNode;
   title?: ReactNode;
   description?: ReactNode;

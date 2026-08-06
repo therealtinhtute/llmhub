@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   IconAlertTriangle,
@@ -48,6 +48,7 @@ interface BaseProviderFormProps {
   formId: string;
   onSubmit: (input: ProviderEntryFormInput) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  initialPresetId?: string;
 }
 
 const emptyHeader = () => ({ key: '', value: '' });
@@ -205,6 +206,7 @@ export function BaseProviderForm({
   formId,
   onSubmit,
   onDirtyChange,
+  initialPresetId,
 }: BaseProviderFormProps) {
   const { t } = useTranslation();
   const descriptor = PROVIDER_DESCRIPTORS[brand];
@@ -212,9 +214,10 @@ export function BaseProviderForm({
   const [form, setForm] = useState<ProviderEntryFormInput>(() =>
     buildInitialForm(brand, resource, mode)
   );
-  const [initialFormSignature] = useState<string>(() =>
+  const [initialFormSignature, setInitialFormSignature] = useState(() =>
     JSON.stringify(buildInitialForm(brand, resource, mode))
   );
+  const userEditedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const showPresetPicker = brand === 'openaiCompatibility' && mode === 'create';
@@ -227,7 +230,23 @@ export function BaseProviderForm({
     void providersApi
       .getProviderPresets()
       .then((list) => {
-        if (!cancelled) setPresets(list);
+        if (cancelled) return;
+        setPresets(list);
+        const initialPreset = initialPresetId
+          ? list.find((preset) => preset.id === initialPresetId)
+          : undefined;
+        if (!initialPreset || userEditedRef.current) return;
+        const next = {
+          ...buildInitialForm(brand, resource, mode),
+          baseUrl: initialPreset.baseUrl,
+          headers:
+            initialPreset.headers && Object.keys(initialPreset.headers).length
+              ? Object.entries(initialPreset.headers).map(([key, value]) => ({ key, value }))
+              : buildInitialForm(brand, resource, mode).headers,
+        };
+        setInitialFormSignature(JSON.stringify(next));
+        setForm(next);
+        setSelectedPresetId(initialPreset.id);
       })
       .catch(() => {
         if (!cancelled) setPresets([]);
@@ -235,7 +254,7 @@ export function BaseProviderForm({
     return () => {
       cancelled = true;
     };
-  }, [showPresetPicker]);
+  }, [brand, initialPresetId, mode, resource, showPresetPicker]);
 
   const selectedPreset = useMemo(
     () => presets.find((p) => p.id === selectedPresetId) ?? null,
@@ -243,6 +262,7 @@ export function BaseProviderForm({
   );
 
   const applyPreset = (presetId: string) => {
+    userEditedRef.current = true;
     setSelectedPresetId(presetId);
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) return;
@@ -255,10 +275,7 @@ export function BaseProviderForm({
     }));
   };
 
-  const isDirty = useMemo(
-    () => JSON.stringify(form) !== initialFormSignature,
-    [form, initialFormSignature]
-  );
+  const isDirty = JSON.stringify(form) !== initialFormSignature;
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -365,6 +382,7 @@ export function BaseProviderForm({
 
   const applyDiscoveredModels = (incoming: ModelInfo[]) => {
     if (!incoming.length) return;
+    userEditedRef.current = true;
     setForm((prev) => {
       const seen = new Set<string>();
       const next: ModelEntryInput[] = [];
@@ -400,6 +418,7 @@ export function BaseProviderForm({
     key: K,
     value: ProviderEntryFormInput[K]
   ) => {
+    userEditedRef.current = true;
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -407,6 +426,7 @@ export function BaseProviderForm({
     key: K,
     value: NonNullable<ProviderEntryFormInput['cloak']>[K]
   ) => {
+    userEditedRef.current = true;
     setForm((prev) => ({
       ...prev,
       cloak: {

@@ -52,7 +52,9 @@ export type UseAuthFilesDataResult = {
   batchDelete: (names: string[]) => void;
 };
 
-export function useAuthFilesData(): UseAuthFilesDataResult {
+export function useAuthFilesData(
+  onFilesChanged?: () => void | Promise<void>
+): UseAuthFilesDataResult {
   const { t } = useTranslation();
   const { showConfirmation } = useConfirmationStore();
 
@@ -259,6 +261,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
             const result = await authFilesApi.deleteFile(name);
             toast.success(t('auth_files.delete_success'));
             applyDeletedFiles(result.files.length > 0 ? result.files : [name]);
+            void onFilesChanged?.();
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : '';
             toast.error(`${t('notification.delete_failed')}: ${errorMessage}`);
@@ -268,7 +271,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         },
       });
     },
-    [applyDeletedFiles, showConfirmation, t]
+    [applyDeletedFiles, onFilesChanged, showConfirmation, t]
   );
 
   const handleDeleteAll = useCallback(
@@ -441,6 +444,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
             ? t('auth_files.status_enabled_success', { name })
             : t('auth_files.status_disabled_success', { name })
         );
+        void onFilesChanged?.();
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
         setFiles((prev) =>
@@ -456,7 +460,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         });
       }
     },
-    [t]
+    [onFilesChanged, t]
   );
 
   const batchSetStatus = useCallback(

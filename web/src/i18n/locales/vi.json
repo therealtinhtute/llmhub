@@ -1396,7 +1396,41 @@
       "title": "Providers",
       "activeCount": "{{active}}/{{total}} active",
       "ampcodeActive": "Connected",
-      "ampcodeInactive": "Not configured"
+      "ampcodeInactive": "Not configured",
+      "sections": {
+        "oauth": "OAuth",
+        "free": "Miễn phí",
+        "freeTier": "Gói miễn phí",
+        "apikey": "API key",
+        "custom": "Tùy chỉnh"
+      }
+    },
+    "presets": {
+      "verified": "Đã xác minh",
+      "unverified": "Chưa xác minh",
+      "signup": "Mở trang đăng ký nhà cung cấp",
+      "empty": "Chưa có tài nguyên phù hợp. Hãy thêm một tài nguyên bằng preset này để giữ nó trong thẻ này."
+    },
+    "oauthAccounts": {
+      "eyebrow": "Đăng nhập OAuth",
+      "description": "Đăng nhập và quản lý các tài khoản đã kết nối.",
+      "title": "Tài khoản đã kết nối",
+      "manage": "Quản lý tất cả tệp xác thực",
+      "unknownHint": "Các tệp không có loại OAuth được nhận diện vẫn có trên trang Tệp xác thực.",
+      "empty": "Chưa có tệp xác thực phù hợp.",
+      "tryAgain": "Thử lại",
+      "download": "Tải xuống",
+      "columns": {
+        "name": "Tên",
+        "status": "Trạng thái",
+        "lastRefresh": "Lần làm mới gần nhất",
+        "actions": "Thao tác"
+      },
+      "disabled": "Đã tắt",
+      "active": "Đang hoạt động"
+    },
+    "card": {
+      "pendingAuthorization": "Đang chờ xác thực"
     },
     "providerNames": {
       "gemini": "Gemini",

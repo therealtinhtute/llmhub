@@ -1,31 +1,85 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { AppSkeleton as Skeleton } from '@/components/ui/AppSkeleton';
 import { toast } from 'sonner';
-import { useAuthStore, useConfirmationStore } from '@/stores';
+import { useAuthStore } from '@/stores';
 import { useProviderRecentRequests } from '@/components/providers/hooks/useProviderRecentRequests';
-import { getOpenAIProviderRecentWindowStats } from '@/components/providers/utils';
-import type { OpenAIProviderConfig } from '@/types';
+import { authFilesApi, providersApi } from '@/services/api';
+import { oauthApi, type OAuthProvider } from '@/services/api/oauth';
+import { copyToClipboard } from '@/utils/clipboard';
+import type { AuthFileItem, ProviderPreset } from '@/types';
 import { ProviderHeaderCard } from './components/ProviderHeaderCard';
-import { ProviderCategoryList } from './components/ProviderCategoryList';
-import { ProviderResourcePanel } from './components/ProviderResourcePanel';
-import type { OpenAIPanelControls } from './components/ProviderResourcePanel';
-import type {
-  OpenAISortBy,
-  SortDir,
-} from './components/OpenAIBrandToolbar';
-import { ProviderSheet, type ProviderSheetHandle } from './sheets/ProviderSheet';
+import { ProviderCategoryGrid } from './components/ProviderCategoryGrid';
+import {
+  buildEntries,
+  getAuthKey,
+  PROVIDERS,
+  resolveCallbackUrl,
+  type ProviderEntry,
+  type ProviderOAuthState,
+} from './entries';
+import {
+  ProviderSheet,
+  type ProviderSheetHandle,
+  type ProviderSheetState,
+} from './sheets/ProviderSheet';
 import { useProviderWorkbench } from './useProviderWorkbench';
-import type { ProviderBrand, ProviderResource } from './types';
+import type { ProviderResource } from './types';
 
-type SheetMode = 'detail' | 'create' | 'edit';
+const SUCCESS_RESET_DELAY_MS = 5000;
 
-interface SheetState {
-  open: boolean;
-  brand: ProviderBrand;
-  mode: SheetMode;
-  resource: ProviderResource | null;
+function getDefaultSheetState(entry: ProviderEntry): ProviderSheetState {
+  if (entry.kind === 'oauth') {
+    return {
+      open: true,
+      entryKey: entry.key,
+      brand: 'gemini',
+      mode: 'oauth',
+      resourceId: null,
+    };
+  }
+  if (entry.kind === 'preset') {
+    return {
+      open: true,
+      entryKey: entry.key,
+      brand: 'openaiCompatibility',
+      mode: 'list',
+      resourceId: null,
+    };
+  }
+  if (entry.group.id === 'ampcode') {
+    return {
+      open: true,
+      entryKey: entry.key,
+      brand: 'ampcode',
+      mode: 'edit',
+      resourceId: entry.resources[0]?.id ?? null,
+    };
+  }
+  return {
+    open: true,
+    entryKey: entry.key,
+    brand: entry.group.id,
+    mode: 'list',
+    resourceId: null,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (isRecord(error) && typeof error.message === 'string') return error.message;
+  return typeof error === 'string' ? error : '';
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined;
+  return typeof error.status === 'number' ? error.status : undefined;
 }
 
 const formatDateTime = (iso: string, locale?: string) => {
@@ -41,43 +95,311 @@ const formatDateTime = (iso: string, locale?: string) => {
   }
 };
 
-const matchesFilter = (r: ProviderResource, normalized: string): boolean => {
-  if (!normalized) return true;
-  const haystack = [
-    r.identifier,
-    r.name,
-    r.authIndex,
-    r.apiKeyPreview,
-    r.apiKey,
-    r.baseUrl,
-    r.proxyUrl,
-    r.prefix,
-  ]
-    .filter(Boolean)
-    .map((v) => String(v).toLowerCase());
-  return haystack.some((v) => v.includes(normalized));
-};
-
 export function ProvidersWorkbenchPage() {
   const { t, i18n } = useTranslation();
   const connectionStatus = useAuthStore((s) => s.connectionStatus);
-  const { showConfirmation } = useConfirmationStore();
 
   const workbench = useProviderWorkbench();
-  const [activeBrand, setActiveBrand] = useState<ProviderBrand>('gemini');
-  const [filter, setFilter] = useState('');
-  const [openaiSortBy, setOpenaiSortBy] = useState<OpenAISortBy>('name');
-  const [openaiSortDir, setOpenaiSortDir] = useState<SortDir>('asc');
-  const [openaiSelectedModels, setOpenaiSelectedModels] = useState<Set<string>>(
-    () => new Set()
-  );
-  const [sheetState, setSheetState] = useState<SheetState>({
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntryKey = searchParams.get('entry')?.trim() || null;
+  const hasEntryParam = searchParams.has('entry');
+  const [sheetState, setSheetState] = useState<ProviderSheetState>({
     open: false,
+    entryKey: null,
     brand: 'gemini',
-    mode: 'detail',
-    resource: null,
+    mode: 'list',
+    resourceId: null,
   });
   const sheetRef = useRef<ProviderSheetHandle>(null);
+
+  const [presets, setPresets] = useState<ProviderPreset[]>([]);
+  const [authFiles, setAuthFiles] = useState<AuthFileItem[]>([]);
+  const [authFilesRevision, setAuthFilesRevision] = useState(0);
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
+  const [authFilesLoaded, setAuthFilesLoaded] = useState(false);
+  const [oauthStates, setOauthStates] = useState<
+    Partial<Record<OAuthProvider, ProviderOAuthState>>
+  >({});
+  const pollingTimers = useRef<Partial<Record<OAuthProvider, number>>>({});
+  const successResetTimers = useRef<Partial<Record<OAuthProvider, number>>>({});
+
+  const refreshAuthFiles = useCallback(async () => {
+    try {
+      const data = await authFilesApi.list();
+      setAuthFiles(data?.files ?? []);
+      setAuthFilesRevision((revision) => revision + 1);
+    } catch {
+      // Preserve the last known account list when a refresh fails.
+    } finally {
+      setAuthFilesLoaded(true);
+    }
+  }, []);
+
+  const setEntryQuery = useCallback(
+    (entryKey: string | null, replace = false) => {
+      setSearchParams(entryKey ? { entry: entryKey } : {}, { replace });
+    },
+    [setSearchParams]
+  );
+
+  useEffect(() => {
+    providersApi
+      .getProviderPresets()
+      .then(setPresets)
+      .catch(() => setPresets([]))
+      .finally(() => setPresetsLoaded(true));
+    void refreshAuthFiles();
+  }, [refreshAuthFiles]);
+
+  const clearTimers = useCallback(() => {
+    Object.values(pollingTimers.current).forEach((timer) => {
+      if (timer !== undefined) window.clearInterval(timer);
+    });
+    Object.values(successResetTimers.current).forEach((timer) => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    });
+    pollingTimers.current = {};
+    successResetTimers.current = {};
+  }, []);
+
+  useEffect(() => clearTimers, [clearTimers]);
+
+  const updateProviderState = useCallback(
+    (provider: OAuthProvider, next: Partial<ProviderOAuthState>) => {
+      setOauthStates((previous) => ({
+        ...previous,
+        [provider]: { ...(previous[provider] ?? {}), ...next },
+      }));
+    },
+    []
+  );
+
+  const clearPollingTimer = useCallback((provider: OAuthProvider) => {
+    const timer = pollingTimers.current[provider];
+    if (timer !== undefined) {
+      window.clearInterval(timer);
+      delete pollingTimers.current[provider];
+    }
+  }, []);
+
+  const clearSuccessResetTimer = useCallback((provider: OAuthProvider) => {
+    const timer = successResetTimers.current[provider];
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      delete successResetTimers.current[provider];
+    }
+  }, []);
+
+  const clearProviderTimers = useCallback(
+    (provider: OAuthProvider) => {
+      clearPollingTimer(provider);
+      clearSuccessResetTimer(provider);
+    },
+    [clearPollingTimer, clearSuccessResetTimer]
+  );
+
+  const resetProviderAttempt = useCallback(
+    (provider: OAuthProvider) => {
+      clearProviderTimers(provider);
+      setOauthStates((previous) => ({ ...previous, [provider]: {} }));
+    },
+    [clearProviderTimers]
+  );
+
+  const completeProviderAuth = useCallback(
+    (provider: OAuthProvider) => {
+      clearPollingTimer(provider);
+      clearSuccessResetTimer(provider);
+      void refreshAuthFiles();
+      updateProviderState(provider, {
+        url: undefined,
+        state: undefined,
+        status: 'success',
+        error: undefined,
+        polling: false,
+        callbackSubmitting: false,
+        callbackStatus: undefined,
+        callbackError: undefined,
+      });
+      successResetTimers.current[provider] = window.setTimeout(() => {
+        resetProviderAttempt(provider);
+      }, SUCCESS_RESET_DELAY_MS);
+    },
+    [
+      clearPollingTimer,
+      clearSuccessResetTimer,
+      refreshAuthFiles,
+      resetProviderAttempt,
+      updateProviderState,
+    ]
+  );
+
+  const startPolling = useCallback(
+    (provider: OAuthProvider, state: string) => {
+      clearPollingTimer(provider);
+      const timer = window.setInterval(async () => {
+        try {
+          const response = await oauthApi.getAuthStatus(state);
+          if (response.status === 'ok') {
+            completeProviderAuth(provider);
+            toast.success(t(getAuthKey(provider, 'oauth_status_success')));
+          } else if (response.status === 'error') {
+            updateProviderState(provider, {
+              status: 'error',
+              error: response.error,
+              polling: false,
+            });
+            toast.error(
+              `${t(getAuthKey(provider, 'oauth_status_error'))} ${response.error || ''}`
+            );
+            window.clearInterval(timer);
+            delete pollingTimers.current[provider];
+          }
+        } catch (error: unknown) {
+          updateProviderState(provider, {
+            status: 'error',
+            error: getErrorMessage(error),
+            polling: false,
+          });
+          window.clearInterval(timer);
+          delete pollingTimers.current[provider];
+        }
+      }, 3000);
+      pollingTimers.current[provider] = timer;
+    },
+    [clearPollingTimer, completeProviderAuth, t, updateProviderState]
+  );
+
+  const startOAuth = useCallback(
+    async (provider: OAuthProvider, projectId?: string) => {
+      clearProviderTimers(provider);
+      const rawProjectId = provider === 'gemini-cli' ? (projectId ?? '').trim() : '';
+      const normalizedProjectId = rawProjectId
+        ? rawProjectId.toUpperCase() === 'ALL'
+          ? 'ALL'
+          : rawProjectId
+        : undefined;
+
+      updateProviderState(provider, {
+        url: undefined,
+        state: undefined,
+        status: 'waiting',
+        polling: true,
+        error: undefined,
+        callbackStatus: undefined,
+        callbackError: undefined,
+      });
+      try {
+        const response = await oauthApi.startAuth(
+          provider,
+          provider === 'gemini-cli'
+            ? { projectId: normalizedProjectId }
+            : undefined
+        );
+        if (!response.state) {
+          const message = t('auth_login.missing_state');
+          updateProviderState(provider, {
+            url: response.url,
+            state: undefined,
+            status: 'error',
+            error: message,
+            polling: false,
+          });
+          toast.error(message);
+          return;
+        }
+        updateProviderState(provider, {
+          url: response.url,
+          state: response.state,
+          status: 'waiting',
+          polling: true,
+        });
+        startPolling(provider, response.state);
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        updateProviderState(provider, {
+          status: 'error',
+          error: message,
+          polling: false,
+        });
+        toast.error(
+          `${t(getAuthKey(provider, 'oauth_start_error'))}${message ? ` ${message}` : ''}`
+        );
+      }
+    },
+    [clearProviderTimers, startPolling, t, updateProviderState]
+  );
+
+  const copyOAuthLink = useCallback(
+    async (url?: string) => {
+      if (!url) return;
+      const copied = await copyToClipboard(url);
+      if (copied) {
+        toast.success(t('notification.link_copied'));
+      } else {
+        toast.error(t('notification.copy_failed'));
+      }
+    },
+    [t]
+  );
+
+  const submitOAuthCallback = useCallback(
+    async (provider: OAuthProvider, callbackInput: string) => {
+      const input = callbackInput.trim();
+      if (!input) {
+        toast.warning(
+          t(
+            provider === 'xai'
+              ? 'auth_login.xai_callback_required'
+              : 'auth_login.oauth_callback_required'
+          )
+        );
+        return;
+      }
+      const redirectUrl = resolveCallbackUrl(provider, input, oauthStates[provider]?.state);
+      if (!redirectUrl) {
+        toast.warning(
+          t(
+            provider === 'xai'
+              ? 'auth_login.xai_callback_state_missing'
+              : 'auth_login.missing_state'
+          )
+        );
+        return;
+      }
+      updateProviderState(provider, {
+        callbackSubmitting: true,
+        callbackStatus: undefined,
+        callbackError: undefined,
+      });
+      try {
+        await oauthApi.submitCallback(provider, redirectUrl);
+        updateProviderState(provider, {
+          callbackSubmitting: false,
+          callbackStatus: 'success',
+        });
+        toast.success(t('auth_login.oauth_callback_success'));
+      } catch (error: unknown) {
+        const status = getErrorStatus(error);
+        const message = getErrorMessage(error);
+        const errorMessage =
+          status === 404
+            ? t('auth_login.oauth_callback_upgrade_hint')
+            : message || undefined;
+        updateProviderState(provider, {
+          callbackSubmitting: false,
+          callbackStatus: 'error',
+          callbackError: errorMessage,
+        });
+        toast.error(
+          errorMessage
+            ? `${t('auth_login.oauth_callback_error')} ${errorMessage}`
+            : t('auth_login.oauth_callback_error')
+        );
+      }
+    },
+    [oauthStates, t, updateProviderState]
+  );
 
   const connected = connectionStatus === 'connected';
   const { usageByProvider, refreshRecentRequests } = useProviderRecentRequests({
@@ -88,108 +410,70 @@ export function ProvidersWorkbenchPage() {
     await Promise.allSettled([
       workbench.refetch(),
       refreshRecentRequests().catch(() => undefined),
+      refreshAuthFiles(),
     ]);
-  }, [refreshRecentRequests, workbench]);
+  }, [refreshAuthFiles, refreshRecentRequests, workbench]);
 
   useHeaderRefresh(handleRefresh);
 
   const disableMutations = connectionStatus !== 'connected' || workbench.mutating;
-
   const groups = useMemo(() => workbench.snapshot?.groups ?? [], [workbench.snapshot]);
-  const activeGroup =
-    groups.find((g) => g.id === activeBrand) ?? groups[0] ?? null;
+  const entries = useMemo(
+    () => buildEntries({ groups, presets, authFiles }),
+    [groups, presets, authFiles]
+  );
+  const requestedEntry = useMemo(
+    () =>
+      requestedEntryKey
+        ? entries.find((entry) => entry.key === requestedEntryKey) ?? null
+        : null,
+    [entries, requestedEntryKey]
+  );
+  const entriesReady = !workbench.isPending && presetsLoaded && authFilesLoaded;
 
-  const filteredResources = useMemo(() => {
-    if (!activeGroup) return [];
-    const normalized = filter.trim().toLowerCase();
-    return activeGroup.resources.filter((r) => matchesFilter(r, normalized));
-  }, [activeGroup, filter]);
+  useEffect(() => {
+    if (!hasEntryParam || !entriesReady) return;
+    if (!requestedEntry) setEntryQuery(null, true);
+  }, [entriesReady, hasEntryParam, requestedEntry, setEntryQuery]);
 
-  const isOpenAI = activeGroup?.id === 'openaiCompatibility';
-
-  const availableOpenaiModels = useMemo(() => {
-    if (!isOpenAI || !activeGroup) return [];
-    const seen = new Set<string>();
-    activeGroup.resources.forEach((r) => {
-      const cfg = r.raw as OpenAIProviderConfig;
-      cfg.models?.forEach((m) => {
-        const name = (m.name ?? '').trim();
-        if (name) seen.add(name);
-      });
-    });
-    return Array.from(seen).sort();
-  }, [activeGroup, isOpenAI]);
-
-  const visibleResources = useMemo(() => {
-    if (!isOpenAI) return filteredResources;
-
-    let arr = filteredResources;
-    if (openaiSelectedModels.size > 0) {
-      arr = arr.filter((r) => {
-        const cfg = r.raw as OpenAIProviderConfig;
-        return Boolean(
-          cfg.models?.some((m) => openaiSelectedModels.has((m.name ?? '').trim()))
-        );
-      });
+  const effectiveSheetState = useMemo<ProviderSheetState>(() => {
+    if (!requestedEntry) {
+      return {
+        ...sheetState,
+        open: false,
+        entryKey: null,
+        mode: 'list',
+        resourceId: null,
+      };
     }
+    if (sheetState.entryKey === requestedEntry.key) {
+      return { ...sheetState, open: true };
+    }
+    return getDefaultSheetState(requestedEntry);
+  }, [requestedEntry, sheetState]);
 
-    const sorted = [...arr].sort((a, b) => {
-      let diff = 0;
-      if (openaiSortBy === 'name') {
-        const an = (a.name ?? a.identifier ?? '').toLowerCase();
-        const bn = (b.name ?? b.identifier ?? '').toLowerCase();
-        diff = an.localeCompare(bn);
-      } else if (openaiSortBy === 'priority') {
-        const ap = (a.raw as OpenAIProviderConfig).priority ?? 0;
-        const bp = (b.raw as OpenAIProviderConfig).priority ?? 0;
-        diff = ap - bp;
-      } else {
-        const aStats = getOpenAIProviderRecentWindowStats(
-          a.raw as OpenAIProviderConfig,
-          usageByProvider
-        );
-        const bStats = getOpenAIProviderRecentWindowStats(
-          b.raw as OpenAIProviderConfig,
-          usageByProvider
-        );
-        diff = aStats.success - bStats.success;
-      }
-      return openaiSortDir === 'asc' ? diff : -diff;
-    });
-
-    return sorted;
-  }, [
-    filteredResources,
-    isOpenAI,
-    openaiSelectedModels,
-    openaiSortBy,
-    openaiSortDir,
-    usageByProvider,
-  ]);
-
-  const openaiControls = useMemo<OpenAIPanelControls | undefined>(() => {
-    if (!isOpenAI) return undefined;
-    return {
-      sortBy: openaiSortBy,
-      sortDir: openaiSortDir,
-      onSortBy: setOpenaiSortBy,
-      onSortDir: setOpenaiSortDir,
-      availableModels: availableOpenaiModels,
-      selectedModels: openaiSelectedModels,
-      onSelectedModelsChange: setOpenaiSelectedModels,
-    };
-  }, [
-    availableOpenaiModels,
-    isOpenAI,
-    openaiSelectedModels,
-    openaiSortBy,
-    openaiSortDir,
-  ]);
+  const oauthPendingStatus = useMemo(
+    () =>
+      Object.fromEntries(
+        PROVIDERS.flatMap((provider) =>
+          oauthStates[provider.id]?.status === 'waiting'
+            ? [
+                [
+                  provider.id,
+                  t('providersPage.card.pendingAuthorization'),
+                ],
+              ]
+            : []
+        )
+      ) as Partial<Record<OAuthProvider, string>>,
+    [oauthStates, t]
+  );
 
   const totalResources = useMemo(
     () =>
       groups.reduce(
-        (sum, g) => sum + g.resources.filter((r) => !r.flags.isPlaceholder).length,
+        (sum, group) =>
+          sum + group.resources.filter((resource) => !resource.flags.isPlaceholder).length,
         0
       ),
     [groups]
@@ -198,9 +482,11 @@ export function ProvidersWorkbenchPage() {
   const totalActive = useMemo(
     () =>
       groups.reduce(
-        (sum, g) =>
+        (sum, group) =>
           sum +
-          g.resources.filter((r) => !r.disabled && !r.flags.isPlaceholder).length,
+          group.resources.filter(
+            (resource) => !resource.disabled && !resource.flags.isPlaceholder
+          ).length,
         0
       ),
     [groups]
@@ -208,8 +494,8 @@ export function ProvidersWorkbenchPage() {
 
   const providerFamilies = useMemo(
     () =>
-      groups.filter(
-        (g) => g.resources.some((r) => !r.flags.isPlaceholder)
+      groups.filter((group) =>
+        group.resources.some((resource) => !resource.flags.isPlaceholder)
       ).length,
     [groups]
   );
@@ -218,130 +504,133 @@ export function ProvidersWorkbenchPage() {
     ? formatDateTime(workbench.snapshot.fetchedAt, i18n.language)
     : t('providersPage.modelCatalog.notLoaded');
 
+  const confirmSheetNavigation = useCallback(
+    () => sheetRef.current?.confirmDiscardIfDirty() ?? Promise.resolve(true),
+    []
+  );
+
   const openCreate = useCallback(() => {
-    const brand = activeBrand;
-    if (brand === 'ampcode') {
-      // ampcode 走单例编辑
-      const r =
-        groups.find((g) => g.id === 'ampcode')?.resources[0] ?? null;
-      setSheetState({ open: true, brand: 'ampcode', mode: 'edit', resource: r });
-    } else {
-      setSheetState({ open: true, brand, mode: 'create', resource: null });
-    }
-  }, [activeBrand, groups]);
-
-  const openView = useCallback((resource: ProviderResource) => {
-    setSheetState({
-      open: true,
-      brand: resource.brand,
-      mode: 'detail',
-      resource,
+    const entry = entries.find((candidate) => candidate.key === 'config:openaiCompatibility');
+    if (!entry) return;
+    void confirmSheetNavigation().then((ok) => {
+      if (!ok) return;
+      setSheetState({
+        ...getDefaultSheetState(entry),
+        mode: 'create',
+        resourceId: null,
+      });
+      setEntryQuery(entry.key);
     });
-  }, []);
-
-  const openEdit = useCallback((resource: ProviderResource) => {
-    setSheetState({
-      open: true,
-      brand: resource.brand,
-      mode: 'edit',
-      resource,
-    });
-  }, []);
+  }, [confirmSheetNavigation, entries, setEntryQuery]);
 
   const closeSheet = useCallback(() => {
-    setSheetState((s) => ({ ...s, open: false }));
-  }, []);
+    setSheetState({
+      open: false,
+      entryKey: null,
+      brand: 'gemini',
+      mode: 'list',
+      resourceId: null,
+    });
+    setEntryQuery(null, true);
+  }, [setEntryQuery]);
 
-  const handleDelete = useCallback(
-    (resource: ProviderResource) => {
-      const isAmpcode = resource.brand === 'ampcode';
-      const name =
-        resource.name ?? resource.apiKeyPreview ?? resource.identifier ?? '';
-      showConfirmation({
-        title: isAmpcode
-          ? t('providersPage.delete.ampcodeTitle')
-          : t('providersPage.delete.title'),
-        message: isAmpcode
-          ? t('providersPage.delete.ampcodeConfirm')
-          : t('providersPage.delete.confirm', { name }),
-        variant: 'danger',
-        confirmText: isAmpcode
-          ? t('providersPage.actions.clear')
-          : t('providersPage.actions.delete'),
-        onConfirm: async () => {
-          try {
-            await workbench.deleteProvider(resource);
-            toast.success(t('providersPage.toast.deleted'));
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            toast.error(`${t('notification.delete_failed')}: ${msg}`);
-          }
-        },
+  const handleOpenEntry = useCallback(
+    (key: string) => {
+      const entry = entries.find((candidate) => candidate.key === key);
+      if (!entry) return;
+      void confirmSheetNavigation().then((ok) => {
+        if (!ok) return;
+        setSheetState(getDefaultSheetState(entry));
+        setEntryQuery(entry.key);
       });
     },
-    [showConfirmation, t, workbench]
+    [confirmSheetNavigation, entries, setEntryQuery]
   );
 
-  const handleToggleDisabled = useCallback(
-    async (resource: ProviderResource, disabled: boolean) => {
-      try {
-        await workbench.toggleDisabled(resource, disabled);
-        toast.success(
-          disabled
-            ? t('providersPage.toast.disabled')
-            : t('providersPage.toast.enabled')
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        toast.error(
-          `${t('providersPage.toast.toggleFailed')}: ${msg}`
-        );
-      }
+  const handleBackToList = useCallback(() => {
+    setSheetState((previous) => ({
+      ...previous,
+      open: true,
+      entryKey: requestedEntry?.key ?? previous.entryKey,
+      mode: 'list',
+      resourceId: null,
+    }));
+  }, [requestedEntry]);
+
+  const handleViewResource = useCallback(
+    (resource: ProviderResource) => {
+      setSheetState((previous) => ({
+        ...previous,
+        open: true,
+        entryKey: requestedEntry?.key ?? previous.entryKey,
+        brand: resource.brand,
+        mode: 'detail',
+        resourceId: resource.id,
+      }));
     },
-    [t, workbench]
+    [requestedEntry]
   );
+
+  const handleEditResource = useCallback(
+    (resource: ProviderResource) => {
+      setSheetState((previous) => ({
+        ...previous,
+        open: true,
+        entryKey: requestedEntry?.key ?? previous.entryKey,
+        brand: resource.brand,
+        mode: 'edit',
+        resourceId: resource.id,
+      }));
+    },
+    [requestedEntry]
+  );
+
+  const handleCreateResource = useCallback(() => {
+    setSheetState((previous) => ({
+      ...previous,
+      open: true,
+      entryKey: requestedEntry?.key ?? previous.entryKey,
+      mode: 'create',
+      resourceId: null,
+    }));
+  }, [requestedEntry]);
 
   const handleCreated = useCallback(() => {
     toast.success(t('providersPage.toast.created'));
-    closeSheet();
-  }, [closeSheet, t]);
+    const entryKey = requestedEntry?.key ?? sheetState.entryKey;
+    const entry = entries.find((candidate) => candidate.key === entryKey);
+    const canReturnToList =
+      entry?.kind === 'preset' ||
+      (entry?.kind === 'config' && entry.group.id !== 'ampcode');
+    if (canReturnToList) {
+      setSheetState((previous) => ({ ...previous, open: true, mode: 'list', resourceId: null }));
+    } else {
+      closeSheet();
+    }
+  }, [closeSheet, entries, requestedEntry, sheetState.entryKey, t]);
 
   const handleUpdated = useCallback(() => {
     toast.success(t('providersPage.toast.updated'));
-    closeSheet();
-  }, [closeSheet, t]);
+    const entryKey = requestedEntry?.key ?? sheetState.entryKey;
+    const entry = entries.find((candidate) => candidate.key === entryKey);
+    const canReturnToList =
+      entry?.kind === 'preset' ||
+      (entry?.kind === 'config' && entry.group.id !== 'ampcode');
+    if (canReturnToList) {
+      setSheetState((previous) => ({ ...previous, open: true, mode: 'list', resourceId: null }));
+    } else {
+      closeSheet();
+    }
+  }, [closeSheet, entries, requestedEntry, sheetState.entryKey, t]);
 
-  // 加载状态
   if (!workbench.snapshot && workbench.isPending) {
     return (
       <div className="flex flex-col gap-5 w-full p-6 box-border max-md:p-4 max-md:gap-4">
         <Skeleton height={120} />
-        <div className="grid gap-4 grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)]">
-          <Skeleton height={420} />
-          <Skeleton height={420} />
-        </div>
+        <Skeleton height={420} />
       </div>
     );
   }
-
-  if (!activeGroup) {
-    return (
-      <div className="flex flex-col gap-5 w-full p-6 box-border max-md:p-4 max-md:gap-4">
-        <ProviderHeaderCard
-          totalActive={0}
-          totalResources={0}
-          providerFamilies={0}
-          updatedAtLabel={updatedAtLabel}
-          isFetching={workbench.isFetching}
-          onRefresh={() => void handleRefresh()}
-          onNew={() => {}}
-          isNewDisabled
-        />
-      </div>
-    );
-  }
-
-  const ampcodeBrandActive = activeBrand === 'ampcode';
 
   return (
     <div className="flex flex-col gap-5 w-full p-6 box-border max-md:p-4 max-md:gap-4">
@@ -352,66 +641,45 @@ export function ProvidersWorkbenchPage() {
         updatedAtLabel={updatedAtLabel}
         issueCount={workbench.snapshot?.issues.length ?? 0}
         isFetching={workbench.isFetching}
-        isNewDisabled={disableMutations && !ampcodeBrandActive}
-        newLabel={
-          ampcodeBrandActive
-            ? t('providersPage.actions.edit')
-            : t('providersPage.actions.new')
-        }
+        isNewDisabled={disableMutations}
         onRefresh={() => void handleRefresh()}
         onNew={openCreate}
       />
 
-      <div className="grid gap-4 grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)]">
-        <ProviderCategoryList
-          groups={groups}
-          activeBrand={activeGroup.id}
-          onSelect={(brand) => {
-            const isSwitching = sheetState.open && sheetState.brand !== brand;
-            const proceed = isSwitching && sheetRef.current
-              ? sheetRef.current.confirmDiscardIfDirty()
-              : Promise.resolve(true);
-            void proceed.then((ok) => {
-              if (!ok) return;
-              setActiveBrand(brand);
-              setFilter('');
-              setOpenaiSelectedModels(new Set());
-              if (isSwitching) {
-                closeSheet();
-              }
-            });
-          }}
-        />
-        <ProviderResourcePanel
-          group={activeGroup}
-          filter={filter}
-          onFilterChange={setFilter}
-          filteredResources={visibleResources}
-          selectedId={sheetState.open ? sheetState.resource?.id ?? null : null}
-          disableMutations={disableMutations}
-          usageByProvider={usageByProvider}
-          openaiControls={openaiControls}
-          onView={openView}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          onToggleDisabled={handleToggleDisabled}
-          onCreate={openCreate}
-        />
-      </div>
+      <ProviderCategoryGrid
+        entries={entries}
+        onOpen={handleOpenEntry}
+        oauthPendingStatus={oauthPendingStatus}
+      />
 
       <ProviderSheet
         ref={sheetRef}
-        state={sheetState}
+        state={effectiveSheetState}
+        entries={entries}
         onClose={closeSheet}
         onSwitchToEdit={() => {
-          setSheetState((s) =>
-            s.resource ? { ...s, mode: 'edit' } : s
+          setSheetState((previous) =>
+            previous.resourceId ? { ...previous, mode: 'edit' } : previous
           );
         }}
+        onBackToList={handleBackToList}
+        onViewResource={handleViewResource}
+        onEditResource={handleEditResource}
+        onCreateResource={handleCreateResource}
         workbench={workbench}
         onCreated={handleCreated}
         onUpdated={handleUpdated}
+        disableMutations={disableMutations}
         usageByProvider={usageByProvider}
+        oauthStates={oauthStates}
+        onStartOAuth={(providerId, projectId) => void startOAuth(providerId, projectId)}
+        onSubmitOAuthCallback={(providerId, callbackInput) =>
+          void submitOAuthCallback(providerId, callbackInput)
+        }
+        onResetOAuth={resetProviderAttempt}
+        onCopyOAuthLink={(url) => void copyOAuthLink(url)}
+        onAuthFilesChanged={refreshAuthFiles}
+        authFilesRevision={authFilesRevision}
       />
     </div>
   );

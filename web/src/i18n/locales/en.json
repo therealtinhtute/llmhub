@@ -1396,7 +1396,41 @@
       "title": "Providers",
       "activeCount": "{{active}}/{{total}} active",
       "ampcodeActive": "Connected",
-      "ampcodeInactive": "Not configured"
+      "ampcodeInactive": "Not configured",
+      "sections": {
+        "oauth": "OAuth",
+        "free": "Free",
+        "freeTier": "Free tier",
+        "apikey": "API key",
+        "custom": "Custom"
+      }
+    },
+    "presets": {
+      "verified": "Verified",
+      "unverified": "Unverified",
+      "signup": "Open provider signup",
+      "empty": "No matching resources yet. Add one with this preset to keep it in this card."
+    },
+    "oauthAccounts": {
+      "eyebrow": "OAuth login",
+      "description": "Sign in and manage connected accounts.",
+      "title": "Connected accounts",
+      "manage": "Manage all auth files",
+      "unknownHint": "Files without a recognized OAuth type remain available on Auth Files.",
+      "empty": "No matching auth files yet.",
+      "tryAgain": "Try again",
+      "download": "Download",
+      "columns": {
+        "name": "Name",
+        "status": "Status",
+        "lastRefresh": "Last refresh",
+        "actions": "Actions"
+      },
+      "disabled": "Disabled",
+      "active": "Active"
+    },
+    "card": {
+      "pendingAuthorization": "Waiting for authorization"
     },
     "providerNames": {
       "gemini": "Gemini",

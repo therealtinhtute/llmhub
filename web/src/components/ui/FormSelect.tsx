@@ -12,6 +12,12 @@ export interface SelectOption {
   label: string;
 }
 
+// Radix throws if a Select.Item receives value="" (that string is reserved for
+// clearing the selection). Callers legitimately model "no selection" as '', so
+// translate to/from this sentinel at the boundary instead of pushing the
+// constraint onto every call site.
+const EMPTY_VALUE_SENTINEL = '__form-select-empty__';
+
 interface FormSelectProps {
   value: string;
   options: ReadonlyArray<SelectOption>;
@@ -42,7 +48,11 @@ export function FormSelect({
   id,
 }: FormSelectProps) {
   return (
-    <ShadcnSelect value={value} onValueChange={onChange} disabled={disabled}>
+    <ShadcnSelect
+      value={value === '' ? EMPTY_VALUE_SENTINEL : value}
+      onValueChange={(next) => onChange(next === EMPTY_VALUE_SENTINEL ? '' : next)}
+      disabled={disabled}
+    >
       <SelectTrigger
         id={id}
         aria-label={ariaLabel}
@@ -58,7 +68,10 @@ export function FormSelect({
       </SelectTrigger>
       <SelectContent>
         {options.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value}>
+          <SelectItem
+            key={opt.value}
+            value={opt.value === '' ? EMPTY_VALUE_SENTINEL : opt.value}
+          >
             {opt.label}
           </SelectItem>
         ))}

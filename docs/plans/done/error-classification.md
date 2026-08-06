@@ -3,14 +3,14 @@ id: 01KZAHSQFG0JTC7GZHZJX0FECJ
 type: plan
 intake_id: 01KZAHST9K8JKBFEEDHNMESY7V
 lane: normal
-status: active
+status: completed
 created: 2026-08-05
 updated: 2026-08-06
 ---
 
 # Plan A — Unified error classification (text-before-status)
 
-Status: **approved** · Created 2026-08-05 · Ships independently
+Status: **completed** · Created 2026-08-05 · Ships independently
 Source mechanism: `decolua/9router` `open-sse/config/errorConfig.js:59` (`ERROR_RULES`)
 Reference skill: `.claude/skills/9router-port/references/routing.md` §2
 
@@ -245,7 +245,7 @@ bounding the loop, and `DispositionNone` as the default for anything unmatched.
   `internal/runtime/executor/codex_executor.go`
 - avoided_surfaces: `sdk/cliproxy/auth/cooldown_state.go`, `sdk/cliproxy/auth/selector.go`,
   `sdk/cliproxy/auth/scheduler.go` (NG1 — logic unchanged), no config YAML (NG3)
-- lifecycle status: checked
+- lifecycle status: done
 
 #### Wave 1 — Build the classifier
 - task 1.1: Implement `sdk/cliproxy/auth/classify.go` — `Disposition` enum, `Rule` struct, and
@@ -312,14 +312,16 @@ error.
   - proof_gaps: none
 
 ## Current State and Next Action
-- active_phase: error-classification
-- lifecycle_status: checked
+- active_phase: none
+- lifecycle_status: done
 - latest_run_id: 01KZAHYZG9ZH230122E2J587R5
 - latest_check_id: 01KZAKBKQHQDM17B0AM26J58YF
+- latest_handoff_id: 01KZANE4TCBBCHEG70KY1V55GR
 - blockers: none
-- open_items: 2 of Wave 3's 4 named sites (antigravity `:391` quota_exhausted loop, codex
-  `isCodexModelCapacityError`) intentionally left unconsolidated — see Decisions. Not a defect;
+- open_items: none — 2 of Wave 3's 4 named sites (antigravity `:391` quota_exhausted loop, codex
+  `isCodexModelCapacityError`) were intentionally left unconsolidated, not a defect (see Decisions);
   revisit only if those literal phrases are ever added to `classify.go`'s table under a separate,
   reviewed change.
-- exact_next_action: check full APPROVED — route to `git` for commit, or `handoff` if wrapping up
-  the session
+- committed: `9f44d110 fix(auth): retry non-429 quota/rate-limit errors via shared classifier`,
+  pushed to `origin/master`
+- exact_next_action: initiative complete, no further action on this plan

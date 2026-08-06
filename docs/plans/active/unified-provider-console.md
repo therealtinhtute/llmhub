@@ -905,6 +905,11 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   preset prefill only applies while pristine and resets its dirty baseline, and cards always render
   status, warning, and configured count including zero-resource Ampcode. Browser proof remains the
   only unverified requirement.
+- 2026-08-06 · handoff · task_status=IN-PROGRESS · handoff_id: 01KZBV9J8F3Y5PAH4CYKN2FME6 ·
+  branch: feature/unified-provider-console · working tree clean and branch pushed · static review
+  identified unresolved Gemini CLI auth-file mapping, preset-create state reuse, browser-history
+  dirty-form bypass, and additional OAuth/form/table correctness items; real-browser/Postgres proof
+  remains outstanding.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -929,15 +934,16 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
 - latest_run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
 - latest_trace_ids: [01KZBKFMKJXC78031BT6C6QZEX, 01KZBM9XYN9Y6RFS8XXMX17VXQ, 01KZBMA1VHC7XZAKEZP3DJY6MZ, 01KZBPNV776QVN61DNYHZJFZ78, 01KZBQDA1VSZN57MWRD85JECZ9]
 - latest_check_id: 01KZBTBHGQDZ42BQ3P3DS526JC
-- latest_handoff_id: 01KZBTNCEB0YDQRMCMD8G3JZMP
-- blockers: required real-browser sweep and runtime/API proof are still outstanding
+- latest_handoff_id: 01KZBV9J8F3Y5PAH4CYKN2FME6
+- blockers: required real-browser/Postgres proof is outstanding; static review blockers remain in Gemini CLI auth-file mapping, preset-create state isolation, browser-history dirty-form protection, OAuth health/status rendering, OpenCode default API-key prefill, auth-file refresh timestamp mapping, and callback reset behavior
 - open_items:
-  - Grid shows `codex`, `claude`, and `gemini` twice (OAuth card + API-key card). Accepted for now —
-    the category label disambiguates. Revisit if the browser sweep shows it reading as a duplicate.
-  - `AuthFileMiniTable` duplicates part of `/auth-files`. Accepted per `D1`; revisit only if the
-    two drift.
+  - Run the real-browser sweep against a configured Postgres-backed dev server and capture API 2xx plus clean browser-console evidence.
+  - Fix the Gemini CLI OAuth auth-file type mapping so completed accounts appear in card counts and `AuthFileMiniTable`.
+  - Fix preset create-form isolation and async prefill so switching preset cards cannot reuse or save the previous preset values.
+  - Guard browser Back/Forward and entry-query navigation against dirty-form data loss.
+  - Resolve OAuth health/status badges, OpenCode public default API-key prefill, `last_refresh` display, and callback error/input reset.
+  - Grid shows `codex`, `claude`, and `gemini` twice (OAuth card + API-key card). Accepted for now — the category label disambiguates.
+  - `AuthFileMiniTable` duplicates part of `/auth-files`. Accepted per `D1`; revisit only if the two drift.
   - No search/filter across the 15 cards. Deferred — 15 cards fit one screen at `auto-fit` 240px.
-  - Global header "+New" button always opens the `openaiCompatibility` create flow instead of a
-    brand-specific one (see Decisions, Wave 3) — revisit if the Wave 6 sweep finds it confusing.
-- exact_next_action: continue Wave 6 — task 6.3, run the real-browser sweep with a configured
-  Postgres-backed dev server and browser agent, then re-run `check full`
+  - Global header "+New" button always opens the `openaiCompatibility` create flow instead of a brand-specific one — revisit if the browser sweep finds it confusing.
+- exact_next_action: fix the static-review blockers, then run task 6.3's real-browser sweep with a configured Postgres-backed dev server and browser agent; re-run `check full` afterward

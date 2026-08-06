@@ -33,8 +33,7 @@ Describe the behavior this story must make true.
 
 ## Validation
 
-When updating durable proof status, use numeric booleans:
-`scripts/bin/harness-cli story update --id <id> --unit 1 --integration 1 --e2e 0 --platform 0`.
+Durable proof status is recorded by the `check` gate, not edited by hand.
 
 | Layer | Expected proof |
 | --- | --- |

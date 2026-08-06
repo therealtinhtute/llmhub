@@ -17,7 +17,7 @@ Invoke `brainstorm` in `lock-from-files` mode, naming these as authoritative sou
 - `docs/upstream/{slug}-checkpoint.json` — checkpoint, baseline, scope policy
 - `docs/upstream/{slug}-gap-{from}..{to}.json` — structural counts
 - `docs/upstream/{slug}-ledger-{from}..{to}.md` — per-commit dispositions
-- `CLAUDE.md` and `docs/ARCHITECTURE.md` — the invariants that shaped every `reject`
+- `CLAUDE.md` — the invariants that shaped every `reject`
 
 Slug the initiative after the upstream and checkpoint: `{slug}-{tag}-parity`.
 

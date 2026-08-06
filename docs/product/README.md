@@ -1,6 +1,6 @@
 # Product Docs
 
-This directory is intentionally generic and mostly empty in Harness v0.
+This directory is intentionally generic and mostly empty until a spec lands.
 
 When a user provides a project spec, derive smaller product contract files here
 instead of keeping one large spec as the living plan. Name files by the product
@@ -16,7 +16,6 @@ When behavior changes:
 
 1. Update the affected product doc.
 2. Update or create the story packet.
-3. Update durable proof status with `scripts/bin/harness-cli story add` or
-   `scripts/bin/harness-cli story update`.
+3. Let the `check` gate record durable proof status.
 4. Record a decision if the change affects architecture, scope, risk, or a
    previously settled product rule.

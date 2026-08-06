@@ -45,7 +45,7 @@ contract, committing, or releasing.
 - Registry index: `docs/upstream/registry.json`
 - Per-upstream checkpoint: `docs/upstream/{slug}-checkpoint.json`
 - Immutable refs: `refs/upstream-checkpoints/{slug}/{tag}`
-- Repo workflow boundary: `docs/WORKFLOW.md`, `docs/FEATURE_INTAKE.md`
+- Repo workflow boundary: `docs/WORKFLOW.md`, `docs/playbooks/`
 </context>
 
 <instructions>

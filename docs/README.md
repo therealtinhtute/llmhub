@@ -1,31 +1,27 @@
 # Documentation Map
 
-This directory holds the project harness and any product contract derived from a
-future user-provided spec.
+This directory holds the workflow contract used by agents working in this repo,
+plus the durable records that work produces.
 
 ## Main Files
 
-- `HARNESS.md`: how humans and agents collaborate.
-- `FEATURE_INTAKE.md`: how prompts become tiny, normal, or high-risk work.
-- `ARCHITECTURE.md`: architecture discovery and boundary rules.
-- `TEST_MATRIX.md`: legacy proof map; current proof status is queried with
-  `scripts/bin/harness-cli query matrix`.
-- `HARNESS_BACKLOG.md`: legacy improvement list; current improvement records
-  are stored with `scripts/bin/harness-cli backlog`.
-- `GLOSSARY.md`: shared terms.
+- `WORKFLOW.md`: the workflow contract. Read this first — `AGENTS.md` points
+  every agent here before it does anything else.
+- `playbooks/`: one playbook per workflow stage. `zharness preflight <stage>`
+  returns the path of the one to read; do not read the others.
 
 ## Folders
 
-- `product/`: current product truth, empty until a spec is derived.
-- `stories/`: feature packets and backlog.
-- `decisions/`: durable decisions and tradeoffs.
-- `demo/`: concrete walkthroughs that show how the harness transforms input
-  into agent-ready work.
-- `templates/`: reusable spec-intake, story, plan, decision, and validation
-  formats.
+- `plans/`: executable plans. `plans/active/` is in flight, `plans/done/` is
+  finished work kept for reference.
+- `stories/`: work packets derived from plans.
+- `decisions/`: durable decisions and tradeoffs (ADRs). Append-only.
+- `product/`: product truth derived from a spec.
+- `upstream/`: notes on tracking the upstream project.
+- `templates/`: reusable `decision.md` and `story.md` formats.
 
-## Current State
+## Harness
 
-Harness v0 exists before implementation. These docs define how the project will
-grow; they do not imply that app code, tests, CI, or deployment automation exist
-yet.
+Lifecycle state lives in the `zharness` database outside this repo, not in these
+files. Repository docs, code, tests, and observable behavior are authoritative;
+the database is a lifecycle ledger and recovery index.

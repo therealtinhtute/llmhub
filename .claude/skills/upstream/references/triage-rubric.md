@@ -40,8 +40,8 @@ standing invariants are:
    contract is documented.
 5. llmhub branding and release contracts are not upstream's.
 
-Verify the list against `CLAUDE.md` and `docs/ARCHITECTURE.md` each cycle rather than
-trusting this copy — invariants change.
+Verify the list against `CLAUDE.md` each cycle rather than trusting this copy —
+invariants change.
 
 ## Step 4 — assign lanes
 
@@ -52,7 +52,7 @@ trusting this copy — invariants change.
 | `high-risk` | Public contract, auth, storage, cross-cutting runtime, or a new subsystem |
 
 Upstream parity work spanning more than one subsystem is `high-risk` by default. See
-`docs/FEATURE_INTAKE.md` for the authoritative lane definitions.
+`docs/playbooks/brainstorm.md` for the authoritative lane definitions.
 
 ## Step 5 — present the decision
 

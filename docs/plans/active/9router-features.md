@@ -13,8 +13,8 @@ provider inventory.
 
 | Plan | File | Effort | Ships alone | Status |
 |---|---|---|---|---|
-| **A** — Unified error classification | [`error-classification.md`](error-classification.md) | S | yes | awaiting approval |
-| **B+C** — Preset catalog (opencode, openrouter, nvidia), passthrough | [`provider-presets.md`](provider-presets.md) | S | yes | awaiting approval |
+| **A** — Unified error classification | [`error-classification.md`](../done/error-classification.md) | S | yes | done |
+| **B+C** — Preset catalog (opencode, openrouter, nvidia), passthrough | [`provider-presets.md`](provider-presets.md) | S | yes | checked (pushed to master) |
 | **D** — Model combos (cross-provider fallback) | [`model-combos.md`](model-combos.md) | L | yes | awaiting approval |
 
 Recommended order: **A → B+C → D**.

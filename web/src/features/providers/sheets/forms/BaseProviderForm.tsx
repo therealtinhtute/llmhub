@@ -4,6 +4,7 @@ import {
   IconAlertTriangle,
   IconCheckCircle2,
   IconDownload,
+  IconExternalLink,
   IconLoader2,
   IconPlus,
   IconX,
@@ -505,9 +506,10 @@ export function BaseProviderForm({
               ariaLabel={t('providersPage.form.presetLabel')}
             />
             {selectedPreset ? (
-              <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              <div className="flex flex-col gap-1.5 border border-border bg-muted p-2.5 text-[11px] text-muted-foreground">
                 {!selectedPreset.verified ? (
-                  <span className="inline-flex items-center gap-1 self-start px-1.5 py-0.5 border border-[var(--destructive-30)] text-destructive font-medium">
+                  <span className="inline-flex items-center gap-1 self-start font-medium text-destructive">
+                    <IconAlertTriangle size={12} />
                     {t('providersPage.form.presetUnverified')}
                   </span>
                 ) : null}
@@ -517,9 +519,10 @@ export function BaseProviderForm({
                     href={selectedPreset.signupUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-primary hover:underline self-start"
+                    className="inline-flex items-center gap-1 self-start text-primary hover:underline"
                   >
                     {t('providersPage.form.presetSignup')}
+                    <IconExternalLink size={12} />
                   </a>
                 ) : null}
               </div>

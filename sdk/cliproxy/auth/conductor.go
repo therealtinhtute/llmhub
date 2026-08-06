@@ -2618,6 +2618,29 @@ func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []stri
 		}
 		return wait, true
 	}
+	if disp, cooldown, ok := Classify(status, strings.ToLower(err.Error())); ok {
+		switch disp {
+		case DispositionReturn:
+			return 0, false
+		case DispositionCooldown:
+			if !m.retryAllowed(attempt, providers) {
+				return 0, false
+			}
+			if cooldown > maxWait {
+				return 0, false
+			}
+			return cooldown, true
+		case DispositionRetryBackoff:
+			if !m.retryAllowed(attempt, providers) {
+				return 0, false
+			}
+			backoffWait := retryBackoffWait(err, attempt)
+			if backoffWait <= 0 || backoffWait > maxWait {
+				return 0, false
+			}
+			return backoffWait, true
+		}
+	}
 	if status != http.StatusTooManyRequests {
 		return 0, false
 	}
@@ -2629,6 +2652,28 @@ func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []stri
 		return 0, false
 	}
 	return *retryAfter, true
+}
+
+// retryBackoffWait computes the wait for a DispositionRetryBackoff error. It
+// prefers a provider-reported retry-after duration, clamped at quotaBackoffMax
+// so a far-future provider reset (Codex reports 5-6h) never parks a credential
+// for the day. Without a provider-reported duration it falls back to the
+// existing exponential backoff formula, keyed by the request's retry attempt
+// since shouldRetryAfterError has no auth in scope to carry a persisted level.
+func retryBackoffWait(err error, attempt int) time.Duration {
+	if provided := retryAfterFromError(err); provided != nil && *provided > 0 {
+		wait := *provided
+		if wait > quotaBackoffMax {
+			wait = quotaBackoffMax
+		}
+		return wait
+	}
+	level := attempt
+	if level < 0 {
+		level = 0
+	}
+	wait, _ := nextQuotaCooldown(level, false)
+	return wait
 }
 
 // cooldownWaitJitterCap bounds the random jitter added to cooldown waits so a

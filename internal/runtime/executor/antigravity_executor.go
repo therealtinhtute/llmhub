@@ -2355,7 +2355,7 @@ func antigravityShouldRetryNoCapacity(statusCode int, body []byte) bool {
 		return false
 	}
 	msg := strings.ToLower(string(body))
-	return strings.Contains(msg, "no capacity available")
+	return strings.Contains(msg, cliproxyauth.KeywordNoCapacityAvailable)
 }
 
 func antigravityShouldRetryTransientResourceExhausted429(statusCode int, body []byte) bool {
@@ -2373,7 +2373,7 @@ func antigravityShouldRetryTransientResourceExhausted429(statusCode int, body []
 		return false
 	}
 	msg := strings.ToLower(string(body))
-	return strings.Contains(msg, "resource has been exhausted")
+	return strings.Contains(msg, cliproxyauth.KeywordResourceHasBeenExhausted)
 }
 
 func antigravityShouldRetrySoftRateLimit(statusCode int, body []byte) bool {

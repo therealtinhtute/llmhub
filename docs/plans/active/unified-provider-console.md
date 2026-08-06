@@ -495,7 +495,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   than `AppSheet.tsx` (`NG3`); no change to `ProviderResourceTable`, `ProviderResourcePanel`,
   `OpenAIBrandToolbar`, `ResourceDetailView`, `AmpcodeForm`, or `useProviderWorkbench` (`NG8`); no
   change to `/auth-files` or its sub-routes (`NG1`); no new test files under `web/`
-- lifecycle status: planned
+- lifecycle status: in-progress
 
 #### Wave 1 — Preset category field (R9, depends on none)
 - task 1.1: Add a `Category` field (JSON tag `category`) to `Preset` in
@@ -645,7 +645,120 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
-- none
+- 2026-08-06 · phase provider-grid-console · phase-start · task_status=in-progress · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · phase moved to in-progress in DB and plan; beginning Wave 1.
+- 2026-08-06 · phase provider-grid-console · wave 1 · task 1.1 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: internal/config/presets/presets.go,
+  internal/config/presets/providers.json, internal/config/presets/presets_test.go · verify:
+  `go test ./internal/config/presets/... -v` — 4/4 pass; `go build ./...` clean.
+- 2026-08-06 · phase provider-grid-console · wave 1 · task 1.2 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/types/provider.ts,
+  web/src/services/api/providers.ts · verify: `cd web && bun run type-check` clean.
+- 2026-08-06 · phase provider-grid-console · wave 1 complete · trace_id: 01KZBKFMKJXC78031BT6C6QZEX
+  · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- 2026-08-06 · phase provider-grid-console · wave 2 · task 2.1 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/entries.ts (new) · verify:
+  `cd web && bun run type-check && bun run lint` — clean, 0 errors / 8 baseline warnings.
+- 2026-08-06 · phase provider-grid-console · wave 2 · task 2.2 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/entries.ts (partition folded
+  into `buildEntries`) · verify: `cd web && bun run type-check` clean; count-identity assertion
+  deferred to task 6.3's browser sweep per plan.
+- 2026-08-06 · phase provider-grid-console · wave 2 · task 2.3 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/ProvidersWorkbenchPage.tsx ·
+  verify: `cd web && bun run build` — `tsc && vite build` succeeded (1,945 kB / gzip 564 kB); the
+  presets fetch and the new authFiles fetch both `.catch()` to an empty array so a rejected
+  `/provider-presets` degrades to zero preset cards without throwing; confirmed live in task 6.3.
+- 2026-08-06 · phase provider-grid-console · wave 2 complete · trace_id: 01KZBM9XYN9Y6RFS8XXMX17VXQ
+  · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- 2026-08-06 · phase provider-grid-console · wave 3 · task 3.1 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/components/ProviderCategoryGrid.tsx
+  (new) · verify: `cd web && bun run type-check && bun run lint` — clean, 0 errors / 8 baseline
+  warnings. Preset logos (`PRESET_LOGOS`) scaffolded empty pending Wave 5 task 5.3.
+- 2026-08-06 · phase provider-grid-console · wave 3 · task 3.2 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/ProvidersWorkbenchPage.tsx ·
+  verify: `cd web && bun run build` succeeded. See Decisions for the header "+New" button and the
+  list-view delete/toggle affordances, both temporarily reduced until Wave 4 lands.
+- 2026-08-06 · phase provider-grid-console · wave 3 · task 3.3 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/components/ProviderCategoryList.tsx
+  (removed via `trash`) · verify: `grep -rn "ProviderCategoryList" web/src` — no results;
+  `cd web && bun run type-check` clean.
+- 2026-08-06 · phase provider-grid-console · wave 3 complete · trace_id: 01KZBMA1VHC7XZAKEZP3DJY6MZ
+  · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- 2026-08-06 · phase provider-grid-console · wave 4 · task 4.1 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/components/ui/AppSheet.tsx · verify:
+  `cd web && bun run type-check` clean; `git diff --name-only web/src/components/ui/` showed only
+  `AppSheet.tsx`.
+- 2026-08-06 · phase provider-grid-console · wave 4 · task 4.2 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/ProvidersWorkbenchPage.tsx,
+  web/src/features/providers/entries.ts · verify: `cd web && bun run type-check && bun run lint` —
+  type-check clean, lint 0 errors / 8 baseline warnings.
+- 2026-08-06 · phase provider-grid-console · wave 4 · task 4.3 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/panels/OAuthLoginPanel.tsx,
+  web/src/features/providers/entries.ts · verify: `cd web && bun run type-check && bun run lint` —
+  type-check clean, lint 0 errors / 8 baseline warnings; `grep -n "setInterval\\|setTimeout"
+  web/src/features/providers/panels/OAuthLoginPanel.tsx` returned no results.
+- 2026-08-06 · phase provider-grid-console · wave 4 · task 4.4 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/panels/AuthFileMiniTable.tsx ·
+  verify: `cd web && bun run type-check && bun run lint` — type-check clean, lint 0 errors / 8
+  baseline warnings.
+- 2026-08-06 · phase provider-grid-console · wave 4 · task 4.5 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/sheets/ProviderSheet.tsx,
+  web/src/features/providers/ProvidersWorkbenchPage.tsx · verify: `cd web && bun run build` —
+  `tsc && vite build` succeeded (1,983.14 kB / gzip 572.81 kB).
+- 2026-08-06 · phase provider-grid-console · wave 4 · task 4.6 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/sheets/forms/BaseProviderForm.tsx ·
+  verify: `cd web && bun run build` — `tsc && vite build` succeeded; visual preset-prefill proof
+  deferred to task 6.3's browser sweep.
+- 2026-08-06 · phase provider-grid-console · wave 4 complete · trace_id: 01KZBPNV776QVN61DNYHZJFZ78
+  · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- 2026-08-06 · phase provider-grid-console · wave 5 · task 5.1 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/assets/icons/opencode-light.svg,
+  web/src/assets/icons/opencode-dark.svg, web/src/assets/icons/openrouter-light.svg,
+  web/src/assets/icons/openrouter-dark.svg, web/src/assets/icons/nvidia-light.svg,
+  web/src/assets/icons/nvidia-dark.svg · verify: all six parse as valid SVG with non-empty viewBox;
+  OpenRouter uses the current official purple/lime glyph colors, not svgl's retired monochrome mark.
+- 2026-08-06 · phase provider-grid-console · wave 5 · task 5.2 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/assets/icons/amp.svg · verify: per-file verdicts:
+  `amp.svg` replaced — official Ampcode mark from `ampcode.com/amp-mark-color.svg`;
+  `antigravity.svg` no official source found — retained;
+  `claude.svg` current — official Claude glyph retained;
+  `codex.svg` current — official Codex glyph retained;
+  `deepseek.svg` no official source found — retained;
+  `gemini.svg` current — official Gemini glyph retained;
+  `glm.svg` no official source found — retained;
+  `grok-dark.svg` current — official xAI glyph retained;
+  `grok.svg` current — official xAI glyph retained;
+  `iflow.svg` no official source found — retained;
+  `kimi-dark.svg` current — official Kimi glyph retained;
+  `kimi-light.svg` current — official Kimi glyph retained;
+  `kiro.svg` current — official Kiro glyph retained;
+  `minimax.svg` no official source found — retained;
+  `openai-dark.svg` current — official OpenAI glyph retained;
+  `openai-light.svg` current — official OpenAI glyph retained;
+  `qwen.svg` current — official Qwen glyph retained;
+  `vertex.svg` current — official Vertex glyph retained. Every brand on the grid is current or
+  replaced; uncertain non-grid sources are explicitly marked above.
+- 2026-08-06 · phase provider-grid-console · wave 5 · task 5.3 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/components/ProviderCategoryGrid.tsx ·
+  verify: `cd web && bun run type-check && bun run lint && bun run build` — type-check/build clean,
+  lint 0 errors / 8 baseline warnings; all 15 entries have an explicit provider logo mapping, with
+  light/dark variants selected from the active theme. Both-theme visual proof deferred to task 6.3.
+- 2026-08-06 · phase provider-grid-console · wave 5 complete · trace_id: 01KZBQDA1VSZN57MWRD85JECZ9
+  · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- 2026-08-06 · phase provider-grid-console · wave 6 · task 6.1 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/features/providers/ProvidersWorkbenchPage.tsx,
+  web/src/router/MainRoutes.tsx, web/src/components/layout/MainLayout.tsx,
+  web/src/pages/OAuthPage.tsx (removed) · verify: `cd web && bun run type-check` clean;
+  `grep -rn "OAuthPage" web/src` returned no results; `/oauth` remains only as the intentional redirect.
+- 2026-08-06 · phase provider-grid-console · wave 6 · task 6.2 · task_status=DONE · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/i18n/locales/en.json,
+  web/src/i18n/locales/vi.json, provider grid/panel/sheet JSX · verify: English/Vietnamese key parity
+  at 1,443 keys; new provider JSX has no `defaultValue` fallback strings.
+- 2026-08-06 · phase provider-grid-console · wave 6 · task 6.3 · task_status=IN-PROGRESS · run_id:
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · automated verify passed: `go test ./...`, `cd web && bun run
+  type-check && bun run lint && bun run build`, and `make build-web && make build`; lint remains
+  0 errors / 8 baseline warnings. Browser sweep is not run because no browser automation runtime is
+  available and `make dev` exits before serving when `PGSTORE_DSN` is unset.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -739,22 +852,92 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   and the grid are the same deliverable, and shipping the grid without preset categories would leave
   three of fifteen cards unplaced.
 
+- 2026-08-06 · execution (Wave 3) · global "+New" header button loses its brand-specific default ·
+  gap: `D9` removes the rail, so the `activeBrand` state that previously told the header's "+New"
+  button which brand to create no longer exists, and neither the plan's `## Building` nor `## Changes`
+  section says what the button should do instead. Resolved by pointing it at the `openaiCompatibility`
+  create flow — the generic "custom provider" entry point — since it is the only brand without a
+  narrower, more specific add path once every other brand's "Add" lives inside its own card's sheet
+  (preset sheets get a prefilled Add per `R11`; OAuth cards start a login, not a form). Revisit if the
+  Wave 6 browser sweep finds this confusing; the header button can also be dropped entirely in favor of
+  per-card adds only.
+- 2026-08-06 · execution (Wave 3) · list-view delete / toggle-disabled / view / edit are unreachable
+  between Wave 3 and Wave 4 · gap: those actions today live only on `ProviderResourcePanel`'s row
+  buttons (`ProviderSheet.tsx`'s current `detail` mode has no delete button of its own — confirmed by
+  reading the file). Task 3.2 removes `ProviderResourcePanel` from the page to drop the two-column
+  layout, and task 4.5 is what re-parents it into `ProviderSheet`'s new `list` view — so for the
+  duration of this session's Wave 3→Wave 4 gap the actions have no UI home. Accepted because this is
+  an in-progress working tree, not a shipped state — `NG8` ("zero feature loss") is checked at the
+  end of the phase (task 6.3), not at each wave's own check command, and the plan already scopes
+  `ProviderResourcePanel` re-parenting to task 4.5.
+- 2026-08-06 · execution (Wave 3) · task 2.3's own check ("`bun run build` succeeds") could not pass
+  with `buildEntries`'s result computed and left unused · gap: `tsconfig.json` has `noUnusedLocals:
+  true`, so a `const entries = useMemo(...)` with no reader in the same component is a compile error,
+  not a warning — there is no way to satisfy task 2.3's check in isolation without either a
+  throwaway/hacky usage or wiring the value into the render tree, which is task 3.2's job. Resolved by
+  writing tasks 2.3, 3.1, 3.2, and 3.3 in one continuous edit before running any of their check
+  commands, then running each task's specified check afterward (all four passed). Wave boundaries
+  (trace recorded per wave) and task-level Progress entries are unaffected — this only changes the
+  order in which file edits vs. check commands were interleaved within the session.
+
+- 2026-08-06 · execution (Wave 4) · tasks 4.2–4.5 were written as one batch before verification · gap:
+  `tsconfig.json` has `noUnusedLocals: true`, so lifted page handlers, the panel callbacks, and the
+  re-parented sheet branches cannot be checked independently without transient unused symbols.
+  Resolved by completing the interdependent batch first, then running each task's specified check;
+  all checks passed with 0 errors and the baseline 8 lint warnings.
+- 2026-08-06 · execution (Wave 4) · `ProviderSheetState` uses stable `entryKey` plus `resourceId`,
+  while the sheet receives live `entries` · gap: storing resource/preset objects captured at card
+  click would leave the open sheet stale after delete or disabled-state mutations refresh the
+  workbench snapshot. Resolved by looking up the entry and resource from the current `entries` prop
+  on every render; list, detail, and edit views therefore reflect mutations without reopening.
+- 2026-08-06 · execution (Wave 4) · successful create/update returns to the owning card's list view
+  when one exists · gap: the old rail made the resource table visible behind forms, while the new
+  sheet has no background list. Resolved by routing form completion to `list` for preset and
+  non-Ampcode config entries, while Ampcode remains a direct edit flow and closes after save.
+- 2026-08-06 · execution (Wave 6) · XAI callback URL helpers remain in
+  `web/src/features/providers/entries.ts` rather than moving into `OAuthLoginPanel.tsx` · rationale:
+  `ProvidersWorkbenchPage` owns callback submission and needs the same normalization logic as the
+  panel; keeping the helpers in the shared provider-entry module avoids duplicating or widening a
+  page-only callback contract. No behavior or security boundary changes.
+- 2026-08-06 · execution (Wave 6) · static review remediation · OAuth account tables now load and
+  report errors, page-owned auth-file revisions refresh both card counts and open mini-tables, card
+  switching and Ampcode cancel honor the dirty-form guard, OAuth callback input resets per attempt,
+  preset prefill only applies while pristine and resets its dirty baseline, and cards always render
+  status, warning, and configured count including zero-resource Ampcode. Browser proof remains the
+  only unverified requirement.
+
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
-- none
+- 2026-08-06T14:46:20Z · phase provider-grid-console · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ ·
+  check_id: 01KZBRKZV7V35W104FJQ54R2RR · verdict: REQUEST_CHANGES · automated gate passed:
+  `go test ./...`; `cd web && bun run type-check && bun run lint && bun run build`; and
+  `make build-web && make build`; lint remained 0 errors / 8 baseline warnings; locale parity passed
+  at 1,443 keys. Proof gaps: required real-browser sweep not run because no browser automation runtime
+  is available and `make dev` exits with `PGSTORE_DSN is required` before serving; API 2xx and
+  browser console evidence are therefore not recorded.
+- 2026-08-06T15:16:40Z · phase provider-grid-console · run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ ·
+  check_id: 01KZBTBHGQDZ42BQ3P3DS526JC · verdict: REQUEST_CHANGES · post-review remediation
+  automated gate passed: `go test ./...`; `cd web && bun run type-check && bun run lint && bun run build`;
+  `make build-web && make build`; hygiene and durable audit passed; lint remained 0 errors / 8 baseline
+  warnings. Static review found the previously reported lifecycle, synchronization, form-initialization,
+  and card-rendering defects addressed. Proof gaps remain: no real-browser sweep, no configured
+  Postgres-backed runtime/API 2xx evidence, and no browser-console evidence.
 
 ## Current State and Next Action
-- active_phase: none
-- lifecycle_status: planned
-- latest_run_id: none
-- latest_trace_ids: []
-- latest_check_id: none
-- latest_handoff_id: none
-- blockers: none
+- active_phase: provider-grid-console
+- lifecycle_status: in-progress
+- latest_run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- latest_trace_ids: [01KZBKFMKJXC78031BT6C6QZEX, 01KZBM9XYN9Y6RFS8XXMX17VXQ, 01KZBMA1VHC7XZAKEZP3DJY6MZ, 01KZBPNV776QVN61DNYHZJFZ78, 01KZBQDA1VSZN57MWRD85JECZ9]
+- latest_check_id: 01KZBTBHGQDZ42BQ3P3DS526JC
+- latest_handoff_id: 01KZBTNCEB0YDQRMCMD8G3JZMP
+- blockers: required real-browser sweep and runtime/API proof are still outstanding
 - open_items:
   - Grid shows `codex`, `claude`, and `gemini` twice (OAuth card + API-key card). Accepted for now —
     the category label disambiguates. Revisit if the browser sweep shows it reading as a duplicate.
   - `AuthFileMiniTable` duplicates part of `/auth-files`. Accepted per `D1`; revisit only if the
     two drift.
   - No search/filter across the 15 cards. Deferred — 15 cards fit one screen at `auto-fit` 240px.
-- exact_next_action: work full provider-grid-console
+  - Global header "+New" button always opens the `openaiCompatibility` create flow instead of a
+    brand-specific one (see Decisions, Wave 3) — revisit if the Wave 6 sweep finds it confusing.
+- exact_next_action: continue Wave 6 — task 6.3, run the real-browser sweep with a configured
+  Postgres-backed dev server and browser agent, then re-run `check full`

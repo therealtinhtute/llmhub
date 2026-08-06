@@ -3,7 +3,7 @@ id: 01KZAPKPHZRGZDMFTH6Y2HWTYK
 type: plan
 intake_id: 01KZAPKT7HRC5GJPYC04F5DAWX
 lane: normal
-status: active
+status: completed
 created: 2026-08-05
 updated: 2026-08-06
 ---
@@ -335,10 +335,10 @@ Wave 5 except through the Approach's read-only data flow (catalog → endpoint �
 ## Phases and Verification
 
 ### Phase: provider-presets
-- story_id: `01KZAPWFJ9M3MNF5M2CW1JDW35`
+- story_id: `01KZBH3RW730XYMA5VT1XQY3W0`
 - goal: Ship the 3-provider preset catalog, the `Passthrough` config flag, and OpenCode Free as a
   working zero-credential upstream, riding the existing `openai_compat_executor.go`.
-- depends_on: none
+- depends_on: error-classification
 - touched_surfaces: `internal/config/presets/providers.json` (new), `internal/config/presets/presets.go`
   (new), `internal/api/handlers/management/provider_presets.go` (new), `internal/api/server.go`
   (route registration), `internal/config/config.go`, `sdk/cliproxy/service.go`,
@@ -347,7 +347,7 @@ Wave 5 except through the Approach's read-only data flow (catalog → endpoint �
 - avoided_surfaces: no new executor (`internal/runtime/executor/openai_compat_executor.go` is read,
   not modified — NG5), no `claude-api-key` changes (NG2 is explicitly out of scope here), no
   OAuth-provider or MiMo entries (NG3, NG4)
-- lifecycle status: checked
+- lifecycle status: done
 
 #### Wave 1 — Preset catalog (R1, R6)
 - task 1.1: Re-probe all three seed URLs live (the exact `curl` commands in `## Verify`); confirm
@@ -601,16 +601,41 @@ preset values — no automated credential exists for this).
   (skill-internal, not doc output). `docs/product/README.md` explicitly instructs naming files by
   product domain (`overview.md`, `billing.md`, …), so `provider-presets.md` under `docs/product/`
   follows the repo's actual documented convention instead of a path that was never created.
+- 2026-08-06 — phase: provider-presets — backfill — The IDs this doc originally carried (story
+  `01KZAQ2Q5RCVSMHFP1PVXBQ4C1`, run `01KZAQ3N0RPDMFJGQZ1CD6M2RN`, check `01KZAXK9GF1YSYM137CT5GFR68`)
+  were minted with `zharness id`, which is explicitly non-mutating. The session never invoked
+  `zharness story` / `run create` / `check record`, so no changeset and no DB row was ever written
+  for this phase — the same root cause recorded in `docs/plans/done/error-classification.md`, which
+  see for the full evidence. Real rows were created 2026-08-06 via the proper commands — story
+  `01KZBH3RW730XYMA5VT1XQY3W0` (`depends_on: error-classification`), run
+  `01KZBH8KG43JVPWBWDKG8M63ZT`, check `01KZBH8KGCTC7HFDB1E0V006X3` — and the Current State block
+  below now points at those. The APPROVED verdict was not transcribed: every proof command was
+  re-run and observed on 2026-08-06 against master `9231234b` (`go test ./...` → 23 ok / 0 FAIL;
+  `go test ./internal/config/presets/... -v` → 3 PASS; `bun run type-check` clean; `bun run lint` →
+  0 errors / 8 warnings, matching the original record exactly; `make build-web` → 1,964.01 kB;
+  `make build` clean, worktree clean). Phases `model-combos` and `provider-grid-console` were
+  deliberately NOT backfilled: each must get its story from its own `/to-plan` run (playbook step 4),
+  which is precisely the step that was skipped here.
 
 ## Current State and Next Action
-- active_phase: provider-presets
-- lifecycle_status: checked
-- latest_run_id: 01KZAQ3N0RPDMFJGQZ1CD6M2RN
-- latest_check_id: 01KZAXK9GF1YSYM137CT5GFR68
+- active_phase: none
+- lifecycle_status: done
+- latest_run_id: 01KZBH8KG43JVPWBWDKG8M63ZT
+- latest_check_id: 01KZBH8KGCTC7HFDB1E0V006X3
+- latest_handoff_id: 01KZBJ6A1PVW74BX7BVQMJR8A5
 - verdict: APPROVED
+- superseded_ids: run 01KZAQ3N0RPDMFJGQZ1CD6M2RN, check 01KZAXK9GF1YSYM137CT5GFR68 — minted
+  2026-08-06 but never persisted; no DB row ever existed for them (see Decisions, backfill entry)
 - blockers: none
-- open_items: `make dev` still cannot start without `PGSTORE_DSN` (no Postgres-free dev path in
-  current code) — the plan's optional manual check (live streaming against OpenCode) was skipped
-  for this reason; not required by the plan.
-- exact_next_action: phase gated APPROVED. Ready for `git` (commit/push) and/or `handoff` — no
-  further `work` steps remain in this phase.
+- open_items: none
+- exact_next_action: initiative complete. The code shipped to master ahead of this closure (see
+  `## Progress`); this handoff closed the lifecycle record that the 2026-08-06 backfill
+  reconstructed. Follow-on work lives in `docs/plans/active/unified-provider-console.md`, whose
+  phase `provider-grid-console` declares `depends_on: provider-presets` and is now unblocked.
+
+Carried forward, not a blocker on this plan: `make dev` cannot start without `PGSTORE_DSN` and the
+only DSN available is the team's shared remote Supabase instance, so no live-server proof was
+possible in tasks 2.2, 4.2, or the optional streaming check. Each was replaced with a full manual
+request-path trace at ní's explicit direction (see `## Decisions`). Any future phase needing live
+browser or streaming proof against this codebase will hit the same wall — `provider-grid-console`
+task 6.3 and `model-combos` task 5.2 both do.

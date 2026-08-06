@@ -236,7 +236,7 @@ bounding the loop, and `DispositionNone` as the default for anything unmatched.
 ## Phases and Verification
 
 ### Phase: error-classification
-- story_id: `01KZAHXD0Y9R5B5EYA61D15048`
+- story_id: `01KZBH3RVZTTV3DZ0CY29FQ9TN`
 - goal: Fix `shouldRetryAfterError` to retry non-429 quota/rate-limit errors via a shared
   text-before-status classifier.
 - depends_on: none
@@ -299,6 +299,7 @@ error.
 - 2026-08-06 | phase: error-classification | wave: 2 | task: 2.1 — `shouldRetryAfterError`'s signature (`err, attempt, providers []string, model, maxWait`) never carries an `*Auth`, at any of its 3 call sites. R4's "reuse the per-auth backoff counter, fall back to `attempt` if no auth is in scope" therefore always takes the fallback branch here; implemented `retryBackoffWait` keyed purely on `attempt` via the existing `nextQuotaCooldown` formula. No plan-scope change — R4 anticipated exactly this fallback.
 - 2026-08-06 | phase: error-classification | wave: 2 | task: 2.1 — R5 asked to "port `MAX_RATE_LIMIT_COOLDOWN_MS = 30m` as a ceiling". The package already defines `quotaBackoffMax = 30 * time.Minute` (`conductor.go:85`) for the existing persisted-cooldown backoff formula. Reused that constant instead of adding a second 30m literal, to avoid two magic numbers that could drift apart; same value, same behavior, satisfies R5 as written.
 - 2026-08-06 | phase: error-classification | wave: 3 | task: 3.1 — Task 3.1 as literally written ("replace the 4 keyword-matching call sites with calls to `Classify`") turned out unsafe: `Classify`'s `DispositionRetryBackoff` is a coarse bucket matching 7 different phrases (rate limit, too many requests, quota exceeded, resource has been exhausted, no capacity available, at capacity, overloaded), while each of the 4 sites is a narrow single/double-phrase gate feeding its own distinct decision. Branching any of them on `Disposition` instead of their own literal would make each fire on phrases it never matched before — a real behavior change, violating R6 and the plan's own "no behavior change" framing for this step. Surfaced to the user via `AskUserQuestion`; user chose the safer alternative: keep each site's own narrow `strings.Contains` check, but dedupe the *literal string* against `classify.go` wherever a genuine duplicate exists, rather than branching on `Disposition`. On inspection only 2 of the 4 sites are genuine duplicates of an R1-locked `classifyTextRules` entry: `antigravityShouldRetryNoCapacity` ("no capacity available") and `antigravityShouldRetryTransientResourceExhausted429` ("resource has been exhausted"). Those two now reference newly-exported `cliproxyauth.KeywordNoCapacityAvailable` / `cliproxyauth.KeywordResourceHasBeenExhausted`, sourced from the same table entries via the constants, so string and behavior stay identical to today. The other 2 sites — antigravity's `quota_exhausted`/`quota exhausted` keyword loop (`:391`) and Codex's `isCodexModelCapacityError` two capacity phrases (`:1200`) — have no matching entry in classify.go's R1 table at all; adding them there would expand what `conductor.go`'s `shouldRetryAfterError` retries on (new behavior, out of R1's exact enumerated scope), so they were left untouched. Net: task 3.1 done for the 2 sites where "shared source, same behavior" is actually achievable; the other 2 are correctly out of scope, not a shortfall.
+- 2026-08-06 | phase: error-classification | backfill — The IDs this doc originally carried (story `01KZAHT0K3ZYX9SDPXMDBRW3G6`, run `01KZAHYZG9ZH230122E2J587R5`, check `01KZAKBKQHQDM17B0AM26J58YF`, handoff `01KZANE4TCBBCHEG70KY1V55GR`) were minted with `zharness id`, which is explicitly non-mutating. The session never invoked `zharness story` / `run create` / `check record` / `handoff record`, so no changeset and no DB row was ever written for this phase. Evidence: `harness.db` and the newest `.kit/changesets/*.jsonl` both stamped 2 Aug 17:08; zero changesets dated 6 Aug; `applied_count: 63` equal to the 63 changeset files on disk with `pending: []`. Real rows were created 2026-08-06 via the proper commands — story `01KZBH3RVZTTV3DZ0CY29FQ9TN`, run `01KZBH8469174DWDY5ZH55PPT0`, check `01KZBH846JMMK7B59AKF2A6VQC`, handoff `01KZBH88RHAJBXR9775XZVKQ3C` — and the Current State block above now points at those. The APPROVED verdict recorded below was not transcribed from the original session: every command was re-run and observed on 2026-08-06 against master `9231234b` (`go test ./...` → 23 ok / 0 FAIL; `bun run type-check` clean; `bun run lint` → 0 errors / 8 warnings, matching the original record exactly; `make build-web` and `make build` clean, worktree clean). Secondary finding, unfixed: `zharness audit`, `zharness validate`, and `zharness preflight to-plan` all reported clean throughout, because none of them cross-check plan-doc `story_id`s against DB rows — which is how this drift survived 4 days and 12 commits.
 
 ## Validation
 - 2026-08-06T01:05:00Z | phase: error-classification | run_id: 01KZAHYZG9ZH230122E2J587R5 | check_id: 01KZAKBKQHQDM17B0AM26J58YF | verdict: APPROVED | commands:
@@ -314,9 +315,12 @@ error.
 ## Current State and Next Action
 - active_phase: none
 - lifecycle_status: done
-- latest_run_id: 01KZAHYZG9ZH230122E2J587R5
-- latest_check_id: 01KZAKBKQHQDM17B0AM26J58YF
-- latest_handoff_id: 01KZANE4TCBBCHEG70KY1V55GR
+- latest_run_id: 01KZBH8469174DWDY5ZH55PPT0
+- latest_check_id: 01KZBH846JMMK7B59AKF2A6VQC
+- latest_handoff_id: 01KZBH88RHAJBXR9775XZVKQ3C
+- superseded_ids: run 01KZAHYZG9ZH230122E2J587R5, check 01KZAKBKQHQDM17B0AM26J58YF, handoff
+  01KZANE4TCBBCHEG70KY1V55GR — minted 2026-08-06 but never persisted; no DB row ever existed for
+  them (see Decisions, backfill entry)
 - blockers: none
 - open_items: none — 2 of Wave 3's 4 named sites (antigravity `:391` quota_exhausted loop, codex
   `isCodexModelCapacityError`) were intentionally left unconsolidated, not a defect (see Decisions);

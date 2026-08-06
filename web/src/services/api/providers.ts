@@ -429,6 +429,8 @@ const serializeOpenAIProvider = (provider: OpenAIProviderConfig) => {
   return payload;
 };
 
+const PRESET_CATEGORIES = new Set(['free', 'freeTier', 'apikey']);
+
 const normalizeProviderPreset = (preset: unknown): ProviderPreset | null => {
   if (!isRecord(preset)) return null;
   const id = getStringField(preset, ['id']);
@@ -442,6 +444,8 @@ const normalizeProviderPreset = (preset: unknown): ProviderPreset | null => {
       )
     : undefined;
 
+  const category = getStringField(preset, ['category']);
+
   return {
     id,
     displayName: displayName || id,
@@ -454,6 +458,7 @@ const normalizeProviderPreset = (preset: unknown): ProviderPreset | null => {
     defaultApiKey: getStringField(preset, ['default_api_key', 'defaultApiKey']) || undefined,
     verified: preset.verified === true,
     verifiedAt: getStringField(preset, ['verified_at', 'verifiedAt']) || undefined,
+    category: (PRESET_CATEGORIES.has(category) ? category : 'apikey') as ProviderPreset['category'],
   };
 };
 

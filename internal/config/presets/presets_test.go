@@ -32,3 +32,12 @@ func TestAllReturnsSeedCatalog(t *testing.T) {
 		t.Fatalf("All() returned %d presets, want 3", len(presets))
 	}
 }
+
+func TestAllPresetsHaveValidCategory(t *testing.T) {
+	valid := map[string]bool{"free": true, "freeTier": true, "apikey": true}
+	for _, p := range All() {
+		if !valid[p.Category] {
+			t.Fatalf("preset %q has invalid category %q, want one of free|freeTier|apikey", p.ID, p.Category)
+		}
+	}
+}

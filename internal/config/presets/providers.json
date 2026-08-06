@@ -9,7 +9,8 @@
     "passthrough": true,
     "default_api_key": "public",
     "verified": true,
-    "verified_at": "2026-08-06"
+    "verified_at": "2026-08-06",
+    "category": "free"
   },
   {
     "id": "openrouter",
@@ -21,7 +22,8 @@
     "free_tier_note": "27+ free models, no card, 200 req/day (1000 after any credit purchase).",
     "passthrough": true,
     "verified": true,
-    "verified_at": "2026-08-06"
+    "verified_at": "2026-08-06",
+    "category": "freeTier"
   },
   {
     "id": "nvidia",
@@ -32,6 +34,7 @@
     "free_tier_note": "Free for NVIDIA Developer Program members (prototyping & testing).",
     "passthrough": true,
     "verified": true,
-    "verified_at": "2026-08-06"
+    "verified_at": "2026-08-06",
+    "category": "apikey"
   }
 ]

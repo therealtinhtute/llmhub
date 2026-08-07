@@ -3,14 +3,16 @@ id: 01KZB88NS7DXSHCAVWR3ZM77JQ
 type: plan
 intake_id: 01KZB88KH357MGHT267KSNHBB3
 lane: normal
-status: active
+status: superseded
 created: 2026-08-06
 updated: 2026-08-07
 ---
 
 # Unified provider console — category grid + sheet console
 
-Status: **locked** · Created 2026-08-06 · Re-planned 2026-08-06 (rail → grid) · Ships as one phase
+> Superseded: this document records the earlier provider-console shape. The former CLI integration was removed in the current implementation; references below are historical execution records, not supported surfaces.
+
+Status: **superseded** · Created 2026-08-06 · Re-planned 2026-08-06 (rail → grid) · Ships as one phase
 Source of the shape: `decolua/9router` — single provider registry with a `category` field
 (`oauth | apikey | freeTier | free`) driving UI grouping
 Reference skill: `.claude/skills/9router-port/references/providers.md` §"Categories 9router uses"
@@ -171,8 +173,7 @@ Requirements:
 - `NG7` — `model-combos` is untouched. The owner explicitly left that phase pending. | source:
   owner instruction 2026-08-06 ("pending cái model-combos")
 - `NG8` — `ProviderResourceTable`, `ProviderResourcePanel`, `OpenAIBrandToolbar`,
-  `ResourceDetailView`, `BaseProviderForm`'s field set, `AmpcodeForm`, and `useProviderWorkbench`
-  keep their current behavior. They are re-parented into the sheet, not rewritten. This is what
+  `ResourceDetailView`, `BaseProviderForm`'s field set, and `useProviderWorkbench` keep their current behavior. They are re-parented into the sheet, not rewritten. This is what
   makes "zero feature loss" checkable rather than aspirational. | source: `D9`
 
 ## Building
@@ -187,7 +188,7 @@ buildEntries({ groups, presets, authFiles })
    ├── FREE TIER     OpenRouter                                                     (1)
    ├── API KEY       Gemini · Codex · Claude · Vertex · NVIDIA NIM                   (5)
    │                 4 workbench brands + 1 preset (category: apikey)
-   └── CUSTOM        OpenAI Compatible (unmatched entries) · Ampcode                 (2)
+   └── CUSTOM        OpenAI Compatible (unmatched entries)                         (1)
 ```
 
 `codex`, `claude`, and `gemini` each appear twice on purpose — once as an OAuth login, once as an
@@ -358,11 +359,8 @@ Known state going in, from the 2026-08-06 research pass:
   512×512 arrow mark that OpenRouter has retired. Current official is
   `openrouter.ai/brand/v2/openrouter-glyph-{light,dark}.svg` (661B, viewBox 401.4×293.7, brand
   purple `#7624F4`).
-- `web/src/assets/icons/amp.svg` is suspected wrong-brand: svgl's "AMP" entry is `amp.dev` (Google
-  Accelerated Mobile Pages), not Sourcegraph Ampcode. Inspect and replace if confirmed.
-- Absent from svgl entirely, so official-page-only: `vertex`, `amp`, `glm`, `iflow`, `kiro`,
-  `minimax`. Of these only `vertex` and `amp` appear on the grid; the other four are audited but not
-  blocking.
+- Absent from svgl entirely, so official-page-only: `vertex`, `glm`, `iflow`, `kiro`, `minimax`.
+  Of these only `vertex` appears on the grid; the other four are audited but not blocking.
 
 ### 9. i18n (`R13`)
 
@@ -424,9 +422,9 @@ state touched.
 - **Auth files with missing or `unknown` `type` are invisible in the OAuth sheet.** Mitigated by the
   mini-table footer stating that `/auth-files` is the complete list, and by never making the sheet
   the only path to a credential.
-- **Logo sourcing drifts or ships the wrong brand.** Already happened once in research (svgl's stale
-  OpenRouter mark, and the `amp.dev`/Ampcode collision). Mitigated by `D13`'s official-page-first
-  rule and by auditing all 18 rather than only the 3 that are missing.
+- **Logo sourcing drifts or ships the wrong brand.** Already happened once in research with svgl's stale
+  OpenRouter mark. Mitigated by `D13`'s official-page-first rule and by auditing all 18 rather than
+  only the 3 that are missing.
 
 ## Approach and Risks
 
@@ -493,7 +491,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
 - avoided_surfaces: no new backend endpoint and no user config-schema change (`NG4`); no new preset
   entries (`NG5`); no `preset_id` config field (`NG6`); no file under `web/src/components/ui/` other
   than `AppSheet.tsx` (`NG3`); no change to `ProviderResourceTable`, `ProviderResourcePanel`,
-  `OpenAIBrandToolbar`, `ResourceDetailView`, `AmpcodeForm`, or `useProviderWorkbench` (`NG8`); no
+  `OpenAIBrandToolbar`, `ResourceDetailView`, or `useProviderWorkbench` (`NG8`); no
   change to `/auth-files` or its sub-routes (`NG1`); no new test files under `web/`
 - lifecycle status: checked
 
@@ -524,7 +522,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   - check: `cd web && bun run type-check && bun run lint` clean
 - task 2.2: Partition the `openaiCompatibility` group by `normalizeBaseUrl` against a
   `Map<normalizedBaseUrl, presetId>` built from the catalog; unmatched resources become the
-  `CUSTOM` → `OpenAI Compatible` card's resources; `ampcode` lands in `custom` after it.
+  `CUSTOM` → `OpenAI Compatible` card's resources.
   - touched: `web/src/features/providers/entries.ts`
   - check: `cd web && bun run type-check` clean; the count identity (sum of preset-card counts plus
     the `CUSTOM` card's count equals the total `openai-compatibility` resource count) is asserted in
@@ -600,10 +598,9 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   - touched: `web/src/assets/icons/*.svg` (new files)
   - check: each new file opens as valid SVG with a non-empty `viewBox`, and `openrouter` carries the
     current brand purple `#7624F4` rather than svgl's `#111111`
-- task 5.2: Audit all 18 existing SVGs under `web/src/assets/icons/` against their provider's
-  official brand page per `D13` (official page first, `svgl` fallback, glyph never lockup). Confirm
-  or replace `amp.svg`, which is suspected to be `amp.dev` (Google AMP) rather than Sourcegraph
-  Ampcode. Record per-file verdict — current / replaced / no official source found.
+- task 5.2: Audit all existing SVGs under `web/src/assets/icons/` against their provider's official
+  brand page per `D13` (official page first, `svgl` fallback, glyph never lockup). Record per-file
+  verdict — current / replaced / no official source found.
   - touched: `web/src/assets/icons/*.svg`
   - check: a written per-file verdict for all 18 in `## Progress`; every brand appearing on the grid
     is either verified current or replaced
@@ -718,8 +715,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   web/src/assets/icons/nvidia-dark.svg · verify: all six parse as valid SVG with non-empty viewBox;
   OpenRouter uses the current official purple/lime glyph colors, not svgl's retired monochrome mark.
 - 2026-08-06 · phase provider-grid-console · wave 5 · task 5.2 · task_status=DONE · run_id:
-  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: web/src/assets/icons/amp.svg · verify: per-file verdicts:
-  `amp.svg` replaced — official Ampcode mark from `ampcode.com/amp-mark-color.svg`;
+  01KZBKBD3XPA3D7GVMPBAMYEXJ · touched: provider icon assets · verify: per-file verdicts:
   `antigravity.svg` no official source found — retained;
   `claude.svg` current — official Claude glyph retained;
   `codex.svg` current — official Codex glyph retained;
@@ -830,13 +826,11 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   owner answer, verbatim: "Đảm bảo 100% logo brand các provider phải là logo mới nhất", scoped by a
   follow-up answer to "Rà hết 18 cái". Sourcing rule adopted: official brand page first, `svgl` only
   as fallback, always the glyph variant and never the wide lockup. The rule exists because research
-  hit two failures in one pass — svgl's OpenRouter entry is the retired monochrome arrow
+  hit one failure in one pass — svgl's OpenRouter entry is the retired monochrome arrow
   (633B, `#111111`, viewBox 512×512) rather than the current `brand/v2` glyph (661B, viewBox
-  401.4×293.7, `#7624F4`), which the owner caught mid-session and corrected; and svgl's "AMP" entry
-  is `amp.dev` (Google Accelerated Mobile Pages), not Sourcegraph Ampcode, which means
-  `web/src/assets/icons/amp.svg` may already be the wrong brand and is flagged for inspection in
-  task 5.2. Six brands are absent from svgl entirely (`vertex`, `amp`, `glm`, `iflow`, `kiro`,
-  `minimax`); only `vertex` and `amp` appear on the new grid.
+  401.4×293.7, `#7624F4`), which the owner caught mid-session and corrected. Five brands are
+  absent from svgl entirely (`vertex`, `glm`, `iflow`, `kiro`, `minimax`); only `vertex` appears
+  on the new grid.
 - 2026-08-06 · re-planning · requirement and non-goal numbering restarted · the previous cut had
   `R1`-`R9` / `NG1`-`NG7` written against the rail shape. Rather than leave dead numbers, the lists
   were renumbered `R1`-`R13` / `NG1`-`NG8`. Carried over unchanged in substance: old `R1`→new `R1`,
@@ -896,7 +890,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
 - 2026-08-06 · execution (Wave 4) · successful create/update returns to the owning card's list view
   when one exists · gap: the old rail made the resource table visible behind forms, while the new
   sheet has no background list. Resolved by routing form completion to `list` for preset and
-  non-Ampcode config entries, while Ampcode remains a direct edit flow and closes after save.
+  generic config entries, while dedicated native-provider flows retain their own save navigation.
 - 2026-08-06 · execution (Wave 6) · XAI callback URL helpers remain in
   `web/src/features/providers/entries.ts` rather than moving into `OAuthLoginPanel.tsx` · rationale:
   `ProvidersWorkbenchPage` owns callback submission and needs the same normalization logic as the
@@ -904,9 +898,9 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   page-only callback contract. No behavior or security boundary changes.
 - 2026-08-06 · execution (Wave 6) · static review remediation · OAuth account tables now load and
   report errors, page-owned auth-file revisions refresh both card counts and open mini-tables, card
-  switching and Ampcode cancel honor the dirty-form guard, OAuth callback input resets per attempt,
+  switching and cancel actions honor the dirty-form guard, OAuth callback input resets per attempt,
   preset prefill only applies while pristine and resets its dirty baseline, and cards always render
-  status, warning, and configured count including zero-resource Ampcode. Browser proof remains the
+  status, warning, and configured count including zero-resource providers. Browser proof remains the
   only unverified requirement.
 - 2026-08-06 · handoff · task_status=IN-PROGRESS · handoff_id: 01KZBV9J8F3Y5PAH4CYKN2FME6 ·
   branch: feature/unified-provider-console · working tree clean and branch pushed · static review

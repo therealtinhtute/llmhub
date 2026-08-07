@@ -13,7 +13,6 @@ So you can use local or multi-account CLI access with OpenAI(include Responses)/
 - OpenAI Codex support (GPT models) via OAuth login
 - Claude Code support via OAuth login
 - Grok Build support via OAuth login
-- Amp CLI and IDE extensions support with provider routing
 - Streaming, non-streaming, and WebSocket responses where supported
 - Function calling/tools support
 - Multimodal input support (text and images)
@@ -25,7 +24,7 @@ So you can use local or multi-account CLI access with OpenAI(include Responses)/
 - Claude Code multi-account load balancing
 - OpenAI Codex multi-account load balancing
 - Grok Build multi-account load balancing
-- OpenAI-compatible upstream providers via config (e.g., OpenRouter)
+- OpenAI-compatible upstream providers via config
 - Reusable Go SDK for embedding the proxy
 
 ## Installation
@@ -258,15 +257,7 @@ Operational notes:
 
 The management panel is served at `http://localhost:PORT/management.html` once the service is running. It provides visual config editing, OAuth flows, auth file management, quota tracking, and log tailing.
 
-## Amp CLI Support
-
-LLMHub includes integrated support for [Amp CLI](https://ampcode.com) and Amp IDE extensions, enabling you to use your Google/ChatGPT/Claude OAuth subscriptions with Amp's coding tools:
-
-- Provider route aliases for Amp's API patterns (`/api/provider/{provider}/v1...`)
-- Management proxy for OAuth authentication and account features
-- Smart model fallback with automatic routing
-- **Model mapping** to route unavailable models to alternatives (e.g., `claude-opus-4.5` → `claude-sonnet-4`)
-- Security-first design with localhost-only management endpoints
+## Provider-specific protocol paths
 
 When you need the request/response shape of a specific backend family, use the provider-specific paths instead of the merged `/v1/...` endpoints:
 

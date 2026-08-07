@@ -68,10 +68,10 @@ var oauthToolRenameMap = map[string]string{
 // The reverse map is now computed per-request in remapOAuthToolNames so that
 // only names the client actually caused us to rewrite are restored on the
 // response. A global reverse map — as used previously — corrupted responses
-// for clients that sent mixed casing (e.g. Amp CLI sends `Bash` TitleCase
+// for clients that sent mixed casing (for example, `Bash` TitleCase
 // alongside `glob` lowercase; the request flagged renames via `glob→Glob`,
 // then the global reverse map incorrectly rewrote every `Bash` in the
-// response to `bash`, causing Amp to reject the tool_use as unknown).
+// response to `bash`, causing the client to reject the tool_use as unknown).
 
 // oauthToolsToRemove lists tool names that must be stripped from OAuth requests
 // even after remapping. Currently empty — all tools are mapped instead of removed.
@@ -178,7 +178,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 
 	// Enforce Anthropic's cache_control block limit (max 4 breakpoints per request).
 	// Cloaking and ensureCacheControl may push the total over 4 when the client
-	// (e.g. Amp CLI) already sends multiple cache_control blocks.
+	// already sends multiple cache_control blocks.
 	body = enforceCacheControlLimit(body, 4)
 
 	// Normalize TTL values to prevent ordering violations under prompt-caching-scope-2026-01-05.
@@ -1092,9 +1092,9 @@ func restoreClaudeOAuthToolNamesFromStreamLine(line []byte, prefix string, prefi
 // client-supplied original name. Callers MUST pass this map to the reverse
 // functions so only names the client actually caused us to rewrite are restored
 // on the response. A global reverse map (the previous implementation) incorrectly
-// rewrote names the client originally sent in TitleCase (e.g. Amp CLI's `Bash`)
+// rewrote names the client originally sent in TitleCase (e.g. a client's `Bash`)
 // when any OTHER tool in the same request triggered a forward rename (e.g.
-// Amp's `glob`→`Glob`), because the global reverse map contained `Bash`→`bash`
+// another tool's `glob`→`Glob`), because the global reverse map contained `Bash`→`bash`
 // regardless of what the client originally sent.
 func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
 	reverseMap := make(map[string]string, len(oauthToolRenameMap))

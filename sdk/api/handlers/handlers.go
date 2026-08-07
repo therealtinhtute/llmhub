@@ -244,7 +244,7 @@ func setReasoningEffortMetadata(meta map[string]any, handlerType, model string, 
 
 // headersFromContext extracts the original HTTP request headers from the gin context
 // embedded in the provided context. This allows session affinity selectors to read
-// client headers like X-Amp-Thread-Id.
+// client-provided session headers.
 func headersFromContext(ctx context.Context) http.Header {
 	if ctx == nil {
 		return nil

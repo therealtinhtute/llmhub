@@ -100,7 +100,6 @@ var enStrings = map[string]string{
 	"section_quota":     "Quota Exceeded Handling",
 	"section_routing":   "Routing",
 	"section_websocket": "WebSocket",
-	"section_ampcode":   "AMP Code",
 	"section_other":     "Other",
 
 	// ── Auth Files ──

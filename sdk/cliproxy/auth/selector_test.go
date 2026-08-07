@@ -983,60 +983,6 @@ func TestExtractSessionID_CodexSessionIDPriorityOverClientRequestID(t *testing.T
 	}
 }
 
-func TestExtractSessionID_AmpThreadId(t *testing.T) {
-	t.Parallel()
-
-	headers := make(http.Header)
-	headers.Set("X-Amp-Thread-Id", "T-7873e6bd-6354-4a9a-be2c-c7702c6e1b64")
-
-	got := ExtractSessionID(headers, nil, nil)
-	want := "amp:T-7873e6bd-6354-4a9a-be2c-c7702c6e1b64"
-	if got != want {
-		t.Errorf("ExtractSessionID() with X-Amp-Thread-Id = %q, want %q", got, want)
-	}
-}
-
-func TestExtractSessionID_AmpThreadIdPriorityOverClientRequestID(t *testing.T) {
-	t.Parallel()
-
-	headers := make(http.Header)
-	headers.Set("X-Amp-Thread-Id", "T-priority-test")
-	headers.Set("X-Client-Request-Id", "pi-session-123")
-
-	got := ExtractSessionID(headers, nil, nil)
-	want := "amp:T-priority-test"
-	if got != want {
-		t.Errorf("ExtractSessionID() = %q, want %q (X-Amp-Thread-Id should take priority over X-Client-Request-Id)", got, want)
-	}
-}
-
-// TestExtractSessionID_AmpThreadIdLowerPriority verifies X-Amp-Thread-Id is lower
-// priority than Claude Code metadata.user_id but higher than conversation_id.
-func TestExtractSessionID_AmpThreadIdPriority(t *testing.T) {
-	t.Parallel()
-
-	// X-Amp-Thread-Id should be used when no Claude Code user_id is present
-	headers := make(http.Header)
-	headers.Set("X-Amp-Thread-Id", "T-priority-test")
-
-	payload := []byte(`{"conversation_id":"conv-12345"}`)
-	got := ExtractSessionID(headers, payload, nil)
-	want := "amp:T-priority-test"
-	if got != want {
-		t.Errorf("ExtractSessionID() = %q, want %q (Amp thread ID should take priority over conversation_id)", got, want)
-	}
-
-	// Claude Code user_id should take priority over X-Amp-Thread-Id
-	headers2 := make(http.Header)
-	headers2.Set("X-Amp-Thread-Id", "T-priority-test")
-	payload2 := []byte(`{"metadata":{"user_id":"user_xxx_account__session_ac980658-63bd-4fb3-97ba-8da64cb1e344"}}`)
-	got2 := ExtractSessionID(headers2, payload2, nil)
-	want2 := "claude:ac980658-63bd-4fb3-97ba-8da64cb1e344"
-	if got2 != want2 {
-		t.Errorf("ExtractSessionID() = %q, want %q (Claude Code should take priority over Amp thread ID)", got2, want2)
-	}
-}
-
 func TestExtractSessionIDNativeSignals(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -1124,15 +1070,6 @@ func TestExtractSessionIDNativeSignalPriority(t *testing.T) {
 			},
 			payload: `{"prompt_cache_key":"prompt-session"}`,
 			want:    "codex:codex-session",
-		},
-		{
-			name: "x session id beats amp and affinity",
-			headers: http.Header{
-				"X-Session-Id":       []string{"generic-session"},
-				"X-Amp-Thread-Id":    []string{"amp-session"},
-				"X-Session-Affinity": []string{"affinity-session"},
-			},
-			want: "header:generic-session",
 		},
 		{
 			name:    "prompt cache key beats conversation id",

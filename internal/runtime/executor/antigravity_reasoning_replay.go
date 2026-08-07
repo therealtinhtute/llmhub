@@ -135,7 +135,7 @@ func antigravityReasoningReplayScopeFromRequest(ctx context.Context, modelName s
 
 func antigravityReasoningReplayClientSessionKey(ctx context.Context, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) string {
 	_ = ctx
-	for _, name := range []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-ID", "X-Amp-Thread-Id", "X-Session-Affinity", "X-Client-Request-Id"} {
+	for _, name := range []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-ID", "X-Session-Affinity", "X-Client-Request-Id"} {
 		if value := strings.TrimSpace(opts.Headers.Get(name)); value != "" {
 			if lane := antigravityClaudeReplaySystemLane(opts.OriginalRequest); lane != "" {
 				return "header:" + name + ":" + value + ":context:" + lane

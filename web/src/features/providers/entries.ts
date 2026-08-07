@@ -1,5 +1,8 @@
 import type { OAuthProvider } from '@/services/api/oauth';
-import { hasAuthFileHealthIssue } from '@/features/authFiles/constants';
+import {
+  hasAuthFileHealthIssue,
+  isGeminiVirtualPrimaryAuthFile,
+} from '@/features/authFiles/constants';
 import type { AuthFileItem } from '@/types';
 import type { ProviderPreset } from '@/types';
 import iconCodex from '@/assets/icons/codex.svg';
@@ -242,7 +245,10 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
       urlLabelKey: p.urlLabelKey,
       icon: p.icon,
       accountCount: matchingAuthFiles.length,
-      hasIssue: matchingAuthFiles.some(hasAuthFileHealthIssue),
+      hasIssue: matchingAuthFiles.some(
+        (file) =>
+          !isGeminiVirtualPrimaryAuthFile(file) && hasAuthFileHealthIssue(file)
+      ),
     };
   });
   entries.push(...oauthEntries);

@@ -171,6 +171,12 @@ export const isAuthFileUnavailable = (file: AuthFileItem): boolean => {
   return ['error', 'failed', 'invalid', 'unavailable'].includes(status);
 };
 
+export const isGeminiVirtualPrimaryAuthFile = (file: AuthFileItem): boolean => {
+  const type = String(file.type ?? file.provider ?? '').trim().toLowerCase();
+  if (type !== 'gemini' && type !== 'gemini-cli') return false;
+  return String(file['gemini_virtual_primary'] ?? '').trim().toLowerCase() === 'true';
+};
+
 export const hasAuthFileHealthIssue = (file: AuthFileItem): boolean => {
   const status = String(file.status ?? '').trim().toLowerCase();
   const statusMessage = getAuthFileStatusMessage(file).toLowerCase();

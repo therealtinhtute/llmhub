@@ -586,6 +586,12 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 		"source":         "memory",
 		"size":           int64(0),
 	}
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "gemini") ||
+		strings.EqualFold(strings.TrimSpace(auth.Provider), "gemini-cli") {
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["gemini_virtual_primary"]), "true") {
+			entry["gemini_virtual_primary"] = true
+		}
+	}
 	if len(auth.ModelStates) > 0 {
 		entry["model_states"] = auth.ModelStates
 	}

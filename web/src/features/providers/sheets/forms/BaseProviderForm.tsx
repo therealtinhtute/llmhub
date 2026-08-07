@@ -271,10 +271,18 @@ export function BaseProviderForm({
 
   const applyPreset = (presetId: string) => {
     userEditedRef.current = true;
+    const switchingPreset = selectedPresetId !== '' && selectedPresetId !== presetId;
     setSelectedPresetId(presetId);
     const preset = presets.find((p) => p.id === presetId);
-    if (!preset) return;
-    const defaultApiKey = preset.defaultApiKey?.trim();
+    if (!preset) {
+      if (!switchingPreset) return;
+      setForm((prev) => ({
+        ...prev,
+        apiKeyEntries: prev.apiKeyEntries?.map((entry) => ({ ...entry, apiKey: '' })),
+      }));
+      return;
+    }
+    const defaultApiKey = preset.defaultApiKey?.trim() ?? '';
     setForm((prev) => ({
       ...prev,
       baseUrl: preset.baseUrl,
@@ -282,10 +290,17 @@ export function BaseProviderForm({
         ? Object.entries(preset.headers).map(([key, value]) => ({ key, value }))
         : prev.headers,
       apiKeyEntries:
-        defaultApiKey && prev.apiKeyEntries?.length
-          ? prev.apiKeyEntries.map((entry, index) =>
-              index === 0 && !entry.apiKey.trim() ? { ...entry, apiKey: defaultApiKey } : entry
-            )
+        prev.apiKeyEntries?.length
+          ? prev.apiKeyEntries.map((entry, index) => {
+              if (switchingPreset) {
+                return index === 0 && defaultApiKey
+                  ? { ...entry, apiKey: defaultApiKey }
+                  : { ...entry, apiKey: '' };
+              }
+              return index === 0 && defaultApiKey && !entry.apiKey.trim()
+                ? { ...entry, apiKey: defaultApiKey }
+                : entry;
+            })
           : defaultApiKey
             ? [{ ...emptyApiKeyEntry(), apiKey: defaultApiKey }]
             : prev.apiKeyEntries,

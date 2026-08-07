@@ -17,6 +17,41 @@ import type {
   ModelAlias,
 } from '@/types';
 
+export type NativeProviderId = 'openrouter' | 'opencode';
+
+export interface NativeProviderModel {
+  name: string;
+  alias?: string;
+  display_name?: string;
+}
+
+export interface NativeProviderPublicResource {
+  id: string;
+  enabled: boolean;
+  api_key_present: boolean;
+  api_key_preview?: string;
+  models?: NativeProviderModel[];
+}
+
+export interface NativeProviderListResponse {
+  provider: NativeProviderId;
+  resources: NativeProviderPublicResource[];
+}
+
+export interface NativeProviderMutationInput {
+  api_key?: string;
+  enabled?: boolean;
+  models?: NativeProviderModel[];
+}
+
+export interface NativeProviderModelsResponse {
+  provider: NativeProviderId;
+  resource_id: string;
+  source: 'remote' | 'fallback';
+  models: NativeProviderModel[];
+  error?: string;
+}
+
 const serializeHeaders = (headers?: Record<string, string>) =>
   headers && Object.keys(headers).length ? headers : undefined;
 
@@ -598,5 +633,47 @@ export const providersApi = {
     const data = await apiClient.get('/provider-presets');
     const list = extractArrayPayload(data, 'presets');
     return list.map((item) => normalizeProviderPreset(item)).filter(Boolean) as ProviderPreset[];
+  },
+
+  async getNativeProviderResources(
+    provider: NativeProviderId
+  ): Promise<NativeProviderPublicResource[]> {
+    const data = await apiClient.get<NativeProviderListResponse>(`/native-providers/${provider}`);
+    return Array.isArray(data?.resources) ? data.resources : [];
+  },
+
+  async createNativeProvider(
+    provider: NativeProviderId,
+    input: NativeProviderMutationInput
+  ): Promise<NativeProviderPublicResource> {
+    const data = await apiClient.put<{ resource: NativeProviderPublicResource }>(
+      `/native-providers/${provider}`,
+      input
+    );
+    return data.resource;
+  },
+
+  async updateNativeProvider(
+    provider: NativeProviderId,
+    id: string,
+    input: NativeProviderMutationInput
+  ): Promise<NativeProviderPublicResource> {
+    const data = await apiClient.patch<{ resource: NativeProviderPublicResource }>(
+      `/native-providers/${provider}/${encodeURIComponent(id)}`,
+      input
+    );
+    return data.resource;
+  },
+
+  deleteNativeProvider: (provider: NativeProviderId, id: string) =>
+    apiClient.delete(`/native-providers/${provider}/${encodeURIComponent(id)}`),
+
+  async getNativeProviderModels(
+    provider: NativeProviderId,
+    id: string
+  ): Promise<NativeProviderModelsResponse> {
+    return apiClient.get<NativeProviderModelsResponse>(
+      `/native-providers/${provider}/${encodeURIComponent(id)}/models`
+    );
   },
 };

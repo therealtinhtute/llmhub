@@ -13,7 +13,12 @@ import iconKimiLight from '@/assets/icons/kimi-light.svg';
 import iconKimiDark from '@/assets/icons/kimi-dark.svg';
 import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
-import type { ProviderBrand, ProviderGroup, ProviderResource } from './types';
+import type {
+  NativeProviderBrand,
+  ProviderBrand,
+  ProviderGroup,
+  ProviderResource,
+} from './types';
 
 export type ProviderEntryCategory = 'oauth' | 'free' | 'freeTier' | 'apikey' | 'custom';
 
@@ -48,7 +53,7 @@ export type ProviderEntry =
   | {
       kind: 'config';
       key: string;
-      category: 'apikey' | 'custom';
+      category: 'free' | 'apikey' | 'custom';
       group: ProviderGroup;
       resources: ProviderResource[];
     };
@@ -216,11 +221,16 @@ export const getOAuthIcon = (
   theme: 'light' | 'dark'
 ): string => (typeof icon === 'string' ? icon : theme === 'dark' ? icon.dark : icon.light);
 
-const APIKEY_CONFIG_BRANDS: Exclude<ProviderBrand, 'openaiCompatibility' | 'ampcode'>[] = [
+const APIKEY_CONFIG_BRANDS: Exclude<ProviderBrand, 'openaiCompatibility' | NativeProviderBrand>[] = [
   'gemini',
   'codex',
   'claude',
   'vertex',
+];
+
+const NATIVE_CONFIGS: Array<{ brand: NativeProviderBrand; category: 'free' | 'apikey' }> = [
+  { brand: 'opencode', category: 'free' },
+  { brand: 'openrouter', category: 'apikey' },
 ];
 
 interface BuildEntriesInput {
@@ -254,15 +264,22 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
   entries.push(...oauthEntries);
 
   const openaiGroup = groups.find((g) => g.id === 'openaiCompatibility') ?? null;
+  const nativeGroups = new Map<NativeProviderBrand, ProviderGroup>();
+  NATIVE_CONFIGS.forEach(({ brand }) => {
+    const group = groups.find((candidate) => candidate.id === brand);
+    if (group) nativeGroups.set(brand, group);
+  });
+  const genericPresets = presets.filter(
+    (preset) => preset.id !== 'openrouter' && preset.id !== 'opencode'
+  );
   const presetBaseUrlMap = new Map<string, string>();
-  presets.forEach((preset) => {
+  genericPresets.forEach((preset) => {
     presetBaseUrlMap.set(normalizeBaseUrl(preset.baseUrl), preset.id);
   });
 
   const presetResources = new Map<string, ProviderResource[]>();
   const customOpenAIResources: ProviderResource[] = [];
   (openaiGroup?.resources ?? []).forEach((resource) => {
-    if (resource.flags.isPlaceholder) return;
     const presetId = presetBaseUrlMap.get(normalizeBaseUrl(resource.baseUrl));
     if (presetId) {
       const bucket = presetResources.get(presetId) ?? [];
@@ -274,7 +291,7 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
   });
 
   const presetsByCategory = (category: 'free' | 'freeTier' | 'apikey'): ProviderEntry[] =>
-    presets
+    genericPresets
       .filter((preset) => preset.category === category)
       .map((preset) => ({
         kind: 'preset' as const,
@@ -285,6 +302,16 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
       }));
 
   entries.push(...presetsByCategory('free'));
+  const opencodeGroup = nativeGroups.get('opencode');
+  if (opencodeGroup) {
+    entries.push({
+      kind: 'config',
+      key: 'config:opencode',
+      category: 'free',
+      group: opencodeGroup,
+      resources: opencodeGroup.resources,
+    });
+  }
   entries.push(...presetsByCategory('freeTier'));
 
   APIKEY_CONFIG_BRANDS.forEach((brand) => {
@@ -299,6 +326,16 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
     });
   });
   entries.push(...presetsByCategory('apikey'));
+  const openrouterGroup = nativeGroups.get('openrouter');
+  if (openrouterGroup) {
+    entries.push({
+      kind: 'config',
+      key: 'config:openrouter',
+      category: 'apikey',
+      group: openrouterGroup,
+      resources: openrouterGroup.resources,
+    });
+  }
 
   if (openaiGroup) {
     entries.push({
@@ -309,16 +346,5 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
       resources: customOpenAIResources,
     });
   }
-  const ampcodeGroup = groups.find((g) => g.id === 'ampcode');
-  if (ampcodeGroup) {
-    entries.push({
-      kind: 'config',
-      key: 'config:ampcode',
-      category: 'custom',
-      group: ampcodeGroup,
-      resources: ampcodeGroup.resources,
-    });
-  }
-
   return entries;
 }

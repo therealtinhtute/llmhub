@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/home"
+	"github.com/therealtinhtute/llmhub/internal/nativeproviders"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -526,6 +527,11 @@ func (s *Service) applyConfigUpdate(newCfg *config.Config) {
 	if newCfg == nil {
 		return
 	}
+	if nativeStore, ok := s.managementConfigStore.(nativeproviders.Store); ok {
+		if err := nativeproviders.HydrateConfig(context.Background(), newCfg, nativeStore); err != nil {
+			log.Warnf("failed to hydrate native provider resources: %v", err)
+		}
+	}
 
 	nextStrategy := strings.ToLower(strings.TrimSpace(newCfg.Routing.Strategy))
 	normalizeStrategy := func(strategy string) string {
@@ -904,6 +910,12 @@ func (s *Service) Run(ctx context.Context) error {
 	if !homeEnabled && s.requiresLocalAuthDir() {
 		if errEnsureAuthDir := s.ensureAuthDir(); errEnsureAuthDir != nil {
 			return errEnsureAuthDir
+		}
+	}
+
+	if nativeStore, ok := s.managementConfigStore.(nativeproviders.Store); ok {
+		if err := nativeproviders.HydrateConfig(ctx, s.cfg, nativeStore); err != nil {
+			log.Warnf("failed to hydrate native provider resources at startup: %v", err)
 		}
 	}
 

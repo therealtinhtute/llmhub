@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/nativeproviders"
 	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 )
 
@@ -203,7 +204,13 @@ func (h *Handler) openAICompatibilityWithAuthIndex() []openAICompatibilityWithAu
 		return nil
 	}
 
-	normalized := normalizedOpenAICompatibilityEntries(h.cfg.OpenAICompatibility)
+	normalizedAll := normalizedOpenAICompatibilityEntries(h.cfg.OpenAICompatibility)
+	normalized := make([]config.OpenAICompatibility, 0, len(normalizedAll))
+	for _, entry := range normalizedAll {
+		if !nativeproviders.IsProjectedName(entry.Name) {
+			normalized = append(normalized, entry)
+		}
+	}
 	out := make([]openAICompatibilityWithAuthIndex, len(normalized))
 	idGen := synthesizer.NewStableIDGenerator()
 	for i := range normalized {

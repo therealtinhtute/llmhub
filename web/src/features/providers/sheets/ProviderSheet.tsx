@@ -16,6 +16,8 @@ import {
   type ProviderOAuthState,
 } from '../entries';
 import type {
+  NativeProviderBrand,
+  NativeProviderFormInput,
   ProviderBrand,
   ProviderEntryFormInput,
   ProviderGroup,
@@ -26,8 +28,8 @@ import { AuthFileMiniTable } from '../panels/AuthFileMiniTable';
 import { OAuthLoginPanel } from '../panels/OAuthLoginPanel';
 import { ProviderResourcePanel, type OpenAIPanelControls } from '../components/ProviderResourcePanel';
 import type { OpenAISortBy, SortDir } from '../components/OpenAIBrandToolbar';
-import { AmpcodeForm } from './forms/AmpcodeForm';
 import { BaseProviderForm } from './forms/BaseProviderForm';
+import { NativeProviderForm } from './forms/NativeProviderForm';
 import { ResourceDetailView } from './ResourceDetailView';
 
 type SheetMode = 'list' | 'oauth' | 'detail' | 'create' | 'edit';
@@ -170,9 +172,9 @@ export function ProviderSheet({
   );
 
   const descriptor = PROVIDER_DESCRIPTORS[state.brand];
-  const isAmpcode = state.brand === 'ampcode';
+  const isNative = state.brand === 'openrouter' || state.brand === 'opencode';
   const isEditingForm = state.mode === 'create' || state.mode === 'edit';
-  const hasListView = Boolean(listGroup && listGroup.id !== 'ampcode');
+  const hasListView = Boolean(listGroup);
   const isOpenAIList = listGroup?.id === 'openaiCompatibility';
 
   const filteredResources = useMemo(() => {
@@ -313,34 +315,33 @@ export function ProviderSheet({
     [onUpdated, resource, workbench]
   );
 
-  const handleAmpcodeSubmit = useCallback(
-    async (config: Parameters<UseProviderWorkbenchResult['saveAmpcode']>[0]) => {
+  const handleNativeSubmit = useCallback(
+    async (input: NativeProviderFormInput) => {
+      if (!isNative) return;
       setSubmitting(true);
       try {
-        await workbench.saveAmpcode(config);
-        onUpdated();
+        if (state.mode === 'create') {
+          await workbench.createNativeProvider(state.brand as NativeProviderBrand, input);
+          onCreated();
+        } else if (resource) {
+          await workbench.updateNativeProvider(resource, input);
+          onUpdated();
+        }
       } finally {
         setSubmitting(false);
       }
     },
-    [onUpdated, workbench]
+    [isNative, onCreated, onUpdated, resource, state.brand, state.mode, workbench]
   );
 
   const handleDelete = useCallback(
     (candidate: ProviderResource) => {
-      const isCandidateAmpcode = candidate.brand === 'ampcode';
       const name = candidate.name ?? candidate.apiKeyPreview ?? candidate.identifier ?? '';
       showConfirmation({
-        title: isCandidateAmpcode
-          ? t('providersPage.delete.ampcodeTitle')
-          : t('providersPage.delete.title'),
-        message: isCandidateAmpcode
-          ? t('providersPage.delete.ampcodeConfirm')
-          : t('providersPage.delete.confirm', { name }),
+        title: t('providersPage.delete.title'),
+        message: t('providersPage.delete.confirm', { name }),
         variant: 'danger',
-        confirmText: isCandidateAmpcode
-          ? t('providersPage.actions.clear')
-          : t('providersPage.actions.delete'),
+        confirmText: t('providersPage.actions.delete'),
         onConfirm: async () => {
           try {
             await workbench.deleteProvider(candidate);
@@ -491,14 +492,16 @@ export function ProviderSheet({
     const initialPresetId =
       state.mode === 'create' && liveEntry?.kind === 'preset' ? liveEntry.preset.id : undefined;
     const formKey = `${state.entryKey ?? state.brand}:${state.brand}:${state.resourceId ?? 'new'}:${state.mode}:${initialPresetId ?? ''}`;
-    if (isAmpcode) {
+    if (isNative) {
       return (
-        <AmpcodeForm
+        <NativeProviderForm
           key={formKey}
+          brand={state.brand as NativeProviderBrand}
           resource={resource}
+          mode={state.mode}
           mutating={submitting || workbench.mutating}
           formId={formId}
-          onSubmit={handleAmpcodeSubmit}
+          onSubmit={handleNativeSubmit}
           onDirtyChange={handleDirtyChange}
         />
       );
@@ -506,7 +509,7 @@ export function ProviderSheet({
     return (
       <BaseProviderForm
         key={formKey}
-        brand={state.brand as Exclude<ProviderBrand, 'ampcode'>}
+        brand={state.brand}
         resource={resource}
         mode={state.mode}
         initialPresetId={initialPresetId}
@@ -547,7 +550,7 @@ export function ProviderSheet({
     ) : state.mode === 'detail' ? (
       <>
         {hasListView ? backButton : closeButton}
-        {resource && !resource.flags.isPlaceholder ? (
+        {resource ? (
           <button type="button" className={footerBtnPrimary} onClick={onSwitchToEdit}>
             <IconPencil size={14} />
             {t('providersPage.actions.edit')}

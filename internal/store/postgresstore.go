@@ -187,6 +187,9 @@ func (s *PostgresStore) EnsureSchema(ctx context.Context) error {
 	if err := s.ensureCooldownSchema(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureNativeProviderSchema(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 

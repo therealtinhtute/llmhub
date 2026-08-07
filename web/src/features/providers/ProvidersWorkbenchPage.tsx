@@ -50,15 +50,6 @@ function getDefaultSheetState(entry: ProviderEntry): ProviderSheetState {
       resourceId: null,
     };
   }
-  if (entry.group.id === 'ampcode') {
-    return {
-      open: true,
-      entryKey: entry.key,
-      brand: 'ampcode',
-      mode: 'edit',
-      resourceId: entry.resources[0]?.id ?? null,
-    };
-  }
   return {
     open: true,
     entryKey: entry.key,
@@ -487,7 +478,7 @@ export function ProvidersWorkbenchPage() {
     () =>
       groups.reduce(
         (sum, group) =>
-          sum + group.resources.filter((resource) => !resource.flags.isPlaceholder).length,
+          sum + group.resources.length,
         0
       ),
     [groups]
@@ -498,9 +489,7 @@ export function ProvidersWorkbenchPage() {
       groups.reduce(
         (sum, group) =>
           sum +
-          group.resources.filter(
-            (resource) => !resource.disabled && !resource.flags.isPlaceholder
-          ).length,
+          group.resources.filter((resource) => !resource.disabled).length,
         0
       ),
     [groups]
@@ -508,9 +497,7 @@ export function ProvidersWorkbenchPage() {
 
   const providerFamilies = useMemo(
     () =>
-      groups.filter((group) =>
-        group.resources.some((resource) => !resource.flags.isPlaceholder)
-      ).length,
+      groups.filter((group) => group.resources.length > 0).length,
     [groups]
   );
 
@@ -618,7 +605,7 @@ export function ProvidersWorkbenchPage() {
     const entry = entries.find((candidate) => candidate.key === entryKey);
     const canReturnToList =
       entry?.kind === 'preset' ||
-      (entry?.kind === 'config' && entry.group.id !== 'ampcode');
+      entry?.kind === 'config';
     if (canReturnToList) {
       setSheetState((previous) => ({ ...previous, open: true, mode: 'list', resourceId: null }));
     } else {
@@ -632,7 +619,7 @@ export function ProvidersWorkbenchPage() {
     const entry = entries.find((candidate) => candidate.key === entryKey);
     const canReturnToList =
       entry?.kind === 'preset' ||
-      (entry?.kind === 'config' && entry.group.id !== 'ampcode');
+      entry?.kind === 'config';
     if (canReturnToList) {
       setSheetState((previous) => ({ ...previous, open: true, mode: 'list', resourceId: null }));
     } else {

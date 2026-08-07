@@ -41,7 +41,7 @@ export interface BaseProviderFormHandle {
 }
 
 interface BaseProviderFormProps {
-  brand: Exclude<ProviderBrand, 'ampcode'>;
+  brand: ProviderBrand;
   resource: ProviderResource | null;
   mode: 'create' | 'edit';
   mutating: boolean;
@@ -69,7 +69,7 @@ const stripDisableAllRule = (list?: string[]): string[] =>
   (list ?? []).filter((s) => s.trim() !== '*');
 
 function buildInitialForm(
-  brand: Exclude<ProviderBrand, 'ampcode'>,
+  brand: ProviderBrand,
   resource: ProviderResource | null,
   mode: 'create' | 'edit'
 ): ProviderEntryFormInput {

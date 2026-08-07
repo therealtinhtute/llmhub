@@ -4,7 +4,6 @@ import codexLogo from '@/assets/icons/codex.svg';
 import geminiLogo from '@/assets/icons/gemini.svg';
 import openaiLogo from '@/assets/icons/openai-light.svg';
 import vertexLogo from '@/assets/icons/vertex.svg';
-import ampcodeLogo from '@/assets/icons/amp.svg';
 import opencodeLightLogo from '@/assets/icons/opencode-light.svg';
 import opencodeDarkLogo from '@/assets/icons/opencode-dark.svg';
 import openrouterLightLogo from '@/assets/icons/openrouter-light.svg';
@@ -34,7 +33,8 @@ const CONFIG_LOGOS: Record<ProviderBrand, LogoAsset> = {
   codex: { src: codexLogo },
   vertex: { src: vertexLogo },
   openaiCompatibility: { src: openaiLogo, invertOnDark: true },
-  ampcode: { src: ampcodeLogo },
+  openrouter: { src: openrouterLightLogo },
+  opencode: { src: opencodeLightLogo },
 };
 
 const PRESET_LOGOS: Record<string, LogoAsset> = {
@@ -135,7 +135,7 @@ function ProviderEntryCard({
     warning = !entry.preset.verified;
     warningLabel = t('providersPage.presets.unverified');
   } else {
-    const realResources = entry.resources.filter((r) => !r.flags.isPlaceholder);
+    const realResources = entry.resources;
     const activeResourceCount = realResources.filter((r) => !r.disabled).length;
     count = realResources.length;
     const logo = CONFIG_LOGOS[entry.group.id];

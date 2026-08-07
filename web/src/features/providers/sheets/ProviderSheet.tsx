@@ -56,6 +56,7 @@ interface ProviderSheetProps {
   workbench: UseProviderWorkbenchResult;
   onCreated: () => void;
   onUpdated: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   disableMutations?: boolean;
   usageByProvider?: ProviderRecentUsageMap;
   oauthStates: Partial<Record<ProviderEntryOAuthMeta['id'], ProviderOAuthState>>;
@@ -100,6 +101,7 @@ export function ProviderSheet({
   workbench,
   onCreated,
   onUpdated,
+  onDirtyChange,
   disableMutations = false,
   usageByProvider,
   oauthStates,
@@ -125,7 +127,8 @@ export function ProviderSheet({
 
   useEffect(() => {
     setIsDirty(false);
-  }, [state.brand, state.mode, state.resourceId, state.open]);
+    onDirtyChange?.(false);
+  }, [onDirtyChange, state.brand, state.mode, state.resourceId, state.open]);
 
   useEffect(() => {
     setFilter('');
@@ -134,9 +137,13 @@ export function ProviderSheet({
     setOpenaiSelectedModels(new Set());
   }, [state.entryKey, state.open]);
 
-  const handleDirtyChange = useCallback((dirty: boolean) => {
-    setIsDirty(dirty);
-  }, []);
+  const handleDirtyChange = useCallback(
+    (dirty: boolean) => {
+      setIsDirty(dirty);
+      onDirtyChange?.(dirty);
+    },
+    [onDirtyChange]
+  );
 
   const liveEntry = useMemo(
     () => entries.find((entry) => entry.key === state.entryKey) ?? null,
@@ -145,7 +152,9 @@ export function ProviderSheet({
 
   const listGroup = useMemo<ProviderGroup | null>(() => {
     if (!liveEntry || liveEntry.kind === 'oauth') return null;
-    if (liveEntry.kind === 'config') return liveEntry.group;
+    if (liveEntry.kind === 'config') {
+      return { ...liveEntry.group, resources: liveEntry.resources };
+    }
     return {
       id: 'openaiCompatibility',
       resources: liveEntry.resources,
@@ -441,7 +450,7 @@ export function ProviderSheet({
     return (
       <div className="flex flex-col gap-6">
         <OAuthLoginPanel
-          key={`${provider.id}:${oauthStates[provider.id]?.state ?? ''}:${oauthStates[provider.id]?.callbackStatus === 'success' ? 'callback-success' : ''}`}
+          key={`${provider.id}:${oauthStates[provider.id]?.state ?? ''}:${oauthStates[provider.id]?.callbackStatus === 'success' ? 'callback-success' : ''}:${oauthStates[provider.id]?.callbackError ? 'callback-error' : ''}`}
           provider={provider}
           state={oauthStates[provider.id] ?? {}}
           onStart={onStartOAuth}
@@ -479,7 +488,9 @@ export function ProviderSheet({
       return resource ? <ResourceDetailView resource={resource} usageByProvider={usageByProvider} /> : null;
     }
 
-    const formKey = `${state.brand}:${state.resourceId ?? 'new'}:${state.mode}`;
+    const initialPresetId =
+      state.mode === 'create' && liveEntry?.kind === 'preset' ? liveEntry.preset.id : undefined;
+    const formKey = `${state.entryKey ?? state.brand}:${state.brand}:${state.resourceId ?? 'new'}:${state.mode}:${initialPresetId ?? ''}`;
     if (isAmpcode) {
       return (
         <AmpcodeForm
@@ -498,9 +509,7 @@ export function ProviderSheet({
         brand={state.brand as Exclude<ProviderBrand, 'ampcode'>}
         resource={resource}
         mode={state.mode}
-        initialPresetId={
-          state.mode === 'create' && liveEntry?.kind === 'preset' ? liveEntry.preset.id : undefined
-        }
+        initialPresetId={initialPresetId}
         mutating={submitting || workbench.mutating}
         formId={formId}
         onSubmit={state.mode === 'create' ? handleCreate : handleUpdate}

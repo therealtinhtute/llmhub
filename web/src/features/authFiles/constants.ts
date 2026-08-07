@@ -48,6 +48,17 @@ export const MIN_CARD_PAGE_SIZE = 3;
 export const MAX_CARD_PAGE_SIZE = 30;
 export const AUTH_FILE_REFRESH_WARNING_MS = 24 * 60 * 60 * 1000;
 
+export const HEALTHY_AUTH_FILE_STATUS_MESSAGES = new Set([
+  'ok',
+  'healthy',
+  'ready',
+  'success',
+  'available',
+  'active',
+  'connected',
+  'enabled',
+]);
+
 export const INTEGER_STRING_PATTERN = /^[+-]?\d+$/;
 export const TRUTHY_TEXT_VALUES = new Set(['true', '1', 'yes', 'y', 'on']);
 export const FALSY_TEXT_VALUES = new Set(['false', '0', 'no', 'n', 'off']);
@@ -153,6 +164,23 @@ export const getAuthFileStatusMessage = (file: AuthFileItem): string => {
 
 export const hasAuthFileStatusMessage = (file: AuthFileItem): boolean =>
   getAuthFileStatusMessage(file).length > 0;
+
+export const isAuthFileUnavailable = (file: AuthFileItem): boolean => {
+  if (file.unavailable === true) return true;
+  const status = String(file.status ?? '').trim().toLowerCase();
+  return ['error', 'failed', 'invalid', 'unavailable'].includes(status);
+};
+
+export const hasAuthFileHealthIssue = (file: AuthFileItem): boolean => {
+  const status = String(file.status ?? '').trim().toLowerCase();
+  const statusMessage = getAuthFileStatusMessage(file).toLowerCase();
+  return (
+    file.disabled === true ||
+    isAuthFileUnavailable(file) ||
+    (status.length > 0 && !HEALTHY_AUTH_FILE_STATUS_MESSAGES.has(status)) ||
+    (statusMessage.length > 0 && !HEALTHY_AUTH_FILE_STATUS_MESSAGES.has(statusMessage))
+  );
+};
 
 export const getTypeLabel = (t: TFunction, type: string): string => {
   const providerKey = normalizeProviderKey(type);

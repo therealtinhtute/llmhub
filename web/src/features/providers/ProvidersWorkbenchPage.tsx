@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { AppSkeleton as Skeleton } from '@/components/ui/AppSkeleton';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores';
@@ -110,6 +111,7 @@ export function ProvidersWorkbenchPage() {
     mode: 'list',
     resourceId: null,
   });
+  const [sheetDirty, setSheetDirty] = useState(false);
   const sheetRef = useRef<ProviderSheetHandle>(null);
 
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
@@ -452,6 +454,18 @@ export function ProvidersWorkbenchPage() {
     return getDefaultSheetState(requestedEntry);
   }, [requestedEntry, sheetState]);
 
+  const { allowNextNavigation } = useUnsavedChangesGuard({
+    enabled: effectiveSheetState.open && sheetDirty,
+    shouldBlock: effectiveSheetState.open && sheetDirty,
+    dialog: {
+      title: t('providersPage.unsavedChanges.title'),
+      message: t('providersPage.unsavedChanges.message'),
+      confirmText: t('providersPage.unsavedChanges.discard'),
+      cancelText: t('providersPage.unsavedChanges.keepEditing'),
+      variant: 'danger',
+    },
+  });
+
   const oauthPendingStatus = useMemo(
     () =>
       Object.fromEntries(
@@ -504,10 +518,11 @@ export function ProvidersWorkbenchPage() {
     ? formatDateTime(workbench.snapshot.fetchedAt, i18n.language)
     : t('providersPage.modelCatalog.notLoaded');
 
-  const confirmSheetNavigation = useCallback(
-    () => sheetRef.current?.confirmDiscardIfDirty() ?? Promise.resolve(true),
-    []
-  );
+  const confirmSheetNavigation = useCallback(async () => {
+    const ok = await (sheetRef.current?.confirmDiscardIfDirty() ?? Promise.resolve(true));
+    if (ok) allowNextNavigation();
+    return ok;
+  }, [allowNextNavigation]);
 
   const openCreate = useCallback(() => {
     const entry = entries.find((candidate) => candidate.key === 'config:openaiCompatibility');
@@ -524,6 +539,8 @@ export function ProvidersWorkbenchPage() {
   }, [confirmSheetNavigation, entries, setEntryQuery]);
 
   const closeSheet = useCallback(() => {
+    allowNextNavigation();
+    setSheetDirty(false);
     setSheetState({
       open: false,
       entryKey: null,
@@ -532,7 +549,7 @@ export function ProvidersWorkbenchPage() {
       resourceId: null,
     });
     setEntryQuery(null, true);
-  }, [setEntryQuery]);
+  }, [allowNextNavigation, setEntryQuery]);
 
   const handleOpenEntry = useCallback(
     (key: string) => {
@@ -669,6 +686,7 @@ export function ProvidersWorkbenchPage() {
         workbench={workbench}
         onCreated={handleCreated}
         onUpdated={handleUpdated}
+        onDirtyChange={setSheetDirty}
         disableMutations={disableMutations}
         usageByProvider={usageByProvider}
         oauthStates={oauthStates}

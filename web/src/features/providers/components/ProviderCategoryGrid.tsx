@@ -111,9 +111,15 @@ function ProviderEntryCard({
     name = t(entry.titleKey);
     logoSrc = getOAuthIcon(entry.icon, resolvedTheme);
     count = entry.accountCount;
+    warning = entry.hasIssue;
+    warningLabel = t('providersPage.table.providerIssue');
     statusLabel = pendingStatus ??
-      (count > 0 ? t('providersPage.status.active') : t('providersPage.status.notConfigured'));
-    statusTone = pendingStatus || count === 0 ? 'warning' : 'success';
+      (entry.hasIssue
+        ? t('providersPage.status.error')
+        : count > 0
+          ? t('providersPage.status.active')
+          : t('providersPage.status.notConfigured'));
+    statusTone = pendingStatus || count === 0 ? 'warning' : entry.hasIssue ? 'error' : 'success';
     showAmberCount = count === 0;
   } else if (entry.kind === 'preset') {
     name = entry.preset.displayName;

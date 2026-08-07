@@ -5,8 +5,13 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconDownload, IconTrash2 } from '@/components/ui/icons';
 import type { OAuthProvider } from '@/services/api/oauth';
+import {
+  getAuthFileStatusMessage,
+  hasAuthFileHealthIssue,
+  isAuthFileUnavailable,
+} from '@/features/authFiles/constants';
 import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
-import { OAUTH_TO_AUTH_FILE_TYPE } from '../entries';
+import { getOAuthAuthFileTypes } from '../entries';
 
 interface AuthFileMiniTableProps {
   oauthId: OAuthProvider;
@@ -46,8 +51,10 @@ export function AuthFileMiniTable({
     void loadFiles();
   }, [loadFiles, oauthId, refreshRevision]);
 
-  const fileType = OAUTH_TO_AUTH_FILE_TYPE[oauthId];
-  const items = useMemo(() => files.filter((file) => file.type === fileType), [files, fileType]);
+  const items = useMemo(() => {
+    const fileTypes = getOAuthAuthFileTypes(oauthId);
+    return files.filter((file) => fileTypes.includes(String(file.type ?? '')));
+  }, [files, oauthId]);
 
   if (loading) {
     return (
@@ -87,9 +94,13 @@ export function AuthFileMiniTable({
         </div>
         <div className="flex flex-col">
           {items.map((file) => {
+            const statusMessage = getAuthFileStatusMessage(file);
+            const unavailable = isAuthFileUnavailable(file);
+            const hasIssue = hasAuthFileHealthIssue(file);
             const status = file.disabled
               ? t('providersPage.oauthAccounts.disabled')
-              : file.status || t('providersPage.oauthAccounts.active');
+              : statusMessage || file.status ||
+                (unavailable ? t('auth_files.health_status_warning') : t('providersPage.oauthAccounts.active'));
             return (
               <div
                 key={file.name}
@@ -101,7 +112,11 @@ export function AuthFileMiniTable({
                     'inline-flex w-fit items-center border px-2 py-0.5 text-[11px] font-medium',
                     file.disabled
                       ? 'border-amber-400/40 bg-amber-100 text-amber-700'
-                      : 'border-emerald-400/40 bg-emerald-100 text-emerald-700',
+                      : unavailable
+                        ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                        : hasIssue
+                          ? 'border-amber-400/40 bg-amber-100 text-amber-700'
+                          : 'border-emerald-400/40 bg-emerald-100 text-emerald-700',
                   ].join(' ')}
                 >
                   {status}

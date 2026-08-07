@@ -236,13 +236,21 @@ export function BaseProviderForm({
           ? list.find((preset) => preset.id === initialPresetId)
           : undefined;
         if (!initialPreset || userEditedRef.current) return;
+        const initialForm = buildInitialForm(brand, resource, mode);
+        const defaultApiKey = initialPreset.defaultApiKey?.trim();
         const next = {
-          ...buildInitialForm(brand, resource, mode),
+          ...initialForm,
           baseUrl: initialPreset.baseUrl,
           headers:
             initialPreset.headers && Object.keys(initialPreset.headers).length
               ? Object.entries(initialPreset.headers).map(([key, value]) => ({ key, value }))
-              : buildInitialForm(brand, resource, mode).headers,
+              : initialForm.headers,
+          apiKeyEntries:
+            initialForm.apiKeyEntries && defaultApiKey
+              ? initialForm.apiKeyEntries.map((entry, index) =>
+                  index === 0 ? { ...entry, apiKey: defaultApiKey } : entry
+                )
+              : initialForm.apiKeyEntries,
         };
         setInitialFormSignature(JSON.stringify(next));
         setForm(next);
@@ -266,12 +274,21 @@ export function BaseProviderForm({
     setSelectedPresetId(presetId);
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) return;
+    const defaultApiKey = preset.defaultApiKey?.trim();
     setForm((prev) => ({
       ...prev,
       baseUrl: preset.baseUrl,
       headers: preset.headers && Object.keys(preset.headers).length
         ? Object.entries(preset.headers).map(([key, value]) => ({ key, value }))
         : prev.headers,
+      apiKeyEntries:
+        defaultApiKey && prev.apiKeyEntries?.length
+          ? prev.apiKeyEntries.map((entry, index) =>
+              index === 0 && !entry.apiKey.trim() ? { ...entry, apiKey: defaultApiKey } : entry
+            )
+          : defaultApiKey
+            ? [{ ...emptyApiKeyEntry(), apiKey: defaultApiKey }]
+            : prev.apiKeyEntries,
     }));
   };
 

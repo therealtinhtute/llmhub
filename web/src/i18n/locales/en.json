@@ -1463,6 +1463,7 @@
     },
     "status": {
       "active": "Active",
+      "error": "Error",
       "disabled": "Disabled",
       "notSet": "Not set",
       "none": "None",

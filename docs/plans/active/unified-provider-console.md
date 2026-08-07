@@ -5,7 +5,7 @@ intake_id: 01KZB88KH357MGHT267KSNHBB3
 lane: normal
 status: active
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-07
 ---
 
 # Unified provider console — category grid + sheet console
@@ -495,7 +495,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   than `AppSheet.tsx` (`NG3`); no change to `ProviderResourceTable`, `ProviderResourcePanel`,
   `OpenAIBrandToolbar`, `ResourceDetailView`, `AmpcodeForm`, or `useProviderWorkbench` (`NG8`); no
   change to `/auth-files` or its sub-routes (`NG1`); no new test files under `web/`
-- lifecycle status: in-progress
+- lifecycle status: checked
 
 #### Wave 1 — Preset category field (R9, depends on none)
 - task 1.1: Add a `Category` field (JSON tag `category`) to `Preset` in
@@ -759,6 +759,8 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   type-check && bun run lint && bun run build`, and `make build-web && make build`; lint remains
   0 errors / 8 baseline warnings. Browser sweep is not run because no browser automation runtime is
   available and `make dev` exits before serving when `PGSTORE_DSN` is unset.
+- 2026-08-07T02:49:36Z · phase provider-grid-console · wave 6 · task 6.3 · task_status=DONE · run_id: 01KZCYACW6NPX5Y93P57CQSV88 · touched: web/src/features/providers/entries.ts, web/src/features/providers/panels/AuthFileMiniTable.tsx · verify: Gemini OAuth matching accepts both runtime auth-file types (`gemini` and `gemini-cli`) for card counts and the mini-table; the static-review blocker is closed.
+- 2026-08-07T02:49:36Z · phase provider-grid-console · wave 6 complete · task 6.3 · task_status=DONE · run_id: 01KZCYACW6NPX5Y93P57CQSV88 · verify: `go test ./...`; `cd web && bun run type-check && bun run lint && bun run build`; `make build-web && make build`; and `git diff --check` passed; lint remained 0 errors / 8 baseline warnings. Real Postgres-backed browser proof passed: 5 labels in order, 15/15 non-empty sheets, `/oauth` redirect, OAuth close/reopen persistence, OpenRouter partition, preset prefill, API 2xx paths plus create/delete, dirty Back keep/discard, callback input reset after failure, degraded `/provider-presets`, and 15/15 logos under light and dark root states; browser console/runtime stayed clean.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -910,6 +912,10 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   identified unresolved Gemini CLI auth-file mapping, preset-create state reuse, browser-history
   dirty-form bypass, and additional OAuth/form/table correctness items; real-browser/Postgres proof
   remains outstanding.
+- 2026-08-07 · phase provider-grid-console · phase-start · task_status=IN-PROGRESS · run_id:
+  01KZCYACW6NPX5Y93P57CQSV88 · lifecycle row recreated from the locked active plan after the DB
+  contained only superseded provider-console-merge/provider-preset-rows rows; beginning static-review
+  remediation.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -927,23 +933,29 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   warnings. Static review found the previously reported lifecycle, synchronization, form-initialization,
   and card-rendering defects addressed. Proof gaps remain: no real-browser sweep, no configured
   Postgres-backed runtime/API 2xx evidence, and no browser-console evidence.
+- 2026-08-07T02:49:36Z · phase provider-grid-console · run_id: 01KZCYACW6NPX5Y93P57CQSV88 ·
+  check_id: 01KZD20XQMJG2WDDCPR7NZT1JD · verdict: APPROVED · automated gate passed: `go test ./...`;
+  `cd web && bun run type-check && bun run lint && bun run build`; `make build-web && make build`;
+  `git diff --check`; lint remained 0 errors / 8 baseline warnings. Full static review verified no
+  additional security, performance, architecture, or code-quality blocker after the Gemini mapping fix.
+  Real Postgres-backed browser proof passed the complete card/API/OAuth suite, dirty Back guard,
+  callback-reset failure path, degraded preset-catalog path, and light/dark logo rendering; browser
+  console and runtime exceptions were clean. Proof gaps: the local dataset had no Gemini auth-file
+  fixture, so the live Gemini row was not exercised; source matching covers both `gemini` and
+  `gemini-cli` runtime types.
 
 ## Current State and Next Action
 - active_phase: provider-grid-console
-- lifecycle_status: in-progress
-- latest_run_id: 01KZBKBD3XPA3D7GVMPBAMYEXJ
+- lifecycle_status: checked
+- latest_run_id: 01KZCYACW6NPX5Y93P57CQSV88
 - latest_trace_ids: [01KZBKFMKJXC78031BT6C6QZEX, 01KZBM9XYN9Y6RFS8XXMX17VXQ, 01KZBMA1VHC7XZAKEZP3DJY6MZ, 01KZBPNV776QVN61DNYHZJFZ78, 01KZBQDA1VSZN57MWRD85JECZ9]
-- latest_check_id: 01KZBTBHGQDZ42BQ3P3DS526JC
+- latest_check_id: 01KZD20XQMJG2WDDCPR7NZT1JD
 - latest_handoff_id: 01KZBV9J8F3Y5PAH4CYKN2FME6
-- blockers: required real-browser/Postgres proof is outstanding; static review blockers remain in Gemini CLI auth-file mapping, preset-create state isolation, browser-history dirty-form protection, OAuth health/status rendering, OpenCode default API-key prefill, auth-file refresh timestamp mapping, and callback reset behavior
+- blockers: none
 - open_items:
-  - Run the real-browser sweep against a configured Postgres-backed dev server and capture API 2xx plus clean browser-console evidence.
-  - Fix the Gemini CLI OAuth auth-file type mapping so completed accounts appear in card counts and `AuthFileMiniTable`.
-  - Fix preset create-form isolation and async prefill so switching preset cards cannot reuse or save the previous preset values.
-  - Guard browser Back/Forward and entry-query navigation against dirty-form data loss.
-  - Resolve OAuth health/status badges, OpenCode public default API-key prefill, `last_refresh` display, and callback error/input reset.
-  - Grid shows `codex`, `claude`, and `gemini` twice (OAuth card + API-key card). Accepted for now — the category label disambiguates.
+  - The local Postgres dataset had no Gemini auth-file fixture, so live Gemini row rendering was not observable; source matching now accepts both `gemini` and `gemini-cli` runtime types.
+  - Grid shows `codex`, `claude`, and `gemini` twice (OAuth card + API-key card). Accepted — the category label disambiguates.
   - `AuthFileMiniTable` duplicates part of `/auth-files`. Accepted per `D1`; revisit only if the two drift.
   - No search/filter across the 15 cards. Deferred — 15 cards fit one screen at `auto-fit` 240px.
-  - Global header "+New" button always opens the `openaiCompatibility` create flow instead of a brand-specific one — revisit if the browser sweep finds it confusing.
-- exact_next_action: fix the static-review blockers, then run task 6.3's real-browser sweep with a configured Postgres-backed dev server and browser agent; re-run `check full` afterward
+  - Global header "+New" button always opens the `openaiCompatibility` create flow instead of a brand-specific one. Browser proof found this acceptable; revisit only with product feedback.
+- exact_next_action: await explicit commit, push, or PR instruction; no repository shipping action was requested

@@ -1,4 +1,5 @@
 import type { OAuthProvider } from '@/services/api/oauth';
+import { hasAuthFileHealthIssue } from '@/features/authFiles/constants';
 import type { AuthFileItem } from '@/types';
 import type { ProviderPreset } from '@/types';
 import iconCodex from '@/assets/icons/codex.svg';
@@ -32,6 +33,7 @@ export type ProviderEntry =
       urlLabelKey: string;
       icon: string | { light: string; dark: string };
       accountCount: number;
+      hasIssue: boolean;
     }
   | {
       kind: 'preset';
@@ -105,10 +107,15 @@ export const OAUTH_TO_AUTH_FILE_TYPE: Record<OAuthProvider, string> = {
   codex: 'codex',
   anthropic: 'claude',
   antigravity: 'antigravity',
-  'gemini-cli': 'gemini-cli',
+  'gemini-cli': 'gemini',
   kimi: 'kimi',
   xai: 'xai',
 };
+
+export const getOAuthAuthFileTypes = (provider: OAuthProvider): string[] =>
+  provider === 'gemini-cli'
+    ? ['gemini', 'gemini-cli']
+    : [OAUTH_TO_AUTH_FILE_TYPE[provider]];
 
 export const normalizeBaseUrl = (u: string | null | undefined): string =>
   (u ?? '').trim().toLowerCase().replace(/\/+$/, '');
@@ -223,8 +230,8 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
   const entries: ProviderEntry[] = [];
 
   const oauthEntries: ProviderEntry[] = PROVIDERS.map((p) => {
-    const authFileType = OAUTH_TO_AUTH_FILE_TYPE[p.id];
-    const accountCount = authFiles.filter((f) => f.type === authFileType).length;
+    const authFileTypes = getOAuthAuthFileTypes(p.id);
+    const matchingAuthFiles = authFiles.filter((f) => authFileTypes.includes(String(f.type ?? '')));
     return {
       kind: 'oauth',
       key: `oauth:${p.id}`,
@@ -234,7 +241,8 @@ export function buildEntries({ groups, presets, authFiles }: BuildEntriesInput):
       hintKey: p.hintKey,
       urlLabelKey: p.urlLabelKey,
       icon: p.icon,
-      accountCount,
+      accountCount: matchingAuthFiles.length,
+      hasIssue: matchingAuthFiles.some(hasAuthFileHealthIssue),
     };
   });
   entries.push(...oauthEntries);

@@ -911,6 +911,12 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   01KZCYACW6NPX5Y93P57CQSV88 · lifecycle row recreated from the locked active plan after the DB
   contained only superseded provider-console-merge/provider-preset-rows rows; beginning static-review
   remediation.
+- 2026-08-07 · handoff · task_status=INCOMPLETE · handoff_id: 01KZDTGAZNZMC6ATJ7JBASGVCV ·
+  branch: feature/unified-provider-console · lifecycle_status=checked · working tree clean and
+  branch synchronized with origin · verification complete: Go tests, web type-check/lint/build,
+  embedded build, native API probe, Postgres-backed browser proof, source sweep, and diff hygiene
+  all passed · open items: PR #11 review/merge; optional authenticated browser acceptance; rotate
+  the previously exposed PGSTORE_DSN if the session output is not fully private.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -945,12 +951,15 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
 - latest_run_id: 01KZCYACW6NPX5Y93P57CQSV88
 - latest_trace_ids: [01KZBKFMKJXC78031BT6C6QZEX, 01KZBM9XYN9Y6RFS8XXMX17VXQ, 01KZBMA1VHC7XZAKEZP3DJY6MZ, 01KZBPNV776QVN61DNYHZJFZ78, 01KZBQDA1VSZN57MWRD85JECZ9]
 - latest_check_id: 01KZD20XQMJG2WDDCPR7NZT1JD
-- latest_handoff_id: 01KZBV9J8F3Y5PAH4CYKN2FME6
-- blockers: none
+- latest_handoff_id: 01KZDTGAZNZMC6ATJ7JBASGVCV
+- blockers: PR #11 review and merge remain pending; implementation and verification are clean.
 - open_items:
-  - The local Postgres dataset had no Gemini auth-file fixture, so live Gemini row rendering was not observable; source matching now accepts both `gemini` and `gemini-cli` runtime types.
-  - Grid shows `codex`, `claude`, and `gemini` twice (OAuth card + API-key card). Accepted — the category label disambiguates.
-  - `AuthFileMiniTable` duplicates part of `/auth-files`. Accepted per `D1`; revisit only if the two drift.
-  - No search/filter across the 15 cards. Deferred — 15 cards fit one screen at `auto-fit` 240px.
-  - Global header "+New" button always opens the `openaiCompatibility` create flow instead of a brand-specific one. Browser proof found this acceptable; revisit only with product feedback.
-- exact_next_action: await PR review and merge; provider-console changes are committed, pushed, and tracked by PR #11
+  - Await PR #11 review and merge.
+  - Optionally run authenticated browser acceptance after reviewer feedback.
+  - Rotate the previously exposed PGSTORE_DSN if the session output is not fully private.
+  - The local Postgres dataset had no Gemini auth-file fixture; source matching accepts both `gemini` and `gemini-cli` runtime types.
+  - Grid duplicates `codex`, `claude`, and `gemini` across OAuth/API-key cards; category labels disambiguate.
+  - `AuthFileMiniTable` intentionally overlaps `/auth-files` per `D1`.
+  - No search/filter across 15 cards; deferred because the grid fits one screen.
+  - Global "+New" opens the generic `openaiCompatibility` create flow; browser proof found it acceptable.
+- exact_next_action: monitor PR #11 review; after approval, merge it, then close the checked provider-grid-console phase.

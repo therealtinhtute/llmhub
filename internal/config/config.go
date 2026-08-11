@@ -130,6 +130,10 @@ type Config struct {
 	// OpenAICompatibility defines OpenAI API compatibility configurations for external providers.
 	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
 
+	// Combos defines named virtual models that expand to an ordered list of
+	// provider/model candidates spanning different providers.
+	Combos []ComboConfig `yaml:"combos,omitempty" json:"combos,omitempty"`
+
 	// VertexCompatAPIKey defines Vertex AI-compatible API key configurations for third-party providers.
 	// Used for services that use Vertex AI-style paths but with simple API key authentication.
 	VertexCompatAPIKey []VertexCompatKey `yaml:"vertex-api-key" json:"vertex-api-key"`
@@ -546,6 +550,24 @@ type OpenAICompatibility struct {
 	Passthrough bool `yaml:"passthrough,omitempty" json:"passthrough,omitempty"`
 }
 
+// ComboConfig defines a named virtual model that expands to an ordered list of
+// provider/model candidates with fallback or round-robin rotation.
+type ComboConfig struct {
+	// Name is the client-visible model id of the combo.
+	Name string `yaml:"name" json:"name"`
+
+	// Strategy selects rotation: "fallback" (always start at index 0) or
+	// "round-robin" (advance a per-combo cursor). Empty means fallback.
+	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+
+	// StickyLimit keeps round-robin on the same candidate for N consecutive
+	// requests before advancing. Values < 1 are normalized to 1.
+	StickyLimit int `yaml:"sticky-limit,omitempty" json:"sticky-limit,omitempty"`
+
+	// Models is the ordered candidate list, each parsed as provider/model.
+	Models []string `yaml:"models" json:"models"`
+}
+
 // OpenAICompatibilityAPIKey represents an API key configuration with optional proxy setting.
 type OpenAICompatibilityAPIKey struct {
 	// APIKey is the authentication key for accessing the external API services.
@@ -721,6 +743,11 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
+
+	// Validate combo definitions (names, candidates, strategy, sticky-limit).
+	if errCombos := cfg.ValidateCombos(); errCombos != nil {
+		return nil, errCombos
+	}
 
 	// NOTE: Legacy migration persistence is intentionally disabled together with
 	// startup legacy migration to keep startup read-only for config.yaml.

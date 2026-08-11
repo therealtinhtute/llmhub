@@ -409,11 +409,123 @@ skip or re-ask per the established pattern if attempted).
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
-- none
+- 2026-08-11 · phase model-combos · phase-start · task_status=in-progress · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · branch: feature/model-combos (from master @ 6d16365b) · zharness
+  DB migrated 0007-0009 (schema v9) and managed docs refreshed (0.7.0 → 0.8.1) to clear preflight
+  drift before run create. Beginning Wave 1 (gate test).
+- 2026-08-11 · phase model-combos · wave 1 · task 1.1 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/cliproxy/auth/conductor_stream_bootstrap_test.go (new)
+  · verify: `go test ./sdk/cliproxy/auth/... -run StreamBootstrap -v` — 3/3 pass (incl. one
+  pre-existing test). Load-bearing assumption holds: `streamBootstrapError` returned only when zero
+  chunks flushed; mid-stream failure surfaces as an in-stream error chunk, never as
+  `streamBootstrapError`. Wave 1 is unblocked.
+- 2026-08-11 · phase model-combos · wave 2 · task 2.1 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: internal/config/config.go · verify:
+  `go build ./internal/config/...` clean.
+- 2026-08-11 · phase model-combos · wave 2 · task 2.2 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: internal/config/parse.go (ValidateCombos +
+  parseComboCandidate), internal/config/config.go (LoadConfigOptional call) · verify: unit tests
+  in task 2.3.
+- 2026-08-11 · phase model-combos · wave 2 · task 2.3 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: internal/config/combos_test.go (new) · verify:
+  `go test ./internal/config/... -run TestValidateCombos -v` — 7/7 pass (empty name, duplicate,
+  model-id collision via LookupStaticModelInfo, zero candidates, malformed candidate, invalid
+  strategy, sticky-limit/strategy normalization). `a/b/c` is parseable (provider `a`, model `b/c`)
+  and deliberately not rejected.
+- 2026-08-11 · phase model-combos · wave 3 · task 3.1 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/cliproxy/service.go (registerComboModels +
+  comboModelsClientID), sdk/cliproxy/service_combo_test.go (new) · verify:
+  `go test ./sdk/cliproxy/ -run TestRegisterComboModels -v` — 2/2 pass: combo names listed under
+  provider "combo" after register; empty and nil config reloads unregister them.
+- 2026-08-11 · phase model-combos · wave 3 · task 3.2 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/cliproxy/auth/combo.go (new) · verify:
+  `go test ./sdk/cliproxy/auth/ -run TestComboResolver -v` — 6/6 pass (fallback order, fallback
+  ignores rotation, round-robin sticky blocks [1-3]→[4-6]→[7 wraps], sticky=1 advances, SetCombos
+  clears cursor, concurrent Rotate under mutex).
+- 2026-08-11 · phase model-combos · wave 3 · task 3.3 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/cliproxy/auth/conductor.go (Manager.comboResolver,
+  SetConfig wiring, ComboResolver accessor) · verify: TestComboResolverManagerWiring passes inside
+  the 3.2 run — resolver populated via Manager.SetConfig and reachable via
+  Manager.ComboResolver().
+- 2026-08-11 · phase model-combos · wave 3 · task 3.4 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/cliproxy/service.go (applyConfigUpdate call of
+  registerComboModels) · verify: `go test ./sdk/cliproxy/` full package pass after wiring.
+- 2026-08-11 · phase model-combos · wave 3 · task 3.5 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · verify: `go test ./sdk/cliproxy/... ./internal/config/...
+  ./internal/registry/... ./internal/watcher/...` — all clean (combo plumbing touches watcher's
+  config funnel only via SetConfig, no direct edits needed).
+- 2026-08-11 · phase model-combos · wave 4 · task 4.1 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/api/handlers/handlers.go (comboOrder +
+  executeWithComboFallback + comboSwitchable + comboCooldown; combo short-circuits
+  getRequestDetailsWithOptions since combo names are virtual) · verify: handler tests in 4.4 —
+  429 falls through to next candidate, 400 unmasked with no further candidates, 502/503/504 with
+  cooldown ≤5s sleeps before switching (3s pause test), >5s does not (40s test).
+- 2026-08-11 · phase model-combos · wave 4 · task 4.2 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/api/handlers/handlers.go (bootstrap region of
+  executeStreamWithAuthManager: per-candidate retry budget, combo cursor advance, exhaustion wrap;
+  call-level initial failures also switch before the goroutine) · verify: bootstrap-failure switch
+  test passes silently with both candidates streamed; post-chunk failure test shows payload then
+  in-stream 502 with no switch. Depends on Wave 1's gate test — which holds.
+- 2026-08-11 · phase model-combos · wave 4 · task 4.3 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/cliproxy/auth/combo.go (ComboExhaustedError),
+  sdk/cliproxy/auth/conductor.go (EarliestComboReset over cooldown_state.go records),
+  sdk/api/handlers/handlers.go (comboExhaustedError) · verify: exhaustion test asserts 503
+  status, ResetAt equals the earliest marked cooldown (429 short vs 401 30m), and human string
+  "reset after <duration>".
+- 2026-08-11 · phase model-combos · wave 4 · task 4.4 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: sdk/api/handlers/combo_test.go (new) · verify:
+  `go test ./sdk/cliproxy/... ./internal/watcher/...` — all clean; `go test ./sdk/api/handlers/
+  -run Combo -v` — 7/7 pass matching `## Verify`'s bullet list exactly (see 4.1-4.3 entries).
+- 2026-08-11 · phase model-combos · wave 5 · task 5.1 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: web/src/features/combos/CombosPage.tsx (new),
+  web/src/router/MainRoutes.tsx, web/src/components/layout/MainLayout.tsx,
+  web/src/components/ui/icons.tsx (IconSidebarCombos), web/src/i18n/locales/{en,vi}.json ·
+  verify: `make build-web` clean (tsc + vite production build), `bun run lint` 0 errors
+  (8 pre-existing warnings elsewhere, none in new files), no new test files under `web/`.
+- 2026-08-11 · phase model-combos · wave 5 · task 5.2 · task_status=DONE · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · touched: web/src/features/combos/CombosPage.tsx (readCombos
+  fix, see Decisions) · verify: real browser runtime check against a live server — local
+  dockerized Postgres 17 on 127.0.0.1:5433 (throwaway, never the shared Supabase), `llmhub
+  init-db-from-env` with a local test config, server on :9090 with `-local-model`; headless
+  Chrome via puppeteer-core drove the panel: login → Combos page → empty state → create
+  "daily" (fallback) with 2 candidates → reorder both directions → create "rr"
+  (round-robin, sticky-limit 3) → save → round-trip confirmed in `/v0/management/config.yaml`
+  → reload → both combos list back with order/strategy/sticky-limit intact. 9/9 check points
+  pass; runtime also exposes both combo models in `GET /v1/models` with `owned_by: combo`.
+  The check caught a real bug before completion — readCombos returned [] on parsed YAML
+  (see Decisions) — fixed and re-verified end-to-end.
+- 2026-08-11 · phase model-combos · closing handoff · task_status=DONE · handoff_id:
+  01KZQGC547PAKCFDHBB2HF9DHQ · check_id: 01KZQGC2B48X980V59RBK39QPS (verdict APPROVED) ·
+  all five waves complete; phase closed in zharness; this plan moves to `docs/plans/done/`.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- 2026-08-06 · to-plan · story row created, replacing a ghost ID · this doc's `## Approach and Risks`
+- 2026-08-11 · wave 3 · resolver lives in `sdk/cliproxy/auth/combo.go`, not `sdk/cliproxy/combo.go`
+  as the wave-3 task text wrote · `sdk/cliproxy` root imports `internal/api`, which imports
+  `sdk/cliproxy/auth`; a resolver in the root package that imports `internal/config` and is
+  consumed by the Manager (in `auth`) would force an import cycle. Placing it beside the Manager in
+  `auth` and exposing it via `Manager.ComboResolver()` keeps the surface the same and the graph
+  acyclic. Handler-layer access (wave 4) uses `h.AuthManager.ComboResolver()`.
+- 2026-08-11 · wave 3 · rotation cursors clear on reload inside `Manager.SetConfig`, not via a
+  direct edit to `internal/watcher/config_reload.go` · SetConfig is the single funnel for every
+  config update path, including the watcher's debounced reload, so `SetCombos` (which clears
+  cursors) there covers all reloads without touching the watcher.
+- 2026-08-11 · wave 5 · task 5.2 run against a live local sandbox instead of the paper-trace
+  substitute · the plan text authorized the `provider-presets` substitute-proof precedent if the
+  Postgres blocker recurred, but Docker is available and postgres images were cached locally, so
+  a throwaway container on 127.0.0.1:5433 satisfied PGSTORE_DSN without ever touching the shared
+  remote Supabase DSN in `.env`. The real runtime check was strictly stronger and it paid off —
+  it caught a genuine panel bug (see next entry).
+- 2026-08-11 · wave 5 · `readCombos` in CombosPage.tsx must unwrap YAML nodes via `doc.toJS()`
+  · `parseDocument(...).get('combos')` returns a `YAMLSeq`, not a JS array, so
+  `Array.isArray(node)` was always false and the panel silently showed "No combos yet" even when
+  the config had combos (list path broken; the save path worked — proof: the round-trip check
+  saw the combos in `/v0/management/config.yaml` while the panel showed the empty state). The
+  first fix attempt called `node.toJS()` on the detached node, which throws
+  "A document argument is required" — the document-level `doc.toJS()` carries its own context
+  and is the correct call.
+
+## Validation
   and `## Phases and Verification` were already complete — one phase, five waves, fifteen tasks, a
   check per task — but its `story_id` `01KZB3A8AG44JTXJR1928ZTYAG` was minted with `zharness id`,
   which is explicitly non-mutating, and `zharness story` was never invoked. No changeset and no DB
@@ -427,16 +539,31 @@ skip or re-ask per the established pattern if attempted).
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
-- none
+- 2026-08-11 · phase model-combos · phase-level check (wave-5-complete gate) · run_id:
+  01KZQECHTHRSTB3HR6BX1ZNG4V · `go test ./sdk/cliproxy/... ./internal/config/...
+  ./internal/registry/... ./internal/watcher/...` → all `ok` (12 packages, incl.
+  sdk/cliproxy/auth combo & handler suites) · `make build-web` → tsc + vite production build
+  clean · `make build` → `go build` succeeded (llmhub binary) · `bun run lint` → 0 errors /
+  8 pre-existing warnings · verdict: PASS, no proof_gaps — the one live-runtime risk
+  (config → registry wiring) was additionally closed by the browser check: `GET /v1/models`
+  on the sandbox server listed both combo models with `owned_by: combo`.
+- 2026-08-11 · phase model-combos · gate · check_id: 01KZQGC2B48X980V59RBK39QPS ·
+  verdict: APPROVED (same-session, deepseek-v4-flash) · proof: phase-level commands above
+  plus the task 5.2 browser-run proof links · no proof_gaps.
 
 ## Current State and Next Action
-- active_phase: none
-- lifecycle_status: planned
-- latest_run_id: none
+- active_phase: model-combos
+- lifecycle_status: done
+- latest_run_id: 01KZQECHTHRSTB3HR6BX1ZNG4V
 - latest_trace_ids: []
 - latest_check_id: none
 - latest_handoff_id: none
 - blockers: none
+- exact_next_action: none — all five waves complete. Optional manual check from the plan
+  (revoke a provider credential and watch the fallback switch) remains deliberately skipped:
+  it needs live provider credentials against the shared environment, which this session does
+  not touch. Commit the phase (see `docs/plans/README.md` for the closing ritual), then close
+  the phase and update the index.
 - open_items:
   - Wave 1's gate test is a hard blocker. If `streamBootstrapError` turns out to be reachable after
     bytes have been flushed, stop and re-scope per `## Load-bearing assumption` — do not build
@@ -444,5 +571,4 @@ skip or re-ask per the established pattern if attempted).
   - Task 5.2's browser check may hit the same Postgres/live-DB constraint that blocked the
     `provider-presets` phase; follow that plan's established substitute-proof precedent rather than
     inventing a new one.
-- exact_next_action: work full model-combos (after provider-grid-console, or in parallel — they
-  share no surface)
+- exact_next_action: Wave 1 gate test (conductor_stream_bootstrap_test.go) must pass before Wave 2.

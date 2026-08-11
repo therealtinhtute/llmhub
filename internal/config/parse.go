@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
@@ -83,5 +84,77 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.SanitizeOAuthModelAlias()
 	cfg.SanitizePayloadRules()
 
+	if errCombos := cfg.ValidateCombos(); errCombos != nil {
+		return nil, errCombos
+	}
+
 	return &cfg, nil
+}
+
+// ValidateCombos validates combo definitions: unique non-empty names not colliding
+// with a registered model id, at least one candidate per combo, each candidate
+// parsed as provider/model, strategy in {"", "fallback", "round-robin"} (empty
+// normalized to fallback), and sticky-limit < 1 normalized to 1.
+func (cfg *Config) ValidateCombos() error {
+	if cfg == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(cfg.Combos))
+	for i := range cfg.Combos {
+		combo := &cfg.Combos[i]
+		combo.Name = strings.TrimSpace(combo.Name)
+		if combo.Name == "" {
+			return fmt.Errorf("combo at index %d: name must not be empty", i)
+		}
+		if _, dup := seen[combo.Name]; dup {
+			return fmt.Errorf("combo %q: duplicate name", combo.Name)
+		}
+		seen[combo.Name] = struct{}{}
+		if registry.LookupStaticModelInfo(combo.Name) != nil {
+			return fmt.Errorf("combo %q: name collides with a registered model id", combo.Name)
+		}
+		if len(combo.Models) == 0 {
+			return fmt.Errorf("combo %q: must have at least one candidate model", combo.Name)
+		}
+		for _, candidate := range combo.Models {
+			provider, model, ok := ParseComboCandidate(candidate)
+			if !ok || provider == "" || model == "" {
+				return fmt.Errorf("combo %q: candidate %q must parse as provider/model", combo.Name, candidate)
+			}
+		}
+		switch combo.Strategy {
+		case "", "fallback":
+			combo.Strategy = "fallback"
+		case "round-robin":
+		default:
+			return fmt.Errorf("combo %q: strategy %q must be fallback or round-robin", combo.Name, combo.Strategy)
+		}
+		if combo.StickyLimit < 1 {
+			combo.StickyLimit = 1
+		}
+	}
+	// A candidate whose model part is itself a combo name would recurse at
+	// resolution time; reject it here (R3 no-recursion) rather than at runtime.
+	for i := range cfg.Combos {
+		for _, candidate := range cfg.Combos[i].Models {
+			_, model, ok := ParseComboCandidate(candidate)
+			if !ok {
+				continue
+			}
+			if _, isCombo := seen[model]; isCombo {
+				return fmt.Errorf("combo %q: candidate model %q must not be another combo name", cfg.Combos[i].Name, model)
+			}
+		}
+	}
+	return nil
+}
+
+// ParseComboCandidate splits a combo candidate on the first "/" into provider and model.
+func ParseComboCandidate(candidate string) (provider, model string, ok bool) {
+	trimmed := strings.TrimSpace(candidate)
+	idx := strings.Index(trimmed, "/")
+	if idx <= 0 || idx == len(trimmed)-1 {
+		return "", "", false
+	}
+	return strings.TrimSpace(trimmed[:idx]), strings.TrimSpace(trimmed[idx+1:]), true
 }

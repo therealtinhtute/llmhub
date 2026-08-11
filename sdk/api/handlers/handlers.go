@@ -558,7 +558,17 @@ func (h *BaseAPIHandler) ExecuteImageWithAuthManager(ctx context.Context, handle
 }
 
 func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string, allowImageModel bool) ([]byte, http.Header, *interfaces.ErrorMessage) {
-	providers, normalizedModel, errMsg := h.getRequestDetailsWithOptions(modelName, allowImageModel)
+	comboCandidates, isCombo := h.comboOrder(modelName)
+	var providers []string
+	var normalizedModel string
+	var errMsg *interfaces.ErrorMessage
+	if isCombo {
+		// Combo models are virtual: their candidates define the providers and
+		// upstream models, so the model-to-provider lookup is skipped.
+		normalizedModel = modelName
+	} else {
+		providers, normalizedModel, errMsg = h.getRequestDetailsWithOptions(modelName, allowImageModel)
+	}
 	if errMsg != nil {
 		return nil, nil, errMsg
 	}
@@ -609,7 +619,13 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 		Headers:         headers,
 	}
 	opts.Metadata = reqMeta
-	resp, err := h.AuthManager.Execute(ctx, providers, req, opts)
+	var resp coreexecutor.Response
+	var err error
+	if isCombo {
+		resp, err = h.executeWithComboFallback(ctx, req, opts, comboCandidates)
+	} else {
+		resp, err = h.AuthManager.Execute(ctx, providers, req, opts)
+	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		status := http.StatusInternalServerError
@@ -717,7 +733,17 @@ func (h *BaseAPIHandler) ExecuteImageStreamWithAuthManager(ctx context.Context, 
 }
 
 func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string, allowImageModel bool) (<-chan []byte, http.Header, <-chan *interfaces.ErrorMessage) {
-	providers, normalizedModel, errMsg := h.getRequestDetailsWithOptions(modelName, allowImageModel)
+	comboCandidates, isCombo := h.comboOrder(modelName)
+	var providers []string
+	var normalizedModel string
+	var errMsg *interfaces.ErrorMessage
+	if isCombo {
+		// Combo models are virtual: their candidates define the providers and
+		// upstream models, so the model-to-provider lookup is skipped.
+		normalizedModel = modelName
+	} else {
+		providers, normalizedModel, errMsg = h.getRequestDetailsWithOptions(modelName, allowImageModel)
+	}
 	if errMsg != nil {
 		errChan := make(chan *interfaces.ErrorMessage, 1)
 		errChan <- errMsg
@@ -784,9 +810,32 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		Headers:         headers,
 	}
 	opts.Metadata = reqMeta
-	streamResult, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+	// Combo requests start on the first candidate; the goroutine advances the
+	// cursor on bootstrap failures below. Call-level failures of the initial
+	// candidate switch here, before any bytes can reach the client.
+	execProviders, execReq := providers, req
+	comboIndex := 0
+	if isCombo && len(comboCandidates) > 0 {
+		execProviders = []string{comboCandidates[0].Provider}
+		execReq.Model = comboCandidates[0].Model
+	}
+	streamResult, err := h.AuthManager.ExecuteStream(ctx, execProviders, execReq, opts)
+	if err != nil && isCombo {
+		for comboIndex+1 < len(comboCandidates) && bootstrapEligible(err) {
+			comboIndex++
+			execProviders = []string{comboCandidates[comboIndex].Provider}
+			execReq.Model = comboCandidates[comboIndex].Model
+			streamResult, err = h.AuthManager.ExecuteStream(ctx, execProviders, execReq, opts)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil && comboIndex+1 >= len(comboCandidates) && bootstrapEligible(err) {
+			err = h.comboExhaustedError(comboCandidates)
+		}
+	}
 	if err != nil {
-		err = enrichAuthSelectionError(err, providers, normalizedModel)
+		err = enrichAuthSelectionError(err, execProviders, normalizedModel)
 		errChan := make(chan *interfaces.ErrorMessage, 1)
 		status := http.StatusInternalServerError
 		if se, ok := err.(interface{ StatusCode() int }); ok && se != nil {
@@ -889,20 +938,6 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 			return sendData(body)
 		}
 
-		bootstrapEligible := func(err error) bool {
-			status := statusFromError(err)
-			if status == 0 {
-				return true
-			}
-			switch status {
-			case http.StatusUnauthorized, http.StatusForbidden, http.StatusPaymentRequired,
-				http.StatusRequestTimeout, http.StatusTooManyRequests:
-				return true
-			default:
-				return status >= http.StatusInternalServerError
-			}
-		}
-
 	outer:
 		for {
 			for {
@@ -924,19 +959,43 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 				if chunk.Err != nil {
 					streamErr := chunk.Err
 					// Safe bootstrap recovery: if the upstream fails before any payload bytes are sent,
-					// retry a few times (to allow auth rotation / transient recovery) and then attempt model fallback.
+					// retry a few times (to allow auth rotation / transient recovery) and then switch to
+					// the next combo candidate. A post-first-chunk failure never switches.
 					if !sentPayload {
-						if bootstrapRetries < maxBootstrapRetries && bootstrapEligible(streamErr) {
-							bootstrapRetries++
-							retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
-							if retryErr == nil {
-								if passthroughHeadersEnabled {
-									replaceHeader(upstreamHeaders, FilterUpstreamHeaders(retryResult.Headers))
+						for bootstrapEligible(streamErr) {
+							if bootstrapRetries < maxBootstrapRetries {
+								bootstrapRetries++
+								retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, execProviders, execReq, opts)
+								if retryErr == nil {
+									if passthroughHeadersEnabled {
+										replaceHeader(upstreamHeaders, FilterUpstreamHeaders(retryResult.Headers))
+									}
+									chunks = retryResult.Chunks
+									continue outer
 								}
-								chunks = retryResult.Chunks
-								continue outer
+								streamErr = enrichAuthSelectionError(retryErr, execProviders, normalizedModel)
+								continue
 							}
-							streamErr = enrichAuthSelectionError(retryErr, providers, normalizedModel)
+							if isCombo && comboIndex+1 < len(comboCandidates) {
+								comboIndex++
+								execProviders = []string{comboCandidates[comboIndex].Provider}
+								execReq.Model = comboCandidates[comboIndex].Model
+								bootstrapRetries = 0
+								retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, execProviders, execReq, opts)
+								if retryErr == nil {
+									if passthroughHeadersEnabled {
+										replaceHeader(upstreamHeaders, FilterUpstreamHeaders(retryResult.Headers))
+									}
+									chunks = retryResult.Chunks
+									continue outer
+								}
+								streamErr = enrichAuthSelectionError(retryErr, execProviders, normalizedModel)
+								continue
+							}
+							break
+						}
+						if isCombo && bootstrapEligible(streamErr) && comboIndex+1 >= len(comboCandidates) {
+							streamErr = h.comboExhaustedError(comboCandidates)
 						}
 					}
 
@@ -1031,6 +1090,87 @@ func statusFromError(err error) int {
 		}
 	}
 	return 0
+}
+
+// bootstrapEligible reports whether an upstream failure may be retried before
+// any payload bytes were sent: auth-level failures (credential rotation) and
+// transient server errors. A client error like 400 is never eligible.
+func bootstrapEligible(err error) bool {
+	status := statusFromError(err)
+	if status == 0 {
+		return true
+	}
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusPaymentRequired,
+		http.StatusRequestTimeout, http.StatusTooManyRequests,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return status >= http.StatusInternalServerError
+	}
+}
+
+// comboOrder returns the candidate list for a request when the model is a combo.
+func (h *BaseAPIHandler) comboOrder(modelName string) ([]coreauth.ComboCandidate, bool) {
+	if h == nil || h.AuthManager == nil || h.AuthManager.ComboResolver() == nil {
+		return nil, false
+	}
+	baseModel := strings.TrimSpace(thinking.ParseSuffix(modelName).ModelName)
+	return h.AuthManager.ComboResolver().Order(baseModel)
+}
+
+// executeWithComboFallback runs the request against each combo candidate in
+// order. Retryable failures (auth-level or transient 5xx) move to the next
+// candidate; 5xx failures with a cooldown of at most 5s sleep before switching.
+// When every candidate fails, the returned error is a *coreauth.ComboExhaustedError.
+func (h *BaseAPIHandler) executeWithComboFallback(ctx context.Context, req coreexecutor.Request, opts coreexecutor.Options, candidates []coreauth.ComboCandidate) (coreexecutor.Response, error) {
+	for i, candidate := range candidates {
+		req.Model = candidate.Model
+		resp, err := h.AuthManager.Execute(ctx, []string{candidate.Provider}, req, opts)
+		if err == nil {
+			return resp, nil
+		}
+		status := statusFromError(err)
+		if !bootstrapEligible(err) {
+			return resp, err
+		}
+		if i+1 < len(candidates) && status >= http.StatusBadGateway && status <= http.StatusGatewayTimeout {
+			if wait := comboCooldown(err); wait > 0 && wait <= 5*time.Second {
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return resp, ctx.Err()
+				case <-timer.C:
+				}
+			}
+		}
+	}
+	return coreexecutor.Response{}, h.comboExhaustedError(candidates)
+}
+
+// comboCooldown extracts a provider-supplied retry hint from the error, when present.
+func comboCooldown(err error) time.Duration {
+	if ra, ok := err.(interface{ RetryAfter() *time.Duration }); ok {
+		if d := ra.RetryAfter(); d != nil && *d > 0 {
+			return *d
+		}
+	}
+	return 0
+}
+
+// comboExhaustedError builds the 503 exhaustion error carrying the earliest
+// cooldown reset across the candidates plus a human-readable reset string.
+func (h *BaseAPIHandler) comboExhaustedError(candidates []coreauth.ComboCandidate) error {
+	exhausted := &coreauth.ComboExhaustedError{Candidates: len(candidates)}
+	if h != nil && h.AuthManager != nil {
+		now := time.Now()
+		if resetAt, found := h.AuthManager.EarliestComboReset(candidates, now); found {
+			exhausted.ResetAt = resetAt
+			exhausted.Reset = resetAt.Sub(now)
+		}
+	}
+	return exhausted
 }
 
 func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string, normalizedModel string, err *interfaces.ErrorMessage) {

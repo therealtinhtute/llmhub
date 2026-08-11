@@ -6,13 +6,12 @@ Quality gate for a response-only review, a bounded diff, or a durable phase. Dur
 
 ## Preconditions and Modes
 
-1. Run `zharness --version`. A `dev` build satisfies the gate; otherwise require version `0.1.0` or newer. If unavailable or stale, print `zharness not found or out of date — run: bash scripts/install-zharness.sh` and stop.
-2. Preserve invocation intent:
+1. Preserve invocation intent:
    - `gate` — durable automated phase gate for `docs/plans/active/{slug}.md`; it does not perform the complete manual review.
    - `full` — durable gate plus the complete Security, Performance, Architecture, and Code Quality review.
    - `review` — response-only review, even when an active plan exists.
    - `bounded` (alias: `simple`) — response-only gate for a direct change with no durable initiative lifecycle.
-3. Run `zharness preflight check --mode {gate|full|review|bounded} --json` and follow its stop/recovery result exactly.
+2. Run `zharness preflight check --mode {gate|full|review|bounded} --json`. Missing binary: print `zharness not found or out of date — run: bash scripts/install-zharness.sh` and stop. Otherwise check its `version` field — a `dev` build satisfies the gate; below MIN_ZHARNESS_VERSION (`0.4.1` — see `skills/workflow/README.md`), print the same message and stop. Then follow its stop/recovery result exactly.
 
 **Zero-write rule:** review and bounded/simple modes create no lifecycle rows, plans, reports, changesets, or markdown artifacts. They do not call `zharness check record` and do not edit an active plan. Invocation intent wins: discovering an active plan never upgrades `review` or bounded/simple work into a durable gate.
 
@@ -33,15 +32,15 @@ Every Validation entry must include timestamp, stable phase slug, exact command/
 1. **Load scope without changing intent** — read the diff and repository verification instructions. For gate/full, also read the active plan and `zharness resume --json`, and require a latest run for the phase. Review may consult an active plan for context but remains response-only.
 2. **Classify depth and drift** — use quick/standard/deep based on blast radius, not only line count. Label scope on-target, drift, or incomplete before checks. A phase-boundary violation blocks a clean durable verdict.
 3. **Run the automated gate** — execute applicable tests, type checks, lint/static analysis, and build in repository-defined order. Capture actual output; never self-certify.
-4. **Review plan alignment when applicable** — compare the diff with accepted requirements, Non-goals, phase surfaces, task outputs, append-only Progress entries, and recorded Decisions. Read task execution status only from Progress. Missing planned proof is a finding even when local tests pass.
+4. **Review plan alignment when applicable** — compare the diff with accepted requirements, Non-goals, phase surfaces, task outputs, append-only Progress entries, and recorded Decisions. Read task execution status only from Progress. Missing planned proof is a finding even when local tests pass. If `docs/evals/failures.md` exists, read it and, for every failure class recorded two or more times, state explicitly whether the current diff is clean of that class; a repository without that file skips this without it being an error.
 5. **Apply mode-specific manual review** — `full` performs the complete Security, Performance, Architecture, and Code Quality review; for a class-of-bug fix, search for sibling instances and state whether coverage is complete. `gate` does not perform that complete manual review. `review` performs the requested response-only review, and bounded/simple performs only scope-appropriate review.
 6. **Evaluate required proof** — for `tiny`, require command output; for `normal`, require unit plus command output; for `high-risk`, require unit, integration, manual review, and command output. Name every missing class exactly. A gate does not silently substitute automated checks for required manual-review evidence.
 7. **Audit durable lifecycle links** — gate/full runs `zharness audit --json`. Treat pointer drift or contract violations touching the phase as findings; unlinked proof remains explicit context. Review and bounded/simple do not add lifecycle records merely to satisfy this step.
-8. **Choose the verdict** — any critical issue or material plan contradiction is `REQUEST_CHANGES`; major non-critical findings are at least `APPROVE_WITH_REQUESTS`; no blocking findings is `APPROVED`.
-9. **Record only a durable gate/full check** — run `zharness check record --verdict {verdict} --run-id {run-id} --proof-links '[{"command":"{exact command}","output_ref":"Validation entry {timestamp}: {result}"}, ...]' --json`. Do not pass or create an artifact path. Save the returned check ID.
+8. **Choose the verdict** — any critical issue or material plan contradiction is `REQUEST_CHANGES`; major non-critical findings are at least `APPROVE_WITH_REQUESTS`; no blocking findings is `APPROVED`. Declare the judge: `same-session` when the reviewing agent also authored the diff under review, `independent` otherwise, alongside the reviewing model's identifier. When the judge is `same-session`, an `APPROVED` or `APPROVE_WITH_REQUESTS` verdict must name at least one aspect that was not independently verified.
+9. **Record only a durable gate/full check** — run `zharness check record --verdict {verdict} --run-id {run-id} --judge {independent|same-session} --judge-model {model identifier} --proof-links '[{"command":"{exact command}","output_ref":"Validation entry {timestamp}: {result}"}, ...]' --json`. `--judge` and `--judge-model` are required flags — the CLI rejects a missing or invalid value with `invalid_judge` or `missing_required_field` before recording anything. Do not pass or create an artifact path. Save the returned check ID.
 10. **Synchronize durable plan state**:
     - For `APPROVED` or `APPROVE_WITH_REQUESTS`, immediately set the phase status and Current State lifecycle status to `checked`, record the returned check ID, append exact Validation evidence, and route to closing `handoff` or `git`.
-    - For `REQUEST_CHANGES`, append the returned check ID and exact failed evidence to Validation, keep the phase and Current State lifecycle status `in-progress` to match the DB, record the findings as blockers/open items, and route back to `work`.
+    - For `REQUEST_CHANGES`, append the returned check ID and exact failed evidence to Validation, keep the phase and Current State lifecycle status `in-progress` to match the DB, record the findings as blockers/open items, and route back to `work`. When `docs/evals/failures.md` exists, also append one ledger row per finding — durable gate/full only, so `review` and bounded/simple keep the zero-write rule above.
 11. **Verify durable synchronization** — gate/full reruns `zharness query phases --json` and requires the plan phase status to match the DB. `check` never marks a phase `done`.
 
 ## Response-Only Review and Bounded Gate
@@ -50,12 +49,11 @@ Run the narrowest checks that prove the requested change, perform the requested 
 
 ## Command Reference
 
-- `zharness --version`
 - `zharness preflight check --mode {gate|full|review|bounded} --json`
 - `zharness resume --json`
 - `zharness audit --json`
 - `zharness query phases --json`
-- `zharness check record --verdict {verdict} --run-id {run-id} --proof-links '[...]' --json`
+- `zharness check record --verdict {verdict} --run-id {run-id} --judge {independent|same-session} --judge-model {model} --proof-links '[...]' --json`
 
 ## Output Format
 
@@ -66,6 +64,8 @@ scope: on target | drift | incomplete
 depth: quick | standard | deep
 gate: pass | fail
 review: APPROVED | APPROVE_WITH_REQUESTS | REQUEST_CHANGES
+judge: independent | same-session
+judge_model: {model identifier}
 blockers: N critical, N major
 verification: exact command -> pass | fail | not-run
 check_id: ULID | not-recorded
@@ -74,6 +74,6 @@ proof_gaps: none | exact missing classes
 
 ## Exit Conditions
 
-- Gate: automated checks, plan alignment, required-proof evaluation, and lifecycle audit ran; the DB check row was recorded; exact evidence and verdict were appended to Validation; and plan/DB phase statuses match (`checked` for a clean verdict, `in-progress` for `REQUEST_CHANGES`). The complete manual review is not part of gate.
+- Gate: automated checks, plan alignment, required-proof evaluation, and lifecycle audit ran; `judge` and `judge_model` are both present in the output block, and a `same-session` judge named what it did not independently verify; the DB check row was recorded; exact evidence and verdict were appended to Validation; and plan/DB phase statuses match (`checked` for a clean verdict, `in-progress` for `REQUEST_CHANGES`). The complete manual review is not part of gate.
 - Full: every gate condition holds and the complete Security, Performance, Architecture, and Code Quality review ran.
 - Review or bounded/simple: the response contains honest proof and verdict with zero DB, changeset, plan, report, or markdown writes.

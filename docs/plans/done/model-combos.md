@@ -497,6 +497,9 @@ skip or re-ask per the established pattern if attempted).
 - 2026-08-11 · phase model-combos · closing handoff · task_status=DONE · handoff_id:
   01KZQGC547PAKCFDHBB2HF9DHQ · check_id: 01KZQGC2B48X980V59RBK39QPS (verdict APPROVED) ·
   all five waves complete; phase closed in zharness; this plan moves to `docs/plans/done/`.
+- 2026-08-11 · phase model-combos · merged · task_status=DONE · PR #12 merged to master as
+  `7105daa6` (rebase-and-merge, 2026-08-11); remote feature branch auto-deleted. Phase fully
+  complete — no further work.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->

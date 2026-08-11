@@ -9,7 +9,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/nativeproviders"
 	"github.com/therealtinhtute/llmhub/internal/watcher"
+	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
@@ -61,6 +63,7 @@ type storageWatcher struct {
 	cfg           *config.Config
 	queue         chan<- watcher.AuthUpdate
 	currentAuth   map[string]*coreauth.Auth
+	synthAuths    map[string]*coreauth.Auth
 	configVersion int64
 	authVersion   string
 	cancel        context.CancelFunc
@@ -149,7 +152,10 @@ func (w *storageWatcher) poll(ctx context.Context) error {
 	if err := w.pollConfig(ctx); err != nil {
 		return err
 	}
-	return w.pollAuth(ctx)
+	if err := w.pollAuth(ctx); err != nil {
+		return err
+	}
+	return w.pollSynthAuths(ctx)
 }
 
 func (w *storageWatcher) pollConfig(ctx context.Context) error {
@@ -237,6 +243,77 @@ func (w *storageWatcher) pollAuth(ctx context.Context) error {
 		w.dispatch(update)
 	}
 	return nil
+}
+
+// pollSynthAuths diffs config-synthesized auths (openai-compatibility entries,
+// including native provider projections) and dispatches Add/Modify/Delete for
+// them. Unlike pollAuth it runs on every poll: native provider records live in
+// their own store and never bump AuthVersion, so the version gate would starve
+// them. Dispatch runs unconditionally (Add is idempotent for unchanged state).
+func (w *storageWatcher) pollSynthAuths(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	next := w.synthConfigAuths(ctx)
+	w.mu.Lock()
+	old := w.synthAuths
+	w.synthAuths = next
+	w.mu.Unlock()
+
+	updates := make([]watcher.AuthUpdate, 0, len(next)+len(old))
+	for id, auth := range next {
+		if existing, ok := old[id]; !ok {
+			updates = append(updates, watcher.AuthUpdate{Action: watcher.AuthUpdateActionAdd, ID: id, Auth: auth.Clone()})
+		} else if !authEqualJSON(existing, auth) {
+			updates = append(updates, watcher.AuthUpdate{Action: watcher.AuthUpdateActionModify, ID: id, Auth: auth.Clone()})
+		}
+	}
+	for id := range old {
+		if _, ok := next[id]; !ok {
+			updates = append(updates, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: id})
+		}
+	}
+	for _, update := range updates {
+		w.dispatch(update)
+	}
+	return nil
+}
+
+// synthConfigAuths synthesizes auths from the current config (openai-compatibility
+// entries) plus native provider projections hydrated from the store. Timestamps
+// are zeroed so repeated polls compare equal under authEqualJSON.
+func (w *storageWatcher) synthConfigAuths(ctx context.Context) map[string]*coreauth.Auth {
+	w.mu.Lock()
+	cfg := w.cfg
+	w.mu.Unlock()
+	if cfg == nil {
+		return nil
+	}
+	if ns, ok := w.store.(nativeproviders.Store); ok {
+		if err := nativeproviders.HydrateConfig(ctx, cfg, ns); err != nil {
+			log.WithError(err).Warn("storage watcher: failed to hydrate native provider resources")
+		}
+	}
+	out := make(map[string]*coreauth.Auth)
+	sctx := &synthesizer.SynthesisContext{
+		Config:      cfg,
+		Now:         time.Now(),
+		IDGenerator: synthesizer.NewStableIDGenerator(),
+	}
+	auths, err := synthesizer.NewConfigSynthesizer().Synthesize(sctx)
+	if err != nil {
+		log.WithError(err).Warn("storage watcher: failed to synthesize config auths")
+		return out
+	}
+	for _, a := range auths {
+		if a == nil || a.ID == "" {
+			continue
+		}
+		a.CreatedAt = time.Time{}
+		a.UpdatedAt = time.Time{}
+		out[a.ID] = a.Clone()
+	}
+	return out
 }
 
 func cloneAuthMap(in map[string]*coreauth.Auth) map[string]*coreauth.Auth {

@@ -269,6 +269,11 @@ const mergeAuthFileEntries = (entries: AuthFileEntry[]): AuthFileEntry => {
   return merged;
 };
 
+const normalizeAuthFileDisplayFields = (entry: AuthFileEntry): AuthFileEntry => {
+  if (entry.lastRefresh != null || entry['last_refresh'] == null) return entry;
+  return { ...entry, lastRefresh: entry['last_refresh'] as string | number };
+};
+
 const dedupeAuthFilesResponse = (payload: AuthFilesResponse): AuthFilesResponse => {
   const files = Array.isArray(payload?.files) ? payload.files : [];
   const grouped = new Map<string, AuthFileEntry[]>();
@@ -284,7 +289,9 @@ const dedupeAuthFilesResponse = (payload: AuthFilesResponse): AuthFilesResponse 
     grouped.set(key, [entry]);
   });
 
-  const normalizedFiles = Array.from(grouped.values()).map(mergeAuthFileEntries);
+  const normalizedFiles = Array.from(grouped.values())
+    .map(mergeAuthFileEntries)
+    .map(normalizeAuthFileDisplayFields);
   normalizedFiles.sort((left, right) =>
     readTextField(left, 'name').localeCompare(readTextField(right, 'name'), undefined, {
       sensitivity: 'accent',

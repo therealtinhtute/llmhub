@@ -1,24 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ampcodeApi,
-  providersApi,
-} from '@/services/api';
+import { providersApi } from '@/services/api';
 import { useAuthStore, useConfigStore } from '@/stores';
 import {
   withDisableAllModelsRule,
   withoutDisableAllModelsRule,
 } from '@/components/providers/utils';
 import type {
-  AmpcodeConfig,
   GeminiKeyConfig,
   OpenAIProviderConfig,
   ProviderKeyConfig,
 } from '@/types';
 import {
-  ampcodeToResource,
   claudeToResource,
   codexToResource,
   geminiToResource,
+  nativeToResource,
   openaiToResource,
   vertexToResource,
 } from './adapters';
@@ -27,17 +23,58 @@ import {
   PROVIDER_PATHS,
 } from './descriptors';
 import type {
+  NativeProviderBrand,
+  NativeProviderFormInput,
+  NativeProviderResource,
   ProviderBrand,
   ProviderEntryFormInput,
   ProviderGroup,
   ProviderResource,
   ProviderSnapshot,
 } from './types';
+import type {
+  NativeProviderMutationInput,
+  NativeProviderPublicResource,
+} from '@/services/api/providers';
 
 const getErrorMessage = (err: unknown): string => {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
   return '';
+};
+
+const nativeResourceFromApi = (
+  resource: NativeProviderPublicResource
+): NativeProviderResource => ({
+  id: resource.id,
+  enabled: resource.enabled,
+  apiKeyPresent: resource.api_key_present === true,
+  apiKeyPreview: resource.api_key_preview?.trim() || null,
+  models: (resource.models ?? []).map((model) => ({
+    name: model.name,
+    alias: model.alias,
+    displayName: model.display_name,
+  })),
+});
+
+const nativeMutationInput = (
+  input: NativeProviderFormInput
+): NativeProviderMutationInput => {
+  const models = input.models
+    .map((model) => ({
+      name: model.name.trim(),
+      alias: model.alias?.trim() || undefined,
+      display_name: model.displayName?.trim() || undefined,
+    }))
+    .filter((model) => model.name);
+  const next: NativeProviderMutationInput = {
+    enabled: input.enabled,
+    models,
+  };
+  if (input.apiKeyTouched) {
+    next.api_key = input.apiKey.trim();
+  }
+  return next;
 };
 
 export interface UseProviderWorkbenchResult {
@@ -59,7 +96,14 @@ export interface UseProviderWorkbenchResult {
   ) => Promise<void>;
   deleteProvider: (resource: ProviderResource) => Promise<void>;
   toggleDisabled: (resource: ProviderResource, disabled: boolean) => Promise<void>;
-  saveAmpcode: (config: AmpcodeConfig) => Promise<void>;
+  createNativeProvider: (
+    brand: NativeProviderBrand,
+    input: NativeProviderFormInput
+  ) => Promise<void>;
+  updateNativeProvider: (
+    resource: ProviderResource,
+    input: NativeProviderFormInput
+  ) => Promise<void>;
   mutating: boolean;
   refreshSnapshot: () => void;
 }
@@ -219,6 +263,9 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mutating, setMutating] = useState<boolean>(false);
   const [fetchedAt, setFetchedAt] = useState<string>(() => new Date().toISOString());
+  const [nativeResources, setNativeResources] = useState<
+    Record<NativeProviderBrand, NativeProviderResource[]>
+  >({ openrouter: [], opencode: [] });
 
   const hasFetchedRef = useRef(false);
 
@@ -228,11 +275,18 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
     setIsFetching(true);
     setErrorMessage(null);
     try {
-      const [configResult, vertexResult, ampcodeResult, openaiResult] = await Promise.allSettled([
+      const [
+        configResult,
+        vertexResult,
+        openaiResult,
+        openrouterResult,
+        opencodeResult,
+      ] = await Promise.allSettled([
         fetchConfig(undefined, true),
         providersApi.getVertexConfigs(),
-        ampcodeApi.getAmpcode(),
         providersApi.getOpenAIProviders(),
+        providersApi.getNativeProviderResources('openrouter'),
+        providersApi.getNativeProviderResources('opencode'),
       ]);
       if (configResult.status !== 'fulfilled') {
         throw configResult.reason;
@@ -241,14 +295,20 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         updateConfigValue('vertex-api-key', vertexResult.value || []);
         clearCache('vertex-api-key');
       }
-      if (ampcodeResult.status === 'fulfilled') {
-        updateConfigValue('ampcode', ampcodeResult.value);
-        clearCache('ampcode');
-      }
       if (openaiResult.status === 'fulfilled') {
         updateConfigValue('openai-compatibility', openaiResult.value || []);
         clearCache('openai-compatibility');
       }
+      setNativeResources((previous) => ({
+        openrouter:
+          openrouterResult.status === 'fulfilled'
+            ? openrouterResult.value.map(nativeResourceFromApi)
+            : previous.openrouter,
+        opencode:
+          opencodeResult.status === 'fulfilled'
+            ? opencodeResult.value.map(nativeResourceFromApi)
+            : previous.opencode,
+      }));
       setFetchedAt(new Date().toISOString());
     } catch (err) {
       setErrorMessage(getErrorMessage(err) || 'Failed to load providers');
@@ -291,8 +351,11 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         case 'openaiCompatibility':
           resources = (config.openaiCompatibility ?? []).map((c, i) => openaiToResource(c, i));
           break;
-        case 'ampcode':
-          resources = [ampcodeToResource(config.ampcode)];
+        case 'openrouter':
+        case 'opencode':
+          resources = nativeResources[brand].map((resource, i) =>
+            nativeToResource(brand, resource, i)
+          );
           break;
       }
       return {
@@ -307,7 +370,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
       groups,
       issues: [],
     };
-  }, [config, fetchedAt]);
+  }, [config, fetchedAt, nativeResources]);
 
   /* ------------------- mutations ------------------- */
 
@@ -380,8 +443,8 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           const next = [...(config?.openaiCompatibility ?? [])];
           next.push(buildOpenAIConfig(input));
           await persistOpenAIConfigs(next);
-        } else if (brand === 'ampcode') {
-          throw new Error('Use saveAmpcode for ampcode create/update');
+        } else if (brand === 'openrouter' || brand === 'opencode') {
+          throw new Error('Use createNativeProvider for native providers');
         }
         refreshSnapshot();
       } finally {
@@ -430,8 +493,8 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           const existing = list[idx];
           list[idx] = buildOpenAIConfig(input, existing);
           await persistOpenAIConfigs(list);
-        } else if (brand === 'ampcode') {
-          throw new Error('Use saveAmpcode for ampcode update');
+        } else if (brand === 'openrouter' || brand === 'opencode') {
+          throw new Error('Use updateNativeProvider for native providers');
         }
         refreshSnapshot();
       } finally {
@@ -479,14 +542,12 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           const next = (config?.openaiCompatibility ?? []).filter((_, i) => i !== sel.index);
           updateConfigValue('openai-compatibility', next);
           clearCache('openai-compatibility');
-        } else if (sel.brand === 'ampcode') {
-          await Promise.allSettled([
-            ampcodeApi.clearUpstreamUrl(),
-            ampcodeApi.clearUpstreamApiKey(),
-            ampcodeApi.clearModelMappings(),
-          ]);
-          updateConfigValue('ampcode', {});
-          clearCache('ampcode');
+        } else if (sel.brand === 'openrouter' || sel.brand === 'opencode') {
+          await providersApi.deleteNativeProvider(sel.brand, sel.id);
+          setNativeResources((previous) => ({
+            ...previous,
+            [sel.brand]: previous[sel.brand].filter((item) => item.id !== sel.id),
+          }));
         }
         refreshSnapshot();
       } finally {
@@ -537,8 +598,16 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
             updateConfigValue('openai-compatibility', list);
             clearCache('openai-compatibility');
           }
-        } else if (brand === 'ampcode') {
-          /* ampcode toggle 不支持,跳过 */
+        } else if (brand === 'openrouter' || brand === 'opencode') {
+          const updated = await providersApi.updateNativeProvider(brand, resource.id, {
+            enabled: !disabled,
+          });
+          setNativeResources((previous) => ({
+            ...previous,
+            [brand]: previous[brand].map((item) =>
+              item.id === resource.id ? nativeResourceFromApi(updated) : item
+            ),
+          }));
         }
         refreshSnapshot();
       } finally {
@@ -557,47 +626,48 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
     ]
   );
 
-  const saveAmpcode = useCallback(
-    async (next: AmpcodeConfig) => {
+  const createNativeProvider = useCallback(
+    async (brand: NativeProviderBrand, input: NativeProviderFormInput) => {
       setMutating(true);
       try {
-        // 细粒度 PUT 序列以保留兼容性
-        const url = (next.upstreamUrl ?? '').trim();
-        if (url) {
-          await ampcodeApi.updateUpstreamUrl(url);
-        } else {
-          await ampcodeApi.clearUpstreamUrl();
-        }
-
-        const fallbackKey = (next.upstreamApiKey ?? '').trim();
-        if (fallbackKey) {
-          await ampcodeApi.updateUpstreamApiKey(fallbackKey);
-        } else {
-          await ampcodeApi.clearUpstreamApiKey();
-        }
-
-        if (Array.isArray(next.upstreamApiKeys) && next.upstreamApiKeys.length) {
-          await ampcodeApi.saveUpstreamApiKeys(next.upstreamApiKeys);
-        } else {
-          await ampcodeApi.saveUpstreamApiKeys([]);
-        }
-
-        if (Array.isArray(next.modelMappings) && next.modelMappings.length) {
-          await ampcodeApi.saveModelMappings(next.modelMappings);
-        } else {
-          await ampcodeApi.clearModelMappings();
-        }
-
-        await ampcodeApi.updateForceModelMappings(next.forceModelMappings === true);
-
-        updateConfigValue('ampcode', next);
-        clearCache('ampcode');
+        const created = await providersApi.createNativeProvider(brand, nativeMutationInput(input));
+        setNativeResources((previous) => ({
+          ...previous,
+          [brand]: [...previous[brand], nativeResourceFromApi(created)],
+        }));
         refreshSnapshot();
       } finally {
         setMutating(false);
       }
     },
-    [clearCache, refreshSnapshot, updateConfigValue]
+    [refreshSnapshot]
+  );
+
+  const updateNativeProvider = useCallback(
+    async (resource: ProviderResource, input: NativeProviderFormInput) => {
+      if (resource.brand !== 'openrouter' && resource.brand !== 'opencode') {
+        throw new Error('Not a native provider resource');
+      }
+      setMutating(true);
+      try {
+        const updated = await providersApi.updateNativeProvider(
+          resource.brand,
+          resource.id,
+          nativeMutationInput(input)
+        );
+          const nativeBrand: NativeProviderBrand = resource.brand;
+        setNativeResources((previous) => ({
+          ...previous,
+          [nativeBrand]: previous[nativeBrand].map((item) =>
+            item.id === resource.id ? nativeResourceFromApi(updated) : item
+          ),
+        }));
+        refreshSnapshot();
+      } finally {
+        setMutating(false);
+      }
+    },
+    [refreshSnapshot]
   );
 
   return {
@@ -612,7 +682,8 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
     updateProvider,
     deleteProvider,
     toggleDisabled,
-    saveAmpcode,
+    createNativeProvider,
+    updateNativeProvider,
     mutating,
     refreshSnapshot,
   };

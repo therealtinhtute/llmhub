@@ -110,11 +110,6 @@ export function ProviderResourceTable({
         renderMetric('keys', t('providersPage.table.metrics.keys'), r.apiKeyEntryCount),
         renderMetric('headers', t('providersPage.table.metrics.headers'), r.headerCount),
       );
-    } else if (r.brand === 'ampcode') {
-      items.push(
-        renderMetric('mappings', t('providersPage.table.metrics.mappings'), r.modelCount),
-        renderMetric('keys', t('providersPage.table.metrics.keys'), r.apiKeyEntryCount),
-      );
     } else {
       items.push(
         renderMetric('models', t('providersPage.table.metrics.models'), r.modelCount),
@@ -131,14 +126,6 @@ export function ProviderResourceTable({
   };
 
   const renderStatus = (r: ProviderResource) => {
-    if (r.brand === 'ampcode' && r.flags.isPlaceholder) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 text-[11px] font-medium whitespace-nowrap">
-          <IconAlertTriangle size={12} />
-          {t('providersPage.status.notConfigured')}
-        </span>
-      );
-    }
     if (r.disabled) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] text-amber-700 text-[11px] font-medium whitespace-nowrap">
@@ -167,16 +154,6 @@ export function ProviderResourceTable({
         </div>
       );
     }
-    if (r.brand === 'ampcode') {
-      return (
-        <div className="flex flex-col gap-1 min-w-0">
-          <span className="font-medium text-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">Amp CLI</span>
-          <span className="text-[11px] text-muted-foreground font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">
-            {r.apiKeyPreview ?? t('providersPage.table.noFallbackKey')}
-          </span>
-        </div>
-      );
-    }
     return (
       <div className="flex flex-col gap-1 min-w-0">
         <span className="font-medium text-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">{r.apiKeyPreview ?? '—'}</span>
@@ -194,9 +171,6 @@ export function ProviderResourceTable({
           https://api.anthropic.com {t('providersPage.status.defaultSuffix')}
         </span>
       );
-    }
-    if (r.brand === 'ampcode' && !r.baseUrl) {
-      return <span className="font-mono text-[11px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px] block">{t('providersPage.status.notConfigured')}</span>;
     }
     return (
       <span className="font-mono text-[11px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px] block">
@@ -223,15 +197,12 @@ export function ProviderResourceTable({
       </TableHeader>
       <TableBody>
         {resources.map((resource) => {
-          const isAmpcode = resource.brand === 'ampcode';
           return (
             <TableRow key={resource.id} selected={resource.id === selectedId}>
               <TableCell>{renderPrimary(resource)}</TableCell>
               <TableCell>{renderBaseUrl(resource)}</TableCell>
               <TableCell>
-                {resource.brand === 'ampcode' ? (
-                  <span className="font-mono text-[11px] text-muted-foreground">—</span>
-                ) : resource.prefix ? (
+                {resource.prefix ? (
                   <span className="inline-flex items-center px-2 py-0.5 border border-border bg-muted text-muted-foreground text-[11px]">{resource.prefix}</span>
                 ) : (
                   <span className="font-mono text-[11px] text-muted-foreground">{t('providersPage.status.none')}</span>
@@ -241,7 +212,7 @@ export function ProviderResourceTable({
               <TableCell>
                 <div className="flex flex-col gap-1.5 items-start min-w-0">
                   {renderStatus(resource)}
-                  {usageByProvider && resource.brand !== 'ampcode' ? (
+                  {usageByProvider ? (
                     <>
                       {(() => {
                         const stats = resolveTotalStats(resource, usageByProvider);
@@ -265,7 +236,7 @@ export function ProviderResourceTable({
               </TableCell>
               <TableCell alignRight>
                 <div className="flex gap-1 items-center justify-end">
-                  {!isAmpcode && onToggleDisabled ? (
+                  {onToggleDisabled ? (
                     <span
                       className="inline-flex items-center mr-1"
                       onClick={(e) => e.stopPropagation()}
@@ -309,35 +280,19 @@ export function ProviderResourceTable({
                   >
                     <IconPencil size={14} />
                   </button>
-                  {isAmpcode ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
-                      aria-label={t('providersPage.actions.clear')}
-                      title={t('providersPage.actions.clear')}
-                      disabled={disableMutations || resource.flags.isPlaceholder}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(resource);
-                      }}
-                    >
-                      <IconTrash2 size={14} />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
-                      aria-label={t('providersPage.actions.delete')}
-                      title={t('providersPage.actions.delete')}
-                      disabled={disableMutations}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(resource);
-                      }}
-                    >
-                      <IconTrash2 size={14} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center w-7 h-7 p-0 border border-transparent bg-transparent text-destructive cursor-pointer hover:bg-[var(--destructive-10)] hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-1"
+                    aria-label={t('providersPage.actions.delete')}
+                    title={t('providersPage.actions.delete')}
+                    disabled={disableMutations}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(resource);
+                    }}
+                  >
+                    <IconTrash2 size={14} />
+                  </button>
                 </div>
               </TableCell>
             </TableRow>

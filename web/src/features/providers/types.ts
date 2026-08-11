@@ -2,13 +2,15 @@
  * AI 提供商 Workbench 视图模型(归一化各 brand 的异构 config)
  */
 
+export type NativeProviderBrand = 'openrouter' | 'opencode';
+
 export type ProviderBrand =
   | 'gemini'
   | 'codex'
   | 'claude'
   | 'vertex'
   | 'openaiCompatibility'
-  | 'ampcode';
+  | NativeProviderBrand;
 
 export type ProviderResourceSelector =
   | { brand: 'gemini'; apiKey: string; baseUrl?: string; index: number }
@@ -16,20 +18,20 @@ export type ProviderResourceSelector =
   | { brand: 'claude'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'vertex'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'openaiCompatibility'; name: string; index: number }
-  | { brand: 'ampcode' };
+  | { brand: NativeProviderBrand; id: string };
 
 export interface ProviderResourceFlags {
   cloakEnabled?: boolean;
   websockets?: boolean;
-  forceModelMappings?: boolean;
-  isPlaceholder?: boolean;
+  native?: boolean;
+  zeroKey?: boolean;
 }
 
 export interface ProviderResource {
   /** 稳定 id,用作 React key 与选中态判断 */
   id: string;
   brand: ProviderBrand;
-  /** 在原数组中的下标。Ampcode 永远为 0 */
+  /** Index in the source configuration array. */
   originalIndex: number;
   /** 表格 key 列显示名(OpenAI=name,其余=null) */
   name: string | null;
@@ -99,6 +101,27 @@ export interface CloakInput {
   mode: string;
   strictMode: boolean;
   sensitiveWordsText: string;
+}
+
+export interface NativeProviderModelInput {
+  name: string;
+  alias?: string;
+  displayName?: string;
+}
+
+export interface NativeProviderResource {
+  id: string;
+  enabled: boolean;
+  apiKeyPresent: boolean;
+  apiKeyPreview: string | null;
+  models: NativeProviderModelInput[];
+}
+
+export interface NativeProviderFormInput {
+  apiKey: string;
+  apiKeyTouched: boolean;
+  enabled: boolean;
+  models: NativeProviderModelInput[];
 }
 
 export interface ProviderEntryFormInput {

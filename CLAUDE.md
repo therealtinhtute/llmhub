@@ -36,13 +36,13 @@ Integration tests that require external services are gated by env vars and skip 
 
 ## Architecture
 
-LLMHub is an OpenAI/Gemini/Claude-compatible proxy server. It accepts requests from AI coding tools (Claude Code, Codex CLI, Amp, etc.) and forwards them to the real providers using OAuth sessions, avoiding the need for API keys.
+LLMHub is an OpenAI/Gemini/Claude-compatible proxy server. It accepts requests from AI coding tools (Claude Code, Codex CLI, and others) and forwards them to the real providers using OAuth sessions, avoiding the need for API keys.
 
 ### Request pipeline
 
 ```
 Client → Gin HTTP server (internal/api)
-       → Route handler / Amp module selects executor from registry
+       → Route handler selects executor from registry
        → Executor translates request format (sdk/translator)
        → Executor authenticates and calls provider HTTP/WS
        → Response translated back to client format
@@ -68,7 +68,6 @@ Client → Gin HTTP server (internal/api)
 | `cmd/server/` | Entry point; CLI flags for login modes, TUI, config path, token stores |
 | `sdk/cliproxy/` | Embeddable `Service` struct; the public SDK entry point |
 | `internal/api/` | Gin router, middleware, route registration |
-| `internal/api/modules/amp/` | Amp CLI / IDE routing module — model mapping, fallback handlers, Gemini bridge, response rewriting |
 | `internal/runtime/executor/` | Per-provider executors: `claude_executor.go`, `codex_executor.go`, `gemini_executor.go`, `xai_executor.go`, `kiro_executor.go`, etc. |
 | `internal/runtime/executor/helps/` | Shared executor helpers: caching, logging, token counting, uTLS client, tool cloak, session/user-ID caches |
 | `sdk/translator/` + `internal/translator/` | `RequestTransform` / `ResponseTransform` function types; per-provider format converters |

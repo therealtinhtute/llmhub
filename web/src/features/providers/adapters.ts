@@ -1,5 +1,4 @@
 import type {
-  AmpcodeConfig,
   GeminiKeyConfig,
   OpenAIProviderConfig,
   ProviderKeyConfig,
@@ -10,6 +9,8 @@ import {
 } from '@/components/providers/utils';
 import { maskApiKey } from '@/utils/format';
 import type {
+  NativeProviderBrand,
+  NativeProviderResource,
   ProviderBrand,
   ProviderResource,
   ProviderResourceSelector,
@@ -90,6 +91,40 @@ export function vertexToResource(config: ProviderKeyConfig, index: number): Prov
   return providerKeyToResource('vertex', config, index);
 }
 
+export function nativeToResource(
+  brand: NativeProviderBrand,
+  resource: NativeProviderResource,
+  index: number
+): ProviderResource {
+  const isOpenRouter = brand === 'openrouter';
+  return {
+    id: resource.id,
+    brand,
+    originalIndex: index,
+    name: resource.id,
+    identifier: resource.id,
+    apiKeyPreview: resource.apiKeyPreview || null,
+    apiKey: null,
+    authIndex: null,
+    baseUrl: isOpenRouter
+      ? 'https://openrouter.ai/api/v1'
+      : 'https://opencode.ai/zen/v1',
+    proxyUrl: null,
+    prefix: null,
+    modelCount: resource.models.length,
+    headerCount: isOpenRouter ? 2 : 1,
+    excludedModelCount: 0,
+    apiKeyEntryCount: resource.apiKeyPresent ? 1 : 0,
+    disabled: !resource.enabled,
+    flags: {
+      native: true,
+      zeroKey: brand === 'opencode' && !resource.apiKeyPresent,
+    },
+    selector: { brand, id: resource.id },
+    raw: resource,
+  };
+}
+
 export function openaiToResource(
   config: OpenAIProviderConfig,
   index: number
@@ -117,37 +152,5 @@ export function openaiToResource(
     flags: {},
     selector: { brand: 'openaiCompatibility', name, index },
     raw: config,
-  };
-}
-
-export function ampcodeToResource(config?: AmpcodeConfig | null): ProviderResource {
-  const safe: AmpcodeConfig = config ?? {};
-  const upstreamApiKey = safe.upstreamApiKey ?? '';
-  const upstreamUrl = (safe.upstreamUrl ?? '').trim();
-  const hasUpstream = upstreamUrl.length > 0;
-  const upstreamKeyMappingsCount = safe.upstreamApiKeys?.length ?? 0;
-  return {
-    id: 'ampcode:singleton',
-    brand: 'ampcode',
-    originalIndex: 0,
-    name: null,
-    identifier: 'Amp CLI',
-    apiKeyPreview: upstreamApiKey ? maskApiKey(upstreamApiKey) : null,
-    apiKey: upstreamApiKey || null,
-    authIndex: null,
-    baseUrl: upstreamUrl || null,
-    proxyUrl: null,
-    prefix: null,
-    modelCount: safe.modelMappings?.length ?? 0,
-    headerCount: 0,
-    excludedModelCount: 0,
-    apiKeyEntryCount: upstreamKeyMappingsCount,
-    disabled: !hasUpstream,
-    flags: {
-      forceModelMappings: safe.forceModelMappings === true,
-      isPlaceholder: !hasUpstream && upstreamKeyMappingsCount === 0,
-    },
-    selector: { brand: 'ampcode' },
-    raw: safe,
   };
 }

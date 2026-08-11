@@ -51,7 +51,7 @@ func kimiThinkingReplayScopeFromRequest(ctx context.Context, req cliproxyexecuto
 
 func kimiThinkingReplaySessionKey(ctx context.Context, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) string {
 	_ = ctx
-	for _, name := range []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-ID", "X-Amp-Thread-Id", "X-Session-Affinity", "X-Client-Request-Id"} {
+	for _, name := range []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-ID", "X-Session-Affinity", "X-Client-Request-Id"} {
 		if value := strings.TrimSpace(opts.Headers.Get(name)); value != "" {
 			return "header:" + name + ":" + value
 		}

@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/nativeproviders"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
@@ -53,6 +54,7 @@ type Handler struct {
 	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 	postAuthHook         coreauth.PostAuthHook
 	configStore          ManagementConfigStore
+	nativeProviderStore  nativeproviders.Store
 	configChangeHook     func(*config.Config)
 	quotaAlertStore      quotaalert.Store
 	quotaAlertCipher     *quotaalert.SecretCipher
@@ -170,6 +172,9 @@ func (h *Handler) SetConfigStore(store ManagementConfigStore) {
 		return
 	}
 	h.configStore = store
+	if nativeStore, ok := store.(nativeproviders.Store); ok {
+		h.nativeProviderStore = nativeStore
+	}
 }
 
 func (h *Handler) SetConfigChangeHook(hook func(*config.Config)) {
@@ -339,7 +344,9 @@ func (h *Handler) persistLocked(c *gin.Context) (*config.Config, func(*config.Co
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "management config store is not configured"})
 		return nil, nil, false
 	}
-	data, errMarshal := yaml.Marshal(h.cfg)
+	persistedCfg := *h.cfg
+	persistedCfg.OpenAICompatibility = nativeproviders.StripProjectedEntries(h.cfg.OpenAICompatibility)
+	data, errMarshal := yaml.Marshal(&persistedCfg)
 	if errMarshal != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to encode config: %v", errMarshal)})
 		return nil, nil, false

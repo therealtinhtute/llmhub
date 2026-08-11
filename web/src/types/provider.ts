@@ -78,4 +78,5 @@ export interface ProviderPreset {
   defaultApiKey?: string;
   verified: boolean;
   verifiedAt?: string;
+  category: 'free' | 'freeTier' | 'apikey';
 }

@@ -25,6 +25,7 @@ type Preset struct {
 	DefaultAPIKey string            `json:"default_api_key,omitempty"`
 	Verified      bool              `json:"verified"`
 	VerifiedAt    string            `json:"verified_at,omitempty"`
+	Category      string            `json:"category"`
 }
 
 var (

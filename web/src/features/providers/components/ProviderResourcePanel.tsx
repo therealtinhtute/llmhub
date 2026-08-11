@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import ampcodeLogo from '@/assets/icons/amp.svg';
+import opencodeLogo from '@/assets/icons/opencode-light.svg';
+import openrouterLogo from '@/assets/icons/openrouter-light.svg';
 import claudeLogo from '@/assets/icons/claude.svg';
 import codexLogo from '@/assets/icons/codex.svg';
 import geminiLogo from '@/assets/icons/gemini.svg';
@@ -21,7 +22,8 @@ const LOGOS: Record<ProviderBrand, { src: string; invertOnDark?: boolean }> = {
   codex: { src: codexLogo },
   vertex: { src: vertexLogo },
   openaiCompatibility: { src: openaiLogo, invertOnDark: true },
-  ampcode: { src: ampcodeLogo },
+  openrouter: { src: openrouterLogo },
+  opencode: { src: opencodeLogo },
 };
 
 export interface OpenAIPanelControls {
@@ -68,7 +70,7 @@ export function ProviderResourcePanel({
   const { t } = useTranslation();
   const logo = LOGOS[group.id];
 
-  const realResources = filteredResources.filter((r) => !r.flags.isPlaceholder);
+  const realResources = filteredResources;
 
   return (
     <section className="bg-background border border-border shadow p-5 min-w-0 flex flex-col gap-4">
@@ -89,20 +91,18 @@ export function ProviderResourcePanel({
               </h2>
             </div>
           </div>
-          {group.id !== 'ampcode' ? (
-            <div className="relative min-w-0 md:w-[280px]">
-              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground pointer-events-none inline-flex" aria-hidden="true">
-                <IconSearch size={14} />
-              </span>
-              <input
-                type="search"
-                className="w-full h-9 pl-9 pr-3 border border-border bg-background text-foreground text-[13px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary"
-                value={filter}
-                onChange={(event) => onFilterChange(event.target.value)}
-                placeholder={t('providersPage.table.filterPlaceholder')}
-              />
-            </div>
-          ) : null}
+          <div className="relative min-w-0 md:w-[280px]">
+            <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground pointer-events-none inline-flex" aria-hidden="true">
+              <IconSearch size={14} />
+            </span>
+            <input
+              type="search"
+              className="w-full h-9 pl-9 pr-3 border border-border bg-background text-foreground text-[13px] box-border placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-primary"
+              value={filter}
+              onChange={(event) => onFilterChange(event.target.value)}
+              placeholder={t('providersPage.table.filterPlaceholder')}
+            />
+          </div>
         </div>
         {openaiControls ? (
           <div className="flex justify-end items-center flex-wrap gap-2">
@@ -129,7 +129,7 @@ export function ProviderResourcePanel({
         </div>
       ) : null}
 
-      {realResources.length === 0 && group.id !== 'ampcode' ? (
+      {realResources.length === 0 ? (
         <div className="border border-dashed border-border p-8 text-center text-muted-foreground text-[13px]">
           <div>{t('providersPage.table.empty')}</div>
           <div className="mt-3">

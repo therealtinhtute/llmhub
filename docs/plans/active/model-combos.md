@@ -300,7 +300,7 @@ behavior change) and safe to keep even if later waves are reverted.
 - planning_status: planned
 
 ### Phase: model-combos
-- story_id: `01KZB3A8AG44JTXJR1928ZTYAG`
+- story_id: `01KZBJ2FG81HM1BAM951HK1SKQ`
 - goal: Ship cross-provider model combos: named virtual models resolving to an ordered
   provider/model candidate list with fallback/round-robin rotation, sitting above
   `Manager.ExecuteStream` with no new executor.
@@ -413,7 +413,17 @@ skip or re-ask per the established pattern if attempted).
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- none
+- 2026-08-06 · to-plan · story row created, replacing a ghost ID · this doc's `## Approach and Risks`
+  and `## Phases and Verification` were already complete — one phase, five waves, fifteen tasks, a
+  check per task — but its `story_id` `01KZB3A8AG44JTXJR1928ZTYAG` was minted with `zharness id`,
+  which is explicitly non-mutating, and `zharness story` was never invoked. No changeset and no DB
+  row ever existed for it, which is why `## Current State` still read `lifecycle_status:
+  not-planned` while everything above it was planned. Same root cause diagnosed in
+  `docs/plans/done/error-classification.md` — see that doc for the full evidence. The real row is
+  `01KZBJ2FG81HM1BAM951HK1SKQ`, created with `zharness story --slug model-combos`. Phase definitions
+  and wave/task content are carried over untouched per the to-plan immutability rule; only the story
+  ID and the `## Current State` block changed. `depends_on` stays `none` as written — Plan A
+  (`error-classification`) is a soft dependency and is already `done`.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -421,11 +431,18 @@ skip or re-ask per the established pattern if attempted).
 
 ## Current State and Next Action
 - active_phase: none
-- lifecycle_status: not-planned
+- lifecycle_status: planned
 - latest_run_id: none
 - latest_trace_ids: []
 - latest_check_id: none
 - latest_handoff_id: none
 - blockers: none
-- open_items: [to-plan must define stable phases, stories, waves, tasks, and checks]
-- exact_next_action: to-plan
+- open_items:
+  - Wave 1's gate test is a hard blocker. If `streamBootstrapError` turns out to be reachable after
+    bytes have been flushed, stop and re-scope per `## Load-bearing assumption` — do not build
+    Waves 2-5 on top of it.
+  - Task 5.2's browser check may hit the same Postgres/live-DB constraint that blocked the
+    `provider-presets` phase; follow that plan's established substitute-proof precedent rather than
+    inventing a new one.
+- exact_next_action: work full model-combos (after provider-grid-console, or in parallel — they
+  share no surface)

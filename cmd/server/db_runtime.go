@@ -257,6 +257,10 @@ func loadRuntimeConfigFromPostgres(ctx context.Context) (*store.PostgresStore, *
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	if err := pgStore.EnsureSchema(ctx); err != nil {
+		_ = pgStore.Close()
+		return nil, nil, 0, fmt.Errorf("ensure postgres schema: %w", err)
+	}
 	snapshot, err := pgStore.LoadConfig(ctx)
 	if err != nil {
 		if err == sql.ErrNoRows {

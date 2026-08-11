@@ -12,6 +12,7 @@ import { MainRoutes } from '@/router/MainRoutes';
 import {
   IconSidebarApiKeys,
   IconSidebarAuthFiles,
+  IconSidebarCombos,
   IconSidebarConfig,
   IconSidebarDashboard,
   IconSidebarLogs,
@@ -63,6 +64,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   authFiles: <IconSidebarAuthFiles size={18} />,
   apiKeys: <IconSidebarApiKeys size={18} />,
   models: <IconSidebarModels size={18} />,
+  combos: <IconSidebarCombos size={18} />,
   quota: <IconSidebarQuota size={18} />,
   config: <IconSidebarConfig size={18} />,
   logs: <IconSidebarLogs size={18} />,
@@ -218,6 +220,7 @@ export function MainLayout() {
         { path: '/auth-files', labelKey: 'nav.auth_files', metaKey: 'nav_meta.auth_files', icon: sidebarIcons.authFiles },
         { path: '/api-keys', labelKey: 'nav.api_keys', metaKey: 'nav_meta.api_keys', icon: sidebarIcons.apiKeys },
         { path: '/models', labelKey: 'nav.models', metaKey: 'nav_meta.models', icon: sidebarIcons.models },
+        { path: '/combos', labelKey: 'nav.combos', metaKey: 'nav_meta.combos', icon: sidebarIcons.combos },
       ],
     },
     {

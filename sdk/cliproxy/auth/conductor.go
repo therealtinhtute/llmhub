@@ -197,6 +197,10 @@ type Manager struct {
 	// It is initialized in NewManager; never Load() before first Store().
 	runtimeConfig atomic.Value
 
+	// comboResolver resolves combo names to candidate lists; combos and rotation
+	// cursor state are (re)built from the runtime config.
+	comboResolver *ComboResolver
+
 	// Optional HTTP RoundTripper provider injected by host.
 	rtProvider RoundTripperProvider
 
@@ -229,6 +233,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		providerOffsets:       make(map[string]int),
 		modelPoolOffsets:      make(map[string]int),
 	}
+	manager.comboResolver = NewComboResolver()
 	// atomic.Value requires non-nil initial value.
 	manager.runtimeConfig.Store(&internalconfig.Config{})
 	manager.apiKeyModelAlias.Store(apiKeyModelAliasTable(nil))
@@ -626,6 +631,34 @@ func (m *Manager) cooldownStateSnapshot(now time.Time) []CooldownStateRecord {
 	return records
 }
 
+// EarliestComboReset returns the earliest NextRetryAfter among current cooldown
+// records matching any of the candidates' provider/model pairs, when that reset
+// is after now.
+func (m *Manager) EarliestComboReset(candidates []ComboCandidate, now time.Time) (time.Time, bool) {
+	if m == nil || len(candidates) == 0 {
+		return time.Time{}, false
+	}
+	var earliest time.Time
+	found := false
+	for _, record := range m.cooldownStateSnapshot(now) {
+		matches := false
+		for _, candidate := range candidates {
+			if strings.EqualFold(record.Provider, candidate.Provider) && (record.Model == "" || record.Model == candidate.Model) {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		if !found || record.NextRetryAfter.Before(earliest) {
+			earliest = record.NextRetryAfter
+			found = true
+		}
+	}
+	return earliest, found
+}
+
 func cooldownAuthRestorable(auth *Auth, now time.Time) bool {
 	return auth != nil && len(auth.ModelStates) == 0 && auth.Unavailable && auth.NextRetryAfter.After(now)
 }
@@ -723,6 +756,19 @@ func (m *Manager) SetConfig(cfg *internalconfig.Config) {
 		m.homeSessionAliases.clear()
 	}
 	m.rebuildAPIKeyModelAliasFromRuntimeConfig()
+	// Rebuild combo definitions and clear rotation cursors on every config
+	// change, including the watcher's debounced reload.
+	if m.comboResolver != nil {
+		m.comboResolver.SetCombos(cfg.Combos)
+	}
+}
+
+// ComboResolver returns the manager's combo resolver.
+func (m *Manager) ComboResolver() *ComboResolver {
+	if m == nil {
+		return nil
+	}
+	return m.comboResolver
 }
 
 // HomeEnabled reports whether the home control plane integration is enabled in the runtime config.

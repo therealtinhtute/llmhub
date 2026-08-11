@@ -1,6 +1,7 @@
 import { Navigate, useRoutes, type Location } from 'react-router-dom';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ProvidersWorkbenchPage } from '@/features/providers/ProvidersWorkbenchPage';
+import { CombosPage } from '@/features/combos/CombosPage';
 import { AuthFilesPage } from '@/pages/AuthFilesPage';
 import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEditPage';
 import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAliasEditPage';
@@ -27,6 +28,7 @@ const mainRoutes = [
     element: <Navigate to="/ai-providers?entry=oauth:anthropic" replace />,
   },
   { path: '/models', element: <ModelsPage /> },
+  { path: '/combos', element: <CombosPage /> },
   { path: '/quota', element: <QuotaPage /> },
   { path: '/quota/monitoring', element: <QuotaMonitoringPage /> },
   { path: '/config', element: <ConfigPage /> },

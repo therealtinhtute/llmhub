@@ -467,6 +467,33 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 	}
 }
 
+// comboModelsClientID is the registry client id under which combo virtual models are registered.
+const comboModelsClientID = "llmhub-combos"
+
+// registerComboModels (re)registers combo names as client-visible models so /v1/models lists
+// them and clients can select them. Combo models are virtual: they are never routed as ordinary
+// models themselves (config validation rejects candidates that are combo names).
+func (s *Service) registerComboModels(cfg *config.Config) {
+	if s == nil {
+		return
+	}
+	GlobalModelRegistry().UnregisterClient(comboModelsClientID)
+	if cfg == nil || len(cfg.Combos) == 0 {
+		return
+	}
+	models := make([]*ModelInfo, 0, len(cfg.Combos))
+	for _, combo := range cfg.Combos {
+		models = append(models, &ModelInfo{
+			ID:          combo.Name,
+			Object:      "model",
+			OwnedBy:     "combo",
+			Type:        "combo",
+			DisplayName: combo.Name,
+		})
+	}
+	GlobalModelRegistry().RegisterClient(comboModelsClientID, "combo", models)
+}
+
 func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, providerKey string, models []*ModelInfo) {
 	if a == nil || a.ID == "" {
 		return
@@ -595,6 +622,7 @@ func (s *Service) applyConfigUpdate(newCfg *config.Config) {
 	if newCfg.Home.Enabled {
 		s.registerHomeExecutors()
 	}
+	s.registerComboModels(newCfg)
 	s.rebindExecutors()
 }
 

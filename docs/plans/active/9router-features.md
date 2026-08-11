@@ -15,8 +15,8 @@ provider inventory.
 |---|---|---|---|---|
 | **A** — Unified error classification | [`error-classification.md`](../done/error-classification.md) | S | yes | done |
 | **B+C** — Preset catalog (opencode, openrouter, nvidia), passthrough | [`provider-presets.md`](../done/provider-presets.md) | S | yes | done (shipped to master) |
-| **D** — Model combos (cross-provider fallback) | [`model-combos.md`](model-combos.md) | L | yes | planned |
-| **F** — Unified provider console (category grid + sheet) | [`unified-provider-console.md`](unified-provider-console.md) | M | yes | planned |
+| **D** — Model combos (cross-provider fallback) | [`model-combos.md`](model-combos.md) | L | yes | in-progress |
+| **F** — Unified provider console (category grid + sheet) | [`unified-provider-console.md`](../done/unified-provider-console.md) | M | yes | done (merged to master, 2026-08-11) |
 
 Recommended order: **A → B+C → D**. **F** borrows only 9router's category taxonomy and card-grid
 presentation; it depends on B+C's preset catalog but not on D, and can run in parallel with D —

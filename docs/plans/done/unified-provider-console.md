@@ -3,9 +3,9 @@ id: 01KZB88NS7DXSHCAVWR3ZM77JQ
 type: plan
 intake_id: 01KZB88KH357MGHT267KSNHBB3
 lane: normal
-status: superseded
+status: done
 created: 2026-08-06
-updated: 2026-08-07
+updated: 2026-08-11
 ---
 
 # Unified provider console — category grid + sheet console
@@ -758,6 +758,7 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
 - 2026-08-07T02:49:36Z · phase provider-grid-console · wave 6 · task 6.3 · task_status=DONE · run_id: 01KZCYACW6NPX5Y93P57CQSV88 · touched: web/src/features/providers/entries.ts, web/src/features/providers/panels/AuthFileMiniTable.tsx · verify: Gemini OAuth matching accepts both runtime auth-file types (`gemini` and `gemini-cli`) for card counts and the mini-table; the static-review blocker is closed.
 - 2026-08-07T02:49:36Z · phase provider-grid-console · wave 6 complete · task 6.3 · task_status=DONE · run_id: 01KZCYACW6NPX5Y93P57CQSV88 · verify: `go test ./...`; `cd web && bun run type-check && bun run lint && bun run build`; `make build-web && make build`; and `git diff --check` passed; lint remained 0 errors / 8 baseline warnings. Real Postgres-backed browser proof passed: 5 labels in order, 15/15 non-empty sheets, `/oauth` redirect, OAuth close/reopen persistence, OpenRouter partition, preset prefill, API 2xx paths plus create/delete, dirty Back keep/discard, callback input reset after failure, degraded `/provider-presets`, and 15/15 logos under light and dark root states; browser console/runtime stayed clean.
 - 2026-08-07T04:25:27Z · phase provider-grid-console · post-gate remediation · task_status=DONE · run_id: 01KZCYACW6NPX5Y93P57CQSV88 · touched: internal/api/handlers/management/auth_files.go, web/src/features/authFiles/constants.ts, web/src/features/providers/entries.ts, web/src/features/providers/sheets/forms/BaseProviderForm.tsx · verify: static review closed the Gemini virtual-primary false health error and stale API-key-on-preset-switch regressions; `go test ./...`, `cd web && bun run type-check && bun run lint && bun run build`, `make build-web && make build`, and `git diff --check` passed; remediation commit `2e5f0c3f` pushed to `origin/feature/unified-provider-console`; PR #11 now points to the remediation tip.
+- 2026-08-11 · phase provider-grid-console · closing handoff · task_status=DONE · handoff_id: 01KZQE8519ATQMA99TEMXTQJ5A · PR #11 merged to master as `6d16365b` (merge commit, 2026-08-11); phase closed in zharness; this plan moves to `docs/plans/done/`. Next: Plan D (model-combos) execution.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -946,15 +947,14 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   `gemini-cli` runtime types.
 
 ## Current State and Next Action
-- active_phase: provider-grid-console
-- lifecycle_status: checked
+- active_phase: none
+- lifecycle_status: done
 - latest_run_id: 01KZCYACW6NPX5Y93P57CQSV88
 - latest_trace_ids: [01KZBKFMKJXC78031BT6C6QZEX, 01KZBM9XYN9Y6RFS8XXMX17VXQ, 01KZBMA1VHC7XZAKEZP3DJY6MZ, 01KZBPNV776QVN61DNYHZJFZ78, 01KZBQDA1VSZN57MWRD85JECZ9]
 - latest_check_id: 01KZD20XQMJG2WDDCPR7NZT1JD
-- latest_handoff_id: 01KZDTGAZNZMC6ATJ7JBASGVCV
-- blockers: PR #11 review and merge remain pending; implementation and verification are clean.
+- latest_handoff_id: 01KZQE8519ATQMA99TEMXTQJ5A
+- blockers: none — PR #11 merged to master (`6d16365b`, 2026-08-11); phase closed.
 - open_items:
-  - Await PR #11 review and merge.
   - Optionally run authenticated browser acceptance after reviewer feedback.
   - Rotate the previously exposed PGSTORE_DSN if the session output is not fully private.
   - The local Postgres dataset had no Gemini auth-file fixture; source matching accepts both `gemini` and `gemini-cli` runtime types.
@@ -962,4 +962,4 @@ the grid is still shippable without the `OAUTH LOGIN` section, since `buildEntri
   - `AuthFileMiniTable` intentionally overlaps `/auth-files` per `D1`.
   - No search/filter across 15 cards; deferred because the grid fits one screen.
   - Global "+New" opens the generic `openaiCompatibility` create flow; browser proof found it acceptable.
-- exact_next_action: monitor PR #11 review; after approval, merge it, then close the checked provider-grid-console phase.
+- exact_next_action: phase closed; execute Plan D (model-combos).

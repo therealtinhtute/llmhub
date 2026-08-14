@@ -3,20 +3,20 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(0.9743 0.0062 75.4070);
+  --background: oklch(0.9798 0.0045 78.2983);
   --foreground: oklch(0.1913 0 0);
   --card: oklch(1.0000 0 0);
   --card-foreground: oklch(0.1913 0 0);
   --popover: oklch(1.0000 0 0);
   --popover-foreground: oklch(0.1913 0 0);
   --primary: oklch(0.3917 0.0748 236.0547);
-  --primary-foreground: oklch(1.0000 0 0);
-  --secondary: oklch(0.9818 0.0054 95.0986);
+  --primary-foreground: oklch(0.9809 0.0025 228.7836);
+  --secondary: oklch(0.9798 0.0045 78.2983);
   --secondary-foreground: oklch(0.1913 0 0);
   --muted: oklch(0.9809 0.0025 228.7836);
   --muted-foreground: oklch(0.3867 0 0);
-  --accent: oklch(0.3917 0.0748 236.0547);
-  --accent-foreground: oklch(1.0000 0 0);
+  --accent: oklch(0.9175 0.0177 234.5132);
+  --accent-foreground: oklch(0.3917 0.0748 236.0547);
   --destructive: oklch(0.6266 0.2173 24.9380);
   --destructive-foreground: oklch(1.0000 0 0);
   --border: oklch(0.9219 0 0);
@@ -27,32 +27,32 @@
   --chart-3: oklch(0.8246 0.1611 77.2797);
   --chart-4: oklch(0.6177 0.2585 304.9426);
   --chart-5: oklch(0.6992 0.1871 22.1497);
-  --sidebar: oklch(0.9536 0.0091 78.2811);
+  --sidebar: oklch(1.0000 0 0);
   --sidebar-foreground: oklch(0.1913 0 0);
   --sidebar-primary: oklch(0.3917 0.0748 236.0547);
   --sidebar-primary-foreground: oklch(1.0000 0 0);
-  --sidebar-accent: oklch(0.9142 0.0092 78.2792);
-  --sidebar-accent-foreground: oklch(0.1913 0 0);
-  --sidebar-border: oklch(0.8982 0.0087 84.5745);
+  --sidebar-accent: oklch(0.9219 0 0);
+  --sidebar-accent-foreground: oklch(0.3917 0.0748 236.0547);
+  --sidebar-border: oklch(0.9219 0 0);
   --sidebar-ring: oklch(0.3917 0.0748 236.0547);
-  --font-sans: Bricolage Grotesque, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: Lora, ui-serif, serif;
-  --font-mono: Google Sans Code, ui-monospace, monospace;
-  --radius: 0.25rem;
+  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: IBM Plex Serif, ui-serif, serif;
+  --font-mono: Geist Mono, ui-monospace, monospace;
+  --radius: 0.275rem;
   --shadow-x: 0;
-  --shadow-y: 1px;
-  --shadow-blur: 3px;
-  --shadow-spread: 0px;
-  --shadow-opacity: 0.1;
+  --shadow-y: 0px;
+  --shadow-blur: 4px;
+  --shadow-spread: -1px;
+  --shadow-opacity: 0.05;
   --shadow-color: oklch(0 0 0);
-  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
-  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
-  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --shadow-2xs: 0 0px 4px -1px hsl(0 0% 0% / 0.03);
+  --shadow-xs: 0 0px 4px -1px hsl(0 0% 0% / 0.03);
+  --shadow-sm: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 1px 2px -2px hsl(0 0% 0% / 0.05);
+  --shadow: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 1px 2px -2px hsl(0 0% 0% / 0.05);
+  --shadow-md: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 2px 4px -2px hsl(0 0% 0% / 0.05);
+  --shadow-lg: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 4px 6px -2px hsl(0 0% 0% / 0.05);
+  --shadow-xl: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 8px 10px -2px hsl(0 0% 0% / 0.05);
+  --shadow-2xl: 0 0px 4px -1px hsl(0 0% 0% / 0.13);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 }
@@ -90,24 +90,24 @@
   --sidebar-accent-foreground: oklch(0.8074 0.0142 93.0137);
   --sidebar-border: oklch(0.9401 0 0);
   --sidebar-ring: oklch(0.7731 0 0);
-  --font-sans: Bricolage Grotesque, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: Lora, ui-serif, serif;
-  --font-mono: Google Sans Code, ui-monospace, monospace;
-  --radius: 0.25rem;
+  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: IBM Plex Serif, ui-serif, serif;
+  --font-mono: Geist Mono, ui-monospace, monospace;
+  --radius: 0.275rem;
   --shadow-x: 0;
-  --shadow-y: 1px;
-  --shadow-blur: 3px;
-  --shadow-spread: 0px;
-  --shadow-opacity: 0.1;
+  --shadow-y: 0px;
+  --shadow-blur: 4px;
+  --shadow-spread: -1px;
+  --shadow-opacity: 0.05;
   --shadow-color: oklch(0 0 0);
-  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
-  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
-  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --shadow-2xs: 0 0px 4px -1px hsl(0 0% 0% / 0.03);
+  --shadow-xs: 0 0px 4px -1px hsl(0 0% 0% / 0.03);
+  --shadow-sm: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 1px 2px -2px hsl(0 0% 0% / 0.05);
+  --shadow: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 1px 2px -2px hsl(0 0% 0% / 0.05);
+  --shadow-md: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 2px 4px -2px hsl(0 0% 0% / 0.05);
+  --shadow-lg: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 4px 6px -2px hsl(0 0% 0% / 0.05);
+  --shadow-xl: 0 0px 4px -1px hsl(0 0% 0% / 0.05), 0 8px 10px -2px hsl(0 0% 0% / 0.05);
+  --shadow-2xl: 0 0px 4px -1px hsl(0 0% 0% / 0.13);
 }
 
 @theme inline {
@@ -144,9 +144,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
-  --font-serif: var(--font-serif);
+  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-mono: Geist Mono, ui-monospace, monospace;
+  --font-serif: IBM Plex Serif, ui-serif, serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -161,6 +161,23 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
+  --tracking-tight: calc(var(--tracking-normal) - 0.025em);
+  --tracking-wide: calc(var(--tracking-normal) + 0.025em);
+  --tracking-wider: calc(var(--tracking-normal) + 0.05em);
+  --tracking-widest: calc(var(--tracking-normal) + 0.1em);
+  --tracking-normal: var(--tracking-normal);
+  --spacing: var(--spacing);
+  --shadow-spread: var(--shadow-spread);
+  --shadow-blur: var(--shadow-blur);
+  --shadow-opacity: var(--shadow-opacity);
+  --color-shadow-color: var(--shadow-color);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 @layer base {
@@ -169,5 +186,195 @@
   }
   body {
     @apply bg-background text-foreground;
+    letter-spacing: var(--tracking-normal);
+  }
+}
+
+/* Entrance/exit motion — Radix mounts these with data-state="open|closed" */
+@keyframes llmhub-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes llmhub-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes llmhub-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes llmhub-scale-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes llmhub-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes llmhub-slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+@keyframes llmhub-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes llmhub-slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+}
+@keyframes llmhub-slide-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes llmhub-slide-out-top {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+@keyframes llmhub-slide-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes llmhub-slide-out-bottom {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+[data-slot='dialog-overlay'][data-state='open'],
+[data-slot='alert-dialog-overlay'][data-state='open'] {
+  animation: llmhub-fade-in 200ms var(--ease-out);
+}
+[data-slot='dialog-overlay'][data-state='closed'],
+[data-slot='alert-dialog-overlay'][data-state='closed'] {
+  animation: llmhub-fade-out 150ms var(--ease-out);
+}
+[data-slot='dialog-content'][data-state='open'],
+[data-slot='alert-dialog-content'][data-state='open'] {
+  animation: llmhub-scale-in 200ms var(--ease-out);
+}
+[data-slot='dialog-content'][data-state='closed'],
+[data-slot='alert-dialog-content'][data-state='closed'] {
+  animation: llmhub-scale-out 150ms var(--ease-out);
+}
+
+[data-slot='sheet-overlay'][data-state='open'] {
+  animation: llmhub-fade-in 250ms var(--ease-out);
+}
+[data-slot='sheet-overlay'][data-state='closed'] {
+  animation: llmhub-fade-out 150ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='right'][data-state='open'] {
+  animation: llmhub-slide-in-right 250ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='right'][data-state='closed'] {
+  animation: llmhub-slide-out-right 200ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='left'][data-state='open'] {
+  animation: llmhub-slide-in-left 250ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='left'][data-state='closed'] {
+  animation: llmhub-slide-out-left 200ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='top'][data-state='open'] {
+  animation: llmhub-slide-in-top 250ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='top'][data-state='closed'] {
+  animation: llmhub-slide-out-top 200ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='bottom'][data-state='open'] {
+  animation: llmhub-slide-in-bottom 250ms var(--ease-out);
+}
+[data-slot='sheet-content'][data-side='bottom'][data-state='closed'] {
+  animation: llmhub-slide-out-bottom 200ms var(--ease-out);
+}
+
+[data-slot='dropdown-menu-content'][data-state='open'] {
+  animation: llmhub-scale-in 150ms var(--ease-out);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin, top left);
+}
+[data-slot='dropdown-menu-content'][data-state='closed'] {
+  animation: llmhub-fade-out 100ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='dialog-content'][data-state='open'],
+  [data-slot='alert-dialog-content'][data-state='open'],
+  [data-slot='sheet-content'][data-state='open'],
+  [data-slot='dropdown-menu-content'][data-state='open'] {
+    animation-name: llmhub-fade-in; /* opacity only — movement dropped */
+  }
+  [data-slot='dialog-content'][data-state='closed'],
+  [data-slot='alert-dialog-content'][data-state='closed'],
+  [data-slot='sheet-content'][data-state='closed'],
+  [data-slot='dropdown-menu-content'][data-state='closed'] {
+    animation-duration: 0s; /* unmount immediately */
   }
 }

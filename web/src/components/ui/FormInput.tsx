@@ -10,6 +10,8 @@ interface FormInputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 function FormInput({ label, hint, error, rightElement, className, id, ...rest }: FormInputProps) {
+  const errorId = error && id ? `${id}-error` : undefined;
+  const hintId = hint && !error && id ? `${id}-hint` : undefined;
   return (
     <div className="flex flex-col gap-1">
       {label ? (
@@ -22,14 +24,23 @@ function FormInput({ label, hint, error, rightElement, className, id, ...rest }:
           id={id}
           className={cn(error && 'border-destructive', rightElement && 'pr-9', className)}
           aria-invalid={error ? true : undefined}
+          aria-describedby={errorId ?? hintId}
           {...rest}
         />
         {rightElement ? (
           <div className="absolute right-2 top-1/2 -translate-y-1/2">{rightElement}</div>
         ) : null}
       </div>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      {hint && !error ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      {error ? (
+        <p id={errorId} className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {hint && !error ? (
+        <p id={hintId} className="text-xs text-muted-foreground">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

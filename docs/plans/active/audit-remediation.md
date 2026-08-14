@@ -5,7 +5,7 @@ intake_id: 01KZX15RZ91ETQKBZC90E6PNA5
 lane: normal
 status: active
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-14
 ---
 
 # Plan: Audit finding remediation
@@ -255,10 +255,10 @@ updated: 2026-08-13
 ## Current State and Next Action
 - active_phase: none
 - lifecycle_status: not-planned
-- latest_run_id: none
+- latest_run_id: 01KZQECHTHRSTB3HR6BX1ZNG4V
 - latest_trace_ids: []
-- latest_check_id: none
-- latest_handoff_id: none
+- latest_check_id: 01KZQGC2B48X980V59RBK39QPS
+- latest_handoff_id: 01KZZPXFYGZJWPYGJSTY4WWRAJ
 - blockers: none
-- open_items: [to-plan must define stable phases, stories, waves, tasks, and checks]
-- exact_next_action: to-plan
+- open_items: [commit pending web UI batch on master (13 modified files under web/ + untracked animation-plans/ and .claude/skills/web-quality-audit) via check + git; then work phases combo-startup-discovery, credential-file-hardening, watcher-reconciliation-isolation, remediation-verification-gate (final)]
+- exact_next_action: run check on the pending web UI batch, commit it, then work full phase combo-startup-discovery

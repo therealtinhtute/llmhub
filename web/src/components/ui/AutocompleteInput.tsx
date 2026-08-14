@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { IconChevronDown } from './icons';
 import { Input } from './Input';
 import { cn } from '@/lib/utils';
@@ -37,6 +37,9 @@ export function AutocompleteInput({
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
+  const errorId = error && id ? `${id}-error` : undefined;
+  const hintId = hint && !error && id ? `${id}-hint` : undefined;
 
   const normalizedOptions = options.map((opt) =>
     typeof opt === 'string'
@@ -121,6 +124,17 @@ export function AutocompleteInput({
           placeholder={placeholder}
           disabled={disabled}
           autoComplete="off"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            isOpen && highlightedIndex >= 0
+              ? `${listboxId}-option-${highlightedIndex}`
+              : undefined
+          }
+          aria-invalid={error ? true : undefined}
+          aria-describedby={errorId ?? hintId}
         />
         <div
           className={cn(
@@ -134,10 +148,17 @@ export function AutocompleteInput({
         </div>
 
         {isOpen && filteredOptions.length > 0 && !disabled && (
-          <div className="absolute top-[calc(100%+4px)] left-0 right-0 z-50 max-h-[200px] overflow-y-auto border border-border bg-popover shadow-md">
+          <div
+            id={listboxId}
+            role="listbox"
+            className="absolute top-[calc(100%+4px)] left-0 right-0 z-50 max-h-[200px] overflow-y-auto border border-border bg-popover shadow-md"
+          >
             {filteredOptions.map((opt, index) => (
               <div
                 key={`${opt.value}-${index}`}
+                id={`${listboxId}-option-${index}`}
+                role="option"
+                aria-selected={index === highlightedIndex}
                 onClick={() => handleSelect(opt.value)}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 className={cn(
@@ -154,8 +175,16 @@ export function AutocompleteInput({
           </div>
         )}
       </div>
-      {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
-      {error && <div className="text-xs text-destructive">{error}</div>}
+      {hint && (
+        <div id={hintId} className="text-xs text-muted-foreground">
+          {hint}
+        </div>
+      )}
+      {error && (
+        <div id={errorId} className="text-xs text-destructive">
+          {error}
+        </div>
+      )}
     </div>
   );
 }

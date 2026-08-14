@@ -72,7 +72,7 @@ export const quotaStyles = {
   quotaCardTabsList:
     'flex w-full justify-start gap-0 border-b border-border bg-transparent p-0 overflow-x-auto',
   quotaCardTabsTrigger:
-    'min-h-[28px] px-2 py-1 gap-1.5 text-[11px] font-semibold text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground',
+    'min-h-[28px] px-2 py-1 gap-1.5 text-[11px] font-semibold text-muted-foreground border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground',
   quotaCardTabsContent: 'flex flex-col gap-2 pt-1',
   quotaCardActionRow: 'flex justify-end pt-1',
 

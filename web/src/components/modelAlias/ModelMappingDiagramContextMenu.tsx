@@ -37,37 +37,50 @@ export function DiagramContextMenu({
         onRequestClose();
       }
     };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onRequestClose();
+      }
+    };
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    // Move focus into the menu so keyboard users can operate it immediately
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [contextMenu, onRequestClose]);
 
   if (!contextMenu) return null;
 
   const { type, data } = contextMenu;
 
-  const menuItemCls = 'px-3 py-2 text-[13px] text-foreground cursor-pointer flex items-center gap-2 hover:bg-muted';
-  const menuItemDangerCls = 'px-3 py-2 text-[13px] text-destructive cursor-pointer flex items-center gap-2 hover:bg-destructive/10';
+  const menuItemCls =
+    'block w-full px-3 py-2 text-left text-[13px] text-foreground cursor-pointer flex items-center gap-2 hover:bg-muted';
+  const menuItemDangerCls =
+    'block w-full px-3 py-2 text-left text-[13px] text-destructive cursor-pointer flex items-center gap-2 hover:bg-destructive/10';
 
   const renderBackground = () => (
-    <div className={menuItemCls} onClick={onAddAlias}>
+    <button type="button" className={menuItemCls} onClick={onAddAlias}>
       <span>{t('oauth_model_alias.diagram_add_alias')}</span>
-    </div>
+    </button>
   );
 
   const renderAlias = () => {
     if (!data) return null;
     return (
       <>
-        <div className={menuItemCls} onClick={() => onRenameAlias(data)}>
+        <button type="button" className={menuItemCls} onClick={() => onRenameAlias(data)}>
           <span>{t('oauth_model_alias.diagram_rename')}</span>
-        </div>
-        <div className={menuItemCls} onClick={() => onOpenAliasSettings(data)}>
+        </button>
+        <button type="button" className={menuItemCls} onClick={() => onOpenAliasSettings(data)}>
           <span>{t('oauth_model_alias.diagram_settings')}</span>
-        </div>
+        </button>
         <div className="h-px my-1 bg-border pointer-events-none" />
-        <div className={menuItemDangerCls} onClick={() => onDeleteAlias(data)}>
+        <button type="button" className={menuItemDangerCls} onClick={() => onDeleteAlias(data)}>
           <span>{t('oauth_model_alias.diagram_delete_alias')}</span>
-        </div>
+        </button>
       </>
     );
   };
@@ -76,13 +89,13 @@ export function DiagramContextMenu({
     if (!data) return null;
     return (
       <>
-        <div className={menuItemCls} onClick={() => onEditProvider(data)}>
+        <button type="button" className={menuItemCls} onClick={() => onEditProvider(data)}>
           <span>{t('common.edit')}</span>
-        </div>
+        </button>
         <div className="h-px my-1 bg-border pointer-events-none" />
-        <div className={menuItemDangerCls} onClick={() => onDeleteProvider(data)}>
+        <button type="button" className={menuItemDangerCls} onClick={() => onDeleteProvider(data)}>
           <span>{t('oauth_model_alias.delete')}</span>
-        </div>
+        </button>
       </>
     );
   };
@@ -90,9 +103,9 @@ export function DiagramContextMenu({
   const renderSource = () => {
     if (!data) return null;
     return (
-      <div className={menuItemCls} onClick={() => onOpenSourceSettings(data)}>
+      <button type="button" className={menuItemCls} onClick={() => onOpenSourceSettings(data)}>
         <span>{t('oauth_model_alias.diagram_settings')}</span>
-      </div>
+      </button>
     );
   };
 

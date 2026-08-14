@@ -465,13 +465,13 @@ export function LogsPage() {
         <TabsList className="flex gap-0 p-0 border-b border-border bg-transparent">
           <TabsTrigger
             value="logs"
-            className="text-muted-foreground px-5 py-3 text-sm font-medium border-b-2 border-transparent -mb-px data-[state=active]:border-foreground data-[state=active]:text-foreground hover:text-foreground max-[820px]:px-4 max-[820px]:py-[10px] max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]"
+            className="text-muted-foreground px-5 py-3 text-sm font-medium border-b-4 border-transparent -mb-[3px] data-[state=active]:border-foreground data-[state=active]:text-foreground hover:text-foreground max-[820px]:px-4 max-[820px]:py-[10px] max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]"
           >
             {t('logs.log_content')}
           </TabsTrigger>
           <TabsTrigger
             value="errors"
-            className="text-muted-foreground px-5 py-3 text-sm font-medium border-b-2 border-transparent -mb-px data-[state=active]:border-foreground data-[state=active]:text-foreground hover:text-foreground max-[820px]:px-4 max-[820px]:py-[10px] max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]"
+            className="text-muted-foreground px-5 py-3 text-sm font-medium border-b-4 border-transparent -mb-[3px] data-[state=active]:border-foreground data-[state=active]:text-foreground hover:text-foreground max-[820px]:px-4 max-[820px]:py-[10px] max-[600px]:px-3 max-[600px]:py-2 max-[600px]:text-[13px]"
           >
             {t('logs.error_logs_modal_title')}
           </TabsTrigger>

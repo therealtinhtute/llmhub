@@ -582,10 +582,10 @@ export function AuthFilesPage() {
               setPage(1);
             }}
           >
-            <TabsList className="flex justify-start items-start gap-0 p-0 border-b border-border bg-transparent overflow-x-auto max-w-full">
+            <TabsList className="flex justify-start items-start gap-0 p-0 border-b border-border bg-transparent overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-w-full">
               <TabsTrigger
                 value="all"
-                className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
               >
                 <span className="inline-flex items-center gap-1.5">
                   <IconFilterAll data-icon="inline-start" />
@@ -601,7 +601,7 @@ export function AuthFilesPage() {
                 <TabsTrigger
                   key={type}
                   value={type}
-                  className="min-h-[32px] px-3 py-1 gap-1.5 text-muted-foreground border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                  className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
                 >
                   <span className="inline-flex items-center gap-1.5">
                     {iconSrc ? (

@@ -307,7 +307,7 @@ export function VisualConfigEditor({
       onValueChange={(value) => setActiveSectionId(value as VisualSectionId)}
     >
       <div className="flex flex-col gap-2">
-        <TabsList className="flex flex-row justify-start overflow-x-auto gap-0 p-0 min-w-0 border-b border-border bg-transparent">
+        <TabsList className="flex flex-row justify-start overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden gap-0 p-0 min-w-0 border-b border-border bg-transparent">
           {sections.map((section) => {
             const Icon = section.icon;
 
@@ -315,7 +315,7 @@ export function VisualConfigEditor({
               <TabsTrigger
                 key={section.id}
                 value={section.id}
-                className="gap-[8px] flex-none min-h-[36px] px-[10px] py-[6px] justify-start border-b-2 border-transparent -mb-px text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                className="gap-[8px] flex-none px-[10px] justify-start border-b-4 border-transparent text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
               >
                 <span className="inline-flex items-center justify-center w-4 flex-none">
                   <Icon size={14} />

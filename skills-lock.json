@@ -32,6 +32,12 @@
       "sourceType": "github",
       "skillPath": "skills/shadcn/SKILL.md",
       "computedHash": "ac9d0d69caac7de1d1e5647f3db3bcd2f13af355d6b3a78780fbf7fc80e8dca0"
+    },
+    "web-quality-audit": {
+      "source": "addyosmani/web-quality-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-quality-audit/SKILL.md",
+      "computedHash": "48e90790e9269d46c6471bbc61d109db05bdc2ef834734dff21c039880934e9b"
     }
   }
 }

@@ -32,6 +32,17 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+binary_signs:
+  - id: "minisign"
+    artifacts: binary
+    signature: "${artifact}.minisig"
+    cmd: ./scripts/sign-release-asset.sh
+    args:
+      - --artifact
+      - "${artifact}"
+      - --signature
+      - "${signature}"
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 

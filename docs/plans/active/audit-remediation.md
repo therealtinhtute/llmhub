@@ -242,11 +242,11 @@ updated: 2026-08-14
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
-- none
+- 2026-08-14 / audit-remediation / step 1 / task_status=superseded / run_id=none / trace_id=none: the referenced pending web UI batch was absent on clean `master`; no `/check`-and-commit target existed, and no empty or synthetic commit was created.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- none
+- 2026-08-14 / audit-remediation / step 1: superseded the stale pending-web-UI commit action. Rationale: clean `master` contained no referenced batch; fabricate-free scope requires continuing with the actual remediation phases instead.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -260,5 +260,5 @@ updated: 2026-08-14
 - latest_check_id: 01KZQGC2B48X980V59RBK39QPS
 - latest_handoff_id: 01KZZPXFYGZJWPYGJSTY4WWRAJ
 - blockers: none
-- open_items: [commit pending web UI batch on master (13 modified files under web/ + untracked animation-plans/ and .claude/skills/web-quality-audit) via check + git; then work phases combo-startup-discovery, credential-file-hardening, watcher-reconciliation-isolation, remediation-verification-gate (final)]
-- exact_next_action: run check on the pending web UI batch, commit it, then work full phase combo-startup-discovery
+- open_items: [step 1 superseded — no referenced pending web UI batch existed on clean master; work phases combo-startup-discovery, credential-file-hardening, watcher-reconciliation-isolation, remediation-verification-gate (final)]
+- exact_next_action: step 1 superseded; do not create an empty or synthetic commit; continue with phase combo-startup-discovery

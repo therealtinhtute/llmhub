@@ -5,418 +5,411 @@ intake_id: 01KZZVZVDSKW58XYPNR1NK44V7
 lane: high-risk
 status: active
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-08-15
 ---
 
-# Plan: Secure binary self-update
+# Plan: Panel-triggered binary self-update
 
 ## Outcome
-- result: LLMHub release binaries can be checked, cryptographically verified, staged, and replaced through an explicit operator-run CLI command without requiring Postgres startup, mutating the binary during normal server startup, or trusting GitHub-hosted checksums alone.
+- result: An operator updates a running LLMHub VPS deployment by pressing a button in the management panel. The unprivileged server downloads and stages a checksum-verified release binary; a root-run `ExecStartPre` step independently re-verifies it against GitHub's checksum manifest and swaps it in at restart, retaining one previous binary for recovery.
 - success_signals:
-  - `llmhub version --short`, `llmhub update --check`, `llmhub update`, and `llmhub update rollback` dispatch before runtime configuration or database loading and return deterministic exit codes.
+  - `llmhub version --short`, `llmhub update --check`, `llmhub update`, and `llmhub update rollback` dispatch before runtime configuration or Postgres loading and return deterministic exit codes.
   - A supported Linux or macOS release binary discovers the latest stable GitHub Release, selects the exact existing `llmhub-{os}-{arch}` asset, refuses malformed versions and downgrades, and reports an already-current version without modifying disk state.
-  - Every candidate is downloaded through bounded HTTPS requests, matched against the existing GoReleaser SHA-256 checksum manifest, verified with a detached minisign signature and an embedded trusted public key, and rejected before execution or replacement when any check fails.
-  - A verified candidate passes a side-effect-free staged self-test before `minio/selfupdate` replaces the resolved executable target, preserves executable mode, and retains one same-filesystem previous binary for recovery.
-  - Failed permission checks, downloads, checksum/signature checks, candidate probes, and apply operations leave the installed target unchanged or restore it; any rollback failure reports the exact surviving recovery path.
-  - The updater never restarts systemd, performs database work, elevates privileges, or runs periodically; the operator receives an explicit restart instruction after a successful update.
-  - The release workflow publishes checksums plus one minisign sidecar per binary from a protected signing environment, and local snapshot verification proves the complete asset set before a tagged release.
-  - Focused updater tests, repository Go tests, vet, release configuration validation, snapshot release build, frontend embed build, backend build, and diff hygiene checks pass.
+  - Every candidate is downloaded through bounded HTTPS requests, matched against exactly one well-formed SHA-256 entry in the GoReleaser `checksums.txt` manifest, and rejected before staging when any check fails.
+  - A verified candidate passes a bounded sanitized `version --short` probe, then is written to a staging directory inside `ReadWritePaths` without touching the installed target.
+  - `llmhub apply-staged-update`, run as root by `ExecStartPre=+` before the service starts, re-fetches `checksums.txt` over HTTPS itself, re-hashes the staged binary, refuses a version not newer than the installed one, installs preserving mode 0755 root ownership, and retains `<target>.previous`.
+  - An update whose new binary fails to reach a successful server start is reverted automatically to `<target>.previous` on the next start attempt, so a bad release cannot produce an unbounded restart loop.
+  - The management panel exposes check and update actions behind the existing management-key auth; the update action stages, then triggers exactly one narrowly scoped `systemctl restart llmhub.service` through a wildcard-free sudoers rule.
+  - The server process never writes `/usr/local/bin`, never runs migrations as part of an update, and never elevates privileges beyond that single restart invocation.
+  - `make download-latest` and `make install-latest` no longer fetch or replace release binaries; both fail with an explicit deprecation result directing operators to the panel or `llmhub update`.
+  - The release workflow creates a draft, verifies the complete binary and checksum asset matrix from the remote draft, and publishes only after verification.
+  - Focused updater tests, `go test ./...`, `go vet ./...`, release configuration validation, snapshot release build, frontend embed build, backend build, and diff hygiene checks pass.
 
 ## Authority and Requirements
 - authority:
-  - Owner instruction on 2026-08-14 approved GitHub Releases, an explicit update command, SHA-256 plus minisign verification, staged candidate validation, one retained backup, and no startup/background mutation for the first implementation.
-  - `github.com/minio/selfupdate` v0.6.0 public API and source behavior: `Options.CheckPermissions`, `Apply`, `RollbackError`, checksum verification, minisign `Verifier`, target-mode handling, sibling `.new`/`.old` replacement, and caller-controlled `OldSavePath`.
-  - GitHub Releases latest-release API and immutable-release model for public release metadata and asset hosting.
-  - `cmd/server/main.go`, `cmd/server/db_runtime.go`, and `internal/buildinfo/buildinfo.go`: current early positional command dispatch and linker-injected version metadata.
-  - `internal/api/handlers/management/config_basic.go`: current GitHub latest-release URL, timeout, user agent, and notification-only management behavior.
-  - `.goreleaser.yml`, `.github/workflows/release.yml`, and `Makefile`: current release tag validation, existing bare-binary asset names, SHA-256 `checksums.txt`, build metadata injection, snapshot gate, and GitHub release automation.
-  - `scripts/install-local.sh`: `/usr/local/bin` installation, root-owned update boundary, restricted `llmhub` service user, `ProtectSystem=full`, and explicit systemd restart lifecycle.
-  - Repository `CLAUDE.md`: minimal surgical changes, Postgres-only runtime configuration, no frontend test files under `web/`, and proof through Go, frontend, and build checks.
+  - Owner decision on 2026-08-15 selected checksum-only verification over minisign signing, one-click panel update with automatic restart, and systemd deployment through `scripts/install-local.sh`.
+  - `scripts/install-local.sh:378` (`install -m 0755` into `/usr/local/bin`), `:430-442` (`User=`, `NoNewPrivileges=true`, `ProtectSystem=full`, `ReadWritePaths=${DATA_DIR} ${LOG_DIR} ${CONFIG_DIR}`): the running service cannot write its own binary, which forces the stage-then-privileged-apply split.
+  - systemd `ExecStartPre=+` prefix: runs the listed command with full privileges, ignoring `User=`, and runs after the old process has stopped during `systemctl restart`, so the installed binary is not busy at swap time.
+  - `cmd/server/main.go`, `cmd/server/db_runtime.go`, `internal/buildinfo/buildinfo.go`: current early positional command dispatch and linker-injected version metadata.
+  - `internal/api/handlers/management/config_basic.go:21,39` and `internal/api/server.go:662`: existing `GET /v0/management/latest-version` handler and its GitHub latest-release URL, timeout, and user agent.
+  - `web/src/pages/SystemPage.tsx:232` `handleVersionCheck` and `web/src/services/api/version.ts:8`: the existing panel version-check button that this plan extends rather than replaces.
+  - `.goreleaser.yml`, `.github/workflows/release.yml`, `Makefile`: current release tag validation, bare-binary asset names, SHA-256 `checksums.txt`, build metadata injection, and snapshot gate.
+  - Repository `CLAUDE.md` and `web/CLAUDE.md`: minimal surgical changes, Postgres-only runtime configuration, no frontend test files under `web/`, i18n keys in both `en.json` and `vi.json`.
 - requirements:
-  - R1 [accepted]: Add clean `version` and self-update positional commands that dispatch before the unconditional startup banner, flag parsing for server mode, Postgres loading, configuration access, or service startup. | source: owner-approved trigger policy; `cmd/server/main.go`; `cmd/server/db_runtime.go`.
-  - R2 [accepted]: Reuse `internal/buildinfo` and existing linker flags as the only current-version authority; `version --short` must emit a normalized machine-readable release version with no extra banner or logging. | source: `internal/buildinfo/buildinfo.go`; `.goreleaser.yml`; `Makefile`.
-  - R3 [accepted]: Use the public GitHub Releases latest endpoint and existing `llmhub-{os}-{arch}[.exe]` naming, require an exact supported asset match, and treat all remote metadata, names, sizes, URLs, and bodies as untrusted input. | source: `internal/api/handlers/management/config_basic.go`; `.goreleaser.yml`; owner-approved hosting decision.
-  - R4 [accepted]: Validate normalized semantic versions, refuse malformed current/latest versions, refuse downgrades and same-version replacement, and exclude draft/prerelease behavior from the first stable channel. Development binaries must not silently replace themselves. | source: owner-approved stable-channel and anti-downgrade behavior; existing SemVer tag gate in `Makefile`.
-  - R5 [accepted]: All release metadata, checksum, signature, and binary requests must use HTTPS, explicit context/timeout handling, status checks, response-size limits, and deterministic cleanup; any network failure must occur before executable replacement. | source: owner-approved failure behavior; current bounded latest-version handler; `minio/selfupdate` reader behavior.
-  - R6 [accepted]: Verify the downloaded binary against its raw SHA-256 digest from the existing `checksums.txt`, requiring exactly one well-formed checksum entry for the selected asset. A checksum mismatch must leave the target unchanged. | source: existing `.goreleaser.yml` checksum asset; owner-approved integrity requirement.
-  - R7 [accepted]: Verify a detached per-binary minisign signature against trusted public-key text embedded in the released binary before staging or executing the candidate, and pass the same verifier to `selfupdate.Apply` for commit-time re-verification. Runtime key download and trust-on-first-use are forbidden. | source: owner-approved authenticity boundary; `minio/selfupdate.Verifier` API.
-  - R8 [accepted]: Stage the verified candidate beside the installed target, preserve executable mode, and run a bounded side-effect-free self-test that proves the candidate starts and reports the expected release version before replacement. | source: owner-approved failed-start protection; same-filesystem/noexec constraints.
-  - R9 [accepted]: Resolve the real executable target, fail early on insufficient permissions, call `selfupdate.Apply` with an explicit same-filesystem `OldSavePath`, call `RollbackError` for every apply failure, retain one previous binary after success, and expose a recovery command that does not require runtime configuration. | source: `minio/selfupdate` replacement and rollback contract; `scripts/install-local.sh` installation boundary.
-  - R10 [accepted]: The updater must not invoke sudo, restart systemd, load or migrate Postgres, alter configuration, or update from the service background; after success it must state that the running process still uses the old image until an operator restarts it. | source: owner-approved trigger and restart policy; `scripts/install-local.sh` service permissions.
-  - R11 [accepted]: Enable self-update only for Linux and macOS on amd64 and arm64 in the first implementation; retain existing Windows and FreeBSD release builds but return an explicit unsupported-platform result there until separately tested. | source: owner-approved platform scope; current GoReleaser matrix.
-  - R12 [accepted]: Extend the existing release pipeline to create and publish one `.minisig` sidecar per binary using a dedicated protected release key, preserve `checksums.txt`, and ensure release snapshots/checks fail when required update assets are absent or unverifiable. | source: owner-approved release-signing workflow; `.goreleaser.yml`; `.github/workflows/release.yml`.
-  - R13 [accepted]: Add deterministic Go coverage for version normalization/comparison, release parsing and asset selection, bounded HTTP failures, checksum/signature rejection, staged self-test failure, target-path and mode behavior, apply rollback reporting, and unsupported platforms without touching the running test binary. | source: owner-approved reliability criteria; repository testing rules.
-  - R14 [accepted]: Final verification must include focused updater tests, `go test ./...`, `go vet ./...`, `make release-check`, `make release-snapshot`, `make build-web`, `make build`, `git diff --check`, and working-tree inspection, with no skipped or failing gate reported as complete. | source: repository `CLAUDE.md`; existing Makefile release gates.
+  - R1 [accepted]: Add `version` and self-update positional commands dispatched before the startup banner, server flag parsing, Postgres loading, configuration access, or service startup. | source: `cmd/server/main.go`; `cmd/server/db_runtime.go`.
+  - R2 [accepted]: Reuse `internal/buildinfo` and existing linker flags as the only version authority; `version --short` emits a normalized machine-readable release version with no banner or logging. | source: `internal/buildinfo/buildinfo.go`; `.goreleaser.yml`.
+  - R3 [accepted]: Use the public GitHub Releases latest endpoint and existing `llmhub-{os}-{arch}[.exe]` naming, require an exact supported asset match, and treat all remote metadata, names, sizes, URLs, and bodies as untrusted input. | source: `internal/api/handlers/management/config_basic.go`; `.goreleaser.yml`.
+  - R4 [accepted]: Validate normalized semantic versions, refuse malformed current/latest versions, refuse downgrades and same-version replacement, and exclude draft/prerelease from the stable channel. Development builds must not silently replace themselves. | source: owner-approved stable-channel behavior; existing SemVer tag gate in `Makefile`.
+  - R5 [accepted]: All release metadata, checksum, and binary requests use HTTPS with explicit context/timeout handling, status checks, response-size limits, HTTPS-only redirect constraints, and deterministic cleanup. | source: owner-approved failure behavior; current bounded latest-version handler.
+  - R6 [accepted]: Verify the downloaded binary against its raw SHA-256 digest from the release's `checksums.txt`, requiring exactly one well-formed entry for the selected asset. A mismatch leaves all installed and staged state unchanged. | source: existing `.goreleaser.yml` checksum asset.
+  - R7 [accepted]: Write the verified candidate only into `${DATA_DIR}/update/` — inside the unit's `ReadWritePaths` — as `llmhub.staged` plus a `staged.json` recording version and digest. The unprivileged server never writes the installed target, `/usr/local/bin`, or any root-owned path. | source: `scripts/install-local.sh` unit boundary.
+  - R8 [accepted]: Before marking a candidate staged, run it as a bounded subprocess with `version --short` in a sanitized environment and isolated temporary working directory, requiring exact normalized stdout and no runtime configuration, database, service startup, or writes outside the staging directory. Package initialization itself is not claimed pure; the contract covers observable command behavior. | source: `cmd/server/main.go` initialization order.
+  - R9 [accepted]: `apply-staged-update` runs as root through `ExecStartPre=+`. It must not trust `staged.json` for authenticity: it independently re-fetches `checksums.txt` for the staged version over HTTPS, re-hashes the staged binary, and requires the staged version to be strictly newer than the installed one. Any failure — including network failure — skips the update and lets the service start on the current binary. | source: owner decision to drop signatures; `${DATA_DIR}` is service-writable, so an RCE in the server could otherwise stage an arbitrary binary for root installation.
+  - R10 [accepted]: Before swapping, the root step writes a marker to a root-owned path outside `${DATA_DIR}`; the server clears it on successful start. A marker still present at the next apply means the previous swap never reached a healthy start, so the root step reverts to `<target>.previous` instead of applying anything new. | source: owner-approved boot-loop protection; `Restart=` in the generated unit.
+  - R11 [accepted]: The updater never runs migrations, never mutates configuration, never elevates privileges except the single sudoers-permitted `systemctl restart llmhub.service`, and never updates from a background timer. | source: owner-approved trigger policy; `scripts/install-local.sh` service permissions.
+  - R12 [accepted]: Enable self-update only for Linux and macOS on amd64 and arm64; retain existing Windows and FreeBSD release builds but return an explicit unsupported-platform result there. | source: owner-approved platform scope; current GoReleaser matrix.
+  - R13 [accepted]: Expose `POST /v0/management/self-update` (discover, download, verify, probe, stage) and `POST /v0/management/self-update/apply` (trigger restart) behind the existing management-key middleware, returning typed outcomes the panel renders without exposing remote response bodies. | source: `internal/api/server.go` management route group.
+  - R14 [accepted]: Install a sudoers drop-in permitting exactly `/usr/bin/systemctl restart llmhub.service` for the service user with `NOPASSWD:` and no wildcard, glob, or argument variability. | source: owner-approved one-click restart; sudoers argument-matching behavior.
+  - R15 [accepted]: Add deterministic Go coverage for version normalization/comparison, release parsing and asset selection, bounded HTTP failures, checksum rejection, probe failure, staging paths, root-apply re-verification and downgrade refusal, boot-loop revert, and unsupported platforms, without touching the running test binary. | source: repository testing rules.
+  - R16 [accepted]: Final verification includes focused updater tests, `go test ./...`, `go vet ./...`, `make release-check`, `make release-snapshot`, `make build-web`, `make build`, `bun run type-check`, `bun run lint`, `git diff --check`, and the expected nonzero/no-network/no-install behavior of the deprecated Makefile targets. | source: repository `CLAUDE.md`; existing Makefile gates.
+  - R17 [accepted]: Remove unsigned mutation from `make download-latest` and `make install-latest`: no network request, no filesystem replacement, nonzero deprecation result directing operators to the panel or `llmhub update`. `make install-local` remains the local bootstrap path. | source: `Makefile`.
+  - R18 [accepted]: The release workflow creates a draft release, verifies the complete remote binary and `checksums.txt` asset matrix, and publishes only after verification. It never overwrites assets under an existing tag and requires no signing secrets. | source: `.github/workflows/release.yml`; owner decision to drop signing.
 
 ## Non-goals
-- NG1: Automatic update mutation during server startup, periodic background checks, unattended daemon updates, or silent update installation from the management UI.
-- NG2: Automatic privilege elevation, package-manager integration, systemd restart/orchestration, rolling fleet deployment, or zero-downtime process replacement.
-- NG3: Windows or FreeBSD executable replacement support in the first implementation; their existing release artifacts remain unchanged.
-- NG4: A custom HTTPS update service, private-GitHub-release authentication, embedded GitHub credentials, update channels, prerelease opt-in, or arbitrary-version selection.
-- NG5: TUF/go-tuf metadata, cosign/Rekor runtime policy, GPG verification, threshold signatures, transparent key discovery, or automatic signing-key rotation in the first implementation.
-- NG6: Binary delta patching, archive extraction, multi-file application updates, external asset migration, or updates to package-managed installations.
-- NG7: Automatic rollback of Postgres state, schema migrations, configuration data, or any non-binary side effect.
-- NG8: Changes to the current management latest-version response or frontend update notification beyond compatibility adjustments strictly required by the new shared code; no frontend test files under `web/`.
-- NG9: Refactoring unrelated CLI startup, release tooling, installer behavior, logging, service configuration, or provider/runtime code.
+- NG1: Cryptographic signatures of any kind — minisign, cosign/Sigstore, GPG, TUF, or transparency logs. Authenticity rests on HTTPS to GitHub plus the checksum manifest, re-verified independently by the root apply step.
+- NG2: Automatic update during server startup, periodic background checks, or unattended timer-driven updates. Update is always an explicit operator action.
+- NG3: Automatic privilege elevation beyond the single sudoers-permitted restart; no package-manager integration, rolling fleet deployment, or zero-downtime process replacement.
+- NG4: Windows or FreeBSD executable replacement; their release artifacts remain unchanged.
+- NG5: A custom update service, private-release authentication, embedded GitHub credentials, update channels, prerelease opt-in, or arbitrary-version selection.
+- NG6: Binary delta patching, archive extraction, multi-file application updates, or updates to package-managed and container deployments.
+- NG7: Rollback of Postgres state, schema migrations, or any non-binary side effect. `<target>.previous` restores bytes only.
+- NG8: Frontend test files under `web/`; panel changes are verified through type-check, lint, and production build.
+- NG9: Refactoring unrelated CLI startup, release tooling, installer behavior, logging, or provider/runtime code, beyond containing the two deprecated Makefile targets.
 
 ## Approach and Risks
-- approach: Deliver the updater in four dependency-ordered phases. First establish the release-signing trust boundary and prove that the existing bare GoReleaser assets can carry detached minisign signatures without exposing the private key. Next build a testable `internal/updater` engine for bounded release discovery, strict version/asset selection, checksum and signature verification, staged probing, replacement, and recovery. Then wire explicit positional commands into `cmd/server` before the current banner and Postgres path. Finish with signed-snapshot, negative-path, cross-platform build, and repository-wide verification. Keep the existing management notification path, server lifecycle, Postgres configuration, release asset names, and unsigned runtime behavior outside explicit update commands unchanged.
+- approach: Four dependency-ordered phases, each independently mergeable. First strip the abandoned signing work from the release pipeline while keeping its draft-first publication and remote asset verification. Next build a testable `internal/updater` package that discovers releases, verifies checksums, probes the candidate, and stages it — exposed through early CLI commands. Then add the root-run `apply-staged-update` subcommand and the installer unit change that make a staged candidate actually take effect at restart, with boot-loop revert. Finally add the two management endpoints, the panel button, the sudoers drop-in, and the full verification gate.
 - constraints:
-  - The public update source is the stable public GitHub Releases endpoint for `therealtinhtute/llmhub`; runtime database configuration and the management API proxy setting are unavailable to early CLI commands, so the updater uses a dedicated client with standard environment proxy behavior.
-  - `internal/buildinfo` and current linker flags remain the only version source; no new config, database row, environment setting, or working-directory state controls updater behavior.
-  - `checksums.txt` already exists in `.goreleaser.yml`; release work adds per-binary minisign sidecars and verification rather than replacing the checksum pipeline.
-  - Production private-key bytes must never enter the repository, plan, logs, command traces, build artifacts, or test fixtures. Only the public key may be committed. Provisioning or changing the GitHub secret/protected environment is an outward-facing action and requires explicit authorization during execution.
-  - Candidate, target, backup, and rollback staging paths remain on the target filesystem. Tests must use temporary target files or injected seams and must never replace the running test or development executable.
-  - First-version self-update support is Linux and macOS on amd64/arm64. Windows and FreeBSD binaries continue to build, but updater entry points reject those platforms before mutation.
-  - A successful update replaces only bytes on disk. It does not restart the process/service, invoke sudo, modify systemd, read Postgres, run migrations, or promise rollback of non-binary state.
-  - No frontend test files are added under `web/`; existing frontend behavior is verified only through the repository build/embed gates because the plan does not change the update-notification product flow.
-  - Phase/story definitions and verification commands are immutable after this planning pass; lifecycle status changes only through workflow transitions.
+  - The update source is the public GitHub Releases endpoint for `therealtinhtute/llmhub`. Runtime database configuration and the management proxy setting are unavailable to early CLI commands and to the root apply step, so both use a dedicated client with standard environment proxy behavior.
+  - `internal/buildinfo` and current linker flags remain the only version source. No new config key, database row, or environment setting controls updater behavior.
+  - Staging lives at `${DATA_DIR}/update/`; the boot-loop marker lives at a root-owned path outside `${DATA_DIR}` so the service user cannot forge or clear it. Both are created by `scripts/install-local.sh`.
+  - The root apply step is a Go subcommand of the currently installed binary, which is root-owned and not service-writable. It is therefore trusted to perform its own verification.
+  - `systemctl restart` stops the old process before `ExecStartPre` runs, so the installed binary is not busy and a plain rename suffices. No in-place replacement library is required.
+  - Removal of superseded files uses `trash`, never `rm`.
+  - Tests use temporary target files and injected seams and must never replace the running test or development executable.
+  - Self-update support is Linux and macOS on amd64/arm64. Windows and FreeBSD binaries continue to build but reject updater entry points before mutation.
+  - No frontend test files are added under `web/`; i18n keys are added to both `en.json` and `vi.json`.
 - decisions:
-  - Add a server-internal package at `internal/updater/` and a thin command adapter at `cmd/server/self_update.go`; do not move or refactor the existing management latest-version handler unless compilation requires a compatibility-only change.
-  - Pin `github.com/minio/selfupdate` to v0.6.0 and use `golang.org/x/mod/semver` for strict normalized comparison rather than implementing custom lexical version ordering.
-  - Store the auditable production public key as `internal/updater/release.pub` and embed it into the binary; use clearly non-production key material under `internal/updater/testdata/` only for deterministic tests.
-  - Keep the existing release asset name `llmhub-{os}-{arch}[.exe]`, checksum asset `checksums.txt`, and define the signature asset as the exact binary name plus `.minisig`.
-  - Download signatures with the updater's bounded HTTP client and load the downloaded bytes through a mode-0600 temporary file into `selfupdate.Verifier`; do not call `Verifier.LoadFromURL`, whose v0.6.0 API does not expose an overall client timeout.
-  - Validate SHA-256 and minisign before candidate execution, run a bounded `version --short` probe from a sibling candidate file, then pass the same raw checksum and verifier to `selfupdate.Apply` for commit-time re-verification.
-  - Resolve symlinks before replacement, preserve the current executable permission bits, keep one fixed sibling backup at `<target>.previous`, and call `selfupdate.RollbackError` for every apply error.
-  - Support recovery both from the current executable and by running `<target>.previous update rollback`; when invoked from the `.previous` path, infer the original target by removing that suffix instead of accepting an arbitrary replacement target.
-  - Make GitHub Actions create a draft release, verify the required binary/checksum/signature assets, and publish only after verification. Preserve `make release-snapshot` for ordinary local build proof and add an explicit signed-snapshot target requiring supplied test/release key paths.
+  - Drop minisign entirely and delete the uncommitted signing work. Rationale: the signing key would have lived in GitHub Secrets, so it defended only against a partial GitHub compromise; the owner accepted that residual risk in exchange for removing key provisioning, rotation, and tooling from the project.
+  - Keep the draft-first release workflow and the asset-matrix verifier already written for the signing effort, with signature checks removed. Rationale: they catch missing or renamed assets before publication and are independent of signing.
+  - Split update into unprivileged stage and privileged apply rather than letting the server replace its own binary. Rationale: `ProtectSystem=full` and `ReadWritePaths` make direct replacement impossible, and preserving that boundary keeps a server RCE from becoming a root-installed binary.
+  - Have the root step re-fetch `checksums.txt` itself rather than trusting `staged.json`. Rationale: `${DATA_DIR}` is service-writable, so a compromised server could otherwise stage an arbitrary binary and a matching digest; a fresh HTTPS fetch as root cannot be forged from inside the service.
+  - Do not add `github.com/minio/selfupdate`. Rationale: it exists to replace a *running* executable; systemd has already stopped the process before the swap, so `os.Rename` is sufficient and the dependency is unnecessary.
+  - Renumber requirements from the previous revision. Rationale: signing requirements were deleted and privilege-boundary requirements added; historical `Progress` entries referencing old numbers remain valid as a record of superseded work.
 - rejected_alternatives:
-  - Checksums over the same GitHub channel without signatures: detects corruption but does not protect against repository/release credential compromise.
-  - Custom HTTPS update hosting: duplicates version metadata, asset hosting, authentication, retention, and release operations already supplied by GitHub Releases.
-  - Startup or background mutation: conflicts with `/usr/local/bin` ownership, `ProtectSystem=full`, predictable server startup, and explicit operator restart control.
-  - Direct `selfupdate.Apply` immediately after download: can install a correctly signed but non-starting or wrong-version candidate without a pre-commit probe.
-  - Runtime cosign, GPG, or TUF verification in the first version: materially increases policy, dependency, and key-rotation scope beyond the accepted minisign design.
-  - Automatic sudo/systemd integration or package-manager replacement: mixes binary verification with privilege escalation and service/deployment policy.
+  - Minisign, cosign/Sigstore, or GPG signing: equivalent protection while the key or workflow identity lives in GitHub, at the cost of key provisioning, rotation procedure, and release tooling the owner declined.
+  - CI push over SSH from GitHub Actions: removes verification entirely and is simpler, but loses on-demand check/update from the panel and requires exposing SSH to runner networks.
+  - Letting the service user own `/usr/local/bin/llmhub`: makes one-click trivial but turns any RCE in an internet-facing proxy holding OAuth tokens into persistent binary replacement.
+  - Having the root step download the whole release itself: removes the staged-file trust problem but moves a multi-megabyte download into service startup and loses panel progress feedback.
+  - Per-target advisory lock and fsync/pending-sibling power-loss ceremony from the previous revision: single-operator single-VPS deployment with a serialized apply at boot does not exhibit the concurrent-mutation or torn-transaction cases they defended against.
 - risks:
-  - risk: The production minisign private key is exposed through source control, shell tracing, CI logs, artifacts, or an overly broad GitHub secret scope.
-    mitigation: Generate/provision it outside the worktree, commit only `release.pub`, materialize it under the runner temporary directory with mode 0600, disable tracing around secret handling, scope it to a protected `release` environment, and verify tracked/untracked paths without printing contents.
-    recovery: Stop immediately, do not publish, revoke and rotate the key, replace the embedded public key through a trusted release path, and invalidate any draft assets signed by the exposed key.
-  - risk: GoReleaser signs a build-stage filename rather than each final `llmhub-{os}-{arch}[.exe]` release asset, or omits sidecars from publishing.
-    mitigation: Use `signs.artifacts: binary` with the current `archives.formats: [binary]`, assert the exact asset matrix locally, create releases as drafts, and inspect/download every remote draft asset before publication.
-    recovery: Leave the release in draft, correct the signing/publish pipeline, and never replace assets beneath an already published immutable tag.
-  - risk: Remote metadata or responses cause downgrade, duplicate-asset ambiguity, unbounded memory use, redirect abuse, or partial-body acceptance.
-    mitigation: Normalize strict SemVer, reject development/malformed/same/older versions, require one exact asset/checksum entry, enforce HTTPS and repository path checks, constrain redirects to HTTPS, set separate metadata and binary timeouts, validate declared size when present, and detect limit overflow.
-    recovery: Fail closed before staging; retain the installed binary and report the rejected field/status without logging response bodies beyond a small diagnostic limit.
-  - risk: Symlink resolution, target permissions, filesystem boundaries, or a failure between rename operations leaves the target missing or the wrong mode.
-    mitigation: Resolve the executable, stat and preserve mode, stage and retain backup beside the target, run `CheckPermissions` before download/apply, call `RollbackError`, and report target/backup paths on every recovery failure.
-    recovery: Do not restart the service; restore `<target>.previous` manually or by executing it with `update rollback`, preserving any failed candidate for diagnosis.
-  - risk: A downloaded candidate is authentic but cannot start on the host or its version output does not match release metadata.
-    mitigation: Verify before execution, run a bounded side-effect-free sibling probe, compare normalized version output, and perform a post-commit installed-target probe while the old updater process is still alive.
-    recovery: Skip commit on preflight failure; after a post-commit failure atomically restore `.previous` and return a nonzero result with both probe and rollback outcomes.
-  - risk: Command wiring accidentally prints the normal banner, loads Postgres, mutates runtime configuration, or restarts the service during `version`, `update`, or `rollback`.
-    mitigation: Dispatch through small functions before the existing banner and server flags, inject engine dependencies for tests, use direct CLI output rather than server startup, and add subprocess tests with database variables absent.
-    recovery: Stop the CLI phase and restore the previous dispatch order until early-command tests prove no runtime initialization occurs.
-  - risk: `minio/selfupdate` v0.6.0 behavior or platform assumptions diverge from the planned wrapper, especially around rollback and Windows locks.
-    mitigation: Pin the module, test `TargetPath` against temporary files, inspect `RollbackError` on every failure, restrict enabled platforms, and keep wrapper behavior narrower than the library's advertised platform set.
-    recovery: Disable the affected platform or apply path rather than introducing a helper process or custom replacement protocol inside this initiative.
-  - risk: Binary rollback occurs after a release has already applied an incompatible database/schema change.
-    mitigation: The update command never starts the server or runs migrations; restart remains an explicit later operator action, and documentation states that `.previous` restores only binary bytes.
-    recovery: Use the service's separate database recovery procedure; do not present binary rollback as data rollback.
+  - risk: A GitHub account or token with release-write access publishes a malicious binary and matching `checksums.txt`; both the server and the root step verify it successfully.
+    mitigation: None within this design — this is the risk the owner explicitly accepted by dropping signatures. Reduce exposure by keeping release publication to the tag workflow and enabling 2FA on the account.
+    recovery: Restore `<target>.previous`, revoke the compromising credential, and delete the malicious release.
+  - risk: A server compromise writes an arbitrary binary into `${DATA_DIR}/update/` and waits for a restart to have it installed as root.
+    mitigation: The root step ignores `staged.json` for authenticity, re-fetches `checksums.txt` over HTTPS, re-hashes the staged file, and refuses any version not strictly newer than installed.
+    recovery: Apply fails closed and the service starts on the current binary; the staged file is preserved for inspection rather than silently deleted.
+  - risk: A genuine release starts far enough to pass `version --short` but crashes during real startup, and `Restart=` produces a boot loop on a broken binary.
+    mitigation: The root step writes a root-owned marker before swapping and the server clears it after a successful start; a surviving marker at the next apply triggers automatic revert to `<target>.previous`.
+    recovery: The service returns to the previous binary without operator action; the failed candidate remains staged for diagnosis.
+  - risk: The sudoers rule is written with a wildcard or loose argument match, granting the service user broader root access than one restart.
+    mitigation: Install an exact-command drop-in with no glob, validate with `visudo -c`, and assert in review that the rule contains no `*` and names the full unit.
+    recovery: Remove the drop-in immediately; the panel degrades to "staged, restart manually" without further change.
+  - risk: Remote metadata causes downgrade, duplicate-asset ambiguity, unbounded memory use, redirect abuse, or partial-body acceptance.
+    mitigation: Normalize strict SemVer, reject development/malformed/same/older versions, require exactly one asset and one checksum entry, enforce HTTPS on redirects, set separate metadata and binary timeouts, validate declared size, and detect limit overflow.
+    recovery: Fail closed before staging; report the rejected field or status without logging response bodies beyond a small diagnostic limit.
+  - risk: `ExecStartPre=+` misbehaves — wrong ordering relative to the existing `init-db-from-env` step, or a nonzero exit blocking startup entirely.
+    mitigation: Place `apply-staged-update` as the first `ExecStartPre`, ahead of `init-db-from-env`, so migrations run on the binary that will serve; make the subcommand exit 0 on every skip path so it can never prevent the service from starting.
+    recovery: Revert the unit change with `install-local.sh`; the binary swap simply stops happening while the server keeps running.
+  - risk: Anyone holding the management key can now trigger a root binary swap, not just read configuration.
+    mitigation: Keep both endpoints behind the existing management-key middleware and document that the key is now equivalent to binary-deployment authority.
+    recovery: Rotate the management key; the staged/apply path cannot be reached without it.
+  - risk: Binary rollback occurs after a release already applied an incompatible schema change.
+    mitigation: The update path never runs migrations; `init-db-from-env` runs as a separate unit step, and documentation states that `.previous` restores binary bytes only.
+    recovery: Use the service's separate database recovery procedure.
 - stop_conditions:
-  - Any implementation or test would write, print, commit, or upload production private-key material outside the explicitly authorized protected secret destination.
-  - The updater requires Postgres/config loading, management authentication, automatic privilege elevation, automatic service restart, or a new runtime configuration surface.
-  - A candidate must be executed before checksum and signature verification, or an apply path cannot preserve/recover the current target on a synchronous failure.
-  - The exact final release assets cannot be signed and verified in a draft/snapshot without changing their established names.
-  - A test would replace the currently running binary, require a live provider/database, or depend on timing/network services rather than deterministic fixtures.
-  - Windows/FreeBSD support requires a helper process, installer redesign, or OS-specific replacement protocol; leave it explicitly unsupported.
-  - Any focused or broad verification command fails; retain the command/output and return to the owning phase rather than weakening the check.
+  - The root apply step would trust `staged.json`, a `${DATA_DIR}`-resident digest, or any other service-writable input as its authenticity source.
+  - A candidate would be executed or installed before its checksum is verified.
+  - The sudoers rule would contain a wildcard, a variable argument, or any command other than the single unit restart.
+  - `apply-staged-update` could exit nonzero on a skip path and prevent the service from starting.
+  - The server process would require write access to `/usr/local/bin` or any path outside `ReadWritePaths`.
+  - A test would replace the currently running binary, require a live provider or database, or depend on timing and network services rather than deterministic fixtures.
+  - `make download-latest` or `make install-latest` still performs a network download or executable replacement after the CLI exists.
+  - Any verification command fails; retain the command and output and return to the owning phase rather than weakening the check.
 
 ## Phases and Verification
-<!-- Phase and task definitions are immutable after to-plan. Do not add task status fields. Append-only Progress is the sole task execution-status source. Only each phase lifecycle status changes to mirror DB transitions: to-plan=planned; work after run create=in-progress; clean durable check=checked; closing handoff=done. Each planned phase records phase_slug, story_id, status, goal, depends_on, waves, tasks, and checks. -->
+<!-- Phase and task definitions are immutable after this plan is approved and locked. Append-only Progress is the sole task execution-status source. Phase lifecycle status mirrors DB transitions: to-plan=planned; work after run create=in-progress; clean durable check=checked; closing handoff=done. -->
 - planning_status: planned
 - phases:
-  - phase_slug: release-signing-foundation
-    story_id: 01KZZWAEEV2E1M1Z2KHJYQ7B3V
+  - phase_slug: release-pipeline-cleanup
+    story_id: 01M02G1B5KY663MPTSFH0KAS2P
     status: planned
-    goal: Establish the minisign trust material, per-binary signature contract, and protected draft-release pipeline without exposing the private signing key.
+    goal: Remove the abandoned signing work from the release pipeline while keeping draft-first publication and remote asset-matrix verification.
     depends_on: none
     allowed_surfaces:
-      - internal/updater/release.pub (new public key file only)
-      - internal/updater/testdata/ non-production signing fixtures only where required
       - .goreleaser.yml
       - .github/workflows/release.yml
-      - Makefile release targets/help
-      - scripts/verify-release-assets.sh or one equivalent narrowly scoped release-asset verifier
-      - README.md release/update security instructions only
+      - Makefile release targets and help text
+      - scripts/verify-release-assets.sh
+      - scripts/sign-release-asset/, scripts/sign-release-asset.sh, scripts/verify-minisign-asset.sh (removal only)
+      - docs/release-signing.md, docs/README.md (removal and link cleanup only)
     avoided_surfaces:
-      - production private-key files, bytes, logs, artifacts, or test fixtures
-      - cmd/server runtime behavior and Postgres/config packages
-      - web application source and frontend tests
+      - cmd/server, internal/, and web/ source
       - existing binary names, build matrix, checksum filename, and linker metadata contract
+      - publishing a real tag or release
     waves:
       - wave: 1
         tasks:
-          - task: Provision a dedicated minisign release key under explicit secret-handling authorization, commit only the public key at `internal/updater/release.pub`, and add clearly labeled non-production fixture material only if deterministic repository tests need it.
-            requirements: [R7, R12]
+          - task: Remove the uncommitted minisign work — `scripts/sign-release-asset/`, `scripts/sign-release-asset.sh`, `scripts/verify-minisign-asset.sh`, and `docs/release-signing.md` — with `trash`, and drop the `docs/README.md` link to the removed document.
+            requirements: [R18]
             dependencies: none
-            expected_output: The repository contains one auditable production public key and no production private key; the private key has a documented protected-secret destination and rotation owner.
+            expected_output: No minisign tooling, nested signing module, or signing documentation remains in the worktree; `docs/README.md` has no dangling link.
             checks:
-              - test -s internal/updater/release.pub
-              - test -z "$(git ls-files | grep -E '(^|/)(release|minisign)([-_.].*)?\.key$' || true)"
+              - test ! -e scripts/sign-release-asset && test ! -e scripts/sign-release-asset.sh && test ! -e scripts/verify-minisign-asset.sh && test ! -e docs/release-signing.md
+              - grep -c "release-signing" docs/README.md || true
               - git status --short
-            stop_conditions: Stop before generating, copying, or uploading private-key material unless the exact local and GitHub secret destinations are explicitly authorized; never print the key while validating paths.
-            escalation: Record the missing public-key/protected-secret prerequisite and leave all release/update code unable to accept production signatures until the owner provisions it.
-          - task: Extend GoReleaser signing configuration so every final bare binary asset receives an exact `<asset>.minisig` sidecar while preserving the current build matrix, `checksums.txt`, filenames, and ldflags.
-            requirements: [R3, R6, R7, R11, R12]
-            dependencies: task: Provision a dedicated minisign release key under explicit secret-handling authorization, commit only the public key at `internal/updater/release.pub`, and add clearly labeled non-production fixture material only if deterministic repository tests need it.
-            expected_output: GoReleaser accepts a custom minisign signer with `artifacts: binary`; a signed snapshot produces binaries, `checksums.txt`, and matching sidecars for Linux, macOS, Windows, and FreeBSD assets without renaming them.
-            checks:
-              - make release-check
-              - MINISIGN_KEY_PATH=<authorized-test-key> MINISIGN_PUBLIC_KEY_PATH=<matching-public-key> make release-signed-snapshot
-              - scripts/verify-release-assets.sh dist <matching-public-key>
-            stop_conditions: Stop if GoReleaser signs intermediate filenames, omits final sidecars, modifies binary bytes after signing, or requires checking a secret into configuration.
-            escalation: Keep the release as a local snapshot and adjust only the signer/artifact pipeline before changing updater asset lookup.
-      - wave: 2
-        tasks:
-          - task: Harden the tag workflow to install a pinned minisign tool, materialize the protected key in runner temporary storage, create a draft release, verify the full remote asset/checksum/signature matrix, and publish only after verification.
-            requirements: [R5, R7, R12]
-            dependencies: wave: 1
-            expected_output: A `v*` workflow cannot publish a release missing a required binary, checksum, or valid sidecar; failed verification leaves the release in draft and secret values absent from logs.
+            stop_conditions: Stop if removal would use `rm` rather than `trash`, or would delete a file the owner authored outside this initiative.
+            escalation: Preserve any unrelated worktree change and report it rather than removing it.
+          - task: Strip signing from `.goreleaser.yml` (remove `binary_signs`) and from `.github/workflows/release.yml` (remove minisign download/verification, key materialization, passphrase handling, `transition_public_key` input, and the `release` environment requirement if it exists only for signing secrets), keeping draft creation, remote asset download, verification, and publish-after-verification.
+            requirements: [R18]
+            dependencies: task: Remove the uncommitted minisign work — `scripts/sign-release-asset/`, `scripts/sign-release-asset.sh`, `scripts/verify-minisign-asset.sh`, and `docs/release-signing.md` — with `trash`, and drop the `docs/README.md` link to the removed document.
+            expected_output: The tag workflow builds, drafts, verifies the remote binary and checksum matrix, and publishes, with no signing secret referenced anywhere.
             checks:
               - go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/release.yml
+              - grep -ci "minisign\|MINISIGN_" .github/workflows/release.yml .goreleaser.yml || true
               - make release-check
               - git diff --check
-              - Inspect the workflow diff to confirm `environment: release`, no shell tracing around key material, mode-0600 temporary key creation, draft-first publication, and cleanup confined to runner temporary storage.
-            stop_conditions: Stop if the workflow publishes before verification, expands the private key in command output, uses an unpinned third-party action for signing, or overwrites assets beneath an existing tag.
-            escalation: Preserve the existing unsigned workflow until a draft-first signed pipeline passes local configuration and asset checks; do not push a release tag as a test without explicit outward-action approval.
-          - task: Add concise operator/release documentation for public-key ownership, protected secret provisioning, signed-snapshot commands, immutable tags, and emergency key rotation without documenting private-key contents.
-            requirements: [R7, R10, R12]
-            dependencies: task: Harden the tag workflow to install a pinned minisign tool, materialize the protected key in runner temporary storage, create a draft release, verify the full remote asset/checksum/signature matrix, and publish only after verification.
-            expected_output: Maintainers can reproduce the signed snapshot and understand that a compromised key blocks publication and requires a trusted public-key replacement release.
+            stop_conditions: Stop if the workflow would publish before verification, overwrite assets under an existing tag, or lose the draft-first behavior.
+            escalation: Keep the existing verified workflow structure and remove only signing-specific steps.
+          - task: Reduce `scripts/verify-release-assets.sh` to a checksum-and-completeness verifier for the eight release binaries plus `checksums.txt`, removing the minisign CLI dependency and public-key argument, and remove `MINISIGN_BIN` and the `release-signed-snapshot` target from `Makefile`.
+            requirements: [R17, R18]
+            dependencies: task: Strip signing from `.goreleaser.yml` and from `.github/workflows/release.yml`, keeping draft creation, remote asset download, verification, and publish-after-verification.
+            expected_output: `scripts/verify-release-assets.sh <dir>` verifies asset presence and SHA-256 agreement with no external tool beyond coreutils, and works on both a GoReleaser `dist/` layout and a flat downloaded-asset directory.
             checks:
-              - Review README commands against Makefile target names and workflow secret names.
-              - git diff --check
-            stop_conditions: Stop if documentation encourages committing a private key, placing it in normal repository variables, replacing immutable release assets, or bypassing draft verification.
-            escalation: Document only the public contract and direct maintainers to the protected secret manager for sensitive operational steps.
+              - sh -n scripts/verify-release-assets.sh
+              - make release-snapshot
+              - scripts/verify-release-assets.sh dist
+              - make -n release-signed-snapshot 2>&1 | grep -q "No rule to make target" && echo removed
+            stop_conditions: Stop if the verifier would accept a missing or renamed asset, or if removing the signed-snapshot target breaks an unrelated Makefile target.
+            escalation: Keep the verifier's existing directory-layout handling and change only its signature-checking section.
 
   - phase_slug: self-update-engine
-    story_id: 01KZZWAV7G861YEYJQ0WC4N3F2
+    story_id: 01M02G1FHEZPGWRJ121CR95FXC
     status: planned
-    goal: Implement bounded GitHub release discovery, strict version and asset selection, SHA-256 plus minisign verification, staged candidate probing, and recoverable binary replacement.
-    depends_on: release-signing-foundation
+    goal: Implement bounded release discovery, strict version and asset selection, SHA-256 verification, candidate probing, and staging, exposed through early CLI commands.
+    depends_on: release-pipeline-cleanup
     allowed_surfaces:
-      - go.mod and go.sum for pinned updater and semantic-version dependencies
-      - internal/updater/*.go (new)
-      - internal/updater/*_test.go and internal/updater/testdata/ non-production fixtures
-      - internal/updater/release.pub established by the preceding phase
+      - go.mod and go.sum for the pinned semantic-version dependency
+      - internal/updater/*.go and internal/updater/*_test.go (new)
+      - cmd/server/main.go, cmd/server/self_update.go, cmd/server/self_update_test.go
+      - Makefile deprecated-target containment and help text
     avoided_surfaces:
-      - cmd/server command dispatch until the operator-update-cli phase
-      - internal/api/handlers/management latest-version behavior
-      - runtime config, Postgres stores, systemd installer, provider executors, and web source
-      - live GitHub Releases or replacement of the running test/development executable
+      - internal/api/handlers/management behavior until the panel phase
+      - runtime config, Postgres stores, provider executors, and web source
+      - scripts/install-local.sh and any root-executed path until the privileged-apply phase
+      - live GitHub Releases and replacement of the running test or development executable
     waves:
       - wave: 1
         tasks:
-          - task: Add pinned `github.com/minio/selfupdate` and semantic-version dependencies, then implement an injectable GitHub release client with production URL/user-agent defaults, standard environment proxy support, HTTPS redirect checks, status handling, separate metadata/binary timeouts, and strict response-size limits.
-            requirements: [R3, R4, R5, R11]
+          - task: Add `golang.org/x/mod/semver` and implement an injectable GitHub release client with production URL and user-agent defaults, environment proxy support, HTTPS-only redirect checks, status handling, separate metadata and binary timeouts, and strict response-size limits.
+            requirements: [R3, R5, R12]
             dependencies: none
-            expected_output: The updater can retrieve bounded latest-release metadata and selected asset bytes through deterministic client seams without importing Gin, runtime config, or management handlers.
+            expected_output: The updater retrieves bounded latest-release metadata and asset bytes through deterministic seams without importing Gin, runtime config, or management handlers.
             checks:
               - go test ./internal/updater/... -run 'Test(Client|LatestRelease|HTTP|Redirect|ResponseLimit)' -count=1
-              - go list -m github.com/minio/selfupdate golang.org/x/mod
-            stop_conditions: Stop if the production client accepts non-HTTPS release URLs/redirects, has an unbounded body path, requires database proxy configuration, or hides non-200 diagnostics.
-            escalation: Keep endpoints/timeouts as private constants and expose only the smallest constructor seam needed by `httptest` fixtures.
-          - task: Implement strict current/latest version normalization, no-development/no-downgrade/no-same-version decisions, supported-platform mapping, exact binary/signature asset selection, and duplicate-safe parsing of the selected SHA-256 checksum entry.
-            requirements: [R2, R3, R4, R6, R11]
-            dependencies: task: Add pinned `github.com/minio/selfupdate` and semantic-version dependencies, then implement an injectable GitHub release client with production URL/user-agent defaults, standard environment proxy support, HTTPS redirect checks, status handling, separate metadata/binary timeouts, and strict response-size limits.
-            expected_output: Stable releases map deterministically to `llmhub-{os}-{arch}[.exe]`, malformed/ambiguous metadata fails closed, and development or unsupported builds cannot enter mutation code.
+              - go list -m golang.org/x/mod
+            stop_conditions: Stop if the production client accepts non-HTTPS release URLs or redirects, has an unbounded body path, or hides non-200 diagnostics.
+            escalation: Keep endpoints and timeouts as private constants and expose only the smallest constructor seam `httptest` fixtures need.
+          - task: Implement current and latest version normalization, no-development/no-downgrade/no-same-version decisions, supported-platform mapping, exact binary asset selection, and duplicate-safe parsing of the selected SHA-256 checksum entry.
+            requirements: [R2, R3, R4, R6, R12]
+            dependencies: task: Add `golang.org/x/mod/semver` and implement an injectable GitHub release client with production URL and user-agent defaults, environment proxy support, HTTPS-only redirect checks, status handling, separate metadata and binary timeouts, and strict response-size limits.
+            expected_output: Stable releases map deterministically to `llmhub-{os}-{arch}[.exe]`; malformed or ambiguous metadata fails closed; development and unsupported builds cannot reach staging.
             checks:
               - go test ./internal/updater/... -run 'Test(Version|Asset|Platform|Checksum)' -count=1
-              - Cover leading `v`, bare versions, prerelease metadata, malformed tags, duplicate assets/checksums, same version, downgrade, `dev`, Linux/macOS support, and Windows/FreeBSD rejection.
-            stop_conditions: Stop if comparison becomes lexical, asset fallback is fuzzy, a duplicate is silently accepted, or unsupported platforms proceed beyond decision logic.
-            escalation: Preserve the established asset contract and reject unknown release shapes rather than adding aliases/channels.
+              - Cover leading `v`, bare versions, prerelease metadata, malformed tags, duplicate assets and checksum entries, same version, downgrade, `dev`, Linux and macOS support, and Windows and FreeBSD rejection.
+            stop_conditions: Stop if comparison becomes lexical, asset matching becomes fuzzy, a duplicate is silently accepted, or an unsupported platform proceeds past decision logic.
+            escalation: Preserve the established asset contract and reject unknown release shapes rather than adding aliases or channels.
       - wave: 2
         tasks:
-          - task: Implement SHA-256 and embedded minisign verification, downloading signature bytes through the bounded client, loading them through a mode-0600 temporary file, verifying before any candidate execution, and supplying the same verifier/checksum to commit-time apply options.
-            requirements: [R5, R6, R7]
+          - task: Implement download-verify-probe-stage: stream the asset under a size limit, verify its SHA-256 against the single matching `checksums.txt` entry, run a bounded sanitized `version --short` subprocess from an isolated temporary working directory requiring exact normalized stdout, then write `${DATA_DIR}/update/llmhub.staged` at mode 0755 and `${DATA_DIR}/update/staged.json` recording version and digest.
+            requirements: [R5, R6, R7, R8]
             dependencies: wave: 1
-            expected_output: Corrupted, unsigned, wrong-key, duplicate-checksum, truncated, or oversized candidates fail before staging and leave no sensitive or executable temporary residue.
+            expected_output: Corrupted, truncated, oversized, wrong-version, or non-starting candidates fail before anything is staged and leave no executable residue; a valid candidate produces exactly the two staging files.
             checks:
-              - go test ./internal/updater/... -run 'Test(Checksum|Signature|Verifier|TemporarySignature)' -count=1
-              - go test -race ./internal/updater/... -run 'Test(Checksum|Signature|Verifier)' -count=1
-            stop_conditions: Stop if public keys are fetched at runtime, `Verifier.LoadFromURL` is used, a candidate executes before signature verification, or failed verification leaves a target/candidate mutation.
-            escalation: Keep the verifier wrapper local to `internal/updater` and report any library API mismatch before replacing the verification primitive.
-          - task: Implement target resolution, permission preflight, sibling candidate staging, mode preservation, bounded side-effect-free version probing, `selfupdate.Apply`, same-filesystem `.previous` retention, post-commit probing, and complete `RollbackError` reporting.
-            requirements: [R8, R9, R10, R13]
-            dependencies: task: Implement SHA-256 and embedded minisign verification, downloading signature bytes through the bounded client, loading them through a mode-0600 temporary file, verifying before any candidate execution, and supplying the same verifier/checksum to commit-time apply options.
-            expected_output: A verified candidate replaces only an explicitly resolved target after it starts and reports the expected version; synchronous commit failures restore the old target or return both update and rollback errors with recovery paths.
+              - go test ./internal/updater/... -run 'Test(Download|Checksum|Probe|Stage|StagedManifest)' -count=1
+              - go test -race ./internal/updater/... -run 'Test(Download|Probe|Stage)' -count=1
+              - Assert probe tests verify timeout, sanitized environment, exact stdout, isolated working directory, and absence of runtime config, database, or service calls.
+            stop_conditions: Stop if a candidate executes before checksum verification, the probe writes outside the staging directory or reaches server startup, or staging touches any path outside `${DATA_DIR}/update/`.
+            escalation: Narrow the engine API around explicit staging-directory and probe seams rather than adding a general updater framework.
+          - task: Add `runVersion` and `runSelfUpdate` command functions with isolated `flag.FlagSet`s and injected engine and output dependencies, then move early positional dispatch ahead of the startup banner and Postgres path while preserving `init-db-from-env`, `migrate-local-to-db`, server flags, login modes, and normal banner output.
+            requirements: [R1, R2, R4, R11, R12, R15]
+            dependencies: task: Implement download-verify-probe-stage.
+            expected_output: `version [--short]`, `update --check`, and `update` have deterministic usage, stdout and stderr, and 0/1/2 exit behavior; ordinary server startup is unchanged.
             checks:
-              - go test ./internal/updater/... -run 'Test(Target|Permissions|Candidate|Apply|PostCommit|RollbackError|Mode|Symlink)' -count=1
-              - Assert all replacement tests use temporary targets and injected probes rather than `os.Executable()`'s running test path.
-            stop_conditions: Stop if candidate staging crosses filesystems, a probe performs server/database startup, target mode changes, an apply error skips `RollbackError`, or the test process executable can be replaced.
-            escalation: Narrow the engine API around explicit target/probe seams and disable post-commit mutation until rollback invariants are deterministic.
-          - task: Implement one-generation rollback path resolution and atomic restore behavior for both `<target> update rollback` and `<target>.previous update rollback`, retaining a failed current binary when restoration succeeds and reporting every surviving path.
-            requirements: [R9, R10, R13]
-            dependencies: task: Implement target resolution, permission preflight, sibling candidate staging, mode preservation, bounded side-effect-free version probing, `selfupdate.Apply`, same-filesystem `.previous` retention, post-commit probing, and complete `RollbackError` reporting.
-            expected_output: An operator can recover without network or runtime configuration when either the current or previous executable can start, while missing/ambiguous backups fail without deleting the current target.
+              - go test ./cmd/server/... -run 'Test(VersionCommand|UpdateCommand|UpdateCheck|EarlyCommandDispatch|ExistingDBCommands|Usage)' -count=1
+              - env -u PGSTORE_DSN -u pgstore_dsn go run ./cmd/server version --short
+            stop_conditions: Stop if command parsing introduces a CLI framework, accepts downgrade or force flags, or an early command reaches `loadRuntimeConfigFromPostgres`.
+            escalation: Match the existing `flag.NewFlagSet` pattern from the database commands and isolate a small `dispatchEarlyCommand(args)` function.
+          - task: Contain `make download-latest` and `make install-latest`: remove their curl and install recipes and help entries and make each return a nonzero deprecation result before any network or filesystem work, directing operators to the panel or `llmhub update`. Leave `make install-local` unchanged.
+            requirements: [R17]
+            dependencies: task: Add `runVersion` and `runSelfUpdate` command functions and move early positional dispatch ahead of the startup banner and Postgres path.
+            expected_output: No documented Makefile target fetches or replaces a release binary; invoking either deprecated target performs no network request or installation.
             checks:
-              - go test ./internal/updater/... -run 'Test(RollbackPaths|RollbackSuccess|RollbackMissingBackup|RollbackRestoreFailure)' -count=1
-            stop_conditions: Stop if rollback accepts an arbitrary unrelated target, deletes the only runnable binary, crosses filesystems, or claims to restore database/configuration state.
-            escalation: Preserve both files and return explicit manual rename instructions rather than forcing a destructive recovery.
-      - wave: 3
-        tasks:
-          - task: Complete deterministic negative-path and concurrency coverage for network loss, bad status/body, oversize/truncation, checksum/signature mismatch, failed probe, permission denial, apply/rollback failure, stale backup, and unsupported platform invariants.
-            requirements: [R4, R5, R6, R7, R8, R9, R11, R13]
-            dependencies: wave: 2
-            expected_output: Every accepted failure mode proves that the installed temporary target remains byte-for-byte unchanged or is restored and that all HTTP/temp resources close cleanly.
-            checks:
-              - go test ./internal/updater/... -count=1
-              - go test -race ./internal/updater/... -count=1
-            stop_conditions: Stop if tests depend on public GitHub, real release credentials, sleeps instead of bounded contexts, or mutation of a non-temporary executable.
-            escalation: Add injectable filesystem/HTTP/probe seams only where a concrete failure cannot otherwise be reproduced; avoid a general updater framework.
+              - make -n download-latest
+              - make -n install-latest
+              - Run both targets and assert a nonzero result with no `dist/downloads` or installed-target mutation.
+            stop_conditions: Stop if either target still invokes curl, writes a downloaded release, or installs a release binary.
+            escalation: Limit the change to these two targets and their help text.
 
-  - phase_slug: operator-update-cli
-    story_id: 01KZZWB3F8S0GEMTWQ03JFB41G
+  - phase_slug: privileged-apply
+    story_id: 01M02G1FHP5AK6BKM2PXFZ8KW7
     status: planned
-    goal: Expose version, update check, signed apply, and rollback commands before runtime initialization with explicit platform, permission, and service-restart behavior.
+    goal: Make a staged candidate take effect at restart through a root-run apply subcommand that re-verifies it independently, retains one previous binary, and reverts automatically after a failed start.
     depends_on: self-update-engine
     allowed_surfaces:
-      - cmd/server/main.go
-      - cmd/server/self_update.go (new)
-      - cmd/server/self_update_test.go and focused package-main tests
-      - internal/buildinfo/buildinfo.go only if a compatibility-only helper is required
-      - README.md operator update/rollback usage
+      - internal/updater/apply*.go and tests (new)
+      - cmd/server/self_update.go early dispatch for `apply-staged-update`
+      - scripts/install-local.sh unit generation, directory creation, and rollback command
+      - README.md operator update and recovery usage
     avoided_surfaces:
-      - normal server flags and login behavior beyond moving the banner behind early dispatch
-      - cmd/server/db_runtime.go database command behavior
-      - internal/api/handlers/management latest-version response and frontend notification flow
-      - automatic sudo, systemctl calls, Postgres access, config mutation, or background goroutines
+      - management handlers and web source until the panel phase
+      - sudoers installation until the panel phase
+      - provider, runtime, and Postgres code
     waves:
       - wave: 1
         tasks:
-          - task: Add `runVersion` and `runSelfUpdate` command functions using isolated `flag.FlagSet`s and inject the updater engine/output dependencies so command tests return exit codes instead of calling `os.Exit` internally.
-            requirements: [R1, R2, R4, R10, R11, R13]
+          - task: Implement `apply-staged-update` as an early-dispatch subcommand that refuses to run unless euid is 0, reads the staged version, re-fetches `checksums.txt` for that version over HTTPS with its own bounded client, re-hashes `${DATA_DIR}/update/llmhub.staged`, requires the staged version to be strictly newer than the installed binary's, then installs it over the resolved target preserving mode 0755 and root ownership, retaining the replaced binary as `<target>.previous`. Every skip and failure path exits 0 after logging, so startup is never blocked.
+            requirements: [R6, R9, R11, R15]
             dependencies: none
-            expected_output: `version [--short]`, `update --check`, `update`, and `update rollback` have deterministic usage, stdout/stderr, and 0/1/2 exit behavior without server/runtime imports in the engine.
+            expected_output: A genuine staged candidate is installed at restart; a forged staged binary, a stale or downgraded version, or a network failure leaves the installed target untouched and the service starting normally.
             checks:
-              - go test ./cmd/server/... -run 'Test(VersionCommand|UpdateCommand|UpdateCheck|RollbackCommand|Usage)' -count=1
-            stop_conditions: Stop if command parsing introduces Cobra/another framework, accepts downgrade/force flags, or requires global flag state/runtime configuration.
-            escalation: Match the existing `flag.NewFlagSet` pattern from database commands and keep command-specific parsing in one new file.
-          - task: Move early positional dispatch ahead of the normal startup banner and Postgres path while preserving existing `init-db-from-env`, `migrate-local-to-db`, server flags, login modes, and normal banner output.
-            requirements: [R1, R2, R10]
-            dependencies: task: Add `runVersion` and `runSelfUpdate` command functions using isolated `flag.FlagSet`s and inject the updater engine/output dependencies so command tests return exit codes instead of calling `os.Exit` internally.
-            expected_output: Early commands run with no database environment and clean `version --short` output; ordinary server startup still prints current build metadata and follows its existing path.
+              - go test ./internal/updater/... -run 'Test(Apply|ApplyReverify|ApplyDowngrade|ApplyForged|ApplyNetworkFailure|ApplyNonRoot|ApplyExitCode)' -count=1
+              - Assert every failure-path test observes exit code 0 and an unchanged temporary target file.
+              - Assert apply tests use temporary target paths rather than `os.Executable()`.
+            stop_conditions: Stop if apply trusts `staged.json` for authenticity, can exit nonzero on a skip path, crosses filesystems, changes target mode or ownership, or deletes the only runnable binary.
+            escalation: Keep the apply path narrow and fail closed toward "start on the current binary" rather than attempting partial recovery.
+          - task: Implement the boot-loop guard: before swapping, write a marker recording the outgoing version to a root-owned path outside `${DATA_DIR}`; have the server clear it once startup completes successfully; and have the next apply invocation, on finding a surviving marker, restore `<target>.previous` and refuse to apply anything new until the marker is cleared.
+            requirements: [R10, R15]
+            dependencies: task: Implement `apply-staged-update` as an early-dispatch subcommand.
+            expected_output: A candidate that passes probe but crashes during real startup is reverted automatically on the following start attempt, and the failed candidate remains staged for inspection.
             checks:
-              - go test ./cmd/server/... -run 'Test(EarlyCommandDispatch|VersionCommand|ExistingDBCommands)' -count=1
-              - env -u PGSTORE_DSN -u pgstore_dsn go run ./cmd/server version --short
-            stop_conditions: Stop if existing database subcommands or normal flags change behavior, or an early command reaches `loadRuntimeConfigFromPostgres`.
-            escalation: Isolate a small `dispatchEarlyCommand(args)` function and leave the rest of `main` untouched.
+              - go test ./internal/updater/... -run 'Test(BootMarker|MarkerRevert|MarkerCleared|MarkerUnwritable)' -count=1
+              - go test -race ./internal/updater/... -run 'Test(BootMarker|MarkerRevert)' -count=1
+            stop_conditions: Stop if the marker lives in a service-writable path, if a revert can delete the only runnable binary, or if a missing `<target>.previous` causes a nonzero exit.
+            escalation: Prefer leaving the current binary in place and reporting the surviving paths over any destructive recovery.
       - wave: 2
         tasks:
-          - task: Map engine outcomes to concise operator output for current/latest versions, unsupported platforms, permission/network/verification failures, successful disk replacement, retained backup, and explicit process/service restart guidance without invoking restart or privilege escalation.
-            requirements: [R3, R5, R6, R7, R9, R10, R11]
-            dependencies: wave: 1
-            expected_output: Operators can distinguish no update, available update, rejected update, completed replacement, and rollback recovery from output and exit code; success states that the running process still uses the old image.
-            checks:
-              - go test ./cmd/server/... -run 'Test(UpdateOutput|UpdateFailureOutput|RestartMessage|UnsupportedPlatform)' -count=1
-              - Confirm tests assert no `sudo`, `systemctl`, database loader, or configuration mutation call is made.
-            stop_conditions: Stop if output leaks remote bodies/signature material, claims the running process changed immediately, or suggests automatic data rollback.
-            escalation: Return typed engine outcomes and format them only in the command adapter rather than adding logging/config coupling to the engine.
-          - task: Document operator check/update/restart/rollback commands, Linux/macOS support, `/usr/local/bin` permission expectations, `.previous` recovery invocation, package-manager caveat, and binary-only rollback boundary in README.
+          - task: Update `scripts/install-local.sh` to create `${DATA_DIR}/update/` owned by the service user and the root-owned marker directory, and to generate the unit with `ExecStartPre=+${INSTALL_DIR}/${BINARY} apply-staged-update` as the first `ExecStartPre`, ahead of the existing `init-db-from-env` step.
             requirements: [R9, R10, R11]
-            dependencies: task: Map engine outcomes to concise operator output for current/latest versions, unsupported platforms, permission/network/verification failures, successful disk replacement, retained backup, and explicit process/service restart guidance without invoking restart or privilege escalation.
-            expected_output: The documented commands exactly match implemented parsing and clearly separate update, process restart, and data recovery responsibilities.
+            dependencies: wave: 1
+            expected_output: A freshly installed unit runs the privileged apply before migrations, so `init-db-from-env` and `ExecStart` both use the newly installed binary; the marker directory is not writable by the service user.
             checks:
-              - Run each non-mutating documented command against a local build and compare output/exit behavior.
+              - sh -n scripts/install-local.sh
+              - Generate the unit into a temporary directory and assert `ExecStartPre=+` precedes the `init-db-from-env` line and that `ReadWritePaths` still excludes the marker directory.
+              - systemd-analyze verify on the generated unit file
+            stop_conditions: Stop if the apply step is ordered after `init-db-from-env`, if the marker directory falls inside `ReadWritePaths`, or if `ProtectSystem=full` or `NoNewPrivileges=true` is weakened.
+            escalation: Change only the unit's `ExecStartPre` block and directory creation; leave the rest of the installer untouched.
+          - task: Implement `llmhub update rollback` for manual recovery from `<target>.previous`, and document in README the operator flow: check, update, restart, automatic revert behavior, manual rollback, Linux and macOS support, and the binary-only recovery boundary.
+            requirements: [R11, R12, R15]
+            dependencies: task: Update `scripts/install-local.sh` to create the staging and marker directories and generate the unit with `ExecStartPre=+`.
+            expected_output: An operator can recover without network access or runtime configuration when either the current or previous executable can start; documented commands match implemented parsing exactly.
+            checks:
+              - go test ./internal/updater/... ./cmd/server/... -run 'Test(Rollback|RollbackMissingBackup|RollbackPaths)' -count=1
+              - Run each non-mutating documented command against a local build and compare output and exit behavior.
               - git diff --check
-            stop_conditions: Stop if documentation recommends running the long-lived service as root, self-updating package-managed binaries, or treating `.previous` as a database backup.
-            escalation: Keep instructions to explicit CLI and existing installer/systemd conventions; defer package-manager-specific flows.
+            stop_conditions: Stop if rollback accepts an arbitrary unrelated target, deletes the only runnable binary, or is documented as restoring database state.
+            escalation: Return explicit manual instructions and surviving paths rather than forcing a destructive recovery.
 
-  - phase_slug: self-update-verification-gate
-    story_id: 01KZZWBCBT2Y3Z3YY01VF8WJPE
+  - phase_slug: panel-one-click
+    story_id: 01M02G1FHY3P2ZBAEQRH8ZGM23
     status: planned
-    goal: Prove the signed asset set, updater failure invariants, supported-platform behavior, and full repository quality gates before release activation.
-    depends_on: operator-update-cli
+    goal: Expose staging and restart through management endpoints and a panel button, install the narrow sudoers rule, and pass the full repository verification gate.
+    depends_on: privileged-apply
     allowed_surfaces:
-      - focused corrections in surfaces owned by the preceding three phases
-      - local `dist/` and temporary signing/test paths created by verification commands
-      - repository test, build, release-check, and diff outputs
+      - internal/api/handlers/management/ (new self-update handler) and internal/api/server.go route registration
+      - web/src/pages/SystemPage.tsx, web/src/services/api/version.ts, web/src/i18n/locales/en.json, web/src/i18n/locales/vi.json
+      - scripts/install-local.sh sudoers drop-in installation
+      - README.md panel update documentation
     avoided_surfaces:
-      - new product behavior, broader platform support, live provider/database dependencies, or frontend tests
-      - publishing a real tag/release without separate explicit outward-action approval
-      - weakening checks, deleting evidence, or committing any signing secret
+      - frontend test files anywhere under web/
+      - the existing latest-version response shape consumed by `handleVersionCheck`
+      - provider, runtime, and Postgres code
     waves:
       - wave: 1
         tasks:
-          - task: Run focused engine and CLI suites with race detection, including end-to-end local signed-update fixtures that prove unchanged/restored target bytes across every rejection and rollback path.
-            requirements: [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R13]
-            dependencies: release-signing-foundation, self-update-engine, operator-update-cli
-            expected_output: Focused tests pass without live GitHub/Postgres access, secret material, current-executable mutation, leaked temporary files, or races.
+          - task: Add `POST /v0/management/self-update` and `POST /v0/management/self-update/apply` behind the existing management-key middleware. The first runs the engine's discover-verify-probe-stage path and returns a typed outcome (already current, staged with version, rejected with reason, unsupported platform). The second executes `sudo -n /usr/bin/systemctl restart llmhub.service` and returns before the process is terminated.
+            requirements: [R5, R6, R7, R8, R12, R13]
+            dependencies: none
+            expected_output: The panel can stage an update and trigger a restart; failures return distinguishable typed reasons without exposing remote response bodies.
             checks:
-              - go test ./internal/updater/... ./cmd/server/... -count=1
-              - go test -race ./internal/updater/... ./cmd/server/... -count=1
-            stop_conditions: Stop on any failure or if a fixture's target escapes its temporary directory; do not proceed to release/build gates.
-            escalation: Return the failure to the phase that owns the affected invariant and preserve the exact command/output.
-          - task: Validate unsigned and signed GoReleaser snapshots, then inspect the exact platform asset, checksum, and minisign sidecar matrix with a non-production or explicitly authorized key.
-            requirements: [R3, R6, R7, R11, R12, R14]
-            dependencies: release-signing-foundation, self-update-engine, operator-update-cli
-            expected_output: Snapshot output contains all current release binaries and checksums; signed snapshot output contains a valid `.minisig` for each binary, and the updater's embedded production key path is distinct from non-production verification keys.
+              - go test ./internal/api/... -run 'Test(SelfUpdateStage|SelfUpdateApply|SelfUpdateAuth|SelfUpdateUnsupported)' -count=1
+              - Assert the apply handler invokes exactly one fixed command through an injected runner seam and never constructs it from request input.
+            stop_conditions: Stop if either endpoint is reachable without the management key, accepts a client-supplied version or command, or leaks remote bodies into responses.
+            escalation: Keep both handlers thin adapters over `internal/updater` and format outcomes only in the handler.
+          - task: Install a sudoers drop-in from `scripts/install-local.sh` granting the service user exactly `NOPASSWD: /usr/bin/systemctl restart llmhub.service` with no wildcard, validated with `visudo -c` before activation.
+            requirements: [R14]
+            dependencies: task: Add `POST /v0/management/self-update` and `POST /v0/management/self-update/apply` behind the existing management-key middleware.
+            expected_output: The service user can restart only its own unit and gains no other root capability.
             checks:
-              - make release-check
-              - make release-snapshot
-              - MINISIGN_KEY_PATH=<authorized-test-key> MINISIGN_PUBLIC_KEY_PATH=<matching-public-key> make release-signed-snapshot
-              - scripts/verify-release-assets.sh dist <matching-public-key>
-            stop_conditions: Stop if an asset is missing/renamed, a signature verifies against the wrong key, snapshot signing requires committing a private key, or GoReleaser output differs from updater lookup.
-            escalation: Leave all release output local, correct the owning release/updater contract, and rerun the full matrix before any tag is created.
+              - visudo -cf the generated drop-in
+              - grep -c '\*' on the generated drop-in returns 0
+              - Confirm the drop-in names the absolute systemctl path and the full unit name.
+            stop_conditions: Stop if the rule contains a wildcard, a variable argument, a shell invocation, or any command other than the single unit restart.
+            escalation: Ship the panel without the apply endpoint's restart step and require a manual restart rather than widening the rule.
       - wave: 2
         tasks:
-          - task: Run repository-wide tests, vet, frontend production build/embed, backend build, and cross-platform release compilation after focused security checks pass.
-            requirements: [R14]
+          - task: Extend `web/src/pages/SystemPage.tsx` so the existing version check surfaces an Update action when a newer version is available: stage with progress feedback, show the staged version, then trigger restart and poll for the server returning on the new version. Add all new strings to both `en.json` and `vi.json` and the two endpoints to `web/src/services/api/version.ts`.
+            requirements: [R13]
             dependencies: wave: 1
-            expected_output: All repository packages and existing frontend/backend release paths pass with the pinned updater dependency and embedded public key.
+            expected_output: An operator presses check, sees the available version, presses update, and observes staging, restart, and the new running version without leaving the panel.
             checks:
+              - bun run type-check
+              - bun run lint
+              - bun build
+              - Confirm every new `t()` key exists in both locale files.
+            stop_conditions: Stop if any frontend test file is created under `web/`, or if the update action is reachable when no newer version was reported.
+            escalation: Keep the change inside `SystemPage.tsx` and the version API module; do not restructure the page or its refresh pattern.
+          - task: Run the full verification gate: focused updater, command, and API suites with race detection, then repository-wide tests, vet, frontend build and embed, backend build, release configuration validation, snapshot release, and diff and dependency hygiene.
+            requirements: [R15, R16]
+            dependencies: task: Extend `web/src/pages/SystemPage.tsx` so the existing version check surfaces an Update action.
+            expected_output: All gates pass with no skipped platform build, no leaked temporary files, no races, and a surgical diff.
+            checks:
+              - go test ./internal/updater/... ./cmd/server/... ./internal/api/... -count=1
+              - go test -race ./internal/updater/... ./cmd/server/... ./internal/api/... -count=1
               - go test ./...
               - go vet ./...
               - make build-web
               - make build
               - make release-check
               - make release-snapshot
-            stop_conditions: Stop on any command failure or skipped platform build; do not attribute unrelated output without proving it predates the initiative.
-            escalation: Fix only regressions introduced by the planned surfaces or report the exact external/pre-existing blocker with proof.
-          - task: Inspect dependency, secret, generated-asset, and diff hygiene before handing the implementation to the normal check/git workflow.
-            requirements: [R7, R12, R14]
-            dependencies: task: Run repository-wide tests, vet, frontend production build/embed, backend build, and cross-platform release compilation after focused security checks pass.
-            expected_output: The diff is surgical, dependency versions are pinned, no production private key or generated release binary is tracked, and the working tree contains only intended source/config/documentation changes.
-            checks:
-              - go list -m github.com/minio/selfupdate golang.org/x/mod
-              - test -z "$(git ls-files | grep -E '(^|/)(release|minisign)([-_.].*)?\.key$' || true)"
               - git diff --check
               - git status --short
-            stop_conditions: Stop if a secret-like key file, generated release asset, unrelated refactor, failing check, or unexplained worktree change remains.
-            escalation: Preserve user-owned changes, remove only initiative-generated residue through the repository-safe cleanup workflow, and rerun affected checks.
-      - wave: 3
-        tasks:
-          - task: When separately authorized for an outward-facing release, exercise the protected tag workflow, verify the GitHub draft contains and cryptographically validates every required asset, then publish or leave the draft blocked with exact evidence.
-            requirements: [R5, R6, R7, R11, R12]
-            dependencies: wave: 2
-            expected_output: The first authorized signed release is published only after remote draft verification, or remains unpublished with a precise missing/invalid asset report.
-            checks:
-              - gh release view <authorized-tag> --json isDraft,tagName,assets,url
-              - Download the draft assets to an isolated temporary directory and run `scripts/verify-release-assets.sh <directory> internal/updater/release.pub` before publication.
-              - Confirm `GET /repos/therealtinhtute/llmhub/releases/latest` does not expose the draft and exposes the release only after successful publication.
-            stop_conditions: Do not create/push a tag, modify GitHub environment secrets, or publish a release without explicit authorization; never publish after a failed remote signature/asset check.
-            escalation: Leave the release draft and route the exact failure to release-signing-foundation; rotate the key if authenticity rather than packaging failed.
+            stop_conditions: Stop on any command failure or skipped gate; do not attribute unrelated output without proving it predates the initiative.
+            escalation: Return the failure to the phase owning the affected invariant and preserve the exact command and output.
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
-- none
+- 2026-08-14 / release-signing-foundation / wave 1 / task "Provision a dedicated minisign release key" / task_status=blocked / run_id=none / trace_id=none: `internal/updater/release.pub` and minisign tooling are absent. Production key generation/provisioning and protected GitHub `release` secret changes require explicit secret-handling authorization; no key, secret, or release-signing file was created.
+- 2026-08-14 / audit-remediation / step 1 / task_status=superseded / run_id=none / trace_id=none: clean `master` contained no referenced pending web UI batch, so the stale exact-next-action no longer applied; no empty or synthetic commit was created.
+- 2026-08-14 / release-signing-foundation / phase decision / task_status=blocked / run_id=none / trace_id=none: owner selected stop before signing-key provisioning; production key material, protected secrets, and placeholder trust files remain untouched.
+- 2026-08-14 / release-signing-foundation / wave 1 / task "Extend GoReleaser signing configuration" / task_status=partial / run_id=none / trace_id=none: added an isolated Go signer, `binary_signs` configuration, unsigned-snapshot skip behavior, signed-snapshot input gating, and a complete eight-asset checksum/signature verifier. Nested signer tests, shell syntax checks, `make release-check`, unsigned `make release-snapshot`, and missing-input fail-closed checks pass; cryptographic signed-snapshot verification remains blocked until authorized key/tool inputs exist.
+- 2026-08-14 / release-signing-foundation / wave 2 / task "Harden the tag workflow" / task_status=partial / run_id=none / trace_id=none: changed `.github/workflows/release.yml` to use the protected `release` environment, verified minisign 0.12 installation, temporary mode-0600 secret materialization, draft-first upload, remote matrix verification, optional transition public-key input, and runner cleanup without provisioning secrets or publishing a release. The verifier now accepts both GoReleaser snapshot directories and flat downloaded release assets.
+- 2026-08-14 / release-signing-foundation / wave 2 / task "Add operator release documentation" / task_status=partial / run_id=none / trace_id=none: added `docs/release-signing.md` and linked it from `docs/README.md`; documents only public contracts, secret names, signed/unsigned snapshot commands, immutable tags, rotation, compromise response, and trusted reinstall boundaries.
+- 2026-08-14 / release-signing-foundation / verification / task "Verify pinned minisign tooling" / task_status=passed / run_id=none / trace_id=none: cryptographically verified `minisign-0.12-linux.tar.gz` and its detached signature with the upstream public key through `scripts/verify-minisign-asset.sh`; execution of the Linux binary was not attempted on macOS.
+- 2026-08-14 / release-signing-foundation / verification / task "Resolve GoReleaser signer paths" / task_status=passed / run_id=none / trace_id=none: the nested-module wrapper changed cwd before signing, so GoReleaser's relative artifact paths failed; both wrappers now canonicalize file arguments before entering the nested module, with a regression test and a successful eight-asset signed snapshot.
+- 2026-08-14 / release-signing-foundation / wave 2 / verification / task_status=passed / run_id=none / trace_id=none: shell syntax, nested signer tests/vet, `make release-check`, actionlint, flat downloaded-asset verification, and a full `make release-signed-snapshot` using an ephemeral non-production fixture key all pass. Production key provisioning, protected secrets, and release publication remain blocked and untouched.
+- 2026-08-15 / plan revision / task_status=superseded / run_id=none / trace_id=none: owner reviewed the initiative against the original intent — press check and update inside the management panel on a systemd VPS — and found the previous four phases delivered a CLI-only updater that could not satisfy it, because `scripts/install-local.sh:441` sets `ProtectSystem=full` with `ReadWritePaths` excluding `/usr/local/bin`, so the service cannot write its own binary. Owner then selected checksum-only verification over minisign. All `release-signing-foundation` work above is superseded and scheduled for removal by `release-pipeline-cleanup`; the draft-first workflow and asset-matrix verifier are retained with signature checks stripped.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- none
+- 2026-08-14 / plan review revision: accepted R15-R19 and amended the phase tasks to serialize per-target operations, contain unsigned Makefile update paths, define protected minisign tooling/secrets and two-release key rotation with manual emergency recovery, narrow the candidate probe to observable startup behavior, and document selfupdate v0.6.0 stale-backup/fsync/interruption limits. Rationale: the original plan left concurrent mutation, trust-anchor rotation, probe purity, legacy update bypasses, and power-loss recovery underspecified.
+- 2026-08-14 / release-signing-foundation / wave 1 task 2: selected a narrowly scoped Go minisign-compatible signer for encrypted-key signing because minisign 0.12 has no stdin, file, or environment passphrase input; retain pinned minisign 0.12 for independent release-asset verification. Rationale: this preserves the non-argv passphrase boundary without adding a PTY helper or exposing the passphrase in process arguments.
+- 2026-08-15 / plan revision: replaced the CLI-only in-place updater with a stage-then-privileged-apply design and rewrote all four phases. Rationale: the deployment's systemd sandbox makes in-place self-replacement impossible, and the owner's actual requirement is a panel button with automatic restart.
+- 2026-08-15 / plan revision: dropped minisign signing in favor of SHA-256 verification against `checksums.txt`. Rationale: the signing key would have lived in GitHub Secrets, so it defended only against a partial GitHub compromise rather than a repository takeover; the owner accepted that residual risk to remove key provisioning, rotation, and release tooling. Consequence: the root apply step re-fetches `checksums.txt` over HTTPS itself rather than trusting the service-writable staged manifest.
+- 2026-08-15 / plan revision: removed `github.com/minio/selfupdate`, the per-target advisory lock, and the fsync/pending-sibling power-loss handling. Rationale: `systemctl restart` stops the process before `ExecStartPre` runs, so the target is never busy and a plain rename suffices; a single-operator single-VPS deployment applying updates serially at boot does not exhibit the concurrency or torn-transaction cases those mechanisms defended against.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
 - none
 
 ## Current State and Next Action
-- active_phase: release-signing-foundation
+- active_phase: release-pipeline-cleanup
 - lifecycle_status: planned
 - latest_run_id: none
 - latest_trace_ids: []
 - latest_check_id: none
-- latest_handoff_id: none
+- latest_handoff_id: 01M02GJ4CD1R938033MY4PV0HN
 - blockers: none
-- open_items: [work phases release-signing-foundation, self-update-engine, operator-update-cli, self-update-verification-gate]
-- exact_next_action: work full phase release-signing-foundation
+- db_registration: all four phases registered in the harness DB on 2026-08-15 with status `planned` and the story IDs recorded above. The DB's prior position `model-combos/checked` belongs to a different initiative; never anchor this plan's run, check, or handoff rows to that initiative's IDs.
+- worktree_state: the superseded minisign work is uncommitted — modified `.github/workflows/release.yml`, `.goreleaser.yml`, `Makefile`, `docs/README.md`, and untracked `scripts/sign-release-asset/`, `scripts/sign-release-asset.sh`, `scripts/verify-minisign-asset.sh`, `scripts/verify-release-assets.sh`, `docs/release-signing.md`. Do not attempt to finish or commit it as-is; `release-pipeline-cleanup` removes the signing parts with `trash` and keeps the draft-first workflow and the asset-matrix verifier.
+- open_items: [release-pipeline-cleanup, self-update-engine, privileged-apply, panel-one-click]
+- exact_next_action: work full phase release-pipeline-cleanup

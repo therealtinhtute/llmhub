@@ -81,11 +81,14 @@ jobs:
               esac
               artifact="dist/llmhub_$target/$filename"
               test -f "$artifact"
-              gh release upload "$RELEASE_TAG" \
-                "$artifact#$asset"
+              # gh release upload names assets after the file's basename, so
+              # upload through a unique per-target name (the FILE#LABEL syntax
+              # only sets the display label, not the asset name).
+              cp "$artifact" "$RUNNER_TEMP/$asset"
+              gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$asset"
             done
           done
-          gh release upload "$RELEASE_TAG" 'dist/checksums.txt#checksums.txt'
+          gh release upload "$RELEASE_TAG" 'dist/checksums.txt'
           test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 9
           remote_dir="$RUNNER_TEMP/llmhub-release-assets"
           mkdir -p "$remote_dir"

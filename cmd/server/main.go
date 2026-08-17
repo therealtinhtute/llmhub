@@ -26,6 +26,7 @@ import (
 	_ "github.com/therealtinhtute/llmhub/internal/translator"
 	"github.com/therealtinhtute/llmhub/internal/tui"
 	"github.com/therealtinhtute/llmhub/internal/util"
+	"github.com/therealtinhtute/llmhub/internal/api"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy"
 )
@@ -57,15 +58,12 @@ func configureQuotaAlertRuntime(builder *cliproxy.Builder, pgStore quotaalert.St
 // It parses command-line flags, loads configuration, and starts the appropriate
 // service based on the provided flags (login, codex-login, or server mode).
 func main() {
-	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "init-db-from-env":
-			os.Exit(runInitDBFromEnv(os.Args[2:]))
-		case "migrate-local-to-db":
-			os.Exit(runMigrateLocalToDB(os.Args[2:]))
-		}
+	// Positional commands run before the banner, server flag parsing, and
+	// Postgres loading (R1).
+	if code, handled := dispatchEarlyCommand(os.Args[1:]); handled {
+		os.Exit(code)
 	}
+	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
 
 	// Command-line flags to control the application's behavior.
 	var login bool
@@ -185,6 +183,9 @@ func main() {
 
 	// Set the log level based on the configuration.
 	util.SetLogLevel(cfg)
+	// Startup completed (config loaded, Postgres healthy): record the
+	// healthy-start token the root apply step uses to close its boot cycle.
+	markBooted()
 	// Create login options to be used in authentication flows.
 	options := &cmd.LoginOptions{
 		NoBrowser:    noBrowser,
@@ -264,7 +265,8 @@ func main() {
 				cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 					builder.WithManagementConfigStore(pgStore).
 						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
-						WithRuntimeStoragePolicy(runtimeStoragePolicy)
+						WithRuntimeStoragePolicy(runtimeStoragePolicy).
+						WithServerOptions(api.WithSelfUpdateEngine(newUpdateEngine()))
 					configureQuotaAlertRuntime(builder, pgStore)
 				})
 
@@ -315,7 +317,8 @@ func main() {
 			cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 				builder.WithManagementConfigStore(pgStore).
 					WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
-					WithRuntimeStoragePolicy(runtimeStoragePolicy)
+					WithRuntimeStoragePolicy(runtimeStoragePolicy).
+					WithServerOptions(api.WithSelfUpdateEngine(newUpdateEngine()))
 				configureQuotaAlertRuntime(builder, pgStore)
 			})
 		}

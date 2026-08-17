@@ -21,12 +21,11 @@ help:
 	@echo "  make dev-web           Run the React management panel with Vite hot reload (DEV_WEB_API_BASE=$(DEV_WEB_API_BASE))"
 	@echo "  make embed             Build and embed the management panel"
 	@echo "  make release-check     Validate .goreleaser.yml with $(GORELEASER)"
-	@echo "  make release-snapshot  Build local GoReleaser snapshot archives"
+	@echo "  make release-snapshot  Build an unsigned local GoReleaser snapshot"
 	@echo "  make release-preflight Verify the worktree and local release build prerequisites"
 	@echo "  make release           Create and push TAG=... after local release preflight checks"
-	@echo "  make download-latest   Download the latest GitHub Release binary"
-	@echo "  make install-latest    Install the latest GitHub Release binary to PREFIX=$(PREFIX)"
 	@echo "  make install-local     Install a local binary with full VPS setup (systemd, config, user)"
+	@echo "  (llmhub update and the management panel replace the removed download-latest/install-latest)"
 	@echo "  make clean             Remove build, web, and release artifacts"
 
 build-web:
@@ -57,7 +56,7 @@ release-check:
 	$(GORELEASER) check
 
 release-snapshot:
-	$(GORELEASER) release --snapshot --clean
+	$(GORELEASER) release --snapshot --clean --skip=sign
 
 release-preflight:
 	@set -eu; \
@@ -101,39 +100,13 @@ release: release-preflight
 	git push origin "refs/tags/$$tag"; \
 	echo "Pushed $$tag."
 
+# Deprecated (R17): the unsigned remote fetch/install is removed. Operators
+# stage verified releases with `llmhub update` or the management panel.
 download-latest:
-	@set -eu; \
-	os=$$(go env GOOS); \
-	arch=$$(go env GOARCH); \
-	case "$$os" in windows) exe=.exe ;; *) exe= ;; esac; \
-	latest_url=$$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$(REPO)/releases/latest"); \
-	tag=$${latest_url##*/}; \
-	asset="$(BINARY)-$${os}-$${arch}$${exe}"; \
-	url="https://github.com/$(REPO)/releases/download/$${tag}/$${asset}"; \
-	mkdir -p dist/downloads; \
-	echo "Downloading $${url}"; \
-	curl -fL "$${url}" -o "dist/downloads/$${asset}"; \
-	echo "Saved dist/downloads/$${asset}"
+	@echo "download-latest is deprecated and disabled: it fetched unsigned release binaries. Use \`llmhub update\` or the management panel Self-Update page." >&2; exit 1
 
 install-latest:
-	@set -eu; \
-	os=$$(go env GOOS); \
-	arch=$$(go env GOARCH); \
-	case "$$os" in windows) exe=.exe ;; *) exe= ;; esac; \
-	latest_url=$$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$(REPO)/releases/latest"); \
-	tag=$${latest_url##*/}; \
-	asset="$(BINARY)-$${os}-$${arch}$${exe}"; \
-	url="https://github.com/$(REPO)/releases/download/$${tag}/$${asset}"; \
-	archive="dist/downloads/$${asset}"; \
-	if [ ! -f "$${archive}" ]; then \
-		mkdir -p dist/downloads; \
-		echo "Downloading $${url}"; \
-		curl -fL "$${url}" -o "$${archive}"; \
-	fi; \
-	chmod +x "$${archive}"; \
-	install -d "$(PREFIX)"; \
-	install -m 0755 "$${archive}" "$(PREFIX)/$(BINARY)$${exe}"; \
-	echo "Installed $(BINARY)$${exe} to $(PREFIX)/$(BINARY)$${exe}"
+	@echo "install-latest is deprecated and disabled: it installed unsigned release binaries. Use \`llmhub update\` or the management panel Self-Update page." >&2; exit 1
 
 install-local:
 	@if [ -n "$(BINARY_PATH)" ]; then \

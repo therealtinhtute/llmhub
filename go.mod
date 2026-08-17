@@ -52,6 +52,7 @@ require (
 	github.com/pion/webrtc/v4 v4.2.17 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
+	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )
 

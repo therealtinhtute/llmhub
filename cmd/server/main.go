@@ -57,15 +57,12 @@ func configureQuotaAlertRuntime(builder *cliproxy.Builder, pgStore quotaalert.St
 // It parses command-line flags, loads configuration, and starts the appropriate
 // service based on the provided flags (login, codex-login, or server mode).
 func main() {
-	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "init-db-from-env":
-			os.Exit(runInitDBFromEnv(os.Args[2:]))
-		case "migrate-local-to-db":
-			os.Exit(runMigrateLocalToDB(os.Args[2:]))
-		}
+	// Positional commands run before the banner, server flag parsing, and
+	// Postgres loading (R1).
+	if code, handled := dispatchEarlyCommand(os.Args[1:]); handled {
+		os.Exit(code)
 	}
+	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
 
 	// Command-line flags to control the application's behavior.
 	var login bool

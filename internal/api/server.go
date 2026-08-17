@@ -69,6 +69,8 @@ type serverOptionConfig struct {
 	quotaAlertCipher           *quotaalert.SecretCipher
 	runtimeSettingsStore       runtimecontrol.SettingsStore
 	runtimeStoragePolicy       runtimepolicy.RuntimeStorage
+	selfUpdateEngine           managementHandlers.SelfUpdateEngine
+	selfUpdateRestartRunner    func(context.Context) error
 }
 
 // ServerOption customises HTTP server construction.
@@ -191,6 +193,24 @@ func (s *Server) runtimeControlRequestContext() gin.HandlerFunc {
 			c.Request = c.Request.WithContext(coreexecutor.WithCodexCloakingDisabled(c.Request.Context()))
 		}
 		c.Next()
+	}
+}
+
+// WithSelfUpdateEngine wires the staging engine behind
+// POST /v0/management/self-update (R13). The engine resolves ${DATA_DIR} the
+// same way the update CLI does.
+func WithSelfUpdateEngine(engine managementHandlers.SelfUpdateEngine) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.selfUpdateEngine = engine
+	}
+}
+
+// WithSelfUpdateRestartRunner overrides the fixed restart command runner used
+// by POST /v0/management/self-update/apply. When unset, the handler runs
+// `sudo -n /usr/bin/systemctl restart llmhub.service` itself (R14).
+func WithSelfUpdateRestartRunner(runner func(context.Context) error) ServerOption {
+	return func(cfg *serverOptionConfig) {
+		cfg.selfUpdateRestartRunner = runner
 	}
 }
 
@@ -382,6 +402,12 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 	if optionState.runtimeSettingsStore != nil {
 		s.mgmt.SetRuntimeSettingsStore(optionState.runtimeSettingsStore)
+	}
+	if optionState.selfUpdateEngine != nil {
+		s.mgmt.SetSelfUpdateEngine(optionState.selfUpdateEngine)
+	}
+	if optionState.selfUpdateRestartRunner != nil {
+		s.mgmt.SetSelfUpdateRestartRunner(optionState.selfUpdateRestartRunner)
 	}
 	s.localPassword = optionState.localPassword
 
@@ -687,6 +713,9 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.DELETE("/proxy-url", s.mgmt.DeleteProxyURL)
 
 		mgmt.POST("/api-call", s.mgmt.APICall)
+
+		mgmt.POST("/self-update", s.mgmt.SelfUpdateStage)
+		mgmt.POST("/self-update/apply", s.mgmt.SelfUpdateApply)
 
 		mgmt.GET("/quota-exceeded/switch-project", s.mgmt.GetSwitchProject)
 		mgmt.PUT("/quota-exceeded/switch-project", s.mgmt.PutSwitchProject)

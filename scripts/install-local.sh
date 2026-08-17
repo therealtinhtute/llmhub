@@ -18,6 +18,8 @@ SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
 SERVICE_NAME="${SERVICE_NAME:-llmhub}"
 ENV_FILE="${ENV_FILE:-${CONFIG_DIR}/llmhub.env}"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+SUDOERS_DIR="${SUDOERS_DIR:-/etc/sudoers.d}"
+SUDOERS_FILE="${SUDOERS_DIR}/llmhub"
 CADDY_DOMAIN="${CADDY_DOMAIN:-}"
 CADDYFILE_PATH="${CADDYFILE_PATH:-/etc/caddy/Caddyfile}"
 CADDY_SITES_DIR="${CADDY_SITES_DIR:-/etc/caddy/conf.d}"
@@ -394,6 +396,34 @@ install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR/update"
 install -d -m 0750 -o root -g root "$MARKER_DIR"
 echo "    directories: $CONFIG_DIR, $DATA_DIR, $LOG_DIR, $DATA_DIR/update, $MARKER_DIR"
 
+# Sudoers drop-in: the service user may restart only its own unit, so the
+# management panel's update action can trigger a restart (R14). The rule is
+# written with no wildcard or variable argument, validated with visudo before
+# activation, and installed mode 0440 root-owned as sudo requires.
+if command -v visudo >/dev/null 2>&1; then
+    install -d -m 0755 "$SUDOERS_DIR"
+    tmp_sudoers="$(mktemp)"
+    cat >"$tmp_sudoers" <<EOF
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${SERVICE_NAME}.service
+EOF
+    if grep -c '\*' "$tmp_sudoers" >/dev/null 2>&1; then
+        echo "error: sudoers rule must not contain wildcards" >&2
+        rm -f "$tmp_sudoers"
+        exit 1
+    fi
+    chmod 0440 "$tmp_sudoers"
+    visudo -cf "$tmp_sudoers" >/dev/null 2>&1 || {
+        echo "error: generated sudoers drop-in failed visudo validation" >&2
+        rm -f "$tmp_sudoers"
+        exit 1
+    }
+    install -m 0440 -o root -g root "$tmp_sudoers" "$SUDOERS_FILE"
+    rm -f "$tmp_sudoers"
+    echo "    sudoers: $SUDOERS_FILE (${SERVICE_USER} NOPASSWD restart of ${SERVICE_NAME}.service)"
+else
+    echo "    sudoers: skipped (sudo not found) — panel update restart will require a manual restart"
+fi
+
 if [ ! -f "$ENV_FILE" ]; then
     if tmp_env=$(find_local_env_file); then
         install -m 0640 -o root -g "$SERVICE_GROUP" "$tmp_env" "$ENV_FILE"
@@ -443,7 +473,10 @@ ExecStartPre=${INSTALL_DIR}/${BINARY} init-db-from-env -env-file ${ENV_FILE}
 ExecStart=${INSTALL_DIR}/${BINARY}
 Restart=${SERVICE_RESTART}
 RestartSec=${SERVICE_RESTART_SEC}
-NoNewPrivileges=true
+# No NoNewPrivileges: it blocks setuid, and the panel's update restart runs
+# `sudo -n systemctl restart` from inside the service. The elevation is
+# bounded to exactly that one restart by the sudoers drop-in above; the rest
+# of the sandbox (ProtectSystem=full, PrivateTmp) stays.
 PrivateTmp=true
 ProtectSystem=full
 ReadWritePaths=${DATA_DIR} ${LOG_DIR} ${CONFIG_DIR}
@@ -480,6 +513,7 @@ fi
 echo ""
 echo "    Management password: ${MGMT_PASSWORD_DISPLAY:-see $ENV_FILE}"
 echo "    Bootstrap env: $ENV_FILE"
+echo "    Sudoers: $SUDOERS_FILE (if sudo is installed)"
 echo "    Logs: journalctl -u ${SERVICE_NAME} -f"
 if [ -n "$CADDY_DOMAIN" ]; then
     echo "    Caddy logs: journalctl -u caddy -f"

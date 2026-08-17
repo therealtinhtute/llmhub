@@ -87,6 +87,10 @@ export function SystemPage() {
   const [requestLogTouched, setRequestLogTouched] = useState(false);
   const [requestLogSaving, setRequestLogSaving] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const [stagingUpdate, setStagingUpdate] = useState(false);
+  const [stagedVersion, setStagedVersion] = useState<string | null>(null);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
   const [runtimeDraft, setRuntimeDraft] = useState<RuntimeControlSettings | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
@@ -248,8 +252,10 @@ export function SystemPage() {
       }
 
       if (comparison > 0) {
+        setAvailableVersion(latest);
         toast.warning(t('system_info.version_update_available', { version: latest }));
       } else {
+        setAvailableVersion(null);
         toast.success(t('system_info.version_is_latest'));
       }
     } catch (error: unknown) {
@@ -261,6 +267,86 @@ export function SystemPage() {
       setCheckingVersion(false);
     }
   }, [auth.serverVersion, t]);
+
+  const handleStageUpdate = useCallback(async () => {
+    setStagingUpdate(true);
+    try {
+      const data = await versionApi.stageUpdate();
+      const status = data?.status;
+      if (status === 'staged') {
+        const version = typeof data?.version === 'string' ? data.version : '';
+        setStagedVersion(version);
+        toast.success(t('system_info.update_staged', { version }));
+      } else if (status === 'current') {
+        setAvailableVersion(null);
+        toast.success(t('system_info.version_is_latest'));
+      } else if (status === 'unsupported') {
+        toast.error(t('system_info.update_unsupported'));
+      } else if (status === 'rejected') {
+        const reason = typeof data?.reason === 'string' ? data.reason : '';
+        toast.error(t('system_info.update_rejected', { reason }));
+      } else {
+        toast.error(t('system_info.update_stage_failed'));
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+      const suffix = message ? `: ${message}` : '';
+      toast.error(`${t('system_info.update_stage_failed')}${suffix}`);
+    } finally {
+      setStagingUpdate(false);
+    }
+  }, [t]);
+
+  const handleApplyUpdate = useCallback(() => {
+    showConfirmation({
+      title: t('system_info.update_apply_button'),
+      message: t('system_info.update_restart_confirm'),
+      variant: 'danger',
+      confirmText: t('common.confirm'),
+      onConfirm: () => {
+        void (async () => {
+          setApplyingUpdate(true);
+          try {
+            await versionApi.applyUpdate();
+            // The server terminates itself; poll until it returns on the
+            // staged version. Each response refreshes the store version via
+            // the server-version-update event.
+            const target = stagedVersion;
+            const started = Date.now();
+            const POLL_INTERVAL_MS = 3000;
+            const POLL_TIMEOUT_MS = 90000;
+            for (;;) {
+              await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+              try {
+                await versionApi.checkLatest();
+              } catch {
+                // Server still down; keep polling.
+              }
+              const current = useAuthStore.getState().serverVersion;
+              if (target && current === target) {
+                toast.success(t('system_info.update_restarted', { version: target }));
+                setAvailableVersion(null);
+                setStagedVersion(null);
+                return;
+              }
+              if (Date.now() - started > POLL_TIMEOUT_MS) {
+                toast.warning(t('system_info.update_restart_timeout'));
+                return;
+              }
+            }
+          } catch (error: unknown) {
+            const message =
+              error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+            const suffix = message ? `: ${message}` : '';
+            toast.error(`${t('system_info.update_restart_failed')}${suffix}`);
+          } finally {
+            setApplyingUpdate(false);
+          }
+        })();
+      },
+    });
+  }, [showConfirmation, stagedVersion, t]);
 
   useEffect(() => {
     fetchConfig().catch(() => {
@@ -325,6 +411,46 @@ export function SystemPage() {
                 </Button>
               </div>
               <div className="text-[22px] font-bold text-foreground leading-tight break-words">{apiVersion}</div>
+              {availableVersion && !stagedVersion && !applyingUpdate && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {t('system_info.version_update_available', { version: availableVersion })}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => void handleStageUpdate()}
+                    loading={stagingUpdate}
+                  >
+                    {t('system_info.update_button')}
+                  </Button>
+                </div>
+              )}
+              {stagingUpdate && (
+                <div className="text-xs text-muted-foreground">{t('system_info.update_staging')}</div>
+              )}
+              {stagedVersion && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-xs text-foreground">
+                    {t('system_info.update_staged', { version: stagedVersion })}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="danger"
+                    className="shrink-0 self-start"
+                    onClick={() => void handleApplyUpdate()}
+                    loading={applyingUpdate}
+                    disabled={applyingUpdate}
+                  >
+                    {t('system_info.update_apply_button')}
+                  </Button>
+                </div>
+              )}
+              {applyingUpdate && (
+                <div className="text-xs text-muted-foreground">{t('system_info.update_restarting')}</div>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5 min-h-[120px] px-4 py-3 border border-border bg-muted/82 text-left">

@@ -59,6 +59,9 @@ type Handler struct {
 	quotaAlertStore      quotaalert.Store
 	quotaAlertCipher     *quotaalert.SecretCipher
 	runtimeSettingsStore runtimecontrol.SettingsStore
+	selfUpdateEngine     SelfUpdateEngine
+	selfUpdateRunner     func(context.Context) error
+	selfUpdateMu         sync.Mutex
 }
 
 type ManagementConfigStore interface {
@@ -182,6 +185,25 @@ func (h *Handler) SetConfigChangeHook(hook func(*config.Config)) {
 		return
 	}
 	h.configChangeHook = hook
+}
+
+// SetSelfUpdateEngine wires the staging engine used by
+// POST /v0/management/self-update (R13).
+func (h *Handler) SetSelfUpdateEngine(engine SelfUpdateEngine) {
+	if h == nil {
+		return
+	}
+	h.selfUpdateEngine = engine
+}
+
+// SetSelfUpdateRestartRunner overrides the restart command runner used by
+// POST /v0/management/self-update/apply. Tests inject it to observe exactly
+// one invocation of the fixed command.
+func (h *Handler) SetSelfUpdateRestartRunner(runner func(context.Context) error) {
+	if h == nil {
+		return
+	}
+	h.selfUpdateRunner = runner
 }
 
 // Middleware enforces access control for management endpoints.

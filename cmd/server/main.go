@@ -26,6 +26,7 @@ import (
 	_ "github.com/therealtinhtute/llmhub/internal/translator"
 	"github.com/therealtinhtute/llmhub/internal/tui"
 	"github.com/therealtinhtute/llmhub/internal/util"
+	"github.com/therealtinhtute/llmhub/internal/api"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy"
 )
@@ -264,7 +265,8 @@ func main() {
 				cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 					builder.WithManagementConfigStore(pgStore).
 						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
-						WithRuntimeStoragePolicy(runtimeStoragePolicy)
+						WithRuntimeStoragePolicy(runtimeStoragePolicy).
+						WithServerOptions(api.WithSelfUpdateEngine(newUpdateEngine()))
 					configureQuotaAlertRuntime(builder, pgStore)
 				})
 
@@ -315,7 +317,8 @@ func main() {
 			cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 				builder.WithManagementConfigStore(pgStore).
 					WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
-					WithRuntimeStoragePolicy(runtimeStoragePolicy)
+					WithRuntimeStoragePolicy(runtimeStoragePolicy).
+					WithServerOptions(api.WithSelfUpdateEngine(newUpdateEngine()))
 				configureQuotaAlertRuntime(builder, pgStore)
 			})
 		}

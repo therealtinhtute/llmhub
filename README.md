@@ -212,6 +212,36 @@ The initial runtime config is supplied through `LLMHUB_INIT_CONFIG_YAML` or
 `LLMHUB_INIT_CONFIG_B64`, then stored in Postgres. Runtime reads and writes
 config only from the database after that.
 
+## Updating LLMHub
+
+On the systemd install (`scripts/install-local.sh`), `apply-staged-update` runs
+as root before every service start. The operator flow:
+
+1. **Check** — `llmhub update --check` compares the running version with the
+   latest stable release and reports `update available` / `up to date` / newer
+   than stable. No network data is written anywhere.
+2. **Stage** — `llmhub update` downloads the release for your platform,
+   verifies it against the published checksums, probes it, and writes it to
+   `${DATA_DIR}/update/`. The installed binary is never touched by staging.
+3. **Apply** — `sudo systemctl restart llmhub` (or reboot). Before starting,
+   the root apply step re-fetches `checksums.txt` over HTTPS for the staged
+   version, re-hashes `llmhub.staged`, and only then swaps it over the
+   installed binary, retaining the previous one as `<binary>.previous`.
+4. **Automatic revert** — if the new binary never reaches a healthy start, the
+   next start restores `<binary>.previous` automatically and leaves the failed
+   candidate staged for inspection.
+5. **Manual rollback** — `sudo llmhub update rollback` restores
+   `<binary>.previous` immediately and clears the pending apply.
+
+Supported platforms are Linux and macOS on amd64 and arm64; Windows and
+FreeBSD builds exist but refuse self-update explicitly.
+
+Updates replace the binary only: configuration, tokens, and database state are
+never written by the updater, so an update cannot lose runtime state and
+rollback never restores database data. Recovery always needs a binary that can
+start — if both the current and previous binaries are broken, reinstall with
+`scripts/install-local.sh`.
+
 ## Postgres Durable Runtime
 
 LLMHub runtime is now Postgres-only. Provide `PGSTORE_DSN` plus one of

@@ -194,4 +194,5 @@ updated: 2026-08-17
 - latest_handoff_id: none
 - blockers: none
 - open_items: [deferred follow-up: cloak reconstruction (ef89c6a69d0f 3fac4a09d80d f0034ca66376) + Haiku helpers (a8bbbea2b9b5)]
-- exact_next_action: commit work/claude-oauth-wire-v7.2.135 (wire-fix slice); then user picks next phase or follow-up run for cloak/Haiku
+- exact_next_action: user picks next phase (registry-models / translator-correctness / ...) or follow-up run for cloak/Haiku
+- merged: PR #17 (d26f640f) merged to master 2026-08-17; work/claude-oauth-wire-v7.2.135 branch deleted

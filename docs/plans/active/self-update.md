@@ -184,7 +184,7 @@ updated: 2026-08-15
 
   - phase_slug: self-update-engine
     story_id: 01M02G1FHEZPGWRJ121CR95FXC
-    status: planned
+    status: checked
     goal: Implement bounded release discovery, strict version and asset selection, SHA-256 verification, candidate probing, and staging, exposed through early CLI commands.
     depends_on: release-pipeline-cleanup
     allowed_surfaces:
@@ -400,16 +400,17 @@ updated: 2026-08-15
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
 - 2026-08-17 / release-pipeline-cleanup / gate / verdict=APPROVED / judge=same-session (deepseek-v4-flash) / run_id=01M06TZ104KKEDMXYXPJVG3DX5 / check_id=01M06V6Z8A5W97VQC6GHZMB8EV: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/release.yml` PASS; `test -z "$(grep -il minisign .github/workflows/release.yml .goreleaser.yml)"` PASS (0 references); `sh -n scripts/verify-release-assets.sh` PASS; `make release-check` PASS (goreleaser v2.16.0, 1 configuration file validated); `BINARY=llmhub scripts/verify-release-assets.sh dist` PASS (verified 8 release binary assets); `git diff --check` PASS. CLI re-ran all six proof commands at record time. Proof gaps: the GitHub Actions workflow runtime (draft creation, gh upload with 9-asset assertion, publish-after-verify) is statically reviewed only — a real tag-push run was not executed; the verifier's flat downloaded-asset-directory layout path is code-reviewed but not runtime-exercised locally (CI exercises it).
+- 2026-08-17 / self-update-engine / gate / verdict=APPROVED / judge=same-session (deepseek-v4-flash) / run_id=01M06V9S1ADNWC6GTQDA5KRTXR / check_id=01M06VYHYNRV5S6EF7W8WVSGH7: `go build ./...` PASS; `go test ./...` PASS; `go vet ./...` PASS; task 1 `go test ./internal/updater/... -run 'Test(Client|LatestRelease|HTTP|Redirect|ResponseLimit)' -count=1` PASS (11 tests); task 2 `-run 'Test(Version|Asset|Platform|Checksum)'` PASS (16 tests); task 3 `-run 'Test(Download|Checksum|Probe|Stage|StagedManifest)'` PASS (engine + probe aspects) and `go test -race -run 'Test(Download|Probe|Stage)'` PASS; task 4 `go test ./cmd/server/... -run 'Test(VersionCommand|UpdateCommand|UpdateCheck|EarlyCommandDispatch|ExistingDBCommands|Usage)'` PASS (17 tests) and `env -u PGSTORE_DSN -u pgstore_dsn go run ./cmd/server version --short` PASS; task 5 `make -n download-latest` / `make -n install-latest` PASS (deprecation recipes only, both targets exit nonzero with no dist mutation); `go list -m golang.org/x/mod` PASS (v0.40.0). CLI re-ran all twelve proof commands at record time. Proof gaps: live GitHub endpoint behavior is exercised only against TLS test servers; the darwin/arm64 staging path is code-reviewed but runtime-tested only on linux/amd64 (other-platform tests self-skip); a real tag-push release was not staged against production assets.
 
 ## Current State and Next Action
-- active_phase: release-pipeline-cleanup
+- active_phase: self-update-engine
 - lifecycle_status: checked
-- latest_run_id: 01M06TZ104KKEDMXYXPJVG3DX5
-- latest_trace_ids: [01M06V3VF40N52Z594TJXDZGJK, 01M06V3VF40N52Z594TN3F965N, 01M06V3VF40N52Z594TRMWFXZ3, 01M06V3YPCQEWJXSDRE05T17J6]
-- latest_check_id: 01M06V6Z8A5W97VQC6GHZMB8EV
+- latest_run_id: 01M06V9S1ADNWC6GTQDA5KRTXR
+- latest_trace_ids: [01M06VGK9N5N4Z6R22A2NYFM7E, 01M06VGK9N5N4Z6R22A4BDKG6X, 01M06VW0VZ0XPFG0HR4ZC45D1V, 01M06VW0VZ0XPFG0HR50ZN7JPC, 01M06VW0VZ0XPFG0HR512VF9T0]
+- latest_check_id: 01M06VYHYNRV5S6EF7W8WVSGH7
 - latest_handoff_id: 01M02GJ4CD1R938033MY4PV0HN
 - blockers: none
 - db_registration: The four phases were registered in the harness DB on 2026-08-17 with the story IDs recorded above (the earlier "registered 2026-08-15" note was inaccurate — only the superseded signing-era stories existed until today's reconciliation changeset `01M06TX3PKRATR6X58KGYZ7AEX`). The superseded signing-era stories remain as inert rows with zero runs: `release-signing-foundation`, `self-update-engine-superseded` (renamed), `operator-update-cli`, `self-update-verification-gate` — never anchor this plan's run, check, or handoff rows to them. The DB's prior position `model-combos/checked` belongs to a different initiative; never anchor this plan's run, check, or handoff rows to that initiative's IDs either.
-- worktree_state: The superseded minisign work is committed on this branch (`dc43fd67`); the working tree is clean. `release-pipeline-cleanup` removes the signing parts with `trash` and keeps the draft-first workflow and the asset-matrix verifier, then commits the removal.
-- open_items: [release-pipeline-cleanup, self-update-engine, privileged-apply, panel-one-click]
-- exact_next_action: commit the checked release-pipeline-cleanup diff via the git skill (minisign removal + signing strip + verifier reduction + plan state), then start phase self-update-engine
+- worktree_state: clean after commit of the checked self-update-engine phase (updater client/version/platform/checksum/engine/manifest/errors, cmd/server self_update.go + early dispatch, Makefile deprecation targets; wave 1 + 2 traces flushed, 5/5 tasks DONE).
+- open_items: [privileged-apply, panel-one-click]
+- exact_next_action: work full phase privileged-apply (next), after committing this checked phase.

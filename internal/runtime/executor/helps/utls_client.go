@@ -23,6 +23,28 @@ type utlsRoundTripper struct {
 	connections map[string]*http2.ClientConn
 	pending     map[string]*sync.Cond
 	dialer      proxy.Dialer
+	// sessionCache is scoped to this round tripper, which is already keyed by
+	// proxy, so resumption never crosses proxy boundaries.
+	sessionCache tls.ClientSessionCache
+}
+
+// claudeCodeSessionCacheCapacity bounds the per-transport TLS session cache for
+// the Anthropic inference plane.
+const claudeCodeSessionCacheCapacity = 32
+
+// newClaudeCodeTLSConfig builds the uTLS config for one inference-plane dial.
+//
+// OmitEmptyPsk keeps the pre_shared_key extension silent until a session is
+// cached, so an unresumed ClientHello stays byte-identical to the captured
+// native handshake. PreferSkipResumptionOnNilExtension turns uTLS's HelloCustom
+// "resume without the matching extension" panic into a skipped resumption.
+func newClaudeCodeTLSConfig(host string, sessionCache tls.ClientSessionCache) *tls.Config {
+	return &tls.Config{
+		ServerName:                         host,
+		ClientSessionCache:                 sessionCache,
+		OmitEmptyPsk:                       true,
+		PreferSkipResumptionOnNilExtension: true,
+	}
 }
 
 func newUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
@@ -36,9 +58,10 @@ func newUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
 		}
 	}
 	return &utlsRoundTripper{
-		connections: make(map[string]*http2.ClientConn),
-		pending:     make(map[string]*sync.Cond),
-		dialer:      dialer,
+		connections:  make(map[string]*http2.ClientConn),
+		pending:      make(map[string]*sync.Cond),
+		dialer:       dialer,
+		sessionCache: tls.NewLRUClientSessionCache(claudeCodeSessionCacheCapacity),
 	}
 }
 
@@ -84,7 +107,7 @@ func (t *utlsRoundTripper) createConnection(host, addr string) (*http2.ClientCon
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{ServerName: host}
+	tlsConfig := newClaudeCodeTLSConfig(host, t.sessionCache)
 	tlsConn := tls.UClient(conn, tlsConfig, tls.HelloChrome_Auto)
 
 	if err := tlsConn.Handshake(); err != nil {

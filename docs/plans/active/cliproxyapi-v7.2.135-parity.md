@@ -88,7 +88,7 @@ updated: 2026-08-17
       - T1: classify all R3 paths with disposition + local citation
       - T2: port confirmed gaps per translator pair, keeping existing local behavior where stronger
     - checks: `go test ./internal/translator/... ./sdk/translator/...`; `go test ./internal/runtime/executor/... -run Thinking`; `git diff --check`
-  - phase: claude-oauth-wire | story_id: 01M079Y78RNXCME3J787TPQ17W | status: planned | goal: Reach Claude OAuth wire parity with Claude Code 2.1.220 (R1) | depends_on: none
+  - phase: claude-oauth-wire | story_id: 01M079Y78RNXCME3J787TPQ17W | status: checked | goal: Reach Claude OAuth wire parity with Claude Code 2.1.220 (R1) | depends_on: none
     - waves:
       - wave 1: map upstream auth/runtime diffs (`f3e25ab2bae6` OAuth identity + TLS, `707934917a74` TLS session resumption — absent locally, `fa6bc77f28e0` stacked encodings, `ef89c6a69d0f` cloaked system prompts, `a2933c7737a4` beta/count_tokens policies) onto `internal/auth/claude` + `internal/runtime/executor/claude_executor.go` + `helps/`
       - wave 2: port wire fixes: Fast error pass-through (`497cf491aab4`), MCP tool aliases incl. BIP-39 (`f6f03e4de99c` `93c378b791f7` `5b5f428ad9a6` `f2d272da817d`), Haiku helpers (`a8bbbea2b9b5`), prompt-cache ownership (`f0034ca66376`), `service_tier`→`speed` (`7eefab98b8e5`)
@@ -166,23 +166,32 @@ updated: 2026-08-17
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
-- none
+- 2026-08-17 | claude-oauth-wire | wave 1 | T1-T5 mapping | run 01M07CWNR6QR84MHQ642TBARVM | traces 01M07DJQ5QFM2CRK0CFEDTXG9Y, 01M07DJQ5QFM2CRK0CFEQKZDF1, 01M07DJQ5QFM2CRK0CFGBWVKR7, 01M07DJQ5QFM2CRK0CFKVFX1DC, 01M07DJQ5QFM2CRK0CFMFA73MN | Mapping complete: TLS resumption absent→port, beta policy static→per-request port, BIP-39 aliases into existing rename seam, OAuth identity already-present, cloak reconstruction + Haiku helpers adaptation pending
+- 2026-08-17 | claude-oauth-wire | wave 1 | summary | run 01M07CWNR6QR84MHQ642TBARVM | trace 01M07DJWA2R2EH51CRNGR36C5J | wave 1 outcome: surfaces mapped, dispositions recorded
+- 2026-08-17 | claude-oauth-wire | wave 2 | T1-T5 + stacked-encodings | run 01M07CWNR6QR84MHQ642TBARVM | traces 01M07DJWAASAHJKWNCQJ0HFSA0, 01M07DJWAASAHJKWNCQNQH5G49, 01M07DJWAASAHJKWNCQPFKM6FB, 01M07DJWAASAHJKWNCQR8MVA2N, 01M07DJWAASAHJKWNCQRD7W124, 01M07DJWAASAHJKWNCQW0HJZ12 | TLS resumption (both transports), 2.1.220 per-request beta assembly + count_tokens fixed profile, BIP-39 aliases (helps/ + executor seam), service_tier→speed, stacked encodings decode; fast-errors + header-casing rejected as inapplicable locally; cloak/Haiku deferred (user-approved)
+- 2026-08-17 | claude-oauth-wire | wave 2 | summary | run 01M07CWNR6QR84MHQ642TBARVM | trace 01M07DK24SR6ZDV0D1D2X23MQH | wave 2 outcome: wire-fix slice ported and verified; surfaces: internal/auth/claude/utls_transport.go, helps/utls_client.go, helps/claude_mcp_alias*.go + claude_bip39_words.txt, claude_executor.go, claude_executor_test.go, claude_openai-responses_request.go
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- none
+- 2026-08-17 | claude-oauth-wire/T1 | traces 01M07DK251VWWSSZSX87A1EQK9 | Do not port upstream HelloCustom HTTP/1.1 transport rewrite — inverts local H2 + HelloChrome_Auto design, needs internal/httpwire absent locally; TLS session resumption ported instead
+- 2026-08-17 | claude-oauth-wire/T2 | trace 01M07DK251VWWSSZSX8AKRJ2XJ | Reject header-name casing pass (a20626f1eee9) — H2-only local transport makes casing unobservable (HPACK lowercases); fix targets upstream HTTP/1.1 transport
+- 2026-08-17 | claude-oauth-wire/T3 | trace 01M07DK251VWWSSZSX8AQTEX4W | Reject Fast error pass-through (497cf491aab4) — Fast fallback machinery absent locally (no fast_fallback.go, no RequestTerminatedError); fast-mode beta still follows the body
+- 2026-08-17 | claude-oauth-wire/T2 | trace 01M07DK251VWWSSZSX8DFRZXBC | Skip confirmedClaudeCode passthrough branches — no local client detection; strict policy applies: known caller betas placed at captured positions, unknown dropped on api.anthropic.com
+- 2026-08-17 | claude-oauth-wire/T4 | trace 01M07DK251VWWSSZSX8H0WKGPX | Aliases only for third-party tools — local oauthToolRenameMap keeps OpenCode builtins TitleCase (fingerprint/billing invariant); rename map first, BIP-39 aliases for the rest
+- 2026-08-17 | claude-oauth-wire/T3 | trace 01M07DK251VWWSSZSX8M7XJVSD | Auth-side stacked-encoding fix N/A — oauth_response.go absent locally; executor-side decode chain ported
+- 2026-08-17 | claude-oauth-wire | trace 01M07EK49Q112BMMEJRY0Q9Q64 | Defer cloak reconstruction (ef89c6a69d0f 3fac4a09d80d f0034ca66376) + Haiku helpers (a8bbbea2b9b5) to explicit follow-up — user-approved wrap; both are large adaptations (cloak adds config keys needing DB records; Haiku needs new claude_client_detection.go)
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
-- none
+- 2026-08-17 | claude-oauth-wire | gate | run 01M07CWNR6QR84MHQ642TBARVM | check 01M07EKCB2TM25616ST8EMC91K | verdict APPROVE_WITH_REQUESTS (judge same-session, deepseek-v4-flash) | proofs re-run by CLI, all exit 0: `go build ./...`; `go test ./...`; `go vet ./internal/auth/claude/ ./internal/runtime/executor/ ./internal/runtime/executor/helps/`; `go test ./internal/runtime/executor/ -run TestRemapOAuthToolNames -v`; `go test ./internal/runtime/executor/ -run TestApplyClaudeHeaders_BetaAssemblyPerRequest -v`; `go test ./internal/runtime/executor/ -run TestDecodeResponseBody -v`; `git diff --check` | proof_gaps: live wire capture vs api.anthropic.com not re-verified in-session (no live OAuth credential); upstream alias/beta test suites exercised only through ported tests | requests: cloak reconstruction + Haiku helpers shipped as follow-up
 
 ## Current State and Next Action
-- active_phase: none
-- lifecycle_status: not-planned
-- latest_run_id: none
-- latest_trace_ids: []
-- latest_check_id: none
+- active_phase: claude-oauth-wire
+- lifecycle_status: checked
+- latest_run_id: 01M07CWNR6QR84MHQ642TBARVM
+- latest_trace_ids: [01M07CWZ501CXQN2FCCXQ831RK, 01M07DJQ5QFM2CRK0CFEDTXG9Y, 01M07DJQ5QFM2CRK0CFEQKZDF1, 01M07DJQ5QFM2CRK0CFGBWVKR7, 01M07DJQ5QFM2CRK0CFKVFX1DC, 01M07DJQ5QFM2CRK0CFMFA73MN, 01M07DJWA2R2EH51CRNGR36C5J, 01M07DJWAASAHJKWNCQJ0HFSA0, 01M07DJWAASAHJKWNCQNQH5G49, 01M07DJWAASAHJKWNCQPFKM6FB, 01M07DJWAASAHJKWNCQR8MVA2N, 01M07DJWAASAHJKWNCQRD7W124, 01M07DJWAASAHJKWNCQW0HJZ12, 01M07DK24SR6ZDV0D1D2X23MQH]
+- latest_check_id: 01M07EKCB2TM25616ST8EMC91K
 - latest_handoff_id: none
 - blockers: none
-- open_items: [work full must execute phases in dependency order starting with registry-models]
-- exact_next_action: work full: registry-models
+- open_items: [deferred follow-up: cloak reconstruction (ef89c6a69d0f 3fac4a09d80d f0034ca66376) + Haiku helpers (a8bbbea2b9b5)]
+- exact_next_action: commit work/claude-oauth-wire-v7.2.135 (wire-fix slice); then user picks next phase or follow-up run for cloak/Haiku

@@ -104,6 +104,15 @@ func (c *Client) FetchAsset(ctx context.Context, u string, dst io.Writer) error 
 	return c.get(ctx, u, assetTimeout, assetLimit, nil, dst)
 }
 
+// ReleaseForTag fetches metadata for one specific release tag. The root
+// apply step uses it to re-fetch checksums.txt for the staged version
+// instead of trusting anything already on disk (R9).
+func (c *Client) ReleaseForTag(ctx context.Context, tag string) (Release, error) {
+	var rel Release
+	err := c.get(ctx, c.baseURL+"/releases/tags/"+url.PathEscape(tag), metaTimeout, metadataLimit, &rel, nil)
+	return rel, err
+}
+
 // FetchMetadata streams a small release-metadata document (e.g. the
 // checksums.txt manifest) into dst under the metadata size limit.
 func (c *Client) FetchMetadata(ctx context.Context, u string, dst io.Writer) error {

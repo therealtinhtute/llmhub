@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/updater"
@@ -44,11 +45,15 @@ func canonicalVersion(v string) string {
 	return v
 }
 
-// runSelfUpdate implements `llmhub update [--check]` (R1). Without --check it
-// discovers, verifies, probes, and stages the latest stable release into
-// ${DATA_DIR}/update/; with --check it only reports availability. It never
+// runSelfUpdate implements `llmhub update [--check | rollback]` (R1).
+// Without --check it discovers, verifies, probes, and stages the latest stable
+// release into ${DATA_DIR}/update/; with --check it only reports availability.
+// `update rollback` restores <target>.previous (root only). Staging never
 // touches the installed target. Exit 0 success, 1 failure, 2 usage.
 func runSelfUpdate(args []string, stdout, stderr io.Writer, engine *updater.Engine) int {
+	if len(args) > 0 && args[0] == "rollback" {
+		return updater.RollbackEntry(args[1:], stdout, stderr, newApplyConfig())
+	}
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	check := fs.Bool("check", false, "report whether an update is available without staging")
@@ -56,7 +61,7 @@ func runSelfUpdate(args []string, stdout, stderr io.Writer, engine *updater.Engi
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: llmhub update [--check]")
+		fmt.Fprintln(stderr, "usage: llmhub update [--check | rollback]")
 		return 2
 	}
 	ctx := context.Background()
@@ -103,15 +108,63 @@ func updateStage(ctx context.Context, stdout, stderr io.Writer, engine *updater.
 // systemd unit runs with WorkingDirectory=${DATA_DIR}) and builds the
 // unprivileged staging engine.
 func newUpdateEngine() *updater.Engine {
-	dataDir, ok := lookupEnvTrimmed("DATA_DIR", "data_dir")
-	if !ok {
-		if wd, err := os.Getwd(); err == nil {
-			dataDir = wd
-		} else {
-			dataDir = "."
-		}
+	return updater.NewEngine(updater.NewClient(), resolveDataDir(), buildinfo.Version)
+}
+
+// newApplyConfig resolves the root apply step's paths: the installed binary
+// being replaced (os.Executable()), the staging data directory, and the
+// root-owned boot-marker directory.
+func newApplyConfig() updater.ApplyConfig {
+	target, err := os.Executable()
+	if err != nil {
+		target = ""
 	}
-	return updater.NewEngine(updater.NewClient(), dataDir, buildinfo.Version)
+	return updater.ApplyConfig{
+		DataDir:         resolveDataDir(),
+		Target:          target,
+		InstalledVersion: buildinfo.Version,
+		Client:          updater.NewClient(),
+		MarkerDir:       resolveMarkerDir(),
+	}
+}
+
+// resolveMarkerDir returns ${LLMHUB_MARKER_DIR} or the install-local.sh
+// default root-owned marker directory, always outside ${DATA_DIR} (R10).
+func resolveMarkerDir() string {
+	if dir, ok := lookupEnvTrimmed("LLMHUB_MARKER_DIR", "llmhub_marker_dir"); ok {
+		return dir
+	}
+	return "/var/lib/llmhub-apply"
+}
+
+// markBooted records a healthy-start token inside ${DATA_DIR}/update. The
+// root apply step reads it at the next start to tell a completed swap apart
+// from a boot loop (R10). Best-effort: without it, the next apply treats the
+// swap as unconfirmed and reverts.
+func markBooted() {
+	updateDir := filepath.Join(resolveDataDir(), updater.UpdateDirName)
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(updateDir, ".booted"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(buildinfo.Version + "\n")
+	_ = f.Close()
+}
+
+// resolveDataDir returns ${DATA_DIR} (install-local.sh convention; the
+// systemd unit runs with WorkingDirectory=${DATA_DIR}), defaulting to the
+// working directory.
+func resolveDataDir() string {
+	if dataDir, ok := lookupEnvTrimmed("DATA_DIR", "data_dir"); ok {
+		return dataDir
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
 }
 
 // dispatchEarlyCommand runs positional commands ahead of the startup banner,
@@ -126,6 +179,8 @@ func dispatchEarlyCommand(args []string) (code int, ok bool) {
 		return runVersion(args[1:], os.Stdout, os.Stderr, buildinfo.Version), true
 	case "update":
 		return runSelfUpdate(args[1:], os.Stdout, os.Stderr, newUpdateEngine()), true
+	case "apply-staged-update":
+		return updater.ApplyEntry(args[1:], os.Stdout, os.Stderr, newApplyConfig()), true
 	case "init-db-from-env":
 		return runInitDBFromEnv(args[1:]), true
 	case "migrate-local-to-db":

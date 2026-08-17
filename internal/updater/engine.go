@@ -16,12 +16,15 @@ import (
 )
 
 // Staging layout inside ${DATA_DIR}: exactly two files after a successful
-// stage, and nothing executable on any failure.
+// stage, and nothing executable on any failure. UpdateDirName is the staging
+// subdirectory, exported for the server's healthy-start token (markBooted).
 const (
-	updateDirName      = "update"
+	UpdateDirName      = "update"
 	stagedBinaryName   = "llmhub.staged"
 	stagedManifestName = "staged.json"
 )
+
+const updateDirName = UpdateDirName
 
 // probeTimeout bounds the version probe subprocess (R8). A var so tests can
 // shorten it.

@@ -261,6 +261,32 @@ func TestUpdateCommandUsage(t *testing.T) {
 	}
 }
 
+// TestUpdateCommandRollback wires `update rollback` into the same parser as
+// --check. The test process runs unprivileged, so the root gate reports and
+// exits 0 without touching anything; the root-path restore behavior is
+// covered by the updater package's TestRollback*.
+func TestUpdateCommandRollback(t *testing.T) {
+	engine := updater.NewEngine(updater.NewClient(), t.TempDir(), "v1.0.0")
+	var stdout, stderr bytes.Buffer
+	if code := runSelfUpdate([]string{"rollback"}, &stdout, &stderr, engine); code != 0 {
+		t.Fatalf("exit %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("must run as root")) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestUpdateCommandRollbackUsage(t *testing.T) {
+	engine := updater.NewEngine(updater.NewClient(), t.TempDir(), "v1.0.0")
+	var stdout, stderr bytes.Buffer
+	if code := runSelfUpdate([]string{"rollback", "extra"}, &stdout, &stderr, engine); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("usage: llmhub update rollback")) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestEarlyCommandDispatch(t *testing.T) {
 	origStdout := os.Stdout
 	r, w, err := os.Pipe()

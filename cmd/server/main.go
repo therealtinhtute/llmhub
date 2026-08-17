@@ -182,6 +182,9 @@ func main() {
 
 	// Set the log level based on the configuration.
 	util.SetLogLevel(cfg)
+	// Startup completed (config loaded, Postgres healthy): record the
+	// healthy-start token the root apply step uses to close its boot cycle.
+	markBooted()
 	// Create login options to be used in authentication flows.
 	options := &cmd.LoginOptions{
 		NoBrowser:    noBrowser,

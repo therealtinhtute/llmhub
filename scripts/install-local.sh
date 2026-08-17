@@ -11,6 +11,7 @@ DEFAULT_PORT="${DEFAULT_PORT:-9090}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/llmhub}"
 DATA_DIR="${DATA_DIR:-/var/lib/llmhub}"
+MARKER_DIR="${LLMHUB_MARKER_DIR:-/var/lib/llmhub-apply}"
 LOG_DIR="${LOG_DIR:-/var/log/llmhub}"
 SERVICE_USER="${SERVICE_USER:-llmhub}"
 SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
@@ -386,7 +387,12 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$DATA_DIR" "$LOG_DIR"
 chmod 750 "$DATA_DIR"
-echo "    directories: $CONFIG_DIR, $DATA_DIR, $LOG_DIR"
+
+# Staging dir is service-writable; the boot-loop marker dir is root-owned and
+# outside ${DATA_DIR} so the service user can neither forge nor clear it.
+install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR/update"
+install -d -m 0750 -o root -g root "$MARKER_DIR"
+echo "    directories: $CONFIG_DIR, $DATA_DIR, $LOG_DIR, $DATA_DIR/update, $MARKER_DIR"
 
 if [ ! -f "$ENV_FILE" ]; then
     if tmp_env=$(find_local_env_file); then
@@ -432,6 +438,7 @@ Group=${SERVICE_GROUP}
 WorkingDirectory=${DATA_DIR}
 Environment=HOME=${DATA_DIR}
 EnvironmentFile=-${ENV_FILE}
+ExecStartPre=+${INSTALL_DIR}/${BINARY} apply-staged-update
 ExecStartPre=${INSTALL_DIR}/${BINARY} init-db-from-env -env-file ${ENV_FILE}
 ExecStart=${INSTALL_DIR}/${BINARY}
 Restart=${SERVICE_RESTART}

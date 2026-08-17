@@ -233,6 +233,16 @@ as root before every service start. The operator flow:
 5. **Manual rollback** — `sudo llmhub update rollback` restores
    `<binary>.previous` immediately and clears the pending apply.
 
+On the systemd install, the management panel can drive the same flow from the
+**System** page's version card: **Check for updates** reports the latest
+release, **Update** stages it (same verify-and-probe path as `llmhub update`),
+and **Restart to apply** restarts the service, which applies the staged binary
+on the way back up. The panel connection drops briefly during the restart and
+returns once the new version is running. This requires the management key, a
+systemd install, and sudo (the installer writes a sudoers drop-in allowing the
+service user to restart only its own unit, and validates it with `visudo`
+before activating it).
+
 Supported platforms are Linux and macOS on amd64 and arm64; Windows and
 FreeBSD builds exist but refuse self-update explicitly.
 

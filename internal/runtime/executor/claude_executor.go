@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -193,7 +195,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	oauthToken := isClaudeOAuthToken(apiKey)
 	var oauthToolNamesReverseMap map[string]string
 	if oauthToken {
-		bodyForUpstream, oauthToolNamesReverseMap = prepareClaudeOAuthToolNamesForUpstream(bodyForUpstream, claudeToolPrefix, auth.ToolPrefixDisabled())
+		bodyForUpstream, oauthToolNamesReverseMap = prepareClaudeOAuthToolNamesForUpstream(ctx, bodyForUpstream, claudeToolPrefix, auth.ToolPrefixDisabled())
 	}
 	// Enable cch signing by default for OAuth tokens (not just experimental flag).
 	// Claude Code always computes cch; missing or invalid cch is a detectable fingerprint.
@@ -206,7 +208,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	if err != nil {
 		return resp, err
 	}
-	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, e.cfg)
+	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, bodyForUpstream, e.cfg)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -368,7 +370,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	oauthToken := isClaudeOAuthToken(apiKey)
 	var oauthToolNamesReverseMap map[string]string
 	if oauthToken {
-		bodyForUpstream, oauthToolNamesReverseMap = prepareClaudeOAuthToolNamesForUpstream(bodyForUpstream, claudeToolPrefix, auth.ToolPrefixDisabled())
+		bodyForUpstream, oauthToolNamesReverseMap = prepareClaudeOAuthToolNamesForUpstream(ctx, bodyForUpstream, claudeToolPrefix, auth.ToolPrefixDisabled())
 	}
 	// Enable cch signing by default for OAuth tokens (not just experimental flag).
 	if oauthToken || experimentalCCHSigningEnabled(e.cfg, auth) {
@@ -380,7 +382,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	if err != nil {
 		return nil, err
 	}
-	applyClaudeHeaders(httpReq, auth, apiKey, true, extraBetas, e.cfg)
+	applyClaudeHeaders(httpReq, auth, apiKey, true, extraBetas, bodyForUpstream, e.cfg)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -607,7 +609,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	var extraBetas []string
 	extraBetas, body = extractAndRemoveBetas(body)
 	if isClaudeOAuthToken(apiKey) {
-		body, _ = prepareClaudeOAuthToolNamesForUpstream(body, claudeToolPrefix, auth.ToolPrefixDisabled())
+		body, _ = prepareClaudeOAuthToolNamesForUpstream(ctx, body, claudeToolPrefix, auth.ToolPrefixDisabled())
 	}
 
 	url := fmt.Sprintf("%s/v1/messages/count_tokens?beta=true", baseURL)
@@ -615,7 +617,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	if err != nil {
 		return cliproxyexecutor.Response{}, err
 	}
-	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, e.cfg)
+	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, body, e.cfg)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -859,62 +861,265 @@ func decodeResponseBody(body io.ReadCloser, contentEncoding string) (io.ReadClos
 		}
 		return pb, nil
 	}
+	// Encodings are listed in application order, so decoding chains in reverse:
+	// each listed encoding wraps the previous one's bytes. The old forward loop
+	// decoded only the first encoding and silently dropped the rest.
 	encodings := strings.Split(contentEncoding, ",")
-	for _, raw := range encodings {
-		encoding := strings.TrimSpace(strings.ToLower(raw))
+	reader := io.Reader(body)
+	decoderClosers := make([]func() error, 0, len(encodings))
+	cleanup := func() {
+		for i := len(decoderClosers) - 1; i >= 0; i-- {
+			_ = decoderClosers[i]()
+		}
+		_ = body.Close()
+	}
+	for index := len(encodings) - 1; index >= 0; index-- {
+		encoding := strings.TrimSpace(strings.ToLower(encodings[index]))
 		switch encoding {
 		case "", "identity":
 			continue
 		case "gzip":
-			gzipReader, err := gzip.NewReader(body)
-			if err != nil {
-				_ = body.Close()
-				return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+			gzipReader, errGzip := gzip.NewReader(reader)
+			if errGzip != nil {
+				cleanup()
+				return nil, fmt.Errorf("failed to create gzip reader: %w", errGzip)
 			}
-			return &compositeReadCloser{
-				Reader: gzipReader,
-				closers: []func() error{
-					gzipReader.Close,
-					func() error { return body.Close() },
-				},
-			}, nil
+			reader = gzipReader
+			decoderClosers = append(decoderClosers, gzipReader.Close)
 		case "deflate":
-			deflateReader := flate.NewReader(body)
-			return &compositeReadCloser{
-				Reader: deflateReader,
-				closers: []func() error{
-					deflateReader.Close,
-					func() error { return body.Close() },
-				},
-			}, nil
-		case "br":
-			return &compositeReadCloser{
-				Reader: brotli.NewReader(body),
-				closers: []func() error{
-					func() error { return body.Close() },
-				},
-			}, nil
-		case "zstd":
-			decoder, err := zstd.NewReader(body)
-			if err != nil {
-				_ = body.Close()
-				return nil, fmt.Errorf("failed to create zstd reader: %w", err)
+			deflateReader, errDeflate := newClaudeDeflateReader(reader)
+			if errDeflate != nil {
+				cleanup()
+				return nil, errDeflate
 			}
-			return &compositeReadCloser{
-				Reader: decoder,
-				closers: []func() error{
-					func() error { decoder.Close(); return nil },
-					func() error { return body.Close() },
-				},
-			}, nil
+			reader = deflateReader
+			decoderClosers = append(decoderClosers, deflateReader.Close)
+		case "br":
+			reader = brotli.NewReader(reader)
+		case "zstd":
+			decoder, errZstd := zstd.NewReader(reader)
+			if errZstd != nil {
+				cleanup()
+				return nil, fmt.Errorf("failed to create zstd reader: %w", errZstd)
+			}
+			reader = decoder
+			decoderClosers = append(decoderClosers, func() error { decoder.Close(); return nil })
 		default:
 			continue
 		}
 	}
-	return body, nil
+	closers := make([]func() error, 0, len(decoderClosers)+1)
+	for index := len(decoderClosers) - 1; index >= 0; index-- {
+		closers = append(closers, decoderClosers[index])
+	}
+	closers = append(closers, body.Close)
+	return &compositeReadCloser{Reader: reader, closers: closers}, nil
 }
 
-func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, cfg *config.Config) {
+// newClaudeDeflateReader builds a deflate reader that handles both raw DEFLATE
+// and zlib-wrapped streams; real upstreams send either and raw flate.NewReader
+// misparses zlib framing.
+func newClaudeDeflateReader(reader io.Reader) (io.ReadCloser, error) {
+	buffered := bufio.NewReader(reader)
+	header, errPeek := buffered.Peek(2)
+	if errPeek == nil && isZlibHeader(header) {
+		zlibReader, errZlib := zlib.NewReader(buffered)
+		if errZlib != nil {
+			return nil, fmt.Errorf("failed to create zlib deflate reader: %w", errZlib)
+		}
+		return zlibReader, nil
+	}
+	return flate.NewReader(buffered), nil
+}
+
+func isZlibHeader(header []byte) bool {
+	if len(header) < 2 {
+		return false
+	}
+	cmf, flg := header[0], header[1]
+	return cmf&0x0f == 8 && cmf>>4 <= 7 && (uint16(cmf)<<8|uint16(flg))%31 == 0
+}
+
+// Anthropic-Beta composition follows Claude Code 2.1.220's per-request assembly
+// rather than a fixed string. The captured wire order (verified against
+// api.anthropic.com on both the API-key and OAuth paths) is:
+//
+//	 1 claude-code-20250219
+//	 2 oauth-2025-04-20                  OAuth credentials only
+//	 3 context-1m-2025-08-07             [1m] model variants only
+//	 4 interleaved-thinking-2025-05-14
+//	 5 redact-thinking-2026-02-12        cli entrypoint only
+//	 6 thinking-token-count-2026-05-13
+//	 7 context-management-2025-06-27
+//	 8 prompt-caching-scope-2026-01-05
+//	 9 mid-conversation-system-2026-04-07  models accepting a role=system turn
+//	10 advanced-tool-use-2025-11-20        requests declaring tools
+//	11 effort-2025-11-24
+//	12 server-side-fallback-2026-06-01
+//	13 fallback-credit-2026-06-01
+//	14 extended-cache-ttl-2025-04-11      OAuth credentials only, always last
+//
+// fast-mode-2026-02-01 has no captured position; it is emitted just before the
+// OAuth trailer so the one measured invariant, extended-cache-ttl last, holds.
+const (
+	claudeTokenCountingBeta      = "token-counting-2024-11-01"
+	claudeFastModeBeta           = "fast-mode-2026-02-01"
+	claudeOAuthBeta              = "oauth-2025-04-20"
+	claudeCodeBeta               = "claude-code-20250219"
+	claudeContext1MBeta          = "context-1m-2025-08-07"
+	claudeMidConvSystemBeta      = "mid-conversation-system-2026-04-07"
+	claudeAdvancedToolUseBeta    = "advanced-tool-use-2025-11-20"
+	claudeEffortBeta             = "effort-2025-11-24"
+	claudeServerSideFallbackBeta = "server-side-fallback-2026-06-01"
+	claudeFallbackCreditBeta     = "fallback-credit-2026-06-01"
+	claudeStructuredOutputsBeta  = "structured-outputs-2025-12-15"
+	claudeExtendedCacheTTLBeta   = "extended-cache-ttl-2025-04-11"
+)
+
+// claudeCodeCLIConstantBetas are the betas Claude Code 2.1.220 sends on every
+// /v1/messages request from the "cli" entrypoint, in wire order, excluding the
+// leading claude-code-20250219.
+//
+// redact-thinking-2026-02-12 belongs here because cloaked requests always claim
+// cc_entrypoint=cli; the "sdk-cli" entrypoint omits it.
+var claudeCodeCLIConstantBetas = []string{
+	"interleaved-thinking-2025-05-14",
+	"redact-thinking-2026-02-12",
+	"thinking-token-count-2026-05-13",
+	"context-management-2025-06-27",
+	"prompt-caching-scope-2026-01-05",
+}
+
+// claudeCodeTrailingBetas are caller-supplied betas that real Claude Code emits
+// after effort-2025-11-24, in that relative order. They are forwarded when the
+// caller asks for them and dropped otherwise.
+var claudeCodeTrailingBetas = []string{
+	claudeServerSideFallbackBeta,
+	claudeFallbackCreditBeta,
+	claudeStructuredOutputsBeta,
+}
+
+// claudeCodeCLIBetas assembles the Anthropic-Beta baseline the way Claude Code
+// 2.1.220 does: the list is per-request, not a fixed string. requested holds the
+// betas the caller asked for, which decide the capability flags below.
+func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool) string {
+	betas := make([]string, 0, len(claudeCodeCLIConstantBetas)+len(claudeCodeTrailingBetas)+6)
+	betas = append(betas, claudeCodeBeta)
+	if oauthToken {
+		betas = append(betas, claudeOAuthBeta)
+	}
+	if requested[claudeContext1MBeta] {
+		betas = append(betas, claudeContext1MBeta)
+	}
+	betas = append(betas, claudeCodeCLIConstantBetas...)
+	if !claudeUsesLegacySystemReminder(body) {
+		betas = append(betas, claudeMidConvSystemBeta)
+	}
+	if tools := gjson.GetBytes(body, "tools"); tools.IsArray() && len(tools.Array()) > 0 {
+		betas = append(betas, claudeAdvancedToolUseBeta)
+	}
+	betas = append(betas, claudeEffortBeta)
+	for _, beta := range claudeCodeTrailingBetas {
+		if requested[beta] {
+			betas = append(betas, beta)
+		}
+	}
+	if claudeRequestUsesFastMode(body, requested) {
+		betas = append(betas, claudeFastModeBeta)
+	}
+	if oauthToken {
+		betas = append(betas, claudeExtendedCacheTTLBeta)
+	}
+	return strings.Join(betas, ",")
+}
+
+// claudeRequestUsesFastMode reports whether the request selects the fast service
+// tier. Anthropic rejects the body's speed field with "Extra inputs are not
+// permitted" unless fast-mode-2026-02-01 is declared, so the beta has to follow
+// the body.
+func claudeRequestUsesFastMode(body []byte, requested map[string]bool) bool {
+	if requested[claudeFastModeBeta] {
+		return true
+	}
+	speed := gjson.GetBytes(body, "speed")
+	return speed.Type == gjson.String && strings.EqualFold(strings.TrimSpace(speed.String()), "fast")
+}
+
+// claudeCountTokensBetas is the fixed profile Claude Code 2.1.220 sends to
+// /v1/messages/count_tokens. It is far smaller than the inference baseline:
+// redact-thinking, thinking-token-count, prompt-caching-scope, effort and every
+// conditional beta are absent.
+var claudeCountTokensBetas = []string{
+	claudeCodeBeta,
+	"interleaved-thinking-2025-05-14",
+	"context-management-2025-06-27",
+	claudeTokenCountingBeta,
+}
+
+// claudeRequestedBetas collects every beta the caller asked for, from the
+// Anthropic-Beta header and from betas lifted out of the request body.
+func claudeRequestedBetas(incomingBetas string, extraBetas []string) map[string]bool {
+	requested := make(map[string]bool)
+	for _, beta := range strings.Split(incomingBetas, ",") {
+		if beta = strings.TrimSpace(beta); beta != "" {
+			requested[beta] = true
+		}
+	}
+	for _, beta := range extraBetas {
+		if beta = strings.TrimSpace(beta); beta != "" {
+			requested[beta] = true
+		}
+	}
+	return requested
+}
+
+// claudeLegacySystemReminderModels lists the official Anthropic model IDs and
+// aliases that reject a mid-conversation role=system message. Entries mirror the
+// "claude" provider registry plus Anthropic's own bare and "-latest" aliases.
+var claudeLegacySystemReminderModels = map[string]struct{}{
+	"claude-3-5-haiku-20241022":  {},
+	"claude-3-5-haiku-latest":    {},
+	"claude-3-7-sonnet-20250219": {},
+	"claude-3-7-sonnet-latest":   {},
+	"claude-haiku-4-5":           {},
+	"claude-haiku-4-5-20251001":  {},
+	"claude-opus-4":              {},
+	"claude-opus-4-20250514":     {},
+	"claude-opus-4-1":            {},
+	"claude-opus-4-1-20250805":   {},
+	"claude-opus-4-5":            {},
+	"claude-opus-4-5-20251101":   {},
+	"claude-opus-4-6":            {},
+	"claude-opus-4-7":            {},
+	"claude-sonnet-4":            {},
+	"claude-sonnet-4-20250514":   {},
+	"claude-sonnet-4-5":          {},
+	"claude-sonnet-4-5-20250929": {},
+	"claude-sonnet-4-6":          {},
+}
+
+// claudeUsesLegacySystemReminder reports whether the request model rejects a
+// mid-conversation role=system message (the pre-2026-04-07 system reminder
+// shape). It gates the mid-conversation-system beta and the cloaking path.
+func claudeUsesLegacySystemReminder(payload []byte) bool {
+	model := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "model").String()))
+	if slash := strings.LastIndexByte(model, '/'); slash >= 0 {
+		model = model[slash+1:]
+	}
+	_, legacy := claudeLegacySystemReminderModels[model]
+	return legacy
+}
+
+// isAnthropicUpstreamURL reports whether a resolved request targets Anthropic's
+// first-party API. Every rule that reconstructs Claude Code's identity must key
+// on this rather than on the cloaked flag: Kimi rewrites base_url to
+// api.kimi.com and custom gateways set their own host, yet both delegate to
+// ClaudeExecutor and are therefore cloaked.
+func isAnthropicUpstreamURL(u *url.URL) bool {
+	return u != nil && strings.EqualFold(u.Scheme, "https") && strings.EqualFold(u.Host, "api.anthropic.com")
+}
+
+func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, body []byte, cfg *config.Config) {
 	hdrDefault := func(cfgVal, fallback string) string {
 		if cfgVal != "" {
 			return cfgVal
@@ -928,7 +1133,8 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	}
 
 	useAPIKey := auth != nil && auth.Attributes != nil && strings.TrimSpace(auth.Attributes["api_key"]) != ""
-	isAnthropicBase := r.URL != nil && strings.EqualFold(r.URL.Scheme, "https") && strings.EqualFold(r.URL.Host, "api.anthropic.com")
+	oauthToken := isClaudeOAuthToken(apiKey) || !useAPIKey
+	isAnthropicBase := isAnthropicUpstreamURL(r.URL)
 	if isAnthropicBase && useAPIKey {
 		r.Header.Del("Authorization")
 		r.Header.Set("x-api-key", apiKey)
@@ -947,32 +1153,49 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 		deviceProfile = helps.ResolveClaudeDeviceProfile(auth, apiKey, ginHeaders, cfg)
 	}
 
-	baseBetas := "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28"
-	if val := strings.TrimSpace(ginHeaders.Get("Anthropic-Beta")); val != "" {
-		baseBetas = val
-		if !strings.Contains(val, "oauth") {
-			baseBetas += ",oauth-2025-04-20"
-		}
-	}
-	if !strings.Contains(baseBetas, "interleaved-thinking") {
-		baseBetas += ",interleaved-thinking-2025-05-14"
+	incomingBetas := strings.TrimSpace(strings.Join(ginHeaders.Values("Anthropic-Beta"), ","))
+	countTokens := r.URL != nil && strings.HasSuffix(r.URL.Path, "/count_tokens")
+	baseBetas := claudeCodeCLIBetas(body, claudeRequestedBetas(incomingBetas, extraBetas), oauthToken)
+	if countTokens {
+		baseBetas = strings.Join(claudeCountTokensBetas, ",")
 	}
 
-	// Merge extra betas from request body and request flags.
-	if len(extraBetas) > 0 {
-		existingSet := make(map[string]bool)
-		for _, b := range strings.Split(baseBetas, ",") {
-			betaName := strings.TrimSpace(b)
-			if betaName != "" {
-				existingSet[betaName] = true
-			}
+	existingSet := make(map[string]bool)
+	appendBeta := func(beta string) {
+		beta = strings.TrimSpace(beta)
+		if beta != "" && !existingSet[beta] {
+			baseBetas += "," + beta
+			existingSet[beta] = true
 		}
+	}
+	for _, beta := range strings.Split(baseBetas, ",") {
+		if beta = strings.TrimSpace(beta); beta != "" {
+			existingSet[beta] = true
+		}
+	}
+	// On direct Anthropic an unconfirmed caller's own betas are dropped:
+	// appending them to the 2.1.220 baseline produces a combination real Claude
+	// Code never sends, which defeats the identity the rest of this path
+	// reconstructs. Other Anthropic-compatible upstreams (Kimi, custom gateways)
+	// run no such check, so caller betas stay functional there.
+	if incomingBetas != "" && !isAnthropicBase {
+		for _, beta := range strings.Split(incomingBetas, ",") {
+			appendBeta(beta)
+		}
+	}
+	// The OAuth betas have known positions on /v1/messages and are placed by
+	// claudeCodeCLIBetas. count_tokens was only captured over an API key, so its
+	// OAuth shape keeps the previous appended form until it can be measured.
+	if oauthToken && countTokens {
+		appendBeta(claudeOAuthBeta)
+	}
+	// Betas lifted out of the body follow the same policy as header-supplied
+	// ones. Known betas already reached the assembled baseline through the
+	// requested map, which places them at their captured positions; anything
+	// left over is unknown to Claude Code and Anthropic rejects it outright.
+	if !isAnthropicBase {
 		for _, beta := range extraBetas {
-			beta = strings.TrimSpace(beta)
-			if beta != "" && !existingSet[beta] {
-				baseBetas += "," + beta
-				existingSet[beta] = true
-			}
+			appendBeta(beta)
 		}
 	}
 	r.Header.Set("Anthropic-Beta", baseBetas)
@@ -987,7 +1210,10 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Retry-Count", "0")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Runtime", "node")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Lang", "js")
-	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Timeout", hdrDefault(hd.Timeout, "600"))
+	// Claude Code omits X-Stainless-Timeout on count_tokens.
+	if !countTokens {
+		misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Timeout", hdrDefault(hd.Timeout, "600"))
+	}
 	// Session ID: stable per auth/apiKey, matches Claude Code's X-Claude-Code-Session-Id header.
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Claude-Code-Session-Id", helps.CachedSessionID(apiKey))
 	// Per-request UUID, matches Claude Code's x-client-request-id for first-party API.
@@ -1054,8 +1280,8 @@ func isClaudeOAuthToken(apiKey string) bool {
 // transforms in the same order across request paths. Remap runs before prefixing
 // so any future non-empty prefix still composes correctly with the per-request
 // reverse map.
-func prepareClaudeOAuthToolNamesForUpstream(body []byte, prefix string, prefixDisabled bool) ([]byte, map[string]string) {
-	body, reverseMap := remapOAuthToolNames(body)
+func prepareClaudeOAuthToolNamesForUpstream(ctx context.Context, body []byte, prefix string, prefixDisabled bool) ([]byte, map[string]string) {
+	body, reverseMap := remapOAuthToolNames(body, ctx)
 	if !prefixDisabled {
 		body = applyClaudeToolPrefix(body, prefix)
 	}
@@ -1096,7 +1322,7 @@ func restoreClaudeOAuthToolNamesFromStreamLine(line []byte, prefix string, prefi
 // when any OTHER tool in the same request triggered a forward rename (e.g.
 // another tool's `glob`→`Glob`), because the global reverse map contained `Bash`→`bash`
 // regardless of what the client originally sent.
-func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
+func remapOAuthToolNames(body []byte, ctx context.Context) ([]byte, map[string]string) {
 	reverseMap := make(map[string]string, len(oauthToolRenameMap))
 	recordRename := func(original, renamed string) {
 		// Preserve the first-seen original name if the same upstream name is
@@ -1106,12 +1332,78 @@ func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
 		}
 	}
 
+	// Third-party tools are aliased to Claude Code-style MCP names, matching real
+	// Claude Code 2.1.220 naming. Alias identity belongs to the downstream caller
+	// (the API key presented to the proxy), so aliases stay stable across OAuth
+	// refresh and auth failover while each caller keeps one shared virtual MCP
+	// server. The official-name map below still wins for OpenCode builtins so
+	// their TitleCase equivalents keep avoiding Anthropic's tool-name fingerprint.
+	secret := strings.TrimSpace(helps.APIKeyFromContext(ctx))
+	if secret == "" {
+		secret = "cpa-claude-mcp-default-caller"
+	}
+	aliasMap := make(map[string]string)
+	protectedNames := helps.AugmentClaudeBuiltinToolRegistry(body, nil)
+	for name, official := range oauthToolRenameMap {
+		protectedNames[name] = true
+		protectedNames[official] = true
+	}
+
+	// reservedNames guards alias allocation: declared tool names, protected
+	// names, and previously allocated aliases can never collide.
+	reservedNames := make(map[string]bool, len(protectedNames)+8)
+	for name := range protectedNames {
+		reservedNames[name] = true
+	}
+
+	// renameRef resolves one reference through the official-name map first, then
+	// the request-local MCP alias map.
+	renameRef := func(name string) (string, bool) {
+		if newName, ok := oauthToolRenameMap[name]; ok && newName != name {
+			return newName, true
+		}
+		if newName, ok := aliasMap[name]; ok && newName != name {
+			return newName, true
+		}
+		return name, false
+	}
+
+	// Build the alias map from tool declarations before rewriting anything, so
+	// every historical reference resolves through the same request-local map.
+	tools := gjson.GetBytes(body, "tools")
+	if tools.Exists() && tools.IsArray() {
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			if name := tool.Get("name").String(); name != "" {
+				reservedNames[name] = true
+			}
+			return true
+		})
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			if tool.Get("type").Exists() && tool.Get("type").String() != "" {
+				return true
+			}
+			name := tool.Get("name").String()
+			if name == "" || protectedNames[name] || helps.IsClaudeMCPToolName(name) {
+				return true
+			}
+			if _, exists := aliasMap[name]; exists {
+				return true
+			}
+			alias, allocated := helps.AllocateClaudeMCPToolAlias(secret, name, reservedNames)
+			if !allocated {
+				return true
+			}
+			aliasMap[name] = alias
+			reservedNames[alias] = true
+			return true
+		})
+	}
+
 	// 1. Rewrite tools array in a single pass (if present).
 	// IMPORTANT: do not mutate names first and then rebuild from an older gjson
 	// snapshot. gjson results are snapshots of the original bytes; rebuilding from a
 	// stale snapshot will preserve removals but overwrite renamed names back to their
 	// original lowercase values.
-	tools := gjson.GetBytes(body, "tools")
 	if tools.Exists() && tools.IsArray() {
 
 		var toolsJSON strings.Builder
@@ -1134,7 +1426,7 @@ func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
 			}
 
 			toolJSON := tool.Raw
-			if newName, ok := oauthToolRenameMap[name]; ok && newName != name {
+			if newName, ok := renameRef(name); ok {
 				updatedTool, err := sjson.Set(toolJSON, "name", newName)
 				if err == nil {
 					toolJSON = updatedTool
@@ -1161,7 +1453,7 @@ func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
 			// The chosen tool was removed from the tools array, so drop tool_choice to
 			// keep the payload internally consistent and fall back to normal auto tool use.
 			body, _ = sjson.DeleteBytes(body, "tool_choice")
-		} else if newName, ok := oauthToolRenameMap[tcName]; ok && newName != tcName {
+		} else if newName, ok := renameRef(tcName); ok {
 			body, _ = sjson.SetBytes(body, "tool_choice.name", newName)
 			recordRename(tcName, newName)
 		}
@@ -1180,14 +1472,14 @@ func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
 				switch partType {
 				case "tool_use":
 					name := part.Get("name").String()
-					if newName, ok := oauthToolRenameMap[name]; ok && newName != name {
+					if newName, ok := renameRef(name); ok {
 						path := fmt.Sprintf("messages.%d.content.%d.name", msgIndex.Int(), contentIndex.Int())
 						body, _ = sjson.SetBytes(body, path, newName)
 						recordRename(name, newName)
 					}
 				case "tool_reference":
 					toolName := part.Get("tool_name").String()
-					if newName, ok := oauthToolRenameMap[toolName]; ok && newName != toolName {
+					if newName, ok := renameRef(toolName); ok {
 						path := fmt.Sprintf("messages.%d.content.%d.tool_name", msgIndex.Int(), contentIndex.Int())
 						body, _ = sjson.SetBytes(body, path, newName)
 						recordRename(toolName, newName)
@@ -1201,7 +1493,7 @@ func remapOAuthToolNames(body []byte) ([]byte, map[string]string) {
 						nestedContent.ForEach(func(nestedIndex, nestedPart gjson.Result) bool {
 							if nestedPart.Get("type").String() == "tool_reference" {
 								nestedToolName := nestedPart.Get("tool_name").String()
-								if newName, ok := oauthToolRenameMap[nestedToolName]; ok && newName != nestedToolName {
+								if newName, ok := renameRef(nestedToolName); ok {
 									nestedPath := fmt.Sprintf("messages.%d.content.%d.content.%d.tool_name", msgIndex.Int(), contentIndex.Int(), nestedIndex.Int())
 									body, _ = sjson.SetBytes(body, nestedPath, newName)
 									recordRename(nestedToolName, newName)

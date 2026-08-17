@@ -132,7 +132,7 @@ updated: 2026-08-15
 - phases:
   - phase_slug: release-pipeline-cleanup
     story_id: 01M02G1B5KY663MPTSFH0KAS2P
-    status: planned
+    status: checked
     goal: Remove the abandoned signing work from the release pipeline while keeping draft-first publication and remote asset-matrix verification.
     depends_on: none
     allowed_surfaces:
@@ -399,17 +399,17 @@ updated: 2026-08-15
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
-- none
+- 2026-08-17 / release-pipeline-cleanup / gate / verdict=APPROVED / judge=same-session (deepseek-v4-flash) / run_id=01M06TZ104KKEDMXYXPJVG3DX5 / check_id=01M06V6Z8A5W97VQC6GHZMB8EV: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/release.yml` PASS; `test -z "$(grep -il minisign .github/workflows/release.yml .goreleaser.yml)"` PASS (0 references); `sh -n scripts/verify-release-assets.sh` PASS; `make release-check` PASS (goreleaser v2.16.0, 1 configuration file validated); `BINARY=llmhub scripts/verify-release-assets.sh dist` PASS (verified 8 release binary assets); `git diff --check` PASS. CLI re-ran all six proof commands at record time. Proof gaps: the GitHub Actions workflow runtime (draft creation, gh upload with 9-asset assertion, publish-after-verify) is statically reviewed only — a real tag-push run was not executed; the verifier's flat downloaded-asset-directory layout path is code-reviewed but not runtime-exercised locally (CI exercises it).
 
 ## Current State and Next Action
 - active_phase: release-pipeline-cleanup
-- lifecycle_status: planned
-- latest_run_id: none
-- latest_trace_ids: []
-- latest_check_id: none
+- lifecycle_status: checked
+- latest_run_id: 01M06TZ104KKEDMXYXPJVG3DX5
+- latest_trace_ids: [01M06V3VF40N52Z594TJXDZGJK, 01M06V3VF40N52Z594TN3F965N, 01M06V3VF40N52Z594TRMWFXZ3, 01M06V3YPCQEWJXSDRE05T17J6]
+- latest_check_id: 01M06V6Z8A5W97VQC6GHZMB8EV
 - latest_handoff_id: 01M02GJ4CD1R938033MY4PV0HN
 - blockers: none
-- db_registration: all four phases registered in the harness DB on 2026-08-15 with status `planned` and the story IDs recorded above. The DB's prior position `model-combos/checked` belongs to a different initiative; never anchor this plan's run, check, or handoff rows to that initiative's IDs.
-- worktree_state: the superseded minisign work is uncommitted — modified `.github/workflows/release.yml`, `.goreleaser.yml`, `Makefile`, `docs/README.md`, and untracked `scripts/sign-release-asset/`, `scripts/sign-release-asset.sh`, `scripts/verify-minisign-asset.sh`, `scripts/verify-release-assets.sh`, `docs/release-signing.md`. Do not attempt to finish or commit it as-is; `release-pipeline-cleanup` removes the signing parts with `trash` and keeps the draft-first workflow and the asset-matrix verifier.
+- db_registration: The four phases were registered in the harness DB on 2026-08-17 with the story IDs recorded above (the earlier "registered 2026-08-15" note was inaccurate — only the superseded signing-era stories existed until today's reconciliation changeset `01M06TX3PKRATR6X58KGYZ7AEX`). The superseded signing-era stories remain as inert rows with zero runs: `release-signing-foundation`, `self-update-engine-superseded` (renamed), `operator-update-cli`, `self-update-verification-gate` — never anchor this plan's run, check, or handoff rows to them. The DB's prior position `model-combos/checked` belongs to a different initiative; never anchor this plan's run, check, or handoff rows to that initiative's IDs either.
+- worktree_state: The superseded minisign work is committed on this branch (`dc43fd67`); the working tree is clean. `release-pipeline-cleanup` removes the signing parts with `trash` and keeps the draft-first workflow and the asset-matrix verifier, then commits the removal.
 - open_items: [release-pipeline-cleanup, self-update-engine, privileged-apply, panel-one-click]
-- exact_next_action: work full phase release-pipeline-cleanup
+- exact_next_action: commit the checked release-pipeline-cleanup diff via the git skill (minisign removal + signing strip + verifier reduction + plan state), then start phase self-update-engine

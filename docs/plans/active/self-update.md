@@ -422,13 +422,13 @@ updated: 2026-08-15
 
 ## Current State and Next Action
 - active_phase: panel-one-click
-- lifecycle_status: in-progress (gate APPROVED; commit + plan sync pending)
+- lifecycle_status: checked (matches DB; commit e9a04d35 + docs 54cc3ed1)
 - latest_run_id: 01M06X26GDNRKSBKR0CMW1GFHE
 - latest_trace_ids: [01M06XB188EVNC8ZKBMSR9B00N, 01M06XNGZ9XAAZ9XBFFB5XCH6G, 01M06XSXH7519NYVG9M3D7644S, 01M06Y14XW466N2S9KKQBPE5RJ]
 - latest_check_id: 01M06Y10VWS91VZ0BMPG08T57X
 - latest_handoff_id: 01M02GJ4CD1R938033MY4PV0HN
 - blockers: none
 - db_registration: The four phases were registered in the harness DB on 2026-08-17 with the story IDs recorded above (the earlier "registered 2026-08-15" note was inaccurate — only the superseded signing-era stories existed until today's reconciliation changeset `01M06TX3PKRATR6X58KGYZ7AEX`). The superseded signing-era stories remain as inert rows with zero runs: `release-signing-foundation`, `self-update-engine-superseded` (renamed), `operator-update-cli`, `self-update-verification-gate` — never anchor this plan's run, check, or handoff rows to them. The DB's prior position `model-combos/checked` belongs to a different initiative; never anchor this plan's run, check, or handoff rows to that initiative's IDs either.
-- worktree_state: uncommitted — panel-one-click phase code + docs ready to commit (11 modified + 2 new files). Decision recorded: NoNewPrivileges=true removed from the generated unit (01M06XNNSZ145PZA8BV5FG89RD) so the sudo-based panel restart can work.
-- open_items: [panel-one-click commit]
-- exact_next_action: commit the panel-one-click changeset (code group: internal/api + cmd/server + scripts/install-local.sh + web/; docs group: README.md + plan), then sync the plan phase lifecycle to checked.
+- worktree_state: clean after commits e9a04d35 (feat(panel): one-click self-update via management API and panel button) + 54cc3ed1 (docs(plan): record panel-one-click phase completion and gate approval). The self-update plan is complete: all four phases checked.
+- open_items: []
+- exact_next_action: none — plan complete. Self-update is implemented end-to-end (engine, CLI, privileged apply with boot-loop revert, panel one-click with sudoers-bounded restart) and gated APPROVED in all four phases.

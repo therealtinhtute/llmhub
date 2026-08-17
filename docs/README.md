@@ -18,7 +18,6 @@ plus the durable records that work produces.
 - `decisions/`: durable decisions and tradeoffs (ADRs). Append-only.
 - `product/`: product truth derived from a spec.
 - `upstream/`: notes on tracking the upstream project.
-- `release-signing.md`: release signing, protected secrets, and operator recovery contract.
 - `templates/`: reusable `decision.md` and `story.md` formats.
 
 ## Harness

@@ -10,18 +10,12 @@ on:
         description: Existing immutable v* tag to build and publish
         required: true
         type: string
-      transition_public_key:
-        description: Optional raw minisign public key for a transition release
-        required: false
-        type: string
 
 permissions:
   contents: write
 
 jobs:
   release:
-    environment:
-      name: release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,67 +41,6 @@ jobs:
           git rev-parse --verify "refs/tags/$RELEASE_TAG" >/dev/null
           printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG" >> "$GITHUB_ENV"
 
-      - name: Materialize signing material
-        env:
-          MINISIGN_PRIVATE_KEY_B64: ${{ secrets.MINISIGN_PRIVATE_KEY_B64 }}
-          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
-          MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
-          TRANSITION_PUBLIC_KEY: ${{ inputs.transition_public_key }}
-        run: |
-          set -euo pipefail
-          : "${MINISIGN_PRIVATE_KEY_B64:?MINISIGN_PRIVATE_KEY_B64 is required}"
-          : "${MINISIGN_PASSWORD:?MINISIGN_PASSWORD is required}"
-          key_path="$RUNNER_TEMP/llmhub-minisign.key"
-          password_path="$RUNNER_TEMP/llmhub-minisign.password"
-          public_key_path="$RUNNER_TEMP/llmhub-minisign.pub"
-          if [ -n "$TRANSITION_PUBLIC_KEY" ]; then
-            public_key="$TRANSITION_PUBLIC_KEY"
-          else
-            : "${MINISIGN_PUBLIC_KEY:?MINISIGN_PUBLIC_KEY is required}"
-            public_key="$MINISIGN_PUBLIC_KEY"
-          fi
-          umask 077
-          printf '%s' "$MINISIGN_PRIVATE_KEY_B64" | base64 --decode > "$key_path"
-          printf '%s' "$MINISIGN_PASSWORD" > "$password_path"
-          printf '%s\n%s\n' 'untrusted comment: minisign public key' "$public_key" > "$public_key_path"
-          chmod 600 "$key_path" "$password_path" "$public_key_path"
-          [ -s "$key_path" ]
-          [ -s "$password_path" ]
-          [ -s "$public_key_path" ]
-          unset MINISIGN_PRIVATE_KEY_B64 MINISIGN_PASSWORD MINISIGN_PUBLIC_KEY TRANSITION_PUBLIC_KEY
-          {
-            printf 'MINISIGN_KEY_PATH=%s\n' "$key_path"
-            printf 'MINISIGN_PASSWORD_FILE=%s\n' "$password_path"
-            printf 'MINISIGN_PUBLIC_KEY_PATH=%s\n' "$public_key_path"
-          } >> "$GITHUB_ENV"
-
-      - name: Install verified minisign
-        env:
-          MINISIGN_UPSTREAM_PUBLIC_KEY: RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3
-        run: |
-          set -euo pipefail
-          minisign_dir="$RUNNER_TEMP/minisign-0.12"
-          archive="$minisign_dir/minisign-0.12-linux.tar.gz"
-          signature="$archive.minisig"
-          public_key="$minisign_dir/upstream.pub"
-          mkdir -p "$minisign_dir"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 60 --retry 2 --retry-all-errors \
-            'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz' \
-            --output "$archive"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 60 --retry 2 --retry-all-errors \
-            'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz.minisig' \
-            --output "$signature"
-          printf '%s\n%s\n' 'untrusted comment: minisign public key' "$MINISIGN_UPSTREAM_PUBLIC_KEY" > "$public_key"
-          chmod 600 "$public_key"
-          scripts/verify-minisign-asset.sh \
-            --artifact "$archive" \
-            --signature "$signature" \
-            --public-key "$public_key"
-          tar -xzf "$archive" -C "$minisign_dir"
-          install -m 0755 "$minisign_dir/minisign-linux/x86_64/minisign" "$minisign_dir/minisign"
-          "$minisign_dir/minisign" -v 2>&1 | grep -F '0.12' >/dev/null
-          printf 'MINISIGN_BIN=%s\n' "$minisign_dir/minisign" >> "$GITHUB_ENV"
-
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -119,8 +52,7 @@ jobs:
       - name: Verify local release assets
         run: |
           set -euo pipefail
-          BINARY=llmhub MINISIGN_BIN="$MINISIGN_BIN" \
-            scripts/verify-release-assets.sh dist "$MINISIGN_PUBLIC_KEY_PATH"
+          BINARY=llmhub scripts/verify-release-assets.sh dist
 
       - name: Create draft release
         env:
@@ -130,7 +62,7 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --draft \
             --title "$RELEASE_TAG" \
-            --notes "Signed release for $RELEASE_TAG."
+            --notes "Release for $RELEASE_TAG."
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
 
       - name: Upload and verify draft assets
@@ -150,32 +82,17 @@ jobs:
               artifact="dist/llmhub_$target/$filename"
               test -f "$artifact"
               gh release upload "$RELEASE_TAG" \
-                "$artifact#$asset" \
-                "$artifact.minisig#$asset.minisig"
+                "$artifact#$asset"
             done
           done
           gh release upload "$RELEASE_TAG" 'dist/checksums.txt#checksums.txt'
-          test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 17
+          test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 9
           remote_dir="$RUNNER_TEMP/llmhub-release-assets"
           mkdir -p "$remote_dir"
           gh release download "$RELEASE_TAG" --dir "$remote_dir"
-          BINARY=llmhub MINISIGN_BIN="$MINISIGN_BIN" \
-            scripts/verify-release-assets.sh "$remote_dir" "$MINISIGN_PUBLIC_KEY_PATH"
+          BINARY=llmhub scripts/verify-release-assets.sh "$remote_dir"
 
       - name: Publish verified release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$RELEASE_TAG" --draft=false
-
-      - name: Clean runner signing material
-        if: ${{ always() }}
-        run: |
-          set +e
-          for path in \
-            "$RUNNER_TEMP/llmhub-minisign.key" \
-            "$RUNNER_TEMP/llmhub-minisign.password" \
-            "$RUNNER_TEMP/llmhub-minisign.pub" \
-            "$RUNNER_TEMP/minisign-0.12/minisign" \
-            "$RUNNER_TEMP/minisign-0.12/upstream.pub"; do
-            [ -f "$path" ] && shred --force --remove --zero "$path"
-          done

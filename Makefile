@@ -8,10 +8,9 @@ BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X 'main.Version=$(VERSION)' -X 'main.Commit=$(COMMIT)' -X 'main.BuildDate=$(BUILD_DATE)'
 GORELEASER_VERSION ?= v2.16.0
 GORELEASER ?= $(shell command -v goreleaser 2>/dev/null || echo "go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)")
-MINISIGN_BIN ?= minisign
 DEV_WEB_API_BASE ?= http://localhost:9090
 
-.PHONY: help build-web dev-web embed build dev dev-pg release-check release-snapshot release-signed-snapshot release-preflight release download-latest install-latest install-local clean
+.PHONY: help build-web dev-web embed build dev dev-pg release-check release-snapshot release-preflight release download-latest install-latest install-local clean
 
 help:
 	@echo "Available commands:"
@@ -23,7 +22,6 @@ help:
 	@echo "  make embed             Build and embed the management panel"
 	@echo "  make release-check     Validate .goreleaser.yml with $(GORELEASER)"
 	@echo "  make release-snapshot  Build an unsigned local GoReleaser snapshot"
-	@echo "  make release-signed-snapshot  Build and verify a signed local snapshot"
 	@echo "  make release-preflight Verify the worktree and local release build prerequisites"
 	@echo "  make release           Create and push TAG=... after local release preflight checks"
 	@echo "  make download-latest   Download the latest GitHub Release binary"
@@ -60,20 +58,6 @@ release-check:
 
 release-snapshot:
 	$(GORELEASER) release --snapshot --clean --skip=sign
-
-release-signed-snapshot:
-	@set -eu; \
-	: "$${MINISIGN_KEY_PATH:?MINISIGN_KEY_PATH is required}"; \
-	: "$${MINISIGN_PASSWORD_FILE:?MINISIGN_PASSWORD_FILE is required}"; \
-	: "$${MINISIGN_PUBLIC_KEY_PATH:?MINISIGN_PUBLIC_KEY_PATH is required}"; \
-	test -f "$${MINISIGN_KEY_PATH}"; \
-	test -f "$${MINISIGN_PASSWORD_FILE}"; \
-	test -f "$${MINISIGN_PUBLIC_KEY_PATH}"; \
-	MINISIGN_KEY_PATH="$${MINISIGN_KEY_PATH}" \
-	MINISIGN_PASSWORD_FILE="$${MINISIGN_PASSWORD_FILE}" \
-	$(GORELEASER) release --snapshot --clean; \
-	MINISIGN_BIN="$(MINISIGN_BIN)" BINARY="$(BINARY)" \
-	scripts/verify-release-assets.sh dist "$${MINISIGN_PUBLIC_KEY_PATH}"
 
 release-preflight:
 	@set -eu; \

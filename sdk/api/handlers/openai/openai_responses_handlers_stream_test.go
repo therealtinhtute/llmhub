@@ -169,10 +169,13 @@ func TestForwardResponsesStreamReassemblesSplitSSEEventChunks(t *testing.T) {
 
 	h.forwardResponsesStream(c, flusher, func(error) {}, data, errs, nil)
 
-	got := strings.TrimSuffix(recorder.Body.String(), "\n")
-	want := "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n"
-	if got != want {
-		t.Fatalf("unexpected split-event framing.\nGot:  %q\nWant: %q", got, want)
+	got := recorder.Body.String()
+	wantPrefix := "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n"
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("unexpected split-event framing.\nGot:        %q\nWant prefix: %q", got, wantPrefix)
+	}
+	if !strings.Contains(got, "event: error") {
+		t.Fatalf("unterminated framing test stream did not end with an error: %q", got)
 	}
 }
 
@@ -188,9 +191,12 @@ func TestForwardResponsesStreamPreservesValidFullSSEEventChunks(t *testing.T) {
 
 	h.forwardResponsesStream(c, flusher, func(error) {}, data, errs, nil)
 
-	got := strings.TrimSuffix(recorder.Body.String(), "\n")
-	if got != string(chunk) {
-		t.Fatalf("unexpected full-event framing.\nGot:  %q\nWant: %q", got, string(chunk))
+	got := recorder.Body.String()
+	if !strings.HasPrefix(got, string(chunk)) {
+		t.Fatalf("unexpected full-event framing.\nGot:        %q\nWant prefix: %q", got, string(chunk))
+	}
+	if !strings.Contains(got, "event: error") {
+		t.Fatalf("unterminated framing test stream did not end with an error: %q", got)
 	}
 }
 
@@ -207,9 +213,12 @@ func TestForwardResponsesStreamBuffersSplitDataPayloadChunks(t *testing.T) {
 	h.forwardResponsesStream(c, flusher, func(error) {}, data, errs, nil)
 
 	got := recorder.Body.String()
-	want := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n\n"
-	if got != want {
-		t.Fatalf("unexpected split-data framing.\nGot:  %q\nWant: %q", got, want)
+	wantPrefix := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n"
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("unexpected split-data framing.\nGot:        %q\nWant prefix: %q", got, wantPrefix)
+	}
+	if !strings.Contains(got, "event: error") {
+		t.Fatalf("unterminated framing test stream did not end with an error: %q", got)
 	}
 }
 
@@ -233,7 +242,11 @@ func TestForwardResponsesStreamDropsIncompleteTrailingDataChunkOnFlush(t *testin
 
 	h.forwardResponsesStream(c, flusher, func(error) {}, data, errs, nil)
 
-	if got := recorder.Body.String(); got != "\n" {
-		t.Fatalf("expected incomplete trailing data to be dropped on flush.\nGot: %q", got)
+	got := recorder.Body.String()
+	if strings.Contains(got, `data: {"type":"response.created"`) {
+		t.Fatalf("incomplete trailing data was not dropped on flush: %q", got)
+	}
+	if !strings.Contains(got, "event: error") {
+		t.Fatalf("unterminated framing test stream did not end with an error: %q", got)
 	}
 }

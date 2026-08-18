@@ -54,6 +54,7 @@ func buildCodexClientModels(models []map[string]any) []map[string]any {
 		if template, ok := templates[id]; ok {
 			entry := cloneCodexClientModelMap(template)
 			applyCodexClientDisplayName(entry, model)
+			applyCodexClientMaxTokens(entry, model)
 			sanitizeCodexClientReasoningMetadata(entry)
 			applyCodexClientVisibilityOverride(entry, id)
 			result = append(result, entry)
@@ -62,6 +63,7 @@ func buildCodexClientModels(models []map[string]any) []map[string]any {
 
 		entry := cloneCodexClientModelMap(defaultTemplate)
 		applyCodexClientModelMetadata(entry, id, model)
+		applyCodexClientMaxTokens(entry, model)
 		sanitizeCodexClientReasoningMetadata(entry)
 		applyCodexClientVisibilityOverride(entry, id)
 		result = append(result, entry)
@@ -101,6 +103,12 @@ func loadCodexClientModelTemplates() (map[string]map[string]any, map[string]any,
 func applyCodexClientDisplayName(entry map[string]any, model map[string]any) {
 	if displayName := stringModelValue(model, "display_name"); displayName != "" {
 		entry["display_name"] = displayName
+	}
+}
+
+func applyCodexClientMaxTokens(entry map[string]any, model map[string]any) {
+	if maxCompletionTokens := intModelValue(model, "max_completion_tokens"); maxCompletionTokens > 0 {
+		entry["max_tokens"] = maxCompletionTokens
 	}
 }
 

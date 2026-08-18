@@ -244,3 +244,149 @@ func TestHandleSidebandPinsAuthAndRelaysBidirectionally(t *testing.T) {
 func liveSession(authID string) live.Session {
 	return live.Session{AuthID: authID, Model: "gpt-live-1-codex", Resources: &live.SessionResources{}}
 }
+
+func TestHandleHangupInvalidCallID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := New(coreauth.NewManager(nil, nil, nil), &liveSettingsStore{settings: runtimecontrol.DefaultSettings()})
+	router := gin.New()
+	router.POST("/backend-api/codex/realtime/calls/:call_id/hangup", handler.HandleHangup)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/realtime/calls/Call.123/hangup", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_call_id") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestHandleHangupSessionNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := New(coreauth.NewManager(nil, nil, nil), &liveSettingsStore{settings: runtimecontrol.DefaultSettings()})
+	router := gin.New()
+	router.POST("/backend-api/codex/realtime/calls/:call_id/hangup", handler.HandleHangup)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/realtime/calls/call-404/hangup", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "realtime_call_not_found") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestHandleHangupRejectsScopeMismatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := New(coreauth.NewManager(nil, nil, nil), &liveSettingsStore{settings: runtimecontrol.DefaultSettings()})
+	session := liveSession("codex-auth")
+	session.OwnerPrincipal = "alice"
+	session.OwnerProvider = "token"
+	handler.sessions.Put("call-123", session)
+	router := gin.New()
+	router.POST("/backend-api/codex/realtime/calls/:call_id/hangup", handler.HandleHangup)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/realtime/calls/call-123/hangup", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "realtime_call_scope_mismatch") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestHandleHangupForwardsAndCompletesSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	executor := &liveHTTPExecutor{}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	_, _ = manager.Register(context.Background(), &coreauth.Auth{ID: "codex-auth", Provider: "codex"})
+	handler := New(manager, &liveSettingsStore{settings: runtimecontrol.DefaultSettings()})
+	handler.sessions.Put("call-123", liveSession("codex-auth"))
+	router := gin.New()
+	router.POST("/backend-api/codex/realtime/calls/:call_id/hangup", handler.HandleHangup)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/realtime/calls/call-123/hangup", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if _, ok := handler.sessions.Peek("call-123"); ok {
+		t.Fatal("session still stored after successful hangup")
+	}
+}
+
+func TestHandleRealtimeCapabilityNotSupported(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := New(coreauth.NewManager(nil, nil, nil), &liveSettingsStore{settings: runtimecontrol.DefaultSettings()})
+	router := gin.New()
+	router.GET("/backend-api/codex/realtime/translations", handler.HandleTranslation)
+	router.POST("/backend-api/codex/realtime/translations", handler.HandleTranslation)
+	router.POST("/backend-api/codex/realtime/transcription_sessions", handler.HandleTranscriptionSession)
+	router.POST("/backend-api/codex/realtime/calls/:call_id/accept", handler.HandleSIPControl)
+	router.POST("/backend-api/codex/realtime/calls/:call_id/reject", handler.HandleSIPControl)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		action string
+	}{
+		{"translation GET", http.MethodGet, "/backend-api/codex/realtime/translations", "translation sessions"},
+		{"translation POST", http.MethodPost, "/backend-api/codex/realtime/translations", "translation sessions"},
+		{"transcription", http.MethodPost, "/backend-api/codex/realtime/transcription_sessions", "transcription-only sessions"},
+		{"sip accept", http.MethodPost, "/backend-api/codex/realtime/calls/call-1/accept", "accept"},
+		{"sip reject", http.MethodPost, "/backend-api/codex/realtime/calls/call-1/reject", "reject"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotImplemented {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNotImplemented, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "realtime_capability_not_supported") {
+				t.Fatalf("body = %s", rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.action) {
+				t.Fatalf("body = %s (want %q)", rec.Body.String(), tt.action)
+			}
+		})
+	}
+}
+
+func TestCreateCallCapturesSessionOwner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	executor := &liveHTTPExecutor{}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	_, _ = manager.Register(context.Background(), &coreauth.Auth{ID: "codex-auth", Provider: "codex"})
+	settings := runtimecontrol.DefaultSettings()
+	settings.CodexLive.Enabled = true
+	handler := New(manager, &liveSettingsStore{settings: settings})
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("userApiKey", "principal-1")
+		c.Set("accessProvider", "token")
+		c.Next()
+	})
+	router.POST("/backend-api/codex/realtime/calls", handler.CreateCall)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/realtime/calls", strings.NewReader(`{"session":{"model":"gpt-live-custom"}}`))
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	session, ok := handler.sessions.Peek("call-123")
+	if !ok {
+		t.Fatal("session not stored after create call")
+	}
+	if session.OwnerPrincipal != "principal-1" || session.OwnerProvider != "token" {
+		t.Fatalf("session owner = %q/%q, want principal-1/token", session.OwnerPrincipal, session.OwnerProvider)
+	}
+}

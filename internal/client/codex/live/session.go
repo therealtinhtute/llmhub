@@ -11,11 +11,13 @@ const SessionLifetime = time.Hour
 var callIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 type Session struct {
-	CallID    string
-	AuthID    string
-	Model     string
-	Resources *SessionResources
-	token     uint64
+	CallID         string
+	AuthID         string
+	Model          string
+	Resources      *SessionResources
+	OwnerPrincipal string
+	OwnerProvider  string
+	token          uint64
 }
 
 type SessionResources struct {

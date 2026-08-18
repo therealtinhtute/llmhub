@@ -82,6 +82,16 @@ func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_ResponseCompleted
 			doneInputIndex: 2,
 			hasUsage:       false,
 		},
+		{
+			// A stream that ends without any finish_reason must still be finalized as completed on [DONE].
+			name: "no finish reason",
+			in: []string{
+				`data: {"id":"resp_no_finish_reason","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"}}]}`,
+				`data: [DONE]`,
+			},
+			doneInputIndex: 1,
+			hasUsage:       false,
+		},
 	}
 
 	for _, tt := range tests {

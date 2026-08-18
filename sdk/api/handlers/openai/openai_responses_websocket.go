@@ -629,6 +629,40 @@ func normalizeResponseCreateRequest(rawJSON []byte) ([]byte, []byte, *interfaces
 	return normalized, bytes.Clone(normalized), nil
 }
 
+// responsesWebsocketItemMetadata extracts a named field from a single input item
+// object, matching the key case-insensitively like the upstream websocket merge
+// input classifier. Duplicate keys within an item resolve last-wins.
+func responsesWebsocketItemMetadata(item []byte, name string) string {
+	value := ""
+	gjson.ParseBytes(item).ForEach(func(key, field gjson.Result) bool {
+		if strings.EqualFold(key.String(), name) {
+			value = strings.TrimSpace(field.String())
+		}
+		return true
+	})
+	return value
+}
+
+// responsesWebsocketInputField extracts the top-level "input" field following
+// encoding/json duplicate-field semantics: the key is matched case-insensitively,
+// the last duplicate wins, and any incompatible (non-null, non-array) duplicate
+// marks the field invalid. It does not copy the selected array out of the
+// caller-owned request buffer.
+func responsesWebsocketInputField(rawJSON []byte) (last gjson.Result, exists bool, invalid bool) {
+	gjson.ParseBytes(rawJSON).ForEach(func(key, matched gjson.Result) bool {
+		if !strings.EqualFold(key.String(), "input") {
+			return true
+		}
+		exists = true
+		last = matched
+		if matched.Type != gjson.Null && !matched.IsArray() {
+			invalid = true
+		}
+		return true
+	})
+	return last, exists, invalid
+}
+
 func normalizeResponseSubsequentRequest(rawJSON []byte, lastRequest []byte, lastResponseOutput []byte, allowIncrementalInputWithPreviousResponseID bool, allowCompactionReplayBypass bool) ([]byte, []byte, *interfaces.ErrorMessage) {
 	if len(lastRequest) == 0 {
 		return nil, lastRequest, &interfaces.ErrorMessage{
@@ -637,8 +671,8 @@ func normalizeResponseSubsequentRequest(rawJSON []byte, lastRequest []byte, last
 		}
 	}
 
-	nextInput := gjson.GetBytes(rawJSON, "input")
-	if !nextInput.Exists() || !nextInput.IsArray() {
+	nextInput, nextInputExists, nextInputInvalid := responsesWebsocketInputField(rawJSON)
+	if nextInputInvalid || !nextInputExists || !nextInput.IsArray() {
 		return nil, lastRequest, &interfaces.ErrorMessage{
 			StatusCode: http.StatusBadRequest,
 			Error:      fmt.Errorf("websocket request requires array field: input"),
@@ -694,9 +728,19 @@ func normalizeResponseSubsequentRequest(rawJSON []byte, lastRequest []byte, last
 			appendInputRaw = inputWithoutCompactionItems(nextInput)
 		}
 
-		existingInput := gjson.GetBytes(lastRequest, "input")
+		existingInput, existingInputExists, existingInputInvalid := responsesWebsocketInputField(lastRequest)
+		if existingInputInvalid {
+			return nil, lastRequest, &interfaces.ErrorMessage{
+				StatusCode: http.StatusBadRequest,
+				Error:      fmt.Errorf("invalid previous request input: duplicate input field is not an array"),
+			}
+		}
+		existingInputRaw := "[]"
+		if existingInputExists && existingInput.Type != gjson.Null {
+			existingInputRaw = existingInput.Raw
+		}
 		var errMerge error
-		mergedInput, errMerge = mergeJSONArrayRaw(existingInput.Raw, normalizeJSONArrayRaw(lastResponseOutput))
+		mergedInput, errMerge = mergeJSONArrayRaw(existingInputRaw, normalizeJSONArrayRaw(lastResponseOutput))
 		if errMerge != nil {
 			return nil, lastRequest, &interfaces.ErrorMessage{
 				StatusCode: http.StatusBadRequest,
@@ -759,12 +803,12 @@ func shouldReplaceWebsocketTranscript(rawJSON []byte, nextInput gjson.Result) bo
 	}
 
 	for _, item := range nextInput.Array() {
-		switch strings.TrimSpace(item.Get("type").String()) {
+		rawItem := []byte(item.Raw)
+		switch responsesWebsocketItemMetadata(rawItem, "type") {
 		case "function_call", "custom_tool_call":
 			return true
 		case "message":
-			role := strings.TrimSpace(item.Get("role").String())
-			if role == "assistant" {
+			if responsesWebsocketItemMetadata(rawItem, "role") == "assistant" {
 				return true
 			}
 		}
@@ -811,9 +855,9 @@ func dedupeFunctionCallsByCallID(rawArray string) (string, error) {
 		if len(item) == 0 {
 			continue
 		}
-		itemType := strings.TrimSpace(gjson.GetBytes(item, "type").String())
+		itemType := responsesWebsocketItemMetadata(item, "type")
 		if isResponsesToolCallType(itemType) {
-			callID := strings.TrimSpace(gjson.GetBytes(item, "call_id").String())
+			callID := responsesWebsocketItemMetadata(item, "call_id")
 			if callID != "" {
 				if _, ok := seenCallIDs[callID]; ok {
 					continue

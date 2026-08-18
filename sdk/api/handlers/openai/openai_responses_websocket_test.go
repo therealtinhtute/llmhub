@@ -2398,3 +2398,119 @@ func TestNormalizeSubsequentRequestAssistantInputTriggersTranscriptReplacement(t
 		t.Fatalf("input[0].id = %q, want %q", input[0].Get("id").String(), "msg-3")
 	}
 }
+
+func TestResponsesWebsocketItemMetadataMatchesCaseInsensitively(t *testing.T) {
+	item := []byte(`{"TYPE":"function_call","Call_ID":"call-1","ID":"fc-1"}`)
+	if got := responsesWebsocketItemMetadata(item, "type"); got != "function_call" {
+		t.Fatalf("type = %q, want function_call", got)
+	}
+	if got := responsesWebsocketItemMetadata(item, "call_id"); got != "call-1" {
+		t.Fatalf("call_id = %q, want call-1", got)
+	}
+	if got := responsesWebsocketItemMetadata(item, "id"); got != "fc-1" {
+		t.Fatalf("id = %q, want fc-1", got)
+	}
+	if got := responsesWebsocketItemMetadata(item, "role"); got != "" {
+		t.Fatalf("role = %q, want empty", got)
+	}
+	if got := responsesWebsocketItemMetadata([]byte(`"not-an-object"`), "type"); got != "" {
+		t.Fatalf("non-object type = %q, want empty", got)
+	}
+}
+
+func TestResponsesWebsocketInputFieldDuplicateSemantics(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		wantExists  bool
+		wantInvalid bool
+		wantFirstID string
+	}{
+		{"last duplicate wins", `{"input":[{"id":"old"}],"input":[{"id":"new"}]}`, true, false, "new"},
+		{"case-insensitive key", `{"Input":[{"id":"old"}],"INPUT":[{"id":"new"}]}`, true, false, "new"},
+		{"last null clears", `{"input":[{"id":"old"}],"input":null}`, true, false, ""},
+		{"missing", `{"noinput":[]}`, false, false, ""},
+		{"last duplicate non-array invalid", `{"input":[],"input":{"id":"x"}}`, true, true, ""},
+		{"earlier non-array remains invalid", `{"input":{"id":"x"},"input":[]}`, true, true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			last, exists, invalid := responsesWebsocketInputField([]byte(tt.raw))
+			if exists != tt.wantExists {
+				t.Fatalf("exists = %v, want %v", exists, tt.wantExists)
+			}
+			if invalid != tt.wantInvalid {
+				t.Fatalf("invalid = %v, want %v", invalid, tt.wantInvalid)
+			}
+			if tt.wantFirstID != "" {
+				if got := last.Get("0.id").String(); got != tt.wantFirstID {
+					t.Fatalf("id = %q, want %q", got, tt.wantFirstID)
+				}
+			} else if tt.wantExists && !tt.wantInvalid && last.Type != gjson.Null {
+				t.Fatalf("expected null/missing last, got %s", last.Raw)
+			}
+		})
+	}
+}
+
+func TestDedupeFunctionCallsMatchesMetadataCaseInsensitively(t *testing.T) {
+	rawArray := `[
+		{"TYPE":"function_call","CALL_ID":"call-1"},
+		{"Type":"function_call","call_id":"call-1"},
+		{"type":"message","role":"user","id":"m-1"}
+	]`
+	got, err := dedupeFunctionCallsByCallID(rawArray)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result := gjson.Parse(got)
+	if !result.IsArray() || len(result.Array()) != 2 {
+		t.Fatalf("expected 2 deduped items (case-insensitive call_id), got %s", got)
+	}
+}
+
+func TestShouldReplaceWebsocketTranscriptMatchesMetadataCaseInsensitively(t *testing.T) {
+	rawJSON := []byte(`{"type":"response.create","input":[{"TYPE":"function_call","ID":"fc-1","CALL_ID":"call-1"}]}`)
+	if !shouldReplaceWebsocketTranscript(rawJSON, gjson.GetBytes(rawJSON, "input")) {
+		t.Fatal("expected transcript replacement for case-insensitive function_call")
+	}
+	rawJSON = []byte(`{"type":"response.create","input":[{"Type":"message","Role":"assistant","content":"x"}]}`)
+	if !shouldReplaceWebsocketTranscript(rawJSON, gjson.GetBytes(rawJSON, "input")) {
+		t.Fatal("expected transcript replacement for case-insensitive assistant message")
+	}
+}
+
+func TestNormalizeSubsequentRequestDuplicatePreviousInputKeepsLast(t *testing.T) {
+	lastRequest := []byte(`{"model":"gpt-5.4","stream":true,"input":[{"type":"message","role":"user","id":"old"}],"input":[{"type":"message","role":"user","id":"new"}]}`)
+	lastResponseOutput := []byte(`[]`)
+	raw := []byte(`{"type":"response.append","input":[{"type":"message","role":"user","id":"appended"}]}`)
+
+	normalized, _, errMsg := normalizeResponsesWebsocketRequest(raw, lastRequest, lastResponseOutput)
+	if errMsg != nil {
+		t.Fatalf("unexpected error: %v", errMsg.Error)
+	}
+	input := gjson.GetBytes(normalized, "input").Array()
+	if len(input) != 2 {
+		t.Fatalf("input len = %d, want 2 (last duplicate input merged)", len(input))
+	}
+	if input[0].Get("id").String() != "new" {
+		t.Fatalf("input[0].id = %q, want %q (last duplicate wins)", input[0].Get("id").String(), "new")
+	}
+	if input[1].Get("id").String() != "appended" {
+		t.Fatalf("input[1].id = %q, want %q", input[1].Get("id").String(), "appended")
+	}
+}
+
+func TestNormalizeSubsequentRequestDuplicatePreviousInputInvalid(t *testing.T) {
+	lastRequest := []byte(`{"model":"gpt-5.4","stream":true,"input":[{"type":"message","role":"user","id":"old"}],"input":{"id":"obj"}}`)
+	lastResponseOutput := []byte(`[]`)
+	raw := []byte(`{"type":"response.append","input":[{"type":"message","role":"user","id":"appended"}]}`)
+
+	_, _, errMsg := normalizeResponsesWebsocketRequest(raw, lastRequest, lastResponseOutput)
+	if errMsg == nil {
+		t.Fatal("expected error for duplicate incompatible previous input")
+	}
+	if !strings.Contains(errMsg.Error.Error(), "invalid previous request input") {
+		t.Fatalf("error = %q, want contains invalid previous request input", errMsg.Error.Error())
+	}
+}

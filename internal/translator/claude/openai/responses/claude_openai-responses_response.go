@@ -298,7 +298,7 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 			if full != "" {
 				summary := []byte(`{"type":"summary_text","text":""}`)
 				summary, _ = sjson.SetBytes(summary, "text", full)
-				itemDone, _ = sjson.SetRawBytes(itemDone, "item.summary.-1", summary)
+				itemDone = translatorcommon.SetRawArrayItems(itemDone, "item.summary", [][]byte{summary})
 			}
 			out = append(out, emitEvent("response.output_item.done", itemDone))
 			st.ReasoningActive = false
@@ -398,7 +398,7 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 			if st.ReasoningBuf.Len() > 0 {
 				summary := []byte(`{"type":"summary_text","text":""}`)
 				summary, _ = sjson.SetBytes(summary, "text", st.ReasoningBuf.String())
-				item, _ = sjson.SetRawBytes(item, "summary.-1", summary)
+				item = translatorcommon.SetRawArrayItems(item, "summary", [][]byte{summary})
 			}
 			outputsWrapper, _ = sjson.SetRawBytes(outputsWrapper, "arr.-1", item)
 		}
@@ -684,7 +684,7 @@ func ConvertClaudeResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 		if reasoningBuf.Len() > 0 {
 			summary := []byte(`{"type":"summary_text","text":""}`)
 			summary, _ = sjson.SetBytes(summary, "text", reasoningBuf.String())
-			item, _ = sjson.SetRawBytes(item, "summary.-1", summary)
+			item = translatorcommon.SetRawArrayItems(item, "summary", [][]byte{summary})
 		}
 		outputsWrapper, _ = sjson.SetRawBytes(outputsWrapper, "arr.-1", item)
 	}

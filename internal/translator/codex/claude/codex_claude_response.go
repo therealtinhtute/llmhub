@@ -291,6 +291,7 @@ func ConvertCodexResponseToClaudeNonStream(_ context.Context, _ string, original
 	}
 
 	hasToolCall := false
+	var contentBlocks [][]byte
 
 	if output := responseData.Get("output"); output.Exists() && output.IsArray() {
 		output.ForEach(func(_, item gjson.Result) bool {
@@ -334,7 +335,7 @@ func ConvertCodexResponseToClaudeNonStream(_ context.Context, _ string, original
 					if signature != "" {
 						block, _ = sjson.SetBytes(block, "signature", signature)
 					}
-					out, _ = sjson.SetRawBytes(out, "content.-1", block)
+					contentBlocks = append(contentBlocks, block)
 				}
 			case "message":
 				if content := item.Get("content"); content.Exists() {
@@ -345,7 +346,7 @@ func ConvertCodexResponseToClaudeNonStream(_ context.Context, _ string, original
 								if text != "" {
 									block := []byte(`{"type":"text","text":""}`)
 									block, _ = sjson.SetBytes(block, "text", text)
-									out, _ = sjson.SetRawBytes(out, "content.-1", block)
+									contentBlocks = append(contentBlocks, block)
 								}
 							}
 							return true
@@ -355,7 +356,7 @@ func ConvertCodexResponseToClaudeNonStream(_ context.Context, _ string, original
 						if text != "" {
 							block := []byte(`{"type":"text","text":""}`)
 							block, _ = sjson.SetBytes(block, "text", text)
-							out, _ = sjson.SetRawBytes(out, "content.-1", block)
+							contentBlocks = append(contentBlocks, block)
 						}
 					}
 				}
@@ -377,10 +378,14 @@ func ConvertCodexResponseToClaudeNonStream(_ context.Context, _ string, original
 					}
 				}
 				toolBlock, _ = sjson.SetRawBytes(toolBlock, "input", []byte(inputRaw))
-				out, _ = sjson.SetRawBytes(out, "content.-1", toolBlock)
+				contentBlocks = append(contentBlocks, toolBlock)
 			}
 			return true
 		})
+	}
+
+	if len(contentBlocks) > 0 {
+		out = translatorcommon.SetRawArrayItems(out, "content", contentBlocks)
 	}
 
 	out, _ = sjson.SetBytes(out, "stop_reason", mapCodexStopReasonToClaude(codexStopReason(responseData), hasToolCall))

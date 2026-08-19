@@ -369,6 +369,37 @@ func (s *FillFirstSelector) Pick(ctx context.Context, provider, model string, op
 	return available[0], nil
 }
 
+// modelStateBlock reports whether a single model state blocks selection, mirroring
+// the per-state logic previously inlined in isAuthBlockedForModel.
+func modelStateBlock(state *ModelState, now time.Time) (bool, blockReason, time.Time) {
+	if state == nil {
+		return false, blockReasonNone, time.Time{}
+	}
+	if state.Status == StatusDisabled {
+		return true, blockReasonDisabled, time.Time{}
+	}
+	if !state.Unavailable {
+		return false, blockReasonNone, time.Time{}
+	}
+	if state.NextRetryAfter.IsZero() {
+		return false, blockReasonNone, time.Time{}
+	}
+	if state.NextRetryAfter.After(now) {
+		next := state.NextRetryAfter
+		if !state.Quota.NextRecoverAt.IsZero() && state.Quota.NextRecoverAt.After(now) {
+			next = state.Quota.NextRecoverAt
+		}
+		if next.Before(now) {
+			next = now
+		}
+		if state.Quota.Exceeded {
+			return true, blockReasonCooldown, next
+		}
+		return true, blockReasonOther, next
+	}
+	return false, blockReasonNone, time.Time{}
+}
+
 func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, blockReason, time.Time) {
 	if auth == nil {
 		return true, blockReasonOther, time.Time{}
@@ -384,37 +415,39 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 	}
 	if model != "" {
 		if len(auth.ModelStates) > 0 {
-			state, ok := auth.ModelStates[model]
-			if (!ok || state == nil) && model != "" {
-				baseModel := canonicalModelKey(model)
-				if baseModel != "" && baseModel != model {
-					state, ok = auth.ModelStates[baseModel]
+			// All thinking-suffix variant states map to the same canonical key, so a
+			// cooldown on any variant blocks every other variant of the same model.
+			modelKey := canonicalModelKey(model)
+			matched := false
+			blocked := false
+			blockedReason := blockReasonNone
+			nextRetry := time.Time{}
+			for stateModel, state := range auth.ModelStates {
+				if state == nil || canonicalModelKey(stateModel) != modelKey {
+					continue
 				}
-			}
-			if ok && state != nil {
+				matched = true
 				if state.Status == StatusDisabled {
 					return true, blockReasonDisabled, time.Time{}
 				}
-				if state.Unavailable {
-					if state.NextRetryAfter.IsZero() {
-						return false, blockReasonNone, time.Time{}
-					}
-					if state.NextRetryAfter.After(now) {
-						next := state.NextRetryAfter
-						if !state.Quota.NextRecoverAt.IsZero() && state.Quota.NextRecoverAt.After(now) {
-							next = state.Quota.NextRecoverAt
-						}
-						if next.Before(now) {
-							next = now
-						}
-						if state.Quota.Exceeded {
-							return true, blockReasonCooldown, next
-						}
-						return true, blockReasonOther, next
-					}
+				stateBlocked, reason, next := modelStateBlock(state, now)
+				if !stateBlocked {
+					continue
 				}
-				return false, blockReasonNone, time.Time{}
+				if next.IsZero() {
+					return true, reason, time.Time{}
+				}
+				if !blocked || next.After(nextRetry) || (next.Equal(nextRetry) && reason == blockReasonCooldown) {
+					blocked = true
+					blockedReason = reason
+					nextRetry = next
+				}
 			}
+			if matched {
+				return blocked, blockedReason, nextRetry
+			}
+			// Auth-level availability can aggregate failures from other models.
+			return false, blockReasonNone, time.Time{}
 		}
 		return false, blockReasonNone, time.Time{}
 	}

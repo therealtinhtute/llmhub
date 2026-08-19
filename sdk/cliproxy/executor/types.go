@@ -31,6 +31,12 @@ const (
 	ExecutionSessionMetadataKey = "execution_session_id"
 	// DerivedSessionIDMetadataKey stores a stable session identity inferred from request context.
 	DerivedSessionIDMetadataKey = "derived_session_id"
+	// SessionAffinityProviderMetadataKey carries the affinity selection namespace
+	// (provider string, e.g. the literal "mixed" pool key) used by SessionAffinitySelector.Pick,
+	// so OnResult keys the session cache identically to how selection read it.
+	SessionAffinityProviderMetadataKey = "session_affinity_provider"
+	// SessionAffinityModelMetadataKey carries the model used during session affinity selection.
+	SessionAffinityModelMetadataKey = "session_affinity_model"
 )
 
 // Request encapsulates the translated payload that will be sent to a provider executor.
@@ -63,6 +69,14 @@ type Options struct {
 	Metadata map[string]any
 	// ExecutionLifecycle owns Home-dispatched execution resources. Executors must not add it to request metadata.
 	ExecutionLifecycle ExecutionLifecycle
+}
+
+// EnsureMetadata initializes and returns Metadata, ensuring it is non-nil.
+func (o *Options) EnsureMetadata() map[string]any {
+	if o.Metadata == nil {
+		o.Metadata = make(map[string]any)
+	}
+	return o.Metadata
 }
 
 // Response wraps either a full provider response or metadata for streaming flows.

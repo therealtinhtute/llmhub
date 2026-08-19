@@ -119,6 +119,8 @@ type Result struct {
 	Error *Error
 	// RequestScoped marks failures caused by the request rather than the credential.
 	RequestScoped bool
+	// Options carries execution request options (headers, metadata, etc.) for result tracking.
+	Options cliproxyexecutor.Options
 	// UsageDetail carries provider token usage for runtime account accounting.
 	UsageDetail coreusage.Detail
 	// UsageEstimated marks usage values estimated from provider runtime signals.
@@ -1022,6 +1024,14 @@ func (m *Manager) prepareExecutionModels(auth *Auth, routeModel string) []string
 }
 
 func (m *Manager) availableAuthsForRouteModel(auths []*Auth, provider, routeModel string, now time.Time) ([]*Auth, error) {
+	return m.availableAuthsForRouteModelWithPriorityMode(auths, provider, routeModel, now, false)
+}
+
+func (m *Manager) availableAuthsForRouteModelAcrossPriorities(auths []*Auth, provider, routeModel string, now time.Time) ([]*Auth, error) {
+	return m.availableAuthsForRouteModelWithPriorityMode(auths, provider, routeModel, now, true)
+}
+
+func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, provider, routeModel string, now time.Time, allPriorities bool) ([]*Auth, error) {
 	if len(auths) == 0 {
 		return nil, &Error{Code: "auth_not_found", Message: "no auth candidates"}
 	}
@@ -1060,20 +1070,18 @@ func (m *Manager) availableAuthsForRouteModel(auths []*Auth, provider, routeMode
 		return nil, &Error{Code: "auth_unavailable", Message: "no auth available"}
 	}
 
-	bestPriority := 0
-	found := false
-	for priority := range availableByPriority {
-		if !found || priority > bestPriority {
-			bestPriority = priority
-			found = true
-		}
-	}
+	return availableAuthsFromPriorityBuckets(availableByPriority, allPriorities), nil
+}
 
-	available := availableByPriority[bestPriority]
-	if len(available) > 1 {
-		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+// availableAuthsForSelector reports the candidates handed to the configured selector.
+// For a session-affinity selector the full across-priority set is returned so an
+// established binding can be validated instead of being preempted by a recovered
+// higher-priority credential; other selectors keep seeing only the highest tier.
+func (m *Manager) availableAuthsForSelector(selector Selector, auths []*Auth, provider, routeModel string, now time.Time) ([]*Auth, error) {
+	if _, sessionAffinity := selector.(*SessionAffinitySelector); !sessionAffinity {
+		return m.availableAuthsForRouteModel(auths, provider, routeModel, now)
 	}
-	return available, nil
+	return m.availableAuthsForRouteModelAcrossPriorities(auths, provider, routeModel, now)
 }
 
 func selectionArgForSelector(selector Selector, routeModel string) string {
@@ -4194,6 +4202,10 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		return auth, exec, err
 	}
 
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = provider
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = selectionArgForSelector(m.selector, model)
+
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 
@@ -4238,7 +4250,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		m.mu.RUnlock()
 		return nil, nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, errAvailable := m.availableAuthsForRouteModel(candidates, provider, model, time.Now())
+	available, errAvailable := m.availableAuthsForSelector(m.selector, candidates, provider, model, time.Now())
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		return nil, nil, errAvailable
@@ -4270,6 +4282,10 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
 		return auth, exec, err
 	}
+
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = provider
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = model
 
 	if !m.useSchedulerFastPath() {
 		return m.pickNextLegacy(ctx, provider, model, opts, tried)
@@ -4332,6 +4348,10 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		return m.pickNextViaHome(ctx, model, opts, tried)
 	}
 
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = "mixed"
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = selectionArgForSelector(m.selector, model)
+
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 
@@ -4393,7 +4413,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		m.mu.RUnlock()
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, errAvailable := m.availableAuthsForRouteModel(candidates, "mixed", model, time.Now())
+	available, errAvailable := m.availableAuthsForSelector(m.selector, candidates, "mixed", model, time.Now())
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		return nil, nil, "", errAvailable
@@ -4430,6 +4450,10 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	if m.HomeEnabled() {
 		return m.pickNextViaHome(ctx, model, opts, tried)
 	}
+
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = "mixed"
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = model
 
 	if !m.useSchedulerFastPath() {
 		return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)

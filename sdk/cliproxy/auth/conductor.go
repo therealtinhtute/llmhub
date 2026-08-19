@@ -1557,6 +1557,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
+	normalizeModelStates(auth)
 	auth.EnsureIndex()
 	authClone := auth.Clone()
 	m.mu.Lock()
@@ -1594,6 +1595,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 			}
 		}
 	}
+	normalizeModelStates(auth)
 	auth.EnsureIndex()
 	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone

@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/clienterror"
 	internalconfig "github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/logging"
@@ -2794,7 +2796,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	if result.AuthID == "" {
 		return
 	}
-	if !result.Success && (result.RequestScoped || isRequestScopedNotFoundResultError(result.Error)) {
+	if !result.Success && (result.RequestScoped || shouldSkipCredentialCooldown(result.Error)) {
 		m.hook.OnResult(ctx, result)
 		return
 	}
@@ -2834,7 +2836,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			}
 		} else {
 			if result.Model != "" {
-				if !result.RequestScoped && !isRequestScopedNotFoundResultError(result.Error) {
+				if !result.RequestScoped && !shouldSkipCredentialCooldown(result.Error) {
 					disableCooling := quotaCooldownDisabledForAuth(auth)
 					state := ensureModelState(auth, result.Model)
 					state.Unavailable = true
@@ -3312,11 +3314,29 @@ func resultErrorFromError(err error) *Error {
 	if err == nil {
 		return nil
 	}
-	var authErr *Error
-	if errors.As(err, &authErr) && authErr != nil {
-		return cloneError(authErr)
+	var sourceErr *Error
+	var resultErr *Error
+	if errors.As(err, &sourceErr) && sourceErr != nil {
+		resultErr = cloneError(sourceErr)
+	} else {
+		resultErr = &Error{Message: err.Error()}
 	}
-	return &Error{Message: err.Error(), HTTPStatus: statusCodeFromError(err)}
+	if resultErr.HTTPStatus == 0 {
+		resultErr.HTTPStatus = statusCodeFromError(err)
+	}
+	switch {
+	case isRequestScopedError(err) || isRequestInvalidError(err):
+		// Prefer true request-scoped faults (including Claude OAuth cancellation)
+		// over the broader connection-lifecycle classification.
+		resultErr.Code = requestScopedErrorCode
+	case isConnectionLifecycleError(err):
+		// Preserve lifecycle classification for MarkResult without making the error
+		// request-scoped (which would also stop credential fallback).
+		if resultErr.Code == "" || resultErr.Code == connectionLifecycleErrorCode {
+			resultErr.Code = connectionLifecycleErrorCode
+		}
+	}
+	return resultErr
 }
 
 func isRequestScopedError(err error) bool {
@@ -3530,21 +3550,89 @@ func isInvalidGrantResultError(err *Error) bool {
 	return isInvalidGrantIdentifier(err.Code) || isInvalidGrantErrorMessage(err.Message)
 }
 
-func isRequestScopedNotFoundMessage(message string) bool {
-	if message == "" {
-		return false
-	}
-	lower := strings.ToLower(message)
-	return strings.Contains(lower, "item with id") &&
-		strings.Contains(lower, "not found") &&
-		strings.Contains(lower, "items are not persisted when `store` is set to false")
-}
-
 func isRequestScopedNotFoundResultError(err *Error) bool {
 	if err == nil || statusCodeFromResult(err) != http.StatusNotFound {
 		return false
 	}
-	return isRequestScopedNotFoundMessage(err.Message)
+	return clienterror.IsItemNotPersisted(err.Message)
+}
+
+func isRequestScopedResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	if err.IsRequestScoped() || isRequestScopedNotFoundResultError(err) {
+		return true
+	}
+	return isRequestInvalidError(err)
+}
+
+// shouldSkipCredentialCooldown reports failures that must not mark auth/model cooling.
+// Connection lifecycle is intentionally separate from request_scoped so transport
+// drops do not also stop credential rotation via isRequestInvalidError.
+func shouldSkipCredentialCooldown(err *Error) bool {
+	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
+}
+
+// isConnectionLifecycleError reports transport/session lifecycle failures that must
+// not cool credentials: client cancellation and WebSocket close/EOF disconnects.
+func isConnectionLifecycleError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Typed WebSocket close codes are an unambiguous connection lifecycle signal.
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) && closeErr != nil {
+		switch closeErr.Code {
+		case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure:
+			return true
+		}
+	}
+	// Credential/auth/quota statuses must never be reclassified from response text.
+	if statusCodeFromError(err) != 0 {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	return isConnectionLifecycleMessage(err.Error())
+}
+
+func isConnectionLifecycleResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	if err.Code == connectionLifecycleErrorCode {
+		return true
+	}
+	// Message fallback only when no HTTP status is attached, so 401/429/5xx
+	// response bodies cannot suppress credential cooldown.
+	if statusCodeFromResult(err) != 0 {
+		return false
+	}
+	return isConnectionLifecycleMessage(err.Message)
+}
+
+func isConnectionLifecycleMessage(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+	switch lower {
+	case "context canceled", "eof", "unexpected eof":
+		return true
+	}
+	// gorilla/websocket CloseError.Error() and common wrappers.
+	if strings.Contains(lower, "websocket: close 1000") ||
+		strings.Contains(lower, "websocket: close 1001") ||
+		strings.Contains(lower, "websocket: close 1006") {
+		return true
+	}
+	// Wrapped transport EOF phrasing (e.g. "read tcp ...: unexpected EOF").
+	if strings.Contains(lower, "unexpected eof") {
+		return true
+	}
+	return false
 }
 
 func isCountTokensEndpointNotFoundError(err error, _ string) bool {
@@ -3623,11 +3711,8 @@ func isModelNotFoundIdentifier(value string) bool {
 }
 
 // isRequestInvalidError returns true if the error represents a client request
-// error that should not be retried. Specifically, it treats typed request-scoped
-// errors, 400 responses with "invalid_request_error", request-scoped 404 item
-// misses caused by `store=false`, and all 422 responses as request-shape failures,
-// where switching auths or pooled upstream models will not help. Model-support
-// errors are excluded so routing can fall through to another auth or upstream.
+// error that should neither rotate nor penalize credentials. Model-support
+// errors remain eligible for alternate routing and keep their model-level state.
 func isRequestInvalidError(err error) bool {
 	if err == nil {
 		return false
@@ -3642,30 +3727,25 @@ func isRequestInvalidError(err error) bool {
 		return false
 	}
 	status := statusCodeFromError(err)
-	switch status {
-	case http.StatusBadRequest:
-		msg := err.Error()
-		return strings.Contains(msg, "invalid_request_error") ||
-			strings.Contains(msg, "INVALID_ARGUMENT") ||
-			strings.Contains(msg, "FAILED_PRECONDITION")
-	case http.StatusNotFound:
-		return isRequestScopedNotFoundMessage(err.Error())
-	case http.StatusUnprocessableEntity:
+	if clienterror.IsRequestFault(status, err) {
 		return true
-	case http.StatusInternalServerError:
-		msg := err.Error()
-		return strings.Contains(msg, "\"status\":\"UNKNOWN\"") ||
-			strings.Contains(msg, "\"status\": \"UNKNOWN\"")
-	default:
-		return false
 	}
+	var authErr *Error
+	if errors.As(err, &authErr) && authErr != nil && authErr.Message != "" {
+		// When authErr.Code is non-empty, Error() formats as "Code: Message" which
+		// breaks JSON parsing in clienterror. Re-evaluate against the raw Message body.
+		if clienterror.IsRequestFault(status, errors.New(authErr.Message)) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Duration, now time.Time) {
 	if auth == nil {
 		return
 	}
-	if isRequestScopedNotFoundResultError(resultErr) {
+	if shouldSkipCredentialCooldown(resultErr) {
 		return
 	}
 	disableCooling := quotaCooldownDisabledForAuth(auth)

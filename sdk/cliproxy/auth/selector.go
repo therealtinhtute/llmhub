@@ -219,6 +219,14 @@ func collectAvailableByPriority(auths []*Auth, model string, now time.Time) (ava
 }
 
 func getAvailableAuths(auths []*Auth, provider, model string, now time.Time) ([]*Auth, error) {
+	return getAvailableAuthsWithPriorityMode(auths, provider, model, now, false)
+}
+
+func getAvailableAuthsAcrossPriorities(auths []*Auth, provider, model string, now time.Time) ([]*Auth, error) {
+	return getAvailableAuthsWithPriorityMode(auths, provider, model, now, true)
+}
+
+func getAvailableAuthsWithPriorityMode(auths []*Auth, provider, model string, now time.Time, allPriorities bool) ([]*Auth, error) {
 	if len(auths) == 0 {
 		return nil, &Error{Code: "auth_not_found", Message: "no auth candidates"}
 	}
@@ -239,20 +247,73 @@ func getAvailableAuths(auths []*Auth, provider, model string, now time.Time) ([]
 		return nil, &Error{Code: "auth_unavailable", Message: "no auth available"}
 	}
 
+	return availableAuthsFromPriorityBuckets(availableByPriority, allPriorities), nil
+}
+
+// availableAuthsFromPriorityBuckets flattens availability buckets into a stable, ID-sorted slice.
+// When allPriorities is false only the highest available priority tier is returned.
+// When allPriorities is true every tier is merged, so the result carries no priority ordering:
+// use it for membership checks or feed it to highestPriorityAuths, never as a priority-ordered
+// selection order.
+func availableAuthsFromPriorityBuckets(availableByPriority map[int][]*Auth, allPriorities bool) []*Auth {
+	var candidates []*Auth
+	if allPriorities {
+		total := 0
+		for _, bucket := range availableByPriority {
+			total += len(bucket)
+		}
+		candidates = make([]*Auth, 0, total)
+		for _, bucket := range availableByPriority {
+			candidates = append(candidates, bucket...)
+		}
+	} else {
+		bestPriority := 0
+		found := false
+		for priority := range availableByPriority {
+			if !found || priority > bestPriority {
+				bestPriority = priority
+				found = true
+			}
+		}
+		bucket := availableByPriority[bestPriority]
+		candidates = make([]*Auth, 0, len(bucket))
+		candidates = append(candidates, bucket...)
+	}
+	if len(candidates) > 1 {
+		sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	}
+	return candidates
+}
+
+// highestPriorityAuths narrows an availability slice to its highest priority tier while
+// preserving the input order. The input slice is returned unchanged when every candidate
+// already shares the highest priority, so the common single-tier case allocates nothing.
+func highestPriorityAuths(auths []*Auth) []*Auth {
+	if len(auths) <= 1 {
+		return auths
+	}
 	bestPriority := 0
-	found := false
-	for priority := range availableByPriority {
-		if !found || priority > bestPriority {
+	bestCount := 0
+	for _, auth := range auths {
+		priority := authPriority(auth)
+		switch {
+		case bestCount == 0 || priority > bestPriority:
 			bestPriority = priority
-			found = true
+			bestCount = 1
+		case priority == bestPriority:
+			bestCount++
 		}
 	}
-
-	available := availableByPriority[bestPriority]
-	if len(available) > 1 {
-		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+	if bestCount == len(auths) {
+		return auths
 	}
-	return available, nil
+	highest := make([]*Auth, 0, bestCount)
+	for _, auth := range auths {
+		if authPriority(auth) == bestPriority {
+			highest = append(highest, auth)
+		}
+	}
+	return highest
 }
 
 // Pick selects the next available auth for the provider in a round-robin manner.

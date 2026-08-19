@@ -46,6 +46,9 @@ type ModelInfo struct {
 	SupportedGenerationMethods []string `json:"supportedGenerationMethods,omitempty"`
 	// ContextLength is the context window size
 	ContextLength int `json:"context_length,omitempty"`
+	// MaxContextLength is an explicit per-model context window override from configuration.
+	// It is carried internally for Codex client model catalog generation.
+	MaxContextLength int `json:"-"`
 	// MaxCompletionTokens is the maximum completion tokens
 	MaxCompletionTokens int `json:"max_completion_tokens,omitempty"`
 	// SupportedParameters lists supported parameters
@@ -126,6 +129,8 @@ type ModelRegistry struct {
 	mutex *sync.RWMutex
 	// availableModelsCache stores per-handler snapshots for GetAvailableModels.
 	availableModelsCache map[string]availableModelsCacheEntry
+	// generation tracks changes to model registrations and availability.
+	generation uint64
 	// hook is an optional callback sink for model registration changes
 	hook ModelRegistryHook
 }
@@ -155,10 +160,18 @@ func (r *ModelRegistry) ensureAvailableModelsCacheLocked() {
 }
 
 func (r *ModelRegistry) invalidateAvailableModelsCacheLocked() {
+	r.generation++
 	if len(r.availableModelsCache) == 0 {
 		return
 	}
 	clear(r.availableModelsCache)
+}
+
+// GetGeneration returns the current generation counter of model registrations.
+func (r *ModelRegistry) GetGeneration() uint64 {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	return r.generation
 }
 
 // LookupModelInfo searches dynamic registry (provider-specific > global) then static definitions.
@@ -1137,6 +1150,9 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		}
 		if model.ContextLength > 0 {
 			result["context_length"] = model.ContextLength
+		}
+		if model.MaxContextLength > 0 {
+			result["max_context_length"] = model.MaxContextLength
 		}
 		if model.MaxCompletionTokens > 0 {
 			result["max_completion_tokens"] = model.MaxCompletionTokens

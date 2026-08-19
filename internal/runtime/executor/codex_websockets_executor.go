@@ -1135,6 +1135,7 @@ func applyCodexPromptCacheHeaders(from sdktranslator.Format, req cliproxyexecuto
 		setHeaderCasePreserved(headers, "session_id", cache.ID)
 		headers.Set("Conversation_id", cache.ID)
 	}
+	rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
 
 	return rawJSON, headers
 }

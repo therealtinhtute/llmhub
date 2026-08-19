@@ -120,6 +120,13 @@ type Config struct {
 	// These are used only when the client does not send its own headers.
 	CodexHeaderDefaults CodexHeaderDefaults `yaml:"codex-header-defaults" json:"codex-header-defaults"`
 
+	// CodexOptimizeMultiAgentV2 optimizes official Codex multi-agent requests
+	// (Codex Desktop, codex-tui, and codex_cli_rs) when enabled. It refreshes
+	// Codex spawn_agent model details, removes message parameter encryption,
+	// normalizes encrypted agent_message content for Codex, and converts
+	// agent_message input into standard user messages for non-Codex upstreams.
+	CodexOptimizeMultiAgentV2 bool `yaml:"codex-optimize-multi-agent-v2,omitempty" json:"codex-optimize-multi-agent-v2,omitempty"`
+
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
 
@@ -387,11 +394,15 @@ type ClaudeModel struct {
 
 	// DisplayName is the optional human-readable name shown in model catalogs.
 	DisplayName string `yaml:"display-name,omitempty" json:"display-name,omitempty"`
+
+	// MaxContextLength overrides the context window advertised to Codex clients.
+	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
-func (m ClaudeModel) GetName() string        { return m.Name }
-func (m ClaudeModel) GetAlias() string       { return m.Alias }
-func (m ClaudeModel) GetDisplayName() string { return m.DisplayName }
+func (m ClaudeModel) GetName() string               { return m.Name }
+func (m ClaudeModel) GetAlias() string              { return m.Alias }
+func (m ClaudeModel) GetDisplayName() string        { return m.DisplayName }
+func (m ClaudeModel) GetMaxContextLength() int      { return m.MaxContextLength }
 
 // CodexKey represents the configuration for a Codex API key,
 // including the API key itself and an optional base URL for the API endpoint.
@@ -448,11 +459,22 @@ type CodexModel struct {
 
 	// DisplayName is the optional human-readable name shown in model catalogs.
 	DisplayName string `yaml:"display-name,omitempty" json:"display-name,omitempty"`
+
+	// IsCompat converts Codex MultiAgentV2 agent_message items into portable
+	// Responses message/user input when codex.optimize-multi-agent-v2 is also true.
+	// Use this for third-party Responses-compatible endpoints that do not accept
+	// native agent_message items. Default false keeps agent_message unchanged.
+	IsCompat bool `yaml:"is-compat,omitempty" json:"is-compat,omitempty"`
+
+	// MaxContextLength overrides the context window advertised to Codex clients.
+	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
-func (m CodexModel) GetName() string        { return m.Name }
-func (m CodexModel) GetAlias() string       { return m.Alias }
-func (m CodexModel) GetDisplayName() string { return m.DisplayName }
+func (m CodexModel) GetName() string               { return m.Name }
+func (m CodexModel) GetAlias() string              { return m.Alias }
+func (m CodexModel) GetDisplayName() string        { return m.DisplayName }
+func (m CodexModel) GetIsCompat() bool             { return m.IsCompat }
+func (m CodexModel) GetMaxContextLength() int      { return m.MaxContextLength }
 
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
@@ -502,11 +524,15 @@ type GeminiModel struct {
 
 	// DisplayName is the optional human-readable name shown in model catalogs.
 	DisplayName string `yaml:"display-name,omitempty" json:"display-name,omitempty"`
+
+	// MaxContextLength overrides the context window advertised to Codex clients.
+	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
-func (m GeminiModel) GetName() string        { return m.Name }
-func (m GeminiModel) GetAlias() string       { return m.Alias }
-func (m GeminiModel) GetDisplayName() string { return m.DisplayName }
+func (m GeminiModel) GetName() string               { return m.Name }
+func (m GeminiModel) GetAlias() string              { return m.Alias }
+func (m GeminiModel) GetDisplayName() string        { return m.DisplayName }
+func (m GeminiModel) GetMaxContextLength() int      { return m.MaxContextLength }
 
 // OpenAICompatibility represents the configuration for OpenAI API compatibility
 // with external providers, allowing model aliases to be routed through OpenAI API format.
@@ -592,14 +618,18 @@ type OpenAICompatibilityModel struct {
 	// Image marks this model as callable through /v1/images/generations and /v1/images/edits.
 	Image bool `yaml:"image,omitempty" json:"image,omitempty"`
 
+	// MaxContextLength overrides the context window advertised to Codex clients.
+	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
+
 	// Thinking configures the thinking/reasoning capability for this model.
 	// If nil, the model defaults to level-based reasoning with levels ["low", "medium", "high"].
 	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
-func (m OpenAICompatibilityModel) GetName() string        { return m.Name }
-func (m OpenAICompatibilityModel) GetAlias() string       { return m.Alias }
-func (m OpenAICompatibilityModel) GetDisplayName() string { return m.DisplayName }
+func (m OpenAICompatibilityModel) GetName() string               { return m.Name }
+func (m OpenAICompatibilityModel) GetAlias() string              { return m.Alias }
+func (m OpenAICompatibilityModel) GetDisplayName() string        { return m.DisplayName }
+func (m OpenAICompatibilityModel) GetMaxContextLength() int      { return m.MaxContextLength }
 
 // LoadConfig reads a YAML configuration file from the given path,
 // unmarshals it into a Config struct, applies environment variable overrides,

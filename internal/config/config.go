@@ -455,11 +455,18 @@ type CodexModel struct {
 
 	// DisplayName is the optional human-readable name shown in model catalogs.
 	DisplayName string `yaml:"display-name,omitempty" json:"display-name,omitempty"`
+
+	// IsCompat converts Codex MultiAgentV2 agent_message items into portable
+	// Responses message/user input when codex.optimize-multi-agent-v2 is also true.
+	// Use this for third-party Responses-compatible endpoints that do not accept
+	// native agent_message items. Default false keeps agent_message unchanged.
+	IsCompat bool `yaml:"is-compat,omitempty" json:"is-compat,omitempty"`
 }
 
 func (m CodexModel) GetName() string        { return m.Name }
 func (m CodexModel) GetAlias() string       { return m.Alias }
 func (m CodexModel) GetDisplayName() string { return m.DisplayName }
+func (m CodexModel) GetIsCompat() bool      { return m.IsCompat }
 
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.

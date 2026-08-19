@@ -416,6 +416,7 @@ func convertOpenAINonStreamingToAnthropic(rawJSON []byte) [][]byte {
 	// Process message content and tool calls
 	if choices := root.Get("choices"); choices.Exists() && choices.IsArray() && len(choices.Array()) > 0 {
 		choice := choices.Array()[0] // Take first choice
+		var contentBlocks [][]byte
 
 		reasoningNode := choice.Get("message.reasoning_content")
 		for _, reasoningText := range collectOpenAIReasoningTexts(reasoningNode) {
@@ -424,14 +425,14 @@ func convertOpenAINonStreamingToAnthropic(rawJSON []byte) [][]byte {
 			}
 			block := []byte(`{"type":"thinking","thinking":""}`)
 			block, _ = sjson.SetBytes(block, "thinking", reasoningText)
-			out, _ = sjson.SetRawBytes(out, "content.-1", block)
+			contentBlocks = append(contentBlocks, block)
 		}
 
 		// Handle text content
 		if content := choice.Get("message.content"); content.Exists() && content.String() != "" {
 			block := []byte(`{"type":"text","text":""}`)
 			block, _ = sjson.SetBytes(block, "text", content.String())
-			out, _ = sjson.SetRawBytes(out, "content.-1", block)
+			contentBlocks = append(contentBlocks, block)
 		}
 
 		// Handle tool calls
@@ -453,9 +454,13 @@ func convertOpenAINonStreamingToAnthropic(rawJSON []byte) [][]byte {
 					toolUseBlock, _ = sjson.SetRawBytes(toolUseBlock, "input", []byte(`{}`))
 				}
 
-				out, _ = sjson.SetRawBytes(out, "content.-1", toolUseBlock)
+				contentBlocks = append(contentBlocks, toolUseBlock)
 				return true
 			})
+		}
+
+		if len(contentBlocks) > 0 {
+			out = translatorcommon.SetRawArrayItems(out, "content", contentBlocks)
 		}
 
 		// Set stop reason

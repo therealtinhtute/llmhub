@@ -921,7 +921,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 	}
 
 	// Build output list from choices[...]
-	outputsWrapper := []byte(`{"arr":[]}`)
+	var outputItems [][]byte
 	// Detect and capture reasoning content if present
 	rcText := gjson.GetBytes(rawJSON, "choices.0.message.reasoning_content").String()
 	includeReasoning := rcText != ""
@@ -940,7 +940,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 			reasoningItem, _ = sjson.SetBytes(reasoningItem, "summary.0.type", "summary_text")
 			reasoningItem, _ = sjson.SetBytes(reasoningItem, "summary.0.text", rcText)
 		}
-		outputsWrapper, _ = sjson.SetRawBytes(outputsWrapper, "arr.-1", reasoningItem)
+		outputItems = append(outputItems, reasoningItem)
 	}
 
 	if choices := root.Get("choices"); choices.Exists() && choices.IsArray() {
@@ -957,7 +957,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 					item, _ = sjson.SetBytes(item, "id", fmt.Sprintf("msg_%s_%d", id, int(choice.Get("index").Int())))
 					item, _ = sjson.SetBytes(item, "status", itemStatus)
 					item, _ = sjson.SetBytes(item, "content.0.text", c.String())
-					outputsWrapper, _ = sjson.SetRawBytes(outputsWrapper, "arr.-1", item)
+					outputItems = append(outputItems, item)
 				}
 
 				// Function/tool calls
@@ -978,7 +978,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 							item, _ = sjson.SetBytes(item, "input", unwrapCustomToolInput(args))
 							item, _ = sjson.SetBytes(item, "call_id", callID)
 							item = applyResponsesFunctionCallNamespaceFields(item, requestForNamespace, name, "")
-							outputsWrapper, _ = sjson.SetRawBytes(outputsWrapper, "arr.-1", item)
+							outputItems = append(outputItems, item)
 							return true
 						}
 						item := []byte(`{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`)
@@ -987,7 +987,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 						item, _ = sjson.SetBytes(item, "arguments", args)
 						item, _ = sjson.SetBytes(item, "call_id", callID)
 						item = applyResponsesFunctionCallNamespaceFields(item, requestForNamespace, name, "")
-						outputsWrapper, _ = sjson.SetRawBytes(outputsWrapper, "arr.-1", item)
+						outputItems = append(outputItems, item)
 						return true
 					})
 				}
@@ -995,8 +995,8 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 			return true
 		})
 	}
-	if gjson.GetBytes(outputsWrapper, "arr.#").Int() > 0 {
-		resp, _ = sjson.SetRawBytes(resp, "output", []byte(gjson.GetBytes(outputsWrapper, "arr").Raw))
+	if len(outputItems) > 0 {
+		resp, _ = sjson.SetRawBytes(resp, "output", translatorcommon.JoinRawArray(outputItems))
 	}
 
 	// usage mapping

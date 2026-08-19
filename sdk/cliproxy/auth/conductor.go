@@ -5242,7 +5242,9 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	var exec ProviderExecutor
 	var cloned *Auth
 	if auth != nil {
-		exec = m.executors[auth.Provider]
+		// Use the same effective provider key as request execution so OpenAI-compat
+		// auths registered under namespaced keys still resolve for refresh.
+		exec = m.executors[executorKeyFromAuth(auth)]
 		cloned = auth.Clone()
 	}
 	m.mu.RUnlock()

@@ -3325,7 +3325,7 @@ func resultErrorFromError(err error) *Error {
 		resultErr.HTTPStatus = statusCodeFromError(err)
 	}
 	switch {
-	case isRequestScopedError(err) || isRequestInvalidError(err):
+	case isRequestScopedError(err):
 		// Prefer true request-scoped faults (including Claude OAuth cancellation)
 		// over the broader connection-lifecycle classification.
 		resultErr.Code = requestScopedErrorCode
@@ -3561,10 +3561,7 @@ func isRequestScopedResultError(err *Error) bool {
 	if err == nil {
 		return false
 	}
-	if err.IsRequestScoped() || isRequestScopedNotFoundResultError(err) {
-		return true
-	}
-	return isRequestInvalidError(err)
+	return err.IsRequestScoped() || isRequestScopedNotFoundResultError(err)
 }
 
 // shouldSkipCredentialCooldown reports failures that must not mark auth/model cooling.
@@ -3713,6 +3710,9 @@ func isModelNotFoundIdentifier(value string) bool {
 // isRequestInvalidError returns true if the error represents a client request
 // error that should neither rotate nor penalize credentials. Model-support
 // errors remain eligible for alternate routing and keep their model-level state.
+// Untyped 413 payload rejections (message_too_big) are deliberately excluded so
+// they retain credential fallback; only explicitly typed request-scoped errors
+// stop rotation for oversized payloads.
 func isRequestInvalidError(err error) bool {
 	if err == nil {
 		return false
@@ -3727,14 +3727,14 @@ func isRequestInvalidError(err error) bool {
 		return false
 	}
 	status := statusCodeFromError(err)
-	if clienterror.IsRequestFault(status, err) {
+	if clienterror.IsRequestFault(status, err) && status != http.StatusRequestEntityTooLarge {
 		return true
 	}
 	var authErr *Error
 	if errors.As(err, &authErr) && authErr != nil && authErr.Message != "" {
 		// When authErr.Code is non-empty, Error() formats as "Code: Message" which
 		// breaks JSON parsing in clienterror. Re-evaluate against the raw Message body.
-		if clienterror.IsRequestFault(status, errors.New(authErr.Message)) {
+		if clienterror.IsRequestFault(status, errors.New(authErr.Message)) && status != http.StatusRequestEntityTooLarge {
 			return true
 		}
 	}

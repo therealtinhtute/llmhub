@@ -120,6 +120,13 @@ type Config struct {
 	// These are used only when the client does not send its own headers.
 	CodexHeaderDefaults CodexHeaderDefaults `yaml:"codex-header-defaults" json:"codex-header-defaults"`
 
+	// CodexOptimizeMultiAgentV2 optimizes official Codex multi-agent requests
+	// (Codex Desktop, codex-tui, and codex_cli_rs) when enabled. It refreshes
+	// Codex spawn_agent model details, removes message parameter encryption,
+	// normalizes encrypted agent_message content for Codex, and converts
+	// agent_message input into standard user messages for non-Codex upstreams.
+	CodexOptimizeMultiAgentV2 bool `yaml:"codex-optimize-multi-agent-v2,omitempty" json:"codex-optimize-multi-agent-v2,omitempty"`
+
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
 

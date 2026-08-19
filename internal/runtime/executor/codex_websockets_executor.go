@@ -572,6 +572,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 			}
 			var param any
 			out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, originalPayload, body, payload, &param)
+			if from == sdktranslator.FormatOpenAIResponse {
+				out = helps.EnsureResponsesUsageDetails(out)
+			}
 			resp = cliproxyexecutor.Response{Payload: out}
 			return resp, nil
 		}

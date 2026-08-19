@@ -183,6 +183,9 @@ func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req 
 			completedData = xaiNormalizeReasoningSummaryData(completedData)
 			var param any
 			out := sdktranslator.TranslateNonStream(ctx, prepared.to, prepared.from, req.Model, prepared.originalPayload, prepared.body, completedData, &param)
+			if prepared.from == sdktranslator.FormatOpenAIResponse {
+				out = helps.EnsureResponsesUsageDetails(out)
+			}
 			return cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}, nil
 		}
 	}
@@ -1795,6 +1798,7 @@ func xaiCollectOutputItemDone(eventData []byte, outputItemsByIndex map[int64][]b
 }
 
 func xaiPatchCompletedOutput(eventData []byte, outputItemsByIndex map[int64][]byte, outputItemsFallback [][]byte) []byte {
+	eventData = helps.EnsureResponsesUsageDetails(eventData)
 	outputResult := gjson.GetBytes(eventData, "response.output")
 	shouldPatchOutput := (!outputResult.Exists() || !outputResult.IsArray() || len(outputResult.Array()) == 0) && (len(outputItemsByIndex) > 0 || len(outputItemsFallback) > 0)
 	if !shouldPatchOutput {

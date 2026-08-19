@@ -664,6 +664,9 @@ attemptLoop:
 			reporter.Publish(ctx, helps.ParseAntigravityUsage(bodyBytes))
 			var param any
 			converted := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, translated, bodyBytes, &param)
+			if from == sdktranslator.FormatOpenAIResponse {
+				converted = helps.EnsureResponsesUsageDetails(converted)
+			}
 			resp = cliproxyexecutor.Response{Payload: converted, Headers: httpResp.Header.Clone()}
 			reporter.EnsurePublished(ctx)
 			return resp, nil
@@ -925,6 +928,9 @@ attemptLoop:
 			reporter.Publish(ctx, helps.ParseAntigravityUsage(resp.Payload))
 			var param any
 			converted := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, translated, resp.Payload, &param)
+			if from == sdktranslator.FormatOpenAIResponse {
+				converted = helps.EnsureResponsesUsageDetails(converted)
+			}
 			resp = cliproxyexecutor.Response{Payload: converted, Headers: httpResp.Header.Clone()}
 			reporter.EnsurePublished(ctx)
 

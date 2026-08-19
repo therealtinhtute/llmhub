@@ -34,27 +34,30 @@ import (
 //   - []byte: The transformed request data in Gemini API format
 func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _ bool) []byte {
 	rawJSON := inputRawJSON
-	template := `{"project":"","request":{},"model":""}`
-	templateBytes, _ := sjson.SetRawBytes([]byte(template), "request", rawJSON)
-	templateBytes, _ = sjson.SetBytes(templateBytes, "model", modelName)
-	template = string(templateBytes)
-	template, _ = sjson.Delete(template, "request.model")
+	// Keep the envelope in []byte form. Round-tripping through string copies the
+	// entire request, which dominates allocations for large inline data. Fill the
+	// small envelope fields first so the payload is only spliced in once.
+	envelope, _ := sjson.SetBytes([]byte(`{"project":"","request":{},"model":""}`), "model", modelName)
+	rawJSON, _ = sjson.SetRawBytes(envelope, "request", rawJSON)
+	if util.GetGJSONBytesNoCopy(rawJSON, "request.model").Exists() {
+		rawJSON, _ = sjson.DeleteBytes(rawJSON, "request.model")
+	}
 
-	template, errFixCLIToolResponse := fixCLIToolResponse(template)
+	fixedJSON, errFixCLIToolResponse := fixCLIToolResponse(rawJSON)
 	if errFixCLIToolResponse != nil {
 		return []byte{}
 	}
+	rawJSON = fixedJSON
 
-	systemInstructionResult := gjson.Get(template, "request.system_instruction")
-	if systemInstructionResult.Exists() {
-		templateBytes, _ = sjson.SetRawBytes([]byte(template), "request.systemInstruction", []byte(systemInstructionResult.Raw))
-		template = string(templateBytes)
-		template, _ = sjson.Delete(template, "request.system_instruction")
+	if systemInstructionResult := util.GetGJSONBytesNoCopy(rawJSON, "request.system_instruction"); systemInstructionResult.Exists() {
+		rawJSON, _ = sjson.SetRawBytes(rawJSON, "request.systemInstruction", []byte(systemInstructionResult.Raw))
+		rawJSON, _ = sjson.DeleteBytes(rawJSON, "request.system_instruction")
 	}
-	rawJSON = []byte(template)
 
-	// Normalize roles in request.contents: default to valid values if missing/invalid
-	contents := gjson.GetBytes(rawJSON, "request.contents")
+	// Normalize roles in request.contents: default to valid values if missing/invalid.
+	// Roles are patched in place only when a content actually changes, so large
+	// payloads are not duplicated for already-valid conversations.
+	contents := util.GetGJSONBytesNoCopy(rawJSON, "request.contents")
 	if contents.Exists() {
 		prevRole := ""
 		idx := 0
@@ -80,7 +83,7 @@ func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		})
 	}
 
-	toolsResult := gjson.GetBytes(rawJSON, "request.tools")
+	toolsResult := util.GetGJSONBytesNoCopy(rawJSON, "request.tools")
 	if toolsResult.Exists() && toolsResult.IsArray() {
 		toolResults := toolsResult.Array()
 		for i := 0; i < len(toolResults); i++ {
@@ -173,19 +176,21 @@ func parseFunctionResponseRaw(response gjson.Result, fallbackName string) string
 // and their responses are properly associated and structured.
 //
 // Parameters:
-//   - input: The input JSON string to be processed
+//   - input: The input JSON to be processed
 //
 // Returns:
-//   - string: The processed JSON string with grouped function calls and responses
+//   - []byte: The processed JSON with grouped function calls and responses
 //   - error: An error if the processing fails
-func fixCLIToolResponse(input string) (string, error) {
-	// Parse the input JSON to extract the conversation structure
-	parsed := gjson.Parse(input)
+func fixCLIToolResponse(input []byte) ([]byte, error) {
+	// Parse the input JSON to extract the conversation structure.
+	// The parsed result references input directly; input must not be mutated
+	// while the result and its raw slices are still in use.
+	parsed := util.ParseGJSONBytesNoCopy(input)
 
 	// Extract the contents array which contains the conversation messages
 	contents := parsed.Get("request.contents")
 	if !contents.Exists() {
-		// log.Debugf(input)
+		// log.Debugf(string(input))
 		return input, fmt.Errorf("contents not found in input")
 	}
 
@@ -304,7 +309,7 @@ func fixCLIToolResponse(input string) (string, error) {
 	}
 
 	// Update the original JSON with the new contents
-	result, _ := sjson.SetRawBytes([]byte(input), "request.contents", []byte(gjson.GetBytes(contentsWrapper, "contents").Raw))
+	result, _ := sjson.SetRawBytes(input, "request.contents", []byte(gjson.GetBytes(contentsWrapper, "contents").Raw))
 
-	return string(result), nil
+	return result, nil
 }

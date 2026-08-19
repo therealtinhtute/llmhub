@@ -198,13 +198,13 @@ func TestFixCLIToolResponse_PreservesFunctionResponseParts(t *testing.T) {
 		}
 	}`
 
-	result, err := fixCLIToolResponse(input)
+	result, err := fixCLIToolResponse([]byte(input))
 	if err != nil {
 		t.Fatalf("fixCLIToolResponse failed: %v", err)
 	}
 
 	// Find the function response content (role=function)
-	contents := gjson.Get(result, "request.contents").Array()
+	contents := gjson.GetBytes(result, "request.contents").Array()
 	var funcContent gjson.Result
 	for _, c := range contents {
 		if c.Get("role").String() == "function" {
@@ -263,12 +263,12 @@ func TestFixCLIToolResponse_BackfillsEmptyFunctionResponseName(t *testing.T) {
 		}
 	}`
 
-	result, err := fixCLIToolResponse(input)
+	result, err := fixCLIToolResponse([]byte(input))
 	if err != nil {
 		t.Fatalf("fixCLIToolResponse failed: %v", err)
 	}
 
-	contents := gjson.Get(result, "request.contents").Array()
+	contents := gjson.GetBytes(result, "request.contents").Array()
 	var funcContent gjson.Result
 	for _, c := range contents {
 		if c.Get("role").String() == "function" {
@@ -310,12 +310,12 @@ func TestFixCLIToolResponse_BackfillsMultipleEmptyNames(t *testing.T) {
 		}
 	}`
 
-	result, err := fixCLIToolResponse(input)
+	result, err := fixCLIToolResponse([]byte(input))
 	if err != nil {
 		t.Fatalf("fixCLIToolResponse failed: %v", err)
 	}
 
-	contents := gjson.Get(result, "request.contents").Array()
+	contents := gjson.GetBytes(result, "request.contents").Array()
 	var funcContent gjson.Result
 	for _, c := range contents {
 		if c.Get("role").String() == "function" {
@@ -364,12 +364,12 @@ func TestFixCLIToolResponse_PreservesExistingName(t *testing.T) {
 		}
 	}`
 
-	result, err := fixCLIToolResponse(input)
+	result, err := fixCLIToolResponse([]byte(input))
 	if err != nil {
 		t.Fatalf("fixCLIToolResponse failed: %v", err)
 	}
 
-	contents := gjson.Get(result, "request.contents").Array()
+	contents := gjson.GetBytes(result, "request.contents").Array()
 	var funcContent gjson.Result
 	for _, c := range contents {
 		if c.Get("role").String() == "function" {
@@ -410,12 +410,12 @@ func TestFixCLIToolResponse_MoreResponsesThanCalls(t *testing.T) {
 		}
 	}`
 
-	result, err := fixCLIToolResponse(input)
+	result, err := fixCLIToolResponse([]byte(input))
 	if err != nil {
 		t.Fatalf("fixCLIToolResponse failed: %v", err)
 	}
 
-	contents := gjson.Get(result, "request.contents").Array()
+	contents := gjson.GetBytes(result, "request.contents").Array()
 	var funcContent gjson.Result
 	for _, c := range contents {
 		if c.Get("role").String() == "function" {
@@ -468,12 +468,12 @@ func TestFixCLIToolResponse_MultipleGroupsFIFO(t *testing.T) {
 		}
 	}`
 
-	result, err := fixCLIToolResponse(input)
+	result, err := fixCLIToolResponse([]byte(input))
 	if err != nil {
 		t.Fatalf("fixCLIToolResponse failed: %v", err)
 	}
 
-	contents := gjson.Get(result, "request.contents").Array()
+	contents := gjson.GetBytes(result, "request.contents").Array()
 	var funcContents []gjson.Result
 	for _, c := range contents {
 		if c.Get("role").String() == "function" {

@@ -95,12 +95,53 @@ func SetQuotaCooldownDisabled(disable bool) {
 }
 
 func quotaCooldownDisabledForAuth(auth *Auth) bool {
+	return quotaCooldownDisabledForAuthWithConfig(auth, nil)
+}
+
+func quotaCooldownDisabledForAuthWithConfig(auth *Auth, cfg *internalconfig.Config) bool {
+	// Home owns cooldown state, so downstream instances must not schedule local cooldowns.
+	if cfg != nil && cfg.Home.Enabled {
+		return true
+	}
 	if auth != nil {
 		if override, ok := auth.DisableCoolingOverride(); ok {
 			return override
 		}
+		if override, ok := providerCoolingOverrideForAuth(auth, cfg); ok {
+			return override
+		}
+	}
+	if cfg != nil && cfg.DisableCooling {
+		return true
 	}
 	return quotaCooldownDisabled.Load()
+}
+
+func providerCoolingOverrideForAuth(auth *Auth, cfg *internalconfig.Config) (bool, bool) {
+	if auth == nil || cfg == nil {
+		return false, false
+	}
+	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	if provider == "" {
+		return false, false
+	}
+	providerKey := ""
+	compatName := ""
+	if auth.Attributes != nil {
+		providerKey = strings.TrimSpace(auth.Attributes["provider_key"])
+		compatName = strings.TrimSpace(auth.Attributes["compat_name"])
+	}
+	if providerKey == "" && compatName == "" && provider != "openai-compatibility" {
+		return false, false
+	}
+	if providerKey == "" {
+		providerKey = provider
+	}
+	entry := resolveOpenAICompatConfig(cfg, providerKey, compatName, provider)
+	if entry == nil || entry.DisableCooling == nil {
+		return false, false
+	}
+	return *entry.DisableCooling, true
 }
 
 // Result captures execution outcome used to adjust auth state.
@@ -3758,6 +3799,9 @@ func isRequestScopedResultError(err *Error) bool {
 // Connection lifecycle is intentionally separate from request_scoped so transport
 // drops do not also stop credential rotation via isRequestInvalidError.
 func shouldSkipCredentialCooldown(err *Error) bool {
+	if err != nil && err.Code == ErrorCodeForceCooldown {
+		return false
+	}
 	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
 }
 

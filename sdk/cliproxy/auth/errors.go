@@ -12,6 +12,10 @@ const ErrorCodeConnectionLifecycle = "connection_lifecycle"
 
 const connectionLifecycleErrorCode = ErrorCodeConnectionLifecycle
 
+// ErrorCodeForceCooldown marks failures that must enforce credential cooldown
+// even when disable-cooling is configured.
+const ErrorCodeForceCooldown = "force_cooldown"
+
 // Error describes an authentication related failure in a provider agnostic format.
 type Error struct {
 	// Code is a short machine readable identifier.

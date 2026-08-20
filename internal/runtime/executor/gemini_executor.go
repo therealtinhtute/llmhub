@@ -162,7 +162,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	} else if bearer != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	applyGeminiHeaders(httpReq, auth)
+	applyGeminiHeaders(httpReq, auth, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -270,7 +270,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	} else {
 		httpReq.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	applyGeminiHeaders(httpReq, auth)
+	applyGeminiHeaders(httpReq, auth, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -395,7 +395,7 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	} else {
 		httpReq.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	applyGeminiHeaders(httpReq, auth)
+	applyGeminiHeaders(httpReq, auth, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -526,12 +526,12 @@ func (e *GeminiExecutor) resolveGeminiConfig(auth *cliproxyauth.Auth) *config.Ge
 	return nil
 }
 
-func applyGeminiHeaders(req *http.Request, auth *cliproxyauth.Auth) {
+func applyGeminiHeaders(req *http.Request, auth *cliproxyauth.Auth, clientHeaders ...http.Header) {
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
 	}
-	util.ApplyCustomHeadersFromAttrs(req, attrs)
+	util.ApplyCustomHeadersFromAttrs(req, attrs, clientHeaders...)
 }
 
 func capGeminiMaxOutputTokens(body []byte, modelName string) []byte {

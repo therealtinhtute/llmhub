@@ -101,7 +101,7 @@ func (e *XAIExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth, 
 
 func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	if endpointPath := xaiImageEndpointPath(opts); endpointPath != "" {
-		return e.executeImages(ctx, auth, req, endpointPath)
+		return e.executeImages(ctx, auth, req, opts, endpointPath)
 	}
 	if xaiIsVideoRequest(opts) {
 		return e.executeVideos(ctx, auth, req, opts)
@@ -125,7 +125,7 @@ func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req 
 	if err != nil {
 		return resp, err
 	}
-	applyXAIHeaders(httpReq, auth, token, true, prepared.sessionID)
+	applyXAIHeaders(httpReq, auth, token, true, prepared.sessionID, opts.Headers)
 	e.recordXAIRequest(ctx, auth, url, httpReq.Header.Clone(), prepared.body)
 
 	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -193,7 +193,7 @@ func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req 
 	return resp, statusErr{code: http.StatusRequestTimeout, msg: "xai stream error: stream disconnected before response.completed"}
 }
 
-func (e *XAIExecutor) executeImages(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, endpointPath string) (resp cliproxyexecutor.Response, err error) {
+func (e *XAIExecutor) executeImages(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, endpointPath string) (resp cliproxyexecutor.Response, err error) {
 	token, baseURL := xaiCreds(auth)
 	if baseURL == "" {
 		baseURL = xaiauth.DefaultAPIBaseURL
@@ -207,7 +207,7 @@ func (e *XAIExecutor) executeImages(ctx context.Context, auth *cliproxyauth.Auth
 	if err != nil {
 		return resp, err
 	}
-	applyXAIHeaders(httpReq, auth, token, false, "")
+	applyXAIHeaders(httpReq, auth, token, false, "", opts.Headers)
 	e.recordXAIRequest(ctx, auth, url, httpReq.Header.Clone(), req.Payload)
 
 	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -263,7 +263,7 @@ func (e *XAIExecutor) executeVideos(ctx context.Context, auth *cliproxyauth.Auth
 	if err != nil {
 		return resp, err
 	}
-	applyXAIHeaders(httpReq, auth, token, false, "")
+	applyXAIHeaders(httpReq, auth, token, false, "", opts.Headers)
 	if method == http.MethodPost {
 		key := xaiMetadataString(opts.Metadata, xaiIdempotencyKeyMetaKey)
 		if key == "" && opts.Headers != nil {
@@ -322,7 +322,7 @@ func (e *XAIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth
 	if err != nil {
 		return nil, err
 	}
-	applyXAIHeaders(httpReq, auth, token, true, prepared.sessionID)
+	applyXAIHeaders(httpReq, auth, token, true, prepared.sessionID, opts.Headers)
 	e.recordXAIRequest(ctx, auth, url, httpReq.Header.Clone(), prepared.body)
 
 	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -763,7 +763,7 @@ func xaiCreds(auth *cliproxyauth.Auth) (token, baseURL string) {
 	return token, baseURL
 }
 
-func applyXAIHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID string) {
+func applyXAIHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, sessionID string, clientHeaders ...http.Header) {
 	r.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(token) != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -781,7 +781,7 @@ func applyXAIHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, str
 	if auth != nil {
 		attrs = auth.Attributes
 	}
-	util.ApplyCustomHeadersFromAttrs(r, attrs)
+	util.ApplyCustomHeadersFromAttrs(r, attrs, clientHeaders...)
 }
 
 func xaiExecutionSessionID(req cliproxyexecutor.Request, opts cliproxyexecutor.Options) string {

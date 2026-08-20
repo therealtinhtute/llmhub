@@ -208,7 +208,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	if err != nil {
 		return resp, err
 	}
-	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, bodyForUpstream, e.cfg)
+	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, bodyForUpstream, e.cfg, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -385,7 +385,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	if err != nil {
 		return nil, err
 	}
-	applyClaudeHeaders(httpReq, auth, apiKey, true, extraBetas, bodyForUpstream, e.cfg)
+	applyClaudeHeaders(httpReq, auth, apiKey, true, extraBetas, bodyForUpstream, e.cfg, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -625,7 +625,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	if err != nil {
 		return cliproxyexecutor.Response{}, err
 	}
-	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, body, e.cfg)
+	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas, body, e.cfg, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -1127,7 +1127,7 @@ func isAnthropicUpstreamURL(u *url.URL) bool {
 	return u != nil && strings.EqualFold(u.Scheme, "https") && strings.EqualFold(u.Host, "api.anthropic.com")
 }
 
-func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, body []byte, cfg *config.Config) {
+func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, body []byte, cfg *config.Config, clientHeaders ...http.Header) {
 	hdrDefault := func(cfgVal, fallback string) string {
 		if cfgVal != "" {
 			return cfgVal
@@ -1152,7 +1152,9 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	r.Header.Set("Content-Type", "application/json")
 
 	var ginHeaders http.Header
-	if ginCtx, ok := r.Context().Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
+	if len(clientHeaders) > 0 && clientHeaders[0] != nil {
+		ginHeaders = clientHeaders[0]
+	} else if ginCtx, ok := r.Context().Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 		ginHeaders = ginCtx.Request.Header
 	}
 	stabilizeDeviceProfile := helps.ClaudeDeviceProfileStabilizationEnabled(cfg)
@@ -1251,7 +1253,7 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	if auth != nil {
 		attrs = auth.Attributes
 	}
-	util.ApplyCustomHeadersFromAttrs(r, attrs)
+	util.ApplyCustomHeadersFromAttrs(r, attrs, ginHeaders)
 	// Re-enforce Accept-Encoding: identity after ApplyCustomHeadersFromAttrs, which
 	// may override it with a user-configured value.  Compressed SSE breaks the line
 	// scanner regardless of user preference, so this is non-negotiable for streams.

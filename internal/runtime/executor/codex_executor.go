@@ -325,7 +325,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	if err != nil {
 		return resp, err
 	}
-	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg)
+	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -447,7 +447,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	return resp, err
 }
 
-func (e *CodexExecutor) executeAlphaSearch(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, _ cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
+func (e *CodexExecutor) executeAlphaSearch(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 	if strings.TrimSpace(baseModel) == "" {
 		baseModel = strings.TrimSpace(gjson.GetBytes(req.Payload, "model").String())
@@ -470,7 +470,7 @@ func (e *CodexExecutor) executeAlphaSearch(ctx context.Context, auth *cliproxyau
 	if err != nil {
 		return resp, err
 	}
-	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg)
+	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg, opts.Headers)
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -562,7 +562,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	if err != nil {
 		return resp, err
 	}
-	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg)
+	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -679,7 +679,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	if err != nil {
 		return nil, err
 	}
-	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg)
+	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -1032,12 +1032,14 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	return httpReq, nil
 }
 
-func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, cfg *config.Config) {
+func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, stream bool, cfg *config.Config, clientHeaders ...http.Header) {
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer "+token)
 
 	var ginHeaders http.Header
-	if ginCtx, ok := r.Context().Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
+	if len(clientHeaders) > 0 && clientHeaders[0] != nil {
+		ginHeaders = clientHeaders[0]
+	} else if ginCtx, ok := r.Context().Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 		ginHeaders = ginCtx.Request.Header
 	}
 
@@ -1087,7 +1089,7 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 	if auth != nil {
 		attrs = auth.Attributes
 	}
-	util.ApplyCustomHeadersFromAttrs(r, attrs)
+	util.ApplyCustomHeadersFromAttrs(r, attrs, ginHeaders)
 }
 
 func newCodexStatusErr(statusCode int, body []byte) statusErr {

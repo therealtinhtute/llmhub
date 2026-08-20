@@ -400,7 +400,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	}
 
 	body, wsHeaders := applyCodexPromptCacheHeaders(from, req, body)
-	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg)
+	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -632,7 +632,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}
 
 	body, wsHeaders := applyCodexPromptCacheHeaders(from, req, body)
-	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg)
+	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
 
 	var authID, authLabel, authType, authValue string
 	authID = auth.ID
@@ -1140,7 +1140,7 @@ func applyCodexPromptCacheHeaders(from sdktranslator.Format, req cliproxyexecuto
 	return rawJSON, headers
 }
 
-func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *cliproxyauth.Auth, token string, cfg *config.Config) http.Header {
+func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *cliproxyauth.Auth, token string, cfg *config.Config, clientHeaders ...http.Header) http.Header {
 	if headers == nil {
 		headers = http.Header{}
 	}
@@ -1149,7 +1149,9 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 	}
 
 	var ginHeaders http.Header
-	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
+	if len(clientHeaders) > 0 && clientHeaders[0] != nil {
+		ginHeaders = clientHeaders[0].Clone()
+	} else if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 		ginHeaders = ginCtx.Request.Header.Clone()
 	}
 
@@ -1202,7 +1204,7 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 	if auth != nil {
 		attrs = auth.Attributes
 	}
-	util.ApplyCustomHeadersFromAttrs(&http.Request{Header: headers}, attrs)
+	util.ApplyCustomHeadersFromAttrs(&http.Request{Header: headers}, attrs, ginHeaders)
 
 	return headers
 }

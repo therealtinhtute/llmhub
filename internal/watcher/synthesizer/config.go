@@ -68,8 +68,8 @@ func (s *ConfigSynthesizer) synthesizeGeminiKeys(ctx *SynthesisContext) []*corea
 			"api_key": key,
 		}
 		metadata := map[string]any{}
-		if entry.DisableCooling {
-			metadata["disable_cooling"] = true
+		if entry.DisableCooling != nil {
+			metadata["disable_cooling"] = *entry.DisableCooling
 		}
 		addRequestRetryToMetadata(entry.RequestRetry, metadata)
 		addRequestScopedErrorsToMetadata(entry.RequestScopedErrors, metadata)
@@ -126,8 +126,8 @@ func (s *ConfigSynthesizer) synthesizeClaudeKeys(ctx *SynthesisContext) []*corea
 			"api_key": key,
 		}
 		metadata := map[string]any{}
-		if ck.DisableCooling {
-			metadata["disable_cooling"] = true
+		if ck.DisableCooling != nil {
+			metadata["disable_cooling"] = *ck.DisableCooling
 		}
 		addRequestRetryToMetadata(ck.RequestRetry, metadata)
 		addRequestScopedErrorsToMetadata(ck.RequestScopedErrors, metadata)
@@ -184,8 +184,8 @@ func (s *ConfigSynthesizer) synthesizeCodexKeys(ctx *SynthesisContext) []*coreau
 			"api_key": key,
 		}
 		metadata := map[string]any{}
-		if ck.DisableCooling {
-			metadata["disable_cooling"] = true
+		if ck.DisableCooling != nil {
+			metadata["disable_cooling"] = *ck.DisableCooling
 		}
 		addRequestRetryToMetadata(ck.RequestRetry, metadata)
 		addRequestScopedErrorsToMetadata(ck.RequestScopedErrors, metadata)
@@ -263,8 +263,8 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				"provider_key": providerName,
 			}
 			metadata := map[string]any{}
-			if disableCooling {
-				metadata["disable_cooling"] = true
+			if disableCooling != nil {
+				metadata["disable_cooling"] = *disableCooling
 			}
 			addRequestRetryToMetadata(compat.RequestRetry, metadata)
 			addRequestScopedErrorsToMetadata(compat.RequestScopedErrors, metadata)
@@ -308,8 +308,8 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				"provider_key": providerName,
 			}
 			metadata := map[string]any{}
-			if disableCooling {
-				metadata["disable_cooling"] = true
+			if disableCooling != nil {
+				metadata["disable_cooling"] = *disableCooling
 			}
 			addRequestRetryToMetadata(compat.RequestRetry, metadata)
 			addRequestScopedErrorsToMetadata(compat.RequestScopedErrors, metadata)
@@ -375,6 +375,9 @@ func (s *ConfigSynthesizer) synthesizeVertexCompat(ctx *SynthesisContext) []*cor
 		}
 		addConfigHeadersToAttrs(compat.Headers, attrs)
 		metadata := map[string]any{}
+		if compat.DisableCooling != nil {
+			metadata["disable_cooling"] = *compat.DisableCooling
+		}
 		addRequestRetryToMetadata(compat.RequestRetry, metadata)
 		a := &coreauth.Auth{
 			ID:         id,

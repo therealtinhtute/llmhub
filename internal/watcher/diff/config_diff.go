@@ -122,6 +122,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 			if strings.TrimSpace(o.Prefix) != strings.TrimSpace(n.Prefix) {
 				changes = append(changes, fmt.Sprintf("gemini[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
+			changes = appendOptionalBoolChange(changes, fmt.Sprintf("gemini[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
 			if o.Weight != n.Weight {
 				changes = append(changes, fmt.Sprintf("gemini[%d].weight: %d -> %d", i, o.Weight, n.Weight))
 			}
@@ -161,6 +162,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 			if strings.TrimSpace(o.Prefix) != strings.TrimSpace(n.Prefix) {
 				changes = append(changes, fmt.Sprintf("claude[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
+			changes = appendOptionalBoolChange(changes, fmt.Sprintf("claude[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
 			if o.Weight != n.Weight {
 				changes = append(changes, fmt.Sprintf("claude[%d].weight: %d -> %d", i, o.Weight, n.Weight))
 			}
@@ -211,6 +213,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 			if strings.TrimSpace(o.Prefix) != strings.TrimSpace(n.Prefix) {
 				changes = append(changes, fmt.Sprintf("codex[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
+			changes = appendOptionalBoolChange(changes, fmt.Sprintf("codex[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
 			if o.Weight != n.Weight {
 				changes = append(changes, fmt.Sprintf("codex[%d].weight: %d -> %d", i, o.Weight, n.Weight))
 			}
@@ -292,6 +295,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 			if strings.TrimSpace(o.Prefix) != strings.TrimSpace(n.Prefix) {
 				changes = append(changes, fmt.Sprintf("vertex[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
+			changes = appendOptionalBoolChange(changes, fmt.Sprintf("vertex[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
 			if o.Weight != n.Weight {
 				changes = append(changes, fmt.Sprintf("vertex[%d].weight: %d -> %d", i, o.Weight, n.Weight))
 			}
@@ -354,6 +358,30 @@ func appendOptionalIntChange(changes []string, field string, oldVal, newVal *int
 		return changes
 	}
 	return append(changes, fmt.Sprintf("%s: %s -> %s", field, formatOptionalInt(oldVal), formatOptionalInt(newVal)))
+}
+
+func appendOptionalBoolChange(changes []string, field string, oldVal, newVal *bool) []string {
+	if optionalBoolEqual(oldVal, newVal) {
+		return changes
+	}
+	return append(changes, fmt.Sprintf("%s: %s -> %s", field, formatOptionalBool(oldVal), formatOptionalBool(newVal)))
+}
+
+func optionalBoolEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func formatOptionalBool(value *bool) string {
+	if value == nil {
+		return "inherit"
+	}
+	return fmt.Sprintf("%t", *value)
 }
 
 func optionalIntEqual(a, b *int) bool {

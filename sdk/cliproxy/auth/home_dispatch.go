@@ -118,8 +118,24 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 		}
 		result.Error = resultErrorFromError(errExecute)
 		result.RetryAfter = retryAfterFromError(errExecute)
+		action, okAction := matchRequestScopedErrorAction(preparedAuth, errExecute, m.runtimeConfigSnapshot())
+		applyRequestScopedActionToResult(action, okAction, &result)
 		m.reportHomeResult(execCtx, result, preparedAuth)
 		releaseAttempt()
+		if okAction {
+			if isRequestScopedStop(action, okAction) {
+				selection.End("request_stopped")
+				return cliproxyexecutor.Response{}, wrapRequestStopError(errExecute)
+			}
+			if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "execution_failed"); errEnd != nil {
+				return cliproxyexecutor.Response{}, errEnd
+			}
+			if errCtx := execCtx.Err(); errCtx != nil && ctx != nil && ctx.Err() != nil {
+				return cliproxyexecutor.Response{}, errCtx
+			}
+			lastErr = errExecute
+			continue
+		}
 		if isRequestInvalidError(errExecute) {
 			selection.End("request_invalid")
 			return cliproxyexecutor.Response{}, errExecute

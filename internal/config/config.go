@@ -24,6 +24,18 @@ const (
 	DefaultAuthDir   = "~/.llmhub"
 )
 
+// RequestScopedErrorRule configures custom classification and handling for upstream errors.
+type RequestScopedErrorRule struct {
+	// Status matches the HTTP status code of the upstream response (e.g. 400).
+	Status int `yaml:"status,omitempty" json:"status,omitempty"`
+	// Match matches substrings in the upstream error body.
+	Match []string `yaml:"match,omitempty" json:"match,omitempty"`
+	// MatchRegexr matches regular expressions in the upstream error body.
+	MatchRegexr []string `yaml:"match-regexr,omitempty" json:"match-regexr,omitempty"`
+	// Action specifies the handling behavior: "stop", "stop-and-cooldown", "continue", "continue-and-cooldown".
+	Action string `yaml:"action,omitempty" json:"action,omitempty"`
+}
+
 // Config represents the application's configuration, loaded from a YAML file.
 type Config struct {
 	SDKConfig `yaml:",inline"`
@@ -79,7 +91,7 @@ type Config struct {
 	// Default: 60. Max: 3600.
 	RedisUsageQueueRetentionSeconds int `yaml:"redis-usage-queue-retention-seconds" json:"redis-usage-queue-retention-seconds"`
 
-	// DisableCooling disables quota cooldown scheduling when true.
+	// DisableCooling disables auth/model cooldown scheduling when true unless a credential or provider overrides it.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 
 	// AuthAutoRefreshWorkers overrides the size of the core auth auto-refresh worker pool.
@@ -369,8 +381,16 @@ type ClaudeKey struct {
 	// ExcludedModels lists model IDs that should be excluded for this provider.
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 
-	// DisableCooling disables auth/model cooldown scheduling for this credential when true.
-	DisableCooling bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+	// DisableCooling overrides the global cooling policy for this credential when set.
+	// True disables auth/model cooldowns; false explicitly enables them.
+	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+
+	// RequestRetry optionally overrides the global request-retry for this credential.
+	// Nil or a negative value means "use the global request-retry". 0 disables retries.
+	RequestRetry *int `yaml:"request-retry,omitempty" json:"request-retry,omitempty"`
+
+	// RequestScopedErrors configures custom classification rules for upstream errors.
+	RequestScopedErrors []RequestScopedErrorRule `yaml:"request-scoped-errors,omitempty" json:"request-scoped-errors,omitempty"`
 
 	// Cloak configures request cloaking for non-Claude-Code clients.
 	Cloak *CloakConfig `yaml:"cloak,omitempty" json:"cloak,omitempty"`
@@ -442,8 +462,16 @@ type CodexKey struct {
 	// ExcludedModels lists model IDs that should be excluded for this provider.
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 
-	// DisableCooling disables auth/model cooldown scheduling for this credential when true.
-	DisableCooling bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+	// DisableCooling overrides the global cooling policy for this credential when set.
+	// True disables auth/model cooldowns; false explicitly enables them.
+	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+
+	// RequestRetry optionally overrides the global request-retry for this credential.
+	// Nil or a negative value means "use the global request-retry". 0 disables retries.
+	RequestRetry *int `yaml:"request-retry,omitempty" json:"request-retry,omitempty"`
+
+	// RequestScopedErrors configures custom classification rules for upstream errors.
+	RequestScopedErrors []RequestScopedErrorRule `yaml:"request-scoped-errors,omitempty" json:"request-scoped-errors,omitempty"`
 }
 
 func (k CodexKey) GetAPIKey() string  { return k.APIKey }
@@ -507,8 +535,16 @@ type GeminiKey struct {
 	// ExcludedModels lists model IDs that should be excluded for this provider.
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 
-	// DisableCooling disables auth/model cooldown scheduling for this credential when true.
-	DisableCooling bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+	// DisableCooling overrides the global cooling policy for this credential when set.
+	// True disables auth/model cooldowns; false explicitly enables them.
+	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+
+	// RequestRetry optionally overrides the global request-retry for this credential.
+	// Nil or a negative value means "use the global request-retry". 0 disables retries.
+	RequestRetry *int `yaml:"request-retry,omitempty" json:"request-retry,omitempty"`
+
+	// RequestScopedErrors configures custom classification rules for upstream errors.
+	RequestScopedErrors []RequestScopedErrorRule `yaml:"request-scoped-errors,omitempty" json:"request-scoped-errors,omitempty"`
 }
 
 func (k GeminiKey) GetAPIKey() string  { return k.APIKey }
@@ -568,8 +604,16 @@ type OpenAICompatibility struct {
 	// SupportPromptCacheKey enables prompt_cache_key propagation for this provider.
 	SupportPromptCacheKey bool `yaml:"support-prompt-cache-key,omitempty" json:"support-prompt-cache-key,omitempty"`
 
-	// DisableCooling disables auth/model cooldown scheduling for this provider when true.
-	DisableCooling bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+	// DisableCooling overrides the global cooling policy for this provider when set.
+	// True disables auth/model cooldowns; false explicitly enables them.
+	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+
+	// RequestRetry optionally overrides the global request-retry for this provider.
+	// Nil or a negative value means "use the global request-retry". 0 disables retries.
+	RequestRetry *int `yaml:"request-retry,omitempty" json:"request-retry,omitempty"`
+
+	// RequestScopedErrors configures custom classification rules for upstream errors.
+	RequestScopedErrors []RequestScopedErrorRule `yaml:"request-scoped-errors,omitempty" json:"request-scoped-errors,omitempty"`
 
 	// Passthrough forwards the client's model id to the upstream unchanged instead of
 	// requiring an explicit Models entry. Intended for aggregators (OpenRouter, OpenCode).

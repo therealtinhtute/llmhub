@@ -2986,6 +2986,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			if modelKey != "" {
 				if !result.RequestScoped && !shouldSkipCredentialCooldown(result.Error) {
 					disableCooling := quotaCooldownDisabledForAuth(auth)
+					if result.Error != nil && result.Error.Code == ErrorCodeForceCooldown {
+						disableCooling = false
+					}
 					state := ensureModelState(auth, modelKey)
 					state.Unavailable = true
 					state.Status = StatusError
@@ -3072,6 +3075,10 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 						default:
 							state.NextRetryAfter = time.Time{}
 						}
+					}
+
+					if result.Error != nil && result.Error.Code == ErrorCodeForceCooldown && state.NextRetryAfter.IsZero() {
+						state.NextRetryAfter = now.Add(time.Minute)
 					}
 
 					auth.Status = StatusError
@@ -3984,6 +3991,9 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		return
 	}
 	disableCooling := quotaCooldownDisabledForAuth(auth)
+	if resultErr != nil && resultErr.Code == ErrorCodeForceCooldown {
+		disableCooling = false
+	}
 	auth.Unavailable = true
 	auth.Status = StatusError
 	auth.UpdatedAt = now
@@ -4041,6 +4051,9 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		if auth.StatusMessage == "" {
 			auth.StatusMessage = "request failed"
 		}
+	}
+	if resultErr != nil && resultErr.Code == ErrorCodeForceCooldown && auth.NextRetryAfter.IsZero() {
+		auth.NextRetryAfter = now.Add(time.Minute)
 	}
 }
 

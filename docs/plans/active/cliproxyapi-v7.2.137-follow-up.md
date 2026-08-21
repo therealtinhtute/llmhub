@@ -113,7 +113,7 @@ updated: 2026-08-20
         escalation: Mark the phase blocked at the first second failure, append the exact output to Progress, and do not stage or commit.
   - phase_slug: r10b-native-parity
     story_id: 01M0FR426FG9XE3JNAGAY0J6EE
-    status: planned
+    status: checked
     goal: Port approved Claude, Codex, Gemini, Antigravity, logging, and CCH native-parity micro-fixes (R10b).
     depends_on: none
     execution_gate: Begin after R10a has established the shared header ownership boundary; the Claude-header task must not edit a file still owned by an active R10a task.
@@ -222,6 +222,23 @@ updated: 2026-08-20
 - `2026-08-20T14:49:07Z` — wave 3, task Run the focused regression matrix and inspect the diff for DB-only config, SDK, embedded-panel, and ownership invariants; expected output is a clean R10a diff plus captured command results.. task_status: `DONE_WITH_CONCERNS`. run: `01M0FRM5Y916HYE7EFXWFMR14D`. summary: Focused utility and executor tests pass; full internal/util fails only on known stale sibling-worktree no-copy invariant findings. git diff --check and forbidden-surface diff checks pass; changed source paths are limited to R10a executors/util plus two tests..
 - `2026-08-20T14:49:20Z` — wave 3. run: `01M0FRM5Y916HYE7EFXWFMR14D`. summary: Wave 3 complete: R10a focused verification and forbidden-surface checks pass; only the known stale sibling-worktree internal/util no-copy invariant remains. R10a is ready for the durable phase gate and commit review..
 - `2026-08-20T14:56:27Z` — wave 3. run: `01M0FRM5Y916HYE7EFXWFMR14D`. summary: R10a durable gate recorded APPROVE_WITH_REQUESTS; focused utility and executor proofs pass, while the combined utility gate retains only the stale sibling-worktree no-copy baseline concern. Phase is checked and ready for an owned-path commit..
+- `2026-08-20T14:59:25Z` — wave 1. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Phase r10b-native-parity started (in-progress); R10a header ownership is checked and the disjoint translator/client-error fan-out is ready..
+- `2026-08-20T23:56:36Z` — wave 1, task Make Claude stop serialization array-based and accept max_tokens plus max_completion_tokens with deterministic precedence; expected output is focused OpenAI-to-Claude translator coverage.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Claude translator tests pass: stop always serializes as an array; max_tokens takes precedence over max_completion_tokens, with fallback behavior preserved..
+- `2026-08-20T23:56:36Z` — wave 1, task Filter Codex prompt_cache_retention and strip Gemini tool-schema encrypted metadata; expected output is request-payload tests proving both fields are absent without altering unrelated fields.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Codex and Gemini schema tests pass: prompt_cache_retention is removed, encrypted metadata is stripped, and an actual encrypted property remains intact..
+- `2026-08-20T23:56:36Z` — wave 1, task Support Antigravity video_url and attach sibling tool images to the nearest function response; expected output is translation tests for adjacent and non-adjacent image/tool cases.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Antigravity translator tests pass for video_url conversion and adjacent/non-adjacent sibling image attachment with ordering preserved..
+- `2026-08-20T23:56:36Z` — wave 1, task Exclude HTTP 499 and client cancellations from forced actionable logs while preserving other actionable failures; expected output is middleware/client-error/runtime logging coverage.. task_status: `DONE_WITH_CONCERNS`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Middleware and executor logging tests pass; this branch has no internal/clienterror package or upstream StreamUsageBuffer equivalent, so no upstream-only API was introduced..
+- `2026-08-20T23:56:43Z` — wave 1. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b wave 1 complete: all four disjoint translator and logging slices are applied and package-verified; middleware path is used because this branch has no internal/clienterror equivalent, and the known stale sibling-worktree utility no-copy baseline remains outside the slice..
+- `2026-08-20T23:57:54Z` — wave 2, task Preserve approved native subagent, environment, client-app, and additional-protection headers, reusing R10a caller-owned boundary; expected output is header-presence and precedence tests.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. trace: `01M0GSRQM2MX3EVRMQR5VBSTYJ`. summary: Claude incoming native headers are copied case-insensitively, configured headers retain final precedence, and focused/full executor tests pass..
+- `2026-08-20T23:57:54Z` — wave 2, task Gate Claude CCH signing by the approved upstream-origin condition while leaving fingerprint-profile capability deferred; expected output is origin-positive/origin-negative signing tests.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. trace: `01M0GSRQM2MX3EVRMQR825026G`. summary: API-key experimental CCH signing is restricted to HTTPS api.anthropic.com with default/443 ports; custom or unapproved origins omit CCH, OAuth behavior remains independent, and origin matrix tests pass..
+- `2026-08-20T23:57:54Z` — wave 2. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. trace: `01M0GSRQMASXBN410NYTZFV3G8`. summary: R10b wave 2 complete: Claude native-header preservation and approved-origin CCH gating are implemented and verified by focused and full executor tests; fingerprint-profile configuration remains deferred..
+- `2026-08-20T23:57:54Z` — wave 3, task Run the native-parity package matrix, inspect staged paths, and confirm no deferred/rejected delta was included; expected output is a reviewable R10b diff and exact verification record.. task_status: `DONE_WITH_CONCERNS`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. trace: `01M0GSRQMJ0H84DZAB6Y2ZC8JK`. summary: Translator, executor, middleware, focused schema, and staged/unstaged whitespace checks pass. The local branch has no internal/clienterror package, and full internal/util remains affected only by stale sibling-worktree no-copy findings; neither was expanded into R10b..
+- `2026-08-20T23:57:54Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. trace: `01M0GSRQMSBYEXAT855ERMPGBC`. summary: R10b durable gate recorded APPROVE_WITH_REQUESTS; approved paths are verified, no SDK/config/frontend/deferred surfaces were touched, and the known baseline concerns are explicit..
+- `2026-08-20T23:58:11Z` — wave 2, task Preserve approved native subagent, environment, client-app, and additional-protection headers, reusing R10a caller-owned boundary; expected output is header-presence and precedence tests.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Claude incoming native headers are copied case-insensitively, configured headers retain final precedence, and focused/full executor tests pass..
+- `2026-08-20T23:58:11Z` — wave 2, task Gate Claude CCH signing by the approved upstream-origin condition while leaving fingerprint-profile capability deferred; expected output is origin-positive/origin-negative signing tests.. task_status: `DONE`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: API-key experimental CCH signing is restricted to HTTPS api.anthropic.com with default/443 ports; custom or unapproved origins omit CCH, OAuth behavior remains independent, and origin matrix tests pass..
+- `2026-08-20T23:58:11Z` — wave 2. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b wave 2 complete: Claude native-header preservation and approved-origin CCH gating are implemented and verified by focused and full executor tests; fingerprint-profile configuration remains deferred..
+- `2026-08-20T23:58:11Z` — wave 3, task Run the native-parity package matrix, inspect staged paths, and confirm no deferred/rejected delta was included; expected output is a reviewable R10b diff and exact verification record.. task_status: `DONE_WITH_CONCERNS`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Translator, executor, middleware, focused schema, and staged/unstaged whitespace checks pass. The local branch has no internal/clienterror package, and full internal/util remains affected only by stale sibling-worktree no-copy findings; neither was expanded into R10b..
+- `2026-08-20T23:58:11Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b durable gate recorded APPROVE_WITH_REQUESTS; approved paths are verified, no SDK/config/frontend/deferred surfaces were touched, and the known baseline concerns are explicit..
+- `2026-08-20T23:59:14Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b plan synchronization recorded after the durable gate: phase checked, check 01M0GSQ4NJ9Y3A8A54G5FTA9EP linked, wave traces and proof gaps captured, and next action is owned-path commit followed by R10c..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -240,14 +257,23 @@ updated: 2026-08-20
   - `git diff -- config.example.yaml sdk web internal/managementasset/static` → Validation entry 2026-08-20T21:55:30+07:00: pass
   - `go test ./internal/util/... ./internal/runtime/executor/... -count=1` → FAIL: `internal/util` TestInPlaceByteWritesAreReviewed reports only stale `.claude/worktrees/agent-*` writes; executor packages pass. Accepted pre-existing baseline; no R10a-owned path is implicated.
   - proof_gaps: same-session gate; no independent manual review. The full utility package remains red on the stale sibling-worktree invariant, so the approval proofs intentionally use focused utility coverage and passing executor/package checks.
+- `2026-08-20T23:57:18Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0GSQ4NJ9Y3A8A54G5FTA9EP`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. phase: `r10b-native-parity`. judge: `same-session` (gpt-5.6-luna).
+  - `go test ./internal/translator/... -count=1` → R10b wave-1 translator matrix: pass
+  - `go test ./internal/runtime/executor/... -count=1` → R10b wave-2 executor matrix: pass
+  - `go test ./internal/api/middleware/... -count=1` → R10b cancellation logging matrix: pass
+  - `go test ./internal/util -run TestCleanJSONSchemaStripsEncryptedMetadata -count=1` → R10b schema sanitization focused proof: pass
+  - `go test ./internal/runtime/executor/... -run TestCustomMagicHeaders -count=1` → R10b custom-header focused proof: pass
+  - `git diff --check` → R10b unstaged whitespace check: pass
+  - `git diff --cached --check` → R10b staged whitespace check: pass
+  - proof_gaps: same-session gate; no independent manual review. Full internal/util remains red only on stale `.claude/worktrees/agent-*` no-copy findings, and this branch has no internal/clienterror package or upstream StreamUsageBuffer equivalent.
 
 ## Current State and Next Action
-- active_phase: r10a-custom-headers
+- active_phase: r10b-native-parity
 - lifecycle_status: checked
-- latest_run_id: 01M0FRM5Y916HYE7EFXWFMR14D
-- latest_trace_ids: [01M0FTBBV6S05MN3A0K24Z5GDA, 01M0FTBRMDRHJNEP4JZ8F6Z30P]
-- latest_check_id: 01M0FTPPNFWEAD96M2RBDZX51X
+- latest_run_id: 01M0FTXH2WRSCTAF4RGFRBNM6Q
+- latest_trace_ids: [01M0GSRQM2MX3EVRMQR5VBSTYJ, 01M0GSRQM2MX3EVRMQR825026G, 01M0GSRQMASXBN410NYTZFV3G8, 01M0GSRQMJ0H84DZAB6Y2ZC8JK, 01M0GSRQMSBYEXAT855ERMPGBC]
+- latest_check_id: 01M0GSQ4NJ9Y3A8A54G5FTA9EP
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit the checked R10a owned slice; then fan out R10b and R10c with R10c Gemini overlap sequenced after R10a]
-- exact_next_action: stage only the explicit R10a paths and commit after the git workflow
+- open_items: [commit R10b owned paths; then start R10c Gemini/Antigravity leading-user-turn phase]
+- exact_next_action: stage and commit only the verified R10b translator, executor, middleware, and test paths; do not include deferred or rejected upstream deltas

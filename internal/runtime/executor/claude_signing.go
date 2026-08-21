@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -75,7 +76,19 @@ func resolveClaudeKeyCloakConfig(cfg *config.Config, auth *cliproxyauth.Auth) *c
 	return entry.Cloak
 }
 
-func experimentalCCHSigningEnabled(cfg *config.Config, auth *cliproxyauth.Auth) bool {
+func experimentalCCHSigningEnabled(cfg *config.Config, auth *cliproxyauth.Auth, origin string) bool {
 	entry := resolveClaudeKeyConfig(cfg, auth)
-	return entry != nil && entry.ExperimentalCCHSigning
+	return entry != nil && entry.ExperimentalCCHSigning && isClaudeCCHApprovedOrigin(origin)
+}
+
+func isClaudeCCHApprovedOrigin(origin string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || parsed == nil {
+		return false
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") || !strings.EqualFold(parsed.Hostname(), "api.anthropic.com") {
+		return false
+	}
+	port := parsed.Port()
+	return port == "" || port == "443"
 }

@@ -305,9 +305,13 @@ func TestApplyClaudeHeadersUsesExplicitIncomingHeaders(t *testing.T) {
 		"header:X-Configured-Static": "configured",
 	}}
 	incoming := http.Header{
-		"Anthropic-Version":        []string{"2025-01-01"},
-		"X-Stainless-Runtime":      []string{"bun"},
-		"X-Claude-Code-Session-Id": []string{"caller-session"},
+		"Anthropic-Version":                 []string{"2025-01-01"},
+		"X-Stainless-Runtime":               []string{"bun"},
+		"X-Claude-Code-Session-Id":          []string{"caller-session"},
+		"x-claude-code-agent-id":            []string{"agent-123"},
+		"X-Claude-Remote-Session-Id":        []string{"remote-456"},
+		"x-client-app":                      []string{"client-app"},
+		"x-anthropic-additional-protection": []string{"true"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
 
@@ -324,6 +328,16 @@ func TestApplyClaudeHeadersUsesExplicitIncomingHeaders(t *testing.T) {
 	}
 	if got := req.Header.Get("X-Configured-Static"); got != "configured" {
 		t.Fatalf("X-Configured-Static = %q, want configured", got)
+	}
+	for name, want := range map[string]string{
+		"X-Claude-Code-Agent-Id":            "agent-123",
+		"X-Claude-Remote-Session-Id":        "remote-456",
+		"X-Client-App":                      "client-app",
+		"X-Anthropic-Additional-Protection": "true",
+	} {
+		if got := req.Header.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
 	}
 }
 

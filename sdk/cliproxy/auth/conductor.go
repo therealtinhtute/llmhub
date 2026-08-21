@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/clienterror"
 	internalconfig "github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/logging"
@@ -93,12 +95,53 @@ func SetQuotaCooldownDisabled(disable bool) {
 }
 
 func quotaCooldownDisabledForAuth(auth *Auth) bool {
+	return quotaCooldownDisabledForAuthWithConfig(auth, nil)
+}
+
+func quotaCooldownDisabledForAuthWithConfig(auth *Auth, cfg *internalconfig.Config) bool {
+	// Home owns cooldown state, so downstream instances must not schedule local cooldowns.
+	if cfg != nil && cfg.Home.Enabled {
+		return true
+	}
 	if auth != nil {
 		if override, ok := auth.DisableCoolingOverride(); ok {
 			return override
 		}
+		if override, ok := providerCoolingOverrideForAuth(auth, cfg); ok {
+			return override
+		}
+	}
+	if cfg != nil && cfg.DisableCooling {
+		return true
 	}
 	return quotaCooldownDisabled.Load()
+}
+
+func providerCoolingOverrideForAuth(auth *Auth, cfg *internalconfig.Config) (bool, bool) {
+	if auth == nil || cfg == nil {
+		return false, false
+	}
+	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	if provider == "" {
+		return false, false
+	}
+	providerKey := ""
+	compatName := ""
+	if auth.Attributes != nil {
+		providerKey = strings.TrimSpace(auth.Attributes["provider_key"])
+		compatName = strings.TrimSpace(auth.Attributes["compat_name"])
+	}
+	if providerKey == "" && compatName == "" && provider != "openai-compatibility" {
+		return false, false
+	}
+	if providerKey == "" {
+		providerKey = provider
+	}
+	entry := resolveOpenAICompatConfig(cfg, providerKey, compatName, provider)
+	if entry == nil || entry.DisableCooling == nil {
+		return false, false
+	}
+	return *entry.DisableCooling, true
 }
 
 // Result captures execution outcome used to adjust auth state.
@@ -117,6 +160,8 @@ type Result struct {
 	Error *Error
 	// RequestScoped marks failures caused by the request rather than the credential.
 	RequestScoped bool
+	// Options carries execution request options (headers, metadata, etc.) for result tracking.
+	Options cliproxyexecutor.Options
 	// UsageDetail carries provider token usage for runtime account accounting.
 	UsageDetail coreusage.Detail
 	// UsageEstimated marks usage values estimated from provider runtime signals.
@@ -1020,6 +1065,14 @@ func (m *Manager) prepareExecutionModels(auth *Auth, routeModel string) []string
 }
 
 func (m *Manager) availableAuthsForRouteModel(auths []*Auth, provider, routeModel string, now time.Time) ([]*Auth, error) {
+	return m.availableAuthsForRouteModelWithPriorityMode(auths, provider, routeModel, now, false)
+}
+
+func (m *Manager) availableAuthsForRouteModelAcrossPriorities(auths []*Auth, provider, routeModel string, now time.Time) ([]*Auth, error) {
+	return m.availableAuthsForRouteModelWithPriorityMode(auths, provider, routeModel, now, true)
+}
+
+func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, provider, routeModel string, now time.Time, allPriorities bool) ([]*Auth, error) {
 	if len(auths) == 0 {
 		return nil, &Error{Code: "auth_not_found", Message: "no auth candidates"}
 	}
@@ -1058,20 +1111,18 @@ func (m *Manager) availableAuthsForRouteModel(auths []*Auth, provider, routeMode
 		return nil, &Error{Code: "auth_unavailable", Message: "no auth available"}
 	}
 
-	bestPriority := 0
-	found := false
-	for priority := range availableByPriority {
-		if !found || priority > bestPriority {
-			bestPriority = priority
-			found = true
-		}
-	}
+	return availableAuthsFromPriorityBuckets(availableByPriority, allPriorities), nil
+}
 
-	available := availableByPriority[bestPriority]
-	if len(available) > 1 {
-		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+// availableAuthsForSelector reports the candidates handed to the configured selector.
+// For a session-affinity selector the full across-priority set is returned so an
+// established binding can be validated instead of being preempted by a recovered
+// higher-priority credential; other selectors keep seeing only the highest tier.
+func (m *Manager) availableAuthsForSelector(selector Selector, auths []*Auth, provider, routeModel string, now time.Time) ([]*Auth, error) {
+	if _, sessionAffinity := selector.(*SessionAffinitySelector); !sessionAffinity {
+		return m.availableAuthsForRouteModel(auths, provider, routeModel, now)
 	}
-	return available, nil
+	return m.availableAuthsForRouteModelAcrossPriorities(auths, provider, routeModel, now)
 }
 
 func selectionArgForSelector(selector Selector, routeModel string) string {
@@ -1215,7 +1266,7 @@ func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamC
 	}
 }
 
-func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, resultModel string, headers http.Header, buffered []cliproxyexecutor.StreamChunk, remaining <-chan cliproxyexecutor.StreamChunk) *cliproxyexecutor.StreamResult {
+func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, resultModel string, headers http.Header, buffered []cliproxyexecutor.StreamChunk, remaining <-chan cliproxyexecutor.StreamChunk, opts cliproxyexecutor.Options) *cliproxyexecutor.StreamResult {
 	out := make(chan cliproxyexecutor.StreamChunk)
 	go func() {
 		defer close(out)
@@ -1231,7 +1282,10 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](chunk.Err); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(chunk.Err)})
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(chunk.Err), Options: opts}
+				action, okAction := matchRequestScopedErrorAction(auth, chunk.Err, m.runtimeConfigSnapshot())
+				applyRequestScopedActionToResult(action, okAction, &result)
+				m.MarkResult(ctx, result)
 			}
 			if detail, estimated, ok := kiroUsageResultFromMetadata(provider, chunk.Metadata); ok {
 				usageDetail = detail
@@ -1266,7 +1320,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 			}
 		}
 		if !failed {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: true}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: true, Options: opts}
 			if hasUsage {
 				result.UsageDetail = usageDetail
 				result.UsageEstimated = usageEstimated
@@ -1296,9 +1350,18 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errStream); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(errStream)}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(errStream), Options: opts}
 			result.RetryAfter = retryAfterFromError(errStream)
+			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
+			applyRequestScopedActionToResult(action, okAction, &result)
 			m.MarkResult(ctx, result)
+			if okAction {
+				if isRequestScopedStop(action, okAction) {
+					return nil, wrapRequestStopError(errStream)
+				}
+				lastErr = errStream
+				continue
+			}
 			if isRequestInvalidError(errStream) {
 				return nil, errStream
 			}
@@ -1312,12 +1375,29 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				discardStreamChunks(streamResult.Chunks)
 				return nil, errCtx
 			}
+			action, okAction := matchRequestScopedErrorAction(auth, bootstrapErr, m.runtimeConfigSnapshot())
+			if okAction {
+				rerr := &Error{Message: bootstrapErr.Error()}
+				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
+					rerr.HTTPStatus = se.StatusCode()
+				}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), Options: opts}
+				result.RetryAfter = retryAfterFromError(bootstrapErr)
+				applyRequestScopedActionToResult(action, okAction, &result)
+				m.MarkResult(ctx, result)
+				discardStreamChunks(streamResult.Chunks)
+				if isRequestScopedStop(action, okAction) {
+					return nil, wrapRequestStopError(bootstrapErr)
+				}
+				lastErr = bootstrapErr
+				continue
+			}
 			if isRequestInvalidError(bootstrapErr) {
 				rerr := &Error{Message: bootstrapErr.Error()}
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), Options: opts}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
@@ -1328,7 +1408,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), Options: opts}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
@@ -1348,7 +1428,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 
 		if closed && len(buffered) == 0 {
 			emptyErr := &Error{Code: "empty_stream", Message: "upstream stream closed before first payload", Retryable: true}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: emptyErr}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: emptyErr, Options: opts}
 			m.MarkResult(ctx, result)
 			if idx < len(execModels)-1 {
 				lastErr = emptyErr
@@ -1363,7 +1443,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			close(closedCh)
 			remaining = closedCh
 		}
-		return m.wrapStreamResult(ctx, auth.Clone(), provider, resultModel, streamResult.Headers, buffered, remaining), nil
+		return m.wrapStreamResult(ctx, auth.Clone(), provider, resultModel, streamResult.Headers, buffered, remaining, opts), nil
 	}
 	if lastErr == nil {
 		lastErr = &Error{Code: "auth_not_found", Message: "no upstream model available"}
@@ -1555,6 +1635,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
+	normalizeModelStates(auth)
 	auth.EnsureIndex()
 	authClone := auth.Clone()
 	m.mu.Lock()
@@ -1592,6 +1673,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 			}
 		}
 	}
+	normalizeModelStates(auth)
 	auth.EnsureIndex()
 	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone
@@ -1674,7 +1756,8 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
 	if m.HomeEnabled() {
-		return m.executeHome(ctx, req, opts, false)
+		resp, errHome := m.executeHome(ctx, req, opts, false)
+		return resp, unwrapRequestStopError(errHome)
 	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
@@ -1684,6 +1767,9 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		resp, errExec := m.executeMixedOnce(ctx, normalized, req, opts, maxRetryCredentials)
 		if errExec == nil {
 			return resp, nil
+		}
+		if isRequestStopError(errExec) {
+			return cliproxyexecutor.Response{}, unwrapRequestStopError(errExec)
 		}
 		lastErr = errExec
 		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, normalized, req.Model, maxWait)
@@ -1695,6 +1781,7 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		}
 	}
 	if lastErr != nil {
+		lastErr = unwrapRequestStopError(lastErr)
 		if hasAntigravityProvider(normalized) && shouldAttemptAntigravityCreditsFallback(m, lastErr, normalized) {
 			if resp, ok := m.tryAntigravityCreditsExecute(ctx, req, opts); ok {
 				return resp, nil
@@ -1712,7 +1799,8 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
 	if m.HomeEnabled() {
-		return m.executeHome(ctx, req, opts, true)
+		resp, errHome := m.executeHome(ctx, req, opts, true)
+		return resp, unwrapRequestStopError(errHome)
 	}
 
 	_, maxRetryCredentials, maxWait := m.retrySettings()
@@ -1722,6 +1810,9 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 		resp, errExec := m.executeCountMixedOnce(ctx, normalized, req, opts, maxRetryCredentials)
 		if errExec == nil {
 			return resp, nil
+		}
+		if isRequestStopError(errExec) {
+			return cliproxyexecutor.Response{}, unwrapRequestStopError(errExec)
 		}
 		lastErr = errExec
 		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, normalized, req.Model, maxWait)
@@ -1733,7 +1824,7 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 		}
 	}
 	if lastErr != nil {
-		return cliproxyexecutor.Response{}, lastErr
+		return cliproxyexecutor.Response{}, unwrapRequestStopError(lastErr)
 	}
 	return cliproxyexecutor.Response{}, &Error{Code: "auth_not_found", Message: "no auth available"}
 }
@@ -1757,6 +1848,9 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		if errStream == nil {
 			return result, nil
 		}
+		if isRequestStopError(errStream) {
+			return nil, unwrapRequestStopError(errStream)
+		}
 		lastErr = errStream
 		wait, shouldRetry := m.shouldRetryAfterError(errStream, attempt, normalized, req.Model, maxWait)
 		if !shouldRetry {
@@ -1767,6 +1861,7 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		}
 	}
 	if lastErr != nil {
+		lastErr = unwrapRequestStopError(lastErr)
 		if hasAntigravityProvider(normalized) && shouldAttemptAntigravityCreditsFallback(m, lastErr, normalized) {
 			if result, ok := m.tryAntigravityCreditsExecuteStream(ctx, req, opts); ok {
 				return result, nil
@@ -1831,7 +1926,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 		var errPrepare error
 		auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
 		if errPrepare != nil {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}, Options: opts}
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
@@ -1845,7 +1940,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			execReq := req
 			execReq.Model = upstreamModel
 			resp, errExec := executor.Execute(execCtx, auth, execReq, opts)
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil, Options: opts}
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
 					return cliproxyexecutor.Response{}, errCtx
@@ -1858,7 +1953,16 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				if ra := retryAfterFromError(errExec); ra != nil {
 					result.RetryAfter = ra
 				}
+				action, okAction := matchRequestScopedErrorAction(auth, errExec, m.runtimeConfigSnapshot())
+				applyRequestScopedActionToResult(action, okAction, &result)
 				m.MarkResult(execCtx, result)
+				if okAction {
+					if isRequestScopedStop(action, okAction) {
+						return cliproxyexecutor.Response{}, wrapRequestStopError(errExec)
+					}
+					authErr = errExec
+					continue
+				}
 				if isRequestInvalidError(errExec) {
 					return cliproxyexecutor.Response{}, errExec
 				}
@@ -1870,6 +1974,17 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			return resp, nil
 		}
 		if authErr != nil {
+			action, okAction := matchRequestScopedErrorAction(auth, authErr, m.runtimeConfigSnapshot())
+			if okAction {
+				if isRequestScopedStop(action, okAction) {
+					return cliproxyexecutor.Response{}, wrapRequestStopError(authErr)
+				}
+				lastErr = authErr
+				if homeMode {
+					homeAuthCount++
+				}
+				continue
+			}
 			if isRequestInvalidError(authErr) {
 				return cliproxyexecutor.Response{}, authErr
 			}
@@ -1932,7 +2047,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 		var errPrepare error
 		auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
 		if errPrepare != nil {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}, Options: opts}
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
@@ -1946,7 +2061,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			execReq := req
 			execReq.Model = upstreamModel
 			resp, errExec := executor.CountTokens(execCtx, auth, execReq, opts)
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil, Options: opts}
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
 					return cliproxyexecutor.Response{}, errCtx
@@ -1955,13 +2070,22 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 				if ra := retryAfterFromError(errExec); ra != nil {
 					result.RetryAfter = ra
 				}
+				action, okAction := matchRequestScopedErrorAction(auth, errExec, m.runtimeConfigSnapshot())
+				applyRequestScopedActionToResult(action, okAction, &result)
 				// Some Anthropic-compatible upstreams do not implement count_tokens
 				// and return a generic endpoint 404. Keep failure accounting and hooks
 				// without suspending a model that still works for messages requests.
-				if isCountTokensEndpointNotFoundError(errExec, execReq.Model) {
+				if isCountTokensEndpointNotFoundError(errExec, execReq.Model) && (result.Error == nil || result.Error.Code != ErrorCodeForceCooldown) {
 					m.recordAvailabilityNeutralResult(execCtx, result)
 				} else {
 					m.MarkResult(execCtx, result)
+				}
+				if okAction {
+					if isRequestScopedStop(action, okAction) {
+						return cliproxyexecutor.Response{}, wrapRequestStopError(errExec)
+					}
+					authErr = errExec
+					continue
 				}
 				if isRequestInvalidError(errExec) {
 					return cliproxyexecutor.Response{}, errExec
@@ -1974,6 +2098,17 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			return resp, nil
 		}
 		if authErr != nil {
+			action, okAction := matchRequestScopedErrorAction(auth, authErr, m.runtimeConfigSnapshot())
+			if okAction {
+				if isRequestScopedStop(action, okAction) {
+					return cliproxyexecutor.Response{}, wrapRequestStopError(authErr)
+				}
+				lastErr = authErr
+				if homeMode {
+					homeAuthCount++
+				}
+				continue
+			}
 			if isRequestInvalidError(authErr) {
 				return cliproxyexecutor.Response{}, authErr
 			}
@@ -2034,7 +2169,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		var errPrepare error
 		auth, errPrepare = m.prepareRequestAuth(execCtx, executor, auth)
 		if errPrepare != nil {
-			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: routeModel, Success: false, Error: &Error{Message: errPrepare.Error()}, Options: opts}
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
@@ -2046,6 +2181,17 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		if errStream != nil {
 			if errCtx := execCtx.Err(); errCtx != nil {
 				return nil, errCtx
+			}
+			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
+			if okAction {
+				if isRequestScopedStop(action, okAction) {
+					return nil, wrapRequestStopError(errStream)
+				}
+				lastErr = errStream
+				if homeMode {
+					homeAuthCount++
+				}
+				continue
 			}
 			if isRequestInvalidError(errStream) {
 				return nil, errStream
@@ -2060,7 +2206,19 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 	}
 }
 
+func cloneRequestMetadata(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return make(map[string]any, 4)
+	}
+	dst := make(map[string]any, len(src)+4)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
 func ensureRequestedModelMetadata(opts cliproxyexecutor.Options, requestedModel string) cliproxyexecutor.Options {
+	opts.Metadata = cloneRequestMetadata(opts.Metadata)
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
 		return opts
@@ -2068,16 +2226,7 @@ func ensureRequestedModelMetadata(opts cliproxyexecutor.Options, requestedModel 
 	if hasRequestedModelMetadata(opts.Metadata) {
 		return opts
 	}
-	if len(opts.Metadata) == 0 {
-		opts.Metadata = map[string]any{cliproxyexecutor.RequestedModelMetadataKey: requestedModel}
-		return opts
-	}
-	meta := make(map[string]any, len(opts.Metadata)+1)
-	for k, v := range opts.Metadata {
-		meta[k] = v
-	}
-	meta[cliproxyexecutor.RequestedModelMetadataKey] = requestedModel
-	opts.Metadata = meta
+	opts.Metadata[cliproxyexecutor.RequestedModelMetadataKey] = requestedModel
 	return opts
 }
 
@@ -2678,7 +2827,7 @@ func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []stri
 	if status == http.StatusOK {
 		return 0, false
 	}
-	if isRequestInvalidError(err) {
+	if isRequestInvalidError(err) || isRequestStopError(err) {
 		return 0, false
 	}
 	wait, found := m.closestCooldownWait(providers, model, attempt)
@@ -2794,7 +2943,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	if result.AuthID == "" {
 		return
 	}
-	if !result.Success && (result.RequestScoped || isRequestScopedNotFoundResultError(result.Error)) {
+	modelKey := canonicalModelKey(result.Model)
+	if !result.Success && (result.RequestScoped || shouldSkipCredentialCooldown(result.Error)) {
 		m.hook.OnResult(ctx, result)
 		return
 	}
@@ -2817,8 +2967,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		}
 
 		if result.Success {
-			if result.Model != "" {
-				state := ensureModelState(auth, result.Model)
+			if modelKey != "" {
+				state := ensureModelState(auth, modelKey)
 				resetModelState(state, now)
 				updateAggregatedAvailability(auth, now)
 				if !hasModelError(auth, now) {
@@ -2833,10 +2983,13 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				clearAuthStateOnSuccess(auth, now)
 			}
 		} else {
-			if result.Model != "" {
-				if !result.RequestScoped && !isRequestScopedNotFoundResultError(result.Error) {
+			if modelKey != "" {
+				if !result.RequestScoped && !shouldSkipCredentialCooldown(result.Error) {
 					disableCooling := quotaCooldownDisabledForAuth(auth)
-					state := ensureModelState(auth, result.Model)
+					if result.Error != nil && result.Error.Code == ErrorCodeForceCooldown {
+						disableCooling = false
+					}
+					state := ensureModelState(auth, modelKey)
 					state.Unavailable = true
 					state.Status = StatusError
 					state.UpdatedAt = now
@@ -2924,6 +3077,10 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 						}
 					}
 
+					if result.Error != nil && result.Error.Code == ErrorCodeForceCooldown && state.NextRetryAfter.IsZero() {
+						state.NextRetryAfter = now.Add(time.Minute)
+					}
+
 					auth.Status = StatusError
 					auth.UpdatedAt = now
 					updateAggregatedAvailability(auth, now)
@@ -2942,20 +3099,32 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		m.scheduler.upsertAuth(authSnapshot)
 	}
 
-	if clearModelQuota && result.Model != "" {
-		registry.GetGlobalRegistry().ClearModelQuotaExceeded(result.AuthID, result.Model)
+	if clearModelQuota && modelKey != "" {
+		registry.GetGlobalRegistry().ClearModelQuotaExceeded(result.AuthID, modelKey)
 	}
-	if setModelQuota && result.Model != "" {
-		registry.GetGlobalRegistry().SetModelQuotaExceeded(result.AuthID, result.Model)
+	if setModelQuota && modelKey != "" {
+		registry.GetGlobalRegistry().SetModelQuotaExceeded(result.AuthID, modelKey)
 	}
 	if shouldResumeModel {
-		registry.GetGlobalRegistry().ResumeClientModel(result.AuthID, result.Model)
+		registry.GetGlobalRegistry().ResumeClientModel(result.AuthID, modelKey)
 	} else if shouldSuspendModel {
-		registry.GetGlobalRegistry().SuspendClientModel(result.AuthID, result.Model, suspendReason)
+		registry.GetGlobalRegistry().SuspendClientModel(result.AuthID, modelKey, suspendReason)
 	}
 
 	m.persistCooldownStateSnapshot(ctx)
 	m.hook.OnResult(ctx, result)
+	m.updateSessionAffinity(result)
+}
+
+func (m *Manager) updateSessionAffinity(result Result) {
+	if m == nil || m.selector == nil {
+		return
+	}
+	if affinity, ok := m.selector.(interface {
+		OnResult(Result)
+	}); ok && affinity != nil {
+		affinity.OnResult(result)
+	}
 }
 
 func (m *Manager) recordAvailabilityNeutralResult(ctx context.Context, result Result) {
@@ -3116,9 +3285,11 @@ func usageDetailNonZero(detail coreusage.Detail) bool {
 }
 
 func ensureModelState(auth *Auth, model string) *ModelState {
+	model = canonicalModelKey(model)
 	if auth == nil || model == "" {
 		return nil
 	}
+	normalizeModelStates(auth)
 	if auth.ModelStates == nil {
 		auth.ModelStates = make(map[string]*ModelState)
 	}
@@ -3128,6 +3299,75 @@ func ensureModelState(auth *Auth, model string) *ModelState {
 	state := &ModelState{Status: StatusActive}
 	auth.ModelStates[model] = state
 	return state
+}
+
+// normalizeModelStates folds any non-canonical (thinking-suffix) model state keys into
+// their canonical form so cooldown and scheduler sharing treat all variant suffixes of
+// the same model as one state. Returns true when the map was rewritten.
+func normalizeModelStates(auth *Auth) bool {
+	if auth == nil || len(auth.ModelStates) == 0 {
+		return false
+	}
+	normalized := make(map[string]*ModelState, len(auth.ModelStates))
+	changed := false
+	for model, state := range auth.ModelStates {
+		modelKey := canonicalModelKey(model)
+		if modelKey == "" {
+			modelKey = strings.TrimSpace(model)
+		}
+		if modelKey != model {
+			changed = true
+		}
+		if existing, ok := normalized[modelKey]; ok {
+			normalized[modelKey] = mergeModelState(existing, state)
+			changed = true
+			continue
+		}
+		normalized[modelKey] = state
+	}
+	if changed {
+		auth.ModelStates = normalized
+	}
+	return changed
+}
+
+// mergeModelState combines two model states for the same canonical model key, preferring
+// the most recently updated state while keeping the stricter failure signals.
+func mergeModelState(target, source *ModelState) *ModelState {
+	if target == nil {
+		return source
+	}
+	if source == nil {
+		return target
+	}
+
+	preferred := target
+	fallback := source
+	if source.UpdatedAt.After(target.UpdatedAt) {
+		preferred = source
+		fallback = target
+	}
+	merged := ModelState{
+		Status:         preferred.Status,
+		StatusMessage:  preferred.StatusMessage,
+		Unavailable:    target.Unavailable || source.Unavailable,
+		NextRetryAfter: target.NextRetryAfter,
+		LastError:      cloneError(preferred.LastError),
+		Quota: QuotaState{
+			Exceeded:      target.Quota.Exceeded || source.Quota.Exceeded,
+			Reason:        preferred.Quota.Reason,
+			NextRecoverAt: target.Quota.NextRecoverAt,
+			BackoffLevel:  preferred.Quota.BackoffLevel,
+		},
+		UpdatedAt: preferred.UpdatedAt,
+	}
+	if fallback.NextRetryAfter.After(merged.NextRetryAfter) {
+		merged.NextRetryAfter = fallback.NextRetryAfter
+	}
+	if fallback.Quota.NextRecoverAt.After(merged.Quota.NextRecoverAt) {
+		merged.Quota.NextRecoverAt = fallback.Quota.NextRecoverAt
+	}
+	return &merged
 }
 
 func resetModelState(state *ModelState, now time.Time) {
@@ -3312,11 +3552,29 @@ func resultErrorFromError(err error) *Error {
 	if err == nil {
 		return nil
 	}
-	var authErr *Error
-	if errors.As(err, &authErr) && authErr != nil {
-		return cloneError(authErr)
+	var sourceErr *Error
+	var resultErr *Error
+	if errors.As(err, &sourceErr) && sourceErr != nil {
+		resultErr = cloneError(sourceErr)
+	} else {
+		resultErr = &Error{Message: err.Error()}
 	}
-	return &Error{Message: err.Error(), HTTPStatus: statusCodeFromError(err)}
+	if resultErr.HTTPStatus == 0 {
+		resultErr.HTTPStatus = statusCodeFromError(err)
+	}
+	switch {
+	case isRequestScopedError(err):
+		// Prefer true request-scoped faults (including Claude OAuth cancellation)
+		// over the broader connection-lifecycle classification.
+		resultErr.Code = requestScopedErrorCode
+	case isConnectionLifecycleError(err):
+		// Preserve lifecycle classification for MarkResult without making the error
+		// request-scoped (which would also stop credential fallback).
+		if resultErr.Code == "" || resultErr.Code == connectionLifecycleErrorCode {
+			resultErr.Code = connectionLifecycleErrorCode
+		}
+	}
+	return resultErr
 }
 
 func isRequestScopedError(err error) bool {
@@ -3530,21 +3788,90 @@ func isInvalidGrantResultError(err *Error) bool {
 	return isInvalidGrantIdentifier(err.Code) || isInvalidGrantErrorMessage(err.Message)
 }
 
-func isRequestScopedNotFoundMessage(message string) bool {
-	if message == "" {
-		return false
-	}
-	lower := strings.ToLower(message)
-	return strings.Contains(lower, "item with id") &&
-		strings.Contains(lower, "not found") &&
-		strings.Contains(lower, "items are not persisted when `store` is set to false")
-}
-
 func isRequestScopedNotFoundResultError(err *Error) bool {
 	if err == nil || statusCodeFromResult(err) != http.StatusNotFound {
 		return false
 	}
-	return isRequestScopedNotFoundMessage(err.Message)
+	return clienterror.IsItemNotPersisted(err.Message)
+}
+
+func isRequestScopedResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	return err.IsRequestScoped() || isRequestScopedNotFoundResultError(err)
+}
+
+// shouldSkipCredentialCooldown reports failures that must not mark auth/model cooling.
+// Connection lifecycle is intentionally separate from request_scoped so transport
+// drops do not also stop credential rotation via isRequestInvalidError.
+func shouldSkipCredentialCooldown(err *Error) bool {
+	if err != nil && err.Code == ErrorCodeForceCooldown {
+		return false
+	}
+	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
+}
+
+// isConnectionLifecycleError reports transport/session lifecycle failures that must
+// not cool credentials: client cancellation and WebSocket close/EOF disconnects.
+func isConnectionLifecycleError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Typed WebSocket close codes are an unambiguous connection lifecycle signal.
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) && closeErr != nil {
+		switch closeErr.Code {
+		case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure:
+			return true
+		}
+	}
+	// Credential/auth/quota statuses must never be reclassified from response text.
+	if statusCodeFromError(err) != 0 {
+		return false
+	}
+	// Client abort and request-scoped timeouts are not credential faults.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	return isConnectionLifecycleMessage(err.Error())
+}
+
+func isConnectionLifecycleResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	if err.Code == connectionLifecycleErrorCode {
+		return true
+	}
+	// Message fallback only when no HTTP status is attached, so 401/429/5xx
+	// response bodies cannot suppress credential cooldown.
+	if statusCodeFromResult(err) != 0 {
+		return false
+	}
+	return isConnectionLifecycleMessage(err.Message)
+}
+
+func isConnectionLifecycleMessage(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+	switch lower {
+	case "context canceled", "context deadline exceeded", "eof", "unexpected eof":
+		return true
+	}
+	// gorilla/websocket CloseError.Error() and common wrappers.
+	if strings.Contains(lower, "websocket: close 1000") ||
+		strings.Contains(lower, "websocket: close 1001") ||
+		strings.Contains(lower, "websocket: close 1006") {
+		return true
+	}
+	// Wrapped transport EOF phrasing (e.g. "read tcp ...: unexpected EOF").
+	if strings.Contains(lower, "unexpected eof") {
+		return true
+	}
+	return false
 }
 
 func isCountTokensEndpointNotFoundError(err error, _ string) bool {
@@ -3623,11 +3950,11 @@ func isModelNotFoundIdentifier(value string) bool {
 }
 
 // isRequestInvalidError returns true if the error represents a client request
-// error that should not be retried. Specifically, it treats typed request-scoped
-// errors, 400 responses with "invalid_request_error", request-scoped 404 item
-// misses caused by `store=false`, and all 422 responses as request-shape failures,
-// where switching auths or pooled upstream models will not help. Model-support
-// errors are excluded so routing can fall through to another auth or upstream.
+// error that should neither rotate nor penalize credentials. Model-support
+// errors remain eligible for alternate routing and keep their model-level state.
+// Untyped 413 payload rejections (message_too_big) are deliberately excluded so
+// they retain credential fallback; only explicitly typed request-scoped errors
+// stop rotation for oversized payloads.
 func isRequestInvalidError(err error) bool {
 	if err == nil {
 		return false
@@ -3642,33 +3969,31 @@ func isRequestInvalidError(err error) bool {
 		return false
 	}
 	status := statusCodeFromError(err)
-	switch status {
-	case http.StatusBadRequest:
-		msg := err.Error()
-		return strings.Contains(msg, "invalid_request_error") ||
-			strings.Contains(msg, "INVALID_ARGUMENT") ||
-			strings.Contains(msg, "FAILED_PRECONDITION")
-	case http.StatusNotFound:
-		return isRequestScopedNotFoundMessage(err.Error())
-	case http.StatusUnprocessableEntity:
+	if clienterror.IsRequestFault(status, err) && status != http.StatusRequestEntityTooLarge {
 		return true
-	case http.StatusInternalServerError:
-		msg := err.Error()
-		return strings.Contains(msg, "\"status\":\"UNKNOWN\"") ||
-			strings.Contains(msg, "\"status\": \"UNKNOWN\"")
-	default:
-		return false
 	}
+	var authErr *Error
+	if errors.As(err, &authErr) && authErr != nil && authErr.Message != "" {
+		// When authErr.Code is non-empty, Error() formats as "Code: Message" which
+		// breaks JSON parsing in clienterror. Re-evaluate against the raw Message body.
+		if clienterror.IsRequestFault(status, errors.New(authErr.Message)) && status != http.StatusRequestEntityTooLarge {
+			return true
+		}
+	}
+	return false
 }
 
 func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Duration, now time.Time) {
 	if auth == nil {
 		return
 	}
-	if isRequestScopedNotFoundResultError(resultErr) {
+	if shouldSkipCredentialCooldown(resultErr) {
 		return
 	}
 	disableCooling := quotaCooldownDisabledForAuth(auth)
+	if resultErr != nil && resultErr.Code == ErrorCodeForceCooldown {
+		disableCooling = false
+	}
 	auth.Unavailable = true
 	auth.Status = StatusError
 	auth.UpdatedAt = now
@@ -3726,6 +4051,9 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		if auth.StatusMessage == "" {
 			auth.StatusMessage = "request failed"
 		}
+	}
+	if resultErr != nil && resultErr.Code == ErrorCodeForceCooldown && auth.NextRetryAfter.IsZero() {
+		auth.NextRetryAfter = now.Add(time.Minute)
 	}
 }
 
@@ -3878,7 +4206,7 @@ func modelsForRegisteredAuth(authID string) []string {
 		if supportedModel == nil || strings.TrimSpace(supportedModel.ID) == "" {
 			continue
 		}
-		models = append(models, supportedModel.ID)
+		models = append(models, canonicalModelKey(supportedModel.ID))
 	}
 	return models
 }
@@ -4040,6 +4368,10 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		return auth, exec, err
 	}
 
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = provider
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = selectionArgForSelector(m.selector, model)
+
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 
@@ -4084,7 +4416,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		m.mu.RUnlock()
 		return nil, nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, errAvailable := m.availableAuthsForRouteModel(candidates, provider, model, time.Now())
+	available, errAvailable := m.availableAuthsForSelector(m.selector, candidates, provider, model, time.Now())
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		return nil, nil, errAvailable
@@ -4116,6 +4448,10 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
 		return auth, exec, err
 	}
+
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = provider
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = model
 
 	if !m.useSchedulerFastPath() {
 		return m.pickNextLegacy(ctx, provider, model, opts, tried)
@@ -4178,6 +4514,10 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		return m.pickNextViaHome(ctx, model, opts, tried)
 	}
 
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = "mixed"
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = selectionArgForSelector(m.selector, model)
+
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 
@@ -4239,7 +4579,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		m.mu.RUnlock()
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, errAvailable := m.availableAuthsForRouteModel(candidates, "mixed", model, time.Now())
+	available, errAvailable := m.availableAuthsForSelector(m.selector, candidates, "mixed", model, time.Now())
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		return nil, nil, "", errAvailable
@@ -4276,6 +4616,10 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	if m.HomeEnabled() {
 		return m.pickNextViaHome(ctx, model, opts, tried)
 	}
+
+	opts.EnsureMetadata()
+	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = "mixed"
+	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = model
 
 	if !m.useSchedulerFastPath() {
 		return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
@@ -4871,7 +5215,7 @@ func (m *Manager) tryAntigravityCreditsExecute(ctx context.Context, req cliproxy
 			execReq := req
 			execReq.Model = upstreamModel
 			resp, errExec := c.executor.Execute(creditsCtx, c.auth, execReq, creditsOpts)
-			result := Result{AuthID: c.auth.ID, Provider: c.provider, Model: resultModel, Success: errExec == nil}
+			result := Result{AuthID: c.auth.ID, Provider: c.provider, Model: resultModel, Success: errExec == nil, Options: creditsOpts}
 			if errExec != nil {
 				result.Error = &Error{Message: errExec.Error()}
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
@@ -5242,7 +5586,9 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	var exec ProviderExecutor
 	var cloned *Auth
 	if auth != nil {
-		exec = m.executors[auth.Provider]
+		// Use the same effective provider key as request execution so OpenAI-compat
+		// auths registered under namespaced keys still resolve for refresh.
+		exec = m.executors[executorKeyFromAuth(auth)]
 		cloned = auth.Clone()
 	}
 	m.mu.RUnlock()

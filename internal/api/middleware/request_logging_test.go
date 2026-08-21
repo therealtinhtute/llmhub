@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -239,4 +240,95 @@ func TestCaptureRequestInfoDecodesZstdRequestBodyForLog(t *testing.T) {
 	if !bytes.Equal(restoredBody, compressedBytes) {
 		t.Fatal("request body was not restored with the original compressed bytes")
 	}
+}
+
+func TestRequestLoggingMiddlewareClientCancellationExclusion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("499 is not forced when request logging is disabled", func(t *testing.T) {
+		logsDir := t.TempDir()
+		logger := logging.NewFileRequestLogger(false, logsDir, "", 10)
+
+		router := gin.New()
+		router.Use(RequestLoggingMiddleware(logger))
+		router.POST("/v1/responses", func(c *gin.Context) {
+			c.AbortWithStatus(statusClientClosedRequest)
+		})
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		if response.Code != statusClientClosedRequest {
+			t.Fatalf("status = %d, want %d", response.Code, statusClientClosedRequest)
+		}
+		entries, errRead := os.ReadDir(logsDir)
+		if errRead != nil {
+			t.Fatalf("read logs dir: %v", errRead)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("expected no log files for 499 cancellation, got %d", len(entries))
+		}
+	})
+
+	t.Run("canceled context is not forced when request logging is disabled", func(t *testing.T) {
+		logsDir := t.TempDir()
+		logger := logging.NewFileRequestLogger(false, logsDir, "", 10)
+
+		router := gin.New()
+		router.Use(RequestLoggingMiddleware(logger))
+		router.POST("/v1/responses", func(c *gin.Context) {
+			ctx, cancel := context.WithCancel(c.Request.Context())
+			cancel()
+			c.Request = c.Request.WithContext(ctx)
+			c.Status(http.StatusOK)
+		})
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		entries, errRead := os.ReadDir(logsDir)
+		if errRead != nil {
+			t.Fatalf("read logs dir: %v", errRead)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("expected no log files for canceled context, got %d", len(entries))
+		}
+	})
+
+	t.Run("ordinary bad request remains forced", func(t *testing.T) {
+		logsDir := t.TempDir()
+		logger := logging.NewFileRequestLogger(false, logsDir, "", 10)
+
+		router := gin.New()
+		router.Use(RequestLoggingMiddleware(logger))
+		router.POST("/v1/responses", func(c *gin.Context) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parameter"})
+		})
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"bad":"param"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+		entries, errRead := os.ReadDir(logsDir)
+		if errRead != nil {
+			t.Fatalf("read logs dir: %v", errRead)
+		}
+		var errorLogCount int
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "error-") && strings.HasSuffix(entry.Name(), ".log") {
+				errorLogCount++
+			}
+		}
+		if errorLogCount != 1 {
+			t.Fatalf("expected one error log for 400, got %d", errorLogCount)
+		}
+	})
 }

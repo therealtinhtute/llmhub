@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/zstd"
-	xxHash64 "github.com/pierrec/xxHash/xxHash64"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
@@ -2097,7 +2095,7 @@ func TestClaudeExecutor_ExperimentalCCHSigningDisabledByDefaultKeepsLegacyHeader
 	}
 }
 
-func TestClaudeExecutor_ExperimentalCCHSigningOptInSignsFinalBody(t *testing.T) {
+func TestClaudeExecutor_ExperimentalCCHSigningOptInSkipsUnapprovedOrigin(t *testing.T) {
 	var seenBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -2135,16 +2133,41 @@ func TestClaudeExecutor_ExperimentalCCHSigningOptInSignsFinalBody(t *testing.T) 
 		t.Fatalf("message text = %q, want %q", got, messageText)
 	}
 
-	billingPattern := regexp.MustCompile(`(x-anthropic-billing-header:[^"]*?\bcch=)([0-9a-f]{5})(;)`)
-	match := billingPattern.FindSubmatch(seenBody)
-	if match == nil {
-		t.Fatalf("expected signed billing header in body: %s", string(seenBody))
+	billingHeader := gjson.GetBytes(seenBody, "system.0.text").String()
+	if strings.Contains(billingHeader, "cch=") {
+		t.Fatalf("unapproved origin should not receive cch signing, got %q", billingHeader)
 	}
-	actualCCH := string(match[2])
-	unsignedBody := billingPattern.ReplaceAll(seenBody, []byte(`${1}00000${3}`))
-	wantCCH := fmt.Sprintf("%05x", xxHash64.Checksum(unsignedBody, 0x6E52736AC806831E)&0xFFFFF)
-	if actualCCH != wantCCH {
-		t.Fatalf("cch = %q, want %q\nbody: %s", actualCCH, wantCCH, string(seenBody))
+}
+
+func TestExperimentalCCHSigningRequiresApprovedOrigin(t *testing.T) {
+	cfg := &config.Config{ClaudeKey: []config.ClaudeKey{{
+		APIKey:                 "key-123",
+		BaseURL:                "https://api.anthropic.com",
+		ExperimentalCCHSigning: true,
+	}}}
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"api_key":  "key-123",
+		"base_url": "https://api.anthropic.com",
+	}}
+
+	tests := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{name: "first party", origin: "https://api.anthropic.com/v1/messages", want: true},
+		{name: "explicit default port", origin: "https://api.anthropic.com:443/v1/messages", want: true},
+		{name: "gateway", origin: "https://gateway.example/v1/messages"},
+		{name: "http first party", origin: "http://api.anthropic.com/v1/messages"},
+		{name: "lookalike host", origin: "https://api.anthropic.com.evil.example/v1/messages"},
+		{name: "empty origin"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := experimentalCCHSigningEnabled(cfg, auth, tt.origin); got != tt.want {
+				t.Fatalf("experimentalCCHSigningEnabled(%q) = %t, want %t", tt.origin, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -2161,7 +2184,7 @@ func TestApplyCloaking_PreservesConfiguredStrictModeAndSensitiveWordsWhenModeOmi
 	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-123"}}
 	payload := []byte(`{"system":"proxy rules","messages":[{"role":"user","content":[{"type":"text","text":"proxy access"}]}]}`)
 
-	out := applyCloaking(context.Background(), cfg, auth, payload, "claude-3-5-sonnet-20241022", "key-123")
+	out := applyCloaking(context.Background(), cfg, auth, payload, "claude-3-5-sonnet-20241022", "key-123", "")
 
 	blocks := gjson.GetBytes(out, "system").Array()
 	if len(blocks) != 3 {

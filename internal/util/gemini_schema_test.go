@@ -1070,3 +1070,66 @@ func TestCleanJSONSchemaForAntigravity_UniqueItemsStripped(t *testing.T) {
 		t.Errorf("uniqueItems hint missing in description")
 	}
 }
+
+func TestCleanJSONSchemaStripsEncryptedMetadata(t *testing.T) {
+	input := `{
+		"type": "object",
+		"properties": {
+			"credential": {
+				"type": "string",
+				"description": "API credential",
+				"encrypted": true
+			},
+			"timeout": {
+				"type": "integer",
+				"encrypted": false
+			},
+			"nested": {
+				"type": "object",
+				"properties": {
+					"nested_value": {
+						"type": "string",
+						"encrypted": true
+					}
+				}
+			},
+			"encrypted": {
+				"type": "boolean",
+				"description": "Whether the payload is encrypted",
+				"encrypted": true
+			}
+		},
+		"required": ["credential", "encrypted"]
+	}`
+
+	for cleaner, clean := range map[string]func(string) string{
+		"gemini":      CleanJSONSchemaForGemini,
+		"antigravity": CleanJSONSchemaForAntigravity,
+	} {
+		t.Run(cleaner, func(t *testing.T) {
+			got := clean(input)
+			parsed := gjson.Parse(got)
+
+			for _, path := range []string{
+				"properties.credential.encrypted",
+				"properties.timeout.encrypted",
+				"properties.nested.properties.nested_value.encrypted",
+				"properties.encrypted.encrypted",
+			} {
+				if parsed.Get(path).Exists() {
+					t.Errorf("%s survived cleaning: %s", path, got)
+				}
+			}
+			if parsed.Get("properties.credential.type").String() != "string" ||
+				parsed.Get("properties.credential.description").String() != "API credential" {
+				t.Errorf("credential schema was corrupted: %s", got)
+			}
+			if parsed.Get("properties.nested.properties.nested_value.type").String() != "string" {
+				t.Errorf("nested nested_value schema was corrupted: %s", got)
+			}
+			if parsed.Get("properties.encrypted.type").String() != "boolean" {
+				t.Errorf("property named encrypted was removed or corrupted: %s", got)
+			}
+		})
+	}
+}

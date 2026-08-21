@@ -18,8 +18,10 @@ type Record struct {
 	APIKey    string
 	AuthID    string
 	AuthIndex string
-	AuthType  string
-	Source    string
+	// AccessTokenSHA256 identifies the OAuth token version without exposing the token.
+	AccessTokenSHA256 string
+	AuthType          string
+	Source            string
 	// ReasoningEffort stores the client-requested thinking level for request event logs.
 	ReasoningEffort string
 	RequestedAt     time.Time

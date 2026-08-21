@@ -5,6 +5,8 @@ package middleware
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +19,8 @@ import (
 const requestBodyOverrideContextKey = "REQUEST_BODY_OVERRIDE"
 const responseBodyOverrideContextKey = "RESPONSE_BODY_OVERRIDE"
 const websocketTimelineOverrideContextKey = "WEBSOCKET_TIMELINE_OVERRIDE"
+
+const statusClientClosedRequest = 499
 
 // RequestInfo holds essential details of an incoming HTTP request for logging purposes.
 type RequestInfo struct {
@@ -114,7 +118,7 @@ func (w *ResponseWriterWrapper) shouldBufferResponseBody() bool {
 			status = http.StatusOK
 		}
 	}
-	return status >= http.StatusBadRequest
+	return status >= http.StatusBadRequest && status != statusClientClosedRequest
 }
 
 // WriteString wraps the underlying ResponseWriter's WriteString method to capture response data.
@@ -278,7 +282,7 @@ func (w *ResponseWriterWrapper) Finalize(c *gin.Context) error {
 		}
 	}
 
-	hasAPIError := len(slicesAPIResponseError) > 0 || finalStatusCode >= http.StatusBadRequest
+	hasAPIError := hasActionableError(c, finalStatusCode, slicesAPIResponseError)
 	forceLog := w.logOnErrorOnly && hasAPIError && !w.logger.IsEnabled()
 	websocketTimelineSource := w.extractWebsocketTimelineSource(c)
 	apiWebsocketTimelineSource := w.extractAPIWebsocketTimelineSource(c)
@@ -572,4 +576,58 @@ func cleanupFileBodySources(sources ...*logging.FileBodySource) {
 		}
 		_ = source.Cleanup()
 	}
+}
+
+func isClientCancellationErrorMessage(errMsg *interfaces.ErrorMessage) bool {
+	if errMsg == nil {
+		return true
+	}
+	if errMsg.StatusCode == statusClientClosedRequest {
+		return true
+	}
+	if err := errMsg.Error; err != nil {
+		if errors.Is(err, context.Canceled) {
+			return true
+		}
+		type statusCoder interface {
+			StatusCode() int
+		}
+		var sc statusCoder
+		if errors.As(err, &sc) && sc != nil && sc.StatusCode() == statusClientClosedRequest {
+			return true
+		}
+		lower := strings.ToLower(err.Error())
+		return strings.Contains(lower, "context canceled") || strings.Contains(lower, "client closed request")
+	}
+	return false
+}
+
+func hasActionableAPIResponseErrors(apiErrors []*interfaces.ErrorMessage) bool {
+	for _, errMsg := range apiErrors {
+		if !isClientCancellationErrorMessage(errMsg) {
+			return true
+		}
+	}
+	return false
+}
+
+func isContextCanceled(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	ctx := c.Request.Context()
+	return ctx != nil && errors.Is(ctx.Err(), context.Canceled)
+}
+
+func hasActionableError(c *gin.Context, statusCode int, apiErrors []*interfaces.ErrorMessage) bool {
+	if hasActionableAPIResponseErrors(apiErrors) {
+		return true
+	}
+	if statusCode == statusClientClosedRequest {
+		return false
+	}
+	if isContextCanceled(c) && statusCode < http.StatusBadRequest {
+		return false
+	}
+	return statusCode >= http.StatusBadRequest
 }

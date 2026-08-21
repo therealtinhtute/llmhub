@@ -16,8 +16,10 @@ func TestGrok45ModelDefinition(t *testing.T) {
 		DisplayName:         "Grok 4.5",
 		Name:                "grok-4.5",
 		Description:         "SpaceXAI's intelligent coding model for agentic software, engineering, and workflow tasks.",
-		ContextLength:       500000,
-		MaxCompletionTokens: 65536,
+		ContextLength:            500000,
+		MaxCompletionTokens:      65536,
+		SupportedInputModalities:  []string{"text", "image"},
+		SupportedOutputModalities: []string{"text"},
 		Thinking: &ThinkingSupport{
 			Levels: []string{"low", "medium", "high"},
 		},
@@ -36,60 +38,74 @@ func TestGeminiProductionModelDefinitions(t *testing.T) {
 		"batchGenerateContent",
 	}
 	tests := []struct {
-		id          string
-		created     int64
-		displayName string
-		version     string
-		description string
-		levels      []string
+		id                string
+		created           int64
+		displayName       string
+		version           string
+		description       string
+		levels            []string
+		inputModalities   []string
+		outputModalities  []string
 	}{
 		{
-			id:          "gemini-3-pro",
-			created:     1737158400,
-			displayName: "Gemini 3 Pro",
-			version:     "3.0",
-			description: "Gemini 3 Pro",
-			levels:      []string{"low", "high"},
+			id:                "gemini-3-pro",
+			created:           1737158400,
+			displayName:       "Gemini 3 Pro",
+			version:           "3.0",
+			description:       "Gemini 3 Pro",
+			levels:            []string{"low", "high"},
+			inputModalities:   []string{"text", "image", "audio", "video"},
+			outputModalities:  []string{"text"},
 		},
 		{
-			id:          "gemini-3-flash",
-			created:     1765929600,
-			displayName: "Gemini 3 Flash",
-			version:     "3.0",
-			description: "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.",
-			levels:      []string{"minimal", "low", "medium", "high"},
+			id:                "gemini-3-flash",
+			created:           1765929600,
+			displayName:       "Gemini 3 Flash",
+			version:           "3.0",
+			description:       "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.",
+			levels:            []string{"minimal", "low", "medium", "high"},
+			inputModalities:   []string{"text", "image", "audio", "video"},
+			outputModalities:  []string{"text"},
 		},
 		{
-			id:          "gemini-3.1-pro",
-			created:     1771459200,
-			displayName: "Gemini 3.1 Pro",
-			version:     "3.1",
-			description: "Gemini 3.1 Pro",
-			levels:      []string{"low", "medium", "high"},
+			id:                "gemini-3.1-pro",
+			created:           1771459200,
+			displayName:       "Gemini 3.1 Pro",
+			version:           "3.1",
+			description:       "Gemini 3.1 Pro",
+			levels:            []string{"low", "medium", "high"},
+			inputModalities:   []string{"text", "image", "audio", "video"},
+			outputModalities:  []string{"text"},
 		},
 		{
-			id:          "gemini-3.1-flash-image",
-			created:     1771459200,
-			displayName: "Gemini 3.1 Flash Image",
-			version:     "3.1",
-			description: "Gemini 3.1 Flash Image",
-			levels:      []string{"minimal", "high"},
+			id:                "gemini-3.1-flash-image",
+			created:           1771459200,
+			displayName:       "Gemini 3.1 Flash Image",
+			version:           "3.1",
+			description:       "Gemini 3.1 Flash Image",
+			levels:            []string{"minimal", "high"},
+			inputModalities:   []string{"text", "image"},
+			outputModalities:  []string{"text", "image"},
 		},
 		{
-			id:          "gemini-3.1-flash-lite",
-			created:     1776288000,
-			displayName: "Gemini 3.1 Flash Lite",
-			version:     "3.1",
-			description: "Our smallest and most cost effective model, built for at scale usage.",
-			levels:      []string{"minimal", "low", "medium", "high"},
+			id:                "gemini-3.1-flash-lite",
+			created:           1776288000,
+			displayName:       "Gemini 3.1 Flash Lite",
+			version:           "3.1",
+			description:       "Our smallest and most cost effective model, built for at scale usage.",
+			levels:            []string{"minimal", "low", "medium", "high"},
+			inputModalities:   []string{"text", "image", "audio", "video"},
+			outputModalities:  []string{"text"},
 		},
 		{
-			id:          "gemini-3-pro-image",
-			created:     1737158400,
-			displayName: "Gemini 3 Pro Image",
-			version:     "3.0",
-			description: "Gemini 3 Pro Image",
-			levels:      []string{"low", "high"},
+			id:                "gemini-3-pro-image",
+			created:           1737158400,
+			displayName:       "Gemini 3 Pro Image",
+			version:           "3.0",
+			description:       "Gemini 3 Pro Image",
+			levels:            []string{"low", "high"},
+			inputModalities:   []string{"text", "image"},
+			outputModalities:  []string{"text", "image"},
 		},
 	}
 
@@ -110,6 +126,8 @@ func TestGeminiProductionModelDefinitions(t *testing.T) {
 				InputTokenLimit:            1048576,
 				OutputTokenLimit:           65536,
 				SupportedGenerationMethods: generationMethods,
+				SupportedInputModalities:   tt.inputModalities,
+				SupportedOutputModalities:  tt.outputModalities,
 				Thinking: &ThinkingSupport{
 					Min:            128,
 					Max:            32768,

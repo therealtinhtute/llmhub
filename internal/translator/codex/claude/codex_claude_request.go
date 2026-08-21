@@ -128,6 +128,14 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 				hasContent = true
 			}
 
+			appendDocumentContent := func(dataURL string) {
+				message, _ = sjson.SetBytes(message, fmt.Sprintf("content.%d.type", contentIndex), "input_file")
+				message, _ = sjson.SetBytes(message, fmt.Sprintf("content.%d.file_data", contentIndex), dataURL)
+				message, _ = sjson.SetBytes(message, fmt.Sprintf("content.%d.filename", contentIndex), "document.pdf")
+				contentIndex++
+				hasContent = true
+			}
+
 			appendReasoningContent := func(part gjson.Result) {
 				if messageRole != "assistant" {
 					return
@@ -174,6 +182,22 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 								dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
 								appendImageContent(dataURL)
 							}
+						}
+					case "document":
+						sourceResult := messageContentResult.Get("source")
+						if sourceResult.Get("type").String() != "base64" {
+							continue
+						}
+						mediaType := strings.TrimSpace(sourceResult.Get("media_type").String())
+						if !strings.EqualFold(mediaType, "application/pdf") {
+							continue
+						}
+						data := sourceResult.Get("data").String()
+						if data == "" {
+							data = sourceResult.Get("base64").String()
+						}
+						if data != "" {
+							appendDocumentContent(fmt.Sprintf("data:%s;base64,%s", mediaType, data))
 						}
 					case "tool_use":
 						flushMessage()

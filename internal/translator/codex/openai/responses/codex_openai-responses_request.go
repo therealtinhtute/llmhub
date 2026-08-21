@@ -5,6 +5,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	openairesponses "github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses"
+	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -12,7 +13,7 @@ import (
 func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte, _ bool) []byte {
 	rawJSON := inputRawJSON
 
-	inputResult := gjson.GetBytes(rawJSON, "input")
+	inputResult := util.GetGJSONBytesNoCopy(rawJSON, "input")
 	if inputResult.Type == gjson.String {
 		input, _ := sjson.SetBytes([]byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`), "0.content.0.text", inputResult.String())
 		rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", input)
@@ -34,6 +35,7 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	}
 
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "truncation")
+	rawJSON, _ = sjson.DeleteBytes(rawJSON, "prompt_cache_retention")
 	rawJSON = applyResponsesCompactionCompatibility(rawJSON)
 
 	// Delete the user field as it is not supported by the Codex upstream.

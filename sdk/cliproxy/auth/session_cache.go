@@ -93,6 +93,40 @@ func (c *SessionCache) Set(sessionID, authID string) {
 	c.mu.Unlock()
 }
 
+// Touch refreshes the expiration for a session binding if it currently matches expectedAuthID.
+func (c *SessionCache) Touch(sessionID, expectedAuthID string) bool {
+	if sessionID == "" || expectedAuthID == "" {
+		return false
+	}
+	now := time.Now()
+	c.mu.Lock()
+	entry, ok := c.entries[sessionID]
+	if !ok || entry.authID != expectedAuthID || !now.Before(entry.expiresAt) {
+		c.mu.Unlock()
+		return false
+	}
+	entry.expiresAt = now.Add(c.ttl)
+	c.entries[sessionID] = entry
+	c.mu.Unlock()
+	return true
+}
+
+// CompareAndDelete removes the session binding only if it is currently bound to expectedAuthID.
+func (c *SessionCache) CompareAndDelete(sessionID, expectedAuthID string) bool {
+	if sessionID == "" || expectedAuthID == "" {
+		return false
+	}
+	c.mu.Lock()
+	entry, ok := c.entries[sessionID]
+	if !ok || entry.authID != expectedAuthID {
+		c.mu.Unlock()
+		return false
+	}
+	delete(c.entries, sessionID)
+	c.mu.Unlock()
+	return true
+}
+
 // Invalidate removes a specific session binding.
 func (c *SessionCache) Invalidate(sessionID string) {
 	if sessionID == "" {

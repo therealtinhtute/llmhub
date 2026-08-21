@@ -114,3 +114,26 @@ func TestConvertClaudeResponseToOpenAINonStream_UsageMergesMessageStartUsage(t *
 		t.Fatalf("expected cached_tokens %d, got %d", 22000, gotCachedTokens)
 	}
 }
+
+func TestConvertClaudeResponseToOpenAINonStream_RefusalSensitiveMapToContentFilter(t *testing.T) {
+	tests := []struct {
+		name             string
+		anthropicReason  string
+		wantFinishReason string
+	}{
+		{name: "refusal maps to content_filter", anthropicReason: "refusal", wantFinishReason: "content_filter"},
+		{name: "sensitive maps to content_filter", anthropicReason: "sensitive", wantFinishReason: "content_filter"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rawJSON := []byte("data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-opus-4-6\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n" +
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"" + tc.anthropicReason + "\"},\"usage\":{\"output_tokens\":1}}\n")
+
+			out := ConvertClaudeResponseToOpenAINonStream(context.Background(), "", nil, nil, rawJSON, nil)
+			if got := gjson.GetBytes(out, "choices.0.finish_reason").String(); got != tc.wantFinishReason {
+				t.Fatalf("finish_reason = %q, want %q", got, tc.wantFinishReason)
+			}
+		})
+	}
+}

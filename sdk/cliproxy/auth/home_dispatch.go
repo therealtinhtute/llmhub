@@ -78,7 +78,7 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 
 		preparedAuth, errPrepare := m.prepareHomeRequestAuth(execCtx, selection.Executor, selection)
 		if errPrepare != nil {
-			m.reportHomeResult(execCtx, Result{AuthID: auth.ID, Provider: selection.Provider, Model: routeModel, Success: false, Error: resultErrorFromError(errPrepare)}, auth)
+			m.reportHomeResult(execCtx, Result{AuthID: auth.ID, Provider: selection.Provider, Model: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: opts}, auth)
 			releaseAttempt()
 			if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "prepare_failed"); errEnd != nil {
 				return cliproxyexecutor.Response{}, errEnd
@@ -106,7 +106,7 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 		} else {
 			response, errExecute = selection.Executor.Execute(execCtx, preparedAuth, execReq, execOpts)
 		}
-		result := Result{AuthID: preparedAuth.ID, Provider: selection.Provider, Model: resultModel, Success: errExecute == nil}
+		result := Result{AuthID: preparedAuth.ID, Provider: selection.Provider, Model: resultModel, Success: errExecute == nil, Options: execOpts}
 		if errExecute == nil {
 			applyKiroUsageResultFromResponse(&result, response)
 			m.reportHomeResult(execCtx, result, preparedAuth)
@@ -118,8 +118,24 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 		}
 		result.Error = resultErrorFromError(errExecute)
 		result.RetryAfter = retryAfterFromError(errExecute)
+		action, okAction := matchRequestScopedErrorAction(preparedAuth, errExecute, m.runtimeConfigSnapshot())
+		applyRequestScopedActionToResult(action, okAction, &result)
 		m.reportHomeResult(execCtx, result, preparedAuth)
 		releaseAttempt()
+		if okAction {
+			if isRequestScopedStop(action, okAction) {
+				selection.End("request_stopped")
+				return cliproxyexecutor.Response{}, wrapRequestStopError(errExecute)
+			}
+			if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "execution_failed"); errEnd != nil {
+				return cliproxyexecutor.Response{}, errEnd
+			}
+			if errCtx := execCtx.Err(); errCtx != nil && ctx != nil && ctx.Err() != nil {
+				return cliproxyexecutor.Response{}, errCtx
+			}
+			lastErr = errExecute
+			continue
+		}
 		if isRequestInvalidError(errExecute) {
 			selection.End("request_invalid")
 			return cliproxyexecutor.Response{}, errExecute
@@ -189,7 +205,7 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 		}
 		preparedAuth, errPrepare := m.prepareHomeRequestAuth(execCtx, selection.Executor, selection)
 		if errPrepare != nil {
-			m.reportHomeResult(execCtx, Result{AuthID: auth.ID, Provider: selection.Provider, Model: routeModel, Success: false, Error: resultErrorFromError(errPrepare)}, auth)
+			m.reportHomeResult(execCtx, Result{AuthID: auth.ID, Provider: selection.Provider, Model: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: opts}, auth)
 			releaseAttempt()
 			if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "prepare_failed"); errEnd != nil {
 				return nil, errEnd
@@ -202,7 +218,7 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
 		streamResult, errStream := selection.Executor.ExecuteStream(execCtx, preparedAuth, execReq, execOpts)
-		result := Result{AuthID: preparedAuth.ID, Provider: selection.Provider, Model: routeModel, Success: errStream == nil}
+		result := Result{AuthID: preparedAuth.ID, Provider: selection.Provider, Model: routeModel, Success: errStream == nil, Options: execOpts}
 		if errStream != nil {
 			result.Error = resultErrorFromError(errStream)
 			result.RetryAfter = retryAfterFromError(errStream)
@@ -226,6 +242,7 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 				Model:    routeModel,
 				Success:  false,
 				Error:    resultErrorFromError(errStream),
+				Options:  execOpts,
 			}, preparedAuth)
 			releaseAttempt()
 			selection.End("stream_missing")

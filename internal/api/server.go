@@ -529,6 +529,13 @@ func (s *Server) setupRoutes() {
 			s.codexLiveHandler = codexLiveHandlers.New(s.handlers.AuthManager, s.runtimeSettingsStore)
 			codexDirect.POST("/realtime/calls", s.codexLiveHandler.CreateCall)
 			codexDirect.GET("/realtime/calls/:call_id", s.codexLiveHandler.Sideband)
+			codexDirect.POST("/realtime/calls/:call_id/hangup", s.codexLiveHandler.HandleHangup)
+			codexDirect.POST("/realtime/calls/:call_id/accept", s.codexLiveHandler.HandleSIPControl)
+			codexDirect.POST("/realtime/calls/:call_id/reject", s.codexLiveHandler.HandleSIPControl)
+			codexDirect.POST("/realtime/calls/:call_id/refer", s.codexLiveHandler.HandleSIPControl)
+			codexDirect.GET("/realtime/translations", s.codexLiveHandler.HandleTranslation)
+			codexDirect.POST("/realtime/translations", s.codexLiveHandler.HandleTranslation)
+			codexDirect.POST("/realtime/transcription_sessions", s.codexLiveHandler.HandleTranscriptionSession)
 			codexDirect.GET("/realtime", s.codexLiveHandler.Sideband)
 			codexDirect.GET("/live/:call_id", s.codexLiveHandler.Sideband)
 		}

@@ -16,6 +16,7 @@ import (
 	homekv "github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
 	internalsignature "github.com/therealtinhtute/llmhub/internal/signature"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -51,19 +52,38 @@ func normalizeAntigravityGeminiFunctionResponseRoles(payload []byte) []byte {
 	if !contents.IsArray() {
 		return payload
 	}
-	out := payload
-	for ci, content := range contents.Array() {
+	// Patch each response turn in isolation and splice all changed turns into the
+	// request with one body copy. Applying SJSON once per content made large
+	// histories scale with history size multiplied by the number of tool turns.
+	contentItems := make([][]byte, 0, contents.Get("#").Int())
+	changed := false
+	contents.ForEach(func(_, content gjson.Result) bool {
+		contentJSON := []byte(content.Raw)
 		hasFunctionResponse := false
-		for _, part := range content.Get("parts").Array() {
-			if part.Get("functionResponse").Exists() {
-				hasFunctionResponse = true
-				break
-			}
+		parts := content.Get("parts")
+		if parts.IsArray() {
+			parts.ForEach(func(_, part gjson.Result) bool {
+				if part.Get("functionResponse").Exists() {
+					hasFunctionResponse = true
+					return false
+				}
+				return true
+			})
+		} else if parts.Type != gjson.Null {
+			// Result.Array returns a non-array JSON value as one item.
+			hasFunctionResponse = parts.Get("functionResponse").Exists()
 		}
 		if hasFunctionResponse && !strings.EqualFold(strings.TrimSpace(content.Get("role").String()), "function") {
-			out, _ = sjson.SetBytes(out, fmt.Sprintf("request.contents.%d.role", ci), "function")
+			contentJSON, _ = sjson.SetBytes(contentJSON, "role", "function")
+			changed = true
 		}
+		contentItems = append(contentItems, contentJSON)
+		return true
+	})
+	if !changed {
+		return payload
 	}
+	out, _ := sjson.SetRawBytes(payload, "request.contents", translatorcommon.JoinRawArray(contentItems))
 	return out
 }
 
@@ -75,15 +95,26 @@ func antigravityCountClaudeToolProvenanceIDs(payload []byte) int {
 	if !contents.IsArray() {
 		return 0
 	}
-	for _, content := range contents.Array() {
-		for _, part := range content.Get("parts").Array() {
+	contents.ForEach(func(_, content gjson.Result) bool {
+		parts := content.Get("parts")
+		countPart := func(part gjson.Result) {
 			for _, path := range []string{"functionCall.id", "functionResponse.id"} {
 				if antigravityIsGeminiClaudeToolUseID(part.Get(path).String()) {
 					count++
 				}
 			}
 		}
-	}
+		if parts.IsArray() {
+			parts.ForEach(func(_, part gjson.Result) bool {
+				countPart(part)
+				return true
+			})
+		} else if parts.Type != gjson.Null {
+			// Result.Array returns a non-array JSON value as one item.
+			countPart(parts)
+		}
+		return true
+	})
 	return count
 }
 
@@ -1034,16 +1065,29 @@ func antigravityPayloadHasClaudeToolProvenanceID(payload []byte) bool {
 	if !contents.IsArray() {
 		return false
 	}
-	for _, content := range contents.Array() {
-		for _, part := range content.Get("parts").Array() {
+	found := false
+	contents.ForEach(func(_, content gjson.Result) bool {
+		parts := content.Get("parts")
+		hasReservedID := func(part gjson.Result) bool {
 			for _, path := range []string{"functionCall.id", "functionResponse.id"} {
 				if antigravityIsGeminiClaudeToolUseID(part.Get(path).String()) {
 					return true
 				}
 			}
+			return false
 		}
-	}
-	return false
+		if parts.IsArray() {
+			parts.ForEach(func(_, part gjson.Result) bool {
+				found = hasReservedID(part)
+				return !found
+			})
+		} else if parts.Type != gjson.Null {
+			// Result.Array returns a non-array JSON value as one item.
+			found = hasReservedID(parts)
+		}
+		return !found
+	})
+	return found
 }
 
 // antigravitySyntheticToolCallID derives a deterministic neutral call ID for a
@@ -1118,26 +1162,32 @@ func antigravityRepairUnsignedFirstFunctionCalls(payload []byte) []byte {
 		return payload
 	}
 	out := payload
-	for ci, content := range contents.Array() {
+	contents.ForEach(func(contentIndex, content gjson.Result) bool {
 		if !strings.EqualFold(strings.TrimSpace(content.Get("role").String()), "model") {
-			continue
+			return true
 		}
 		parts := content.Get("parts")
 		if !parts.IsArray() {
-			continue
+			return true
 		}
-		for pi, part := range parts.Array() {
+		parts.ForEach(func(partIndex, part gjson.Result) bool {
 			if !part.Get("functionCall").Exists() {
-				continue
+				return true
 			}
 			if antigravityNativePartThoughtSignature(part) == "" {
-				out, _ = sjson.SetBytes(out, fmt.Sprintf("request.contents.%d.parts.%d.thoughtSignature", ci, pi), "skip_thought_signature_validator")
+				path := fmt.Sprintf(
+					"request.contents.%d.parts.%d.thoughtSignature",
+					contentIndex.Int(),
+					partIndex.Int(),
+				)
+				out, _ = sjson.SetBytes(out, path, "skip_thought_signature_validator")
 			}
 			// Only the first function call of a turn needs a signature; siblings stay
 			// unsigned to preserve the native parallel-call shape.
-			break
-		}
-	}
+			return false
+		})
+		return true
+	})
 	return out
 }
 

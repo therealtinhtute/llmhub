@@ -341,7 +341,6 @@ func projectConfigEntry(provider string, resource any) (config.OpenAICompatibili
 			Models:         toConfigModels(value.Models),
 			Headers:        map[string]string{"HTTP-Referer": "https://llmhub.local", "X-Title": "LLMHub"},
 			Passthrough:    true,
-			DisableCooling: false,
 		}, nil
 	case ProviderOpenCode:
 		value, ok := resource.(*OpenCodeResource)
@@ -356,7 +355,6 @@ func projectConfigEntry(provider string, resource any) (config.OpenAICompatibili
 			Models:         toConfigModels(value.Models),
 			Headers:        map[string]string{"x-opencode-client": "desktop"},
 			Passthrough:    true,
-			DisableCooling: false,
 		}, nil
 	default:
 		return config.OpenAICompatibility{}, fmt.Errorf("unsupported native provider %q", provider)

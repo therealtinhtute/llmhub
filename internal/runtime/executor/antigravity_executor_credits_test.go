@@ -17,10 +17,20 @@ import (
 )
 
 func resetAntigravityCreditsRetryState() {
-	antigravityCreditsFailureByAuth = sync.Map{}
-	antigravityShortCooldownByAuth = sync.Map{}
-	antigravityCreditsBalanceByAuth = sync.Map{}
-	antigravityCreditsHintRefreshByID = sync.Map{}
+	// Clear the maps in place instead of reassigning the package-level variables:
+	// a background credits-refresh goroutine may still hold a reference to the old
+	// map when this runs as t.Cleanup, and reassigning races with its access.
+	for _, m := range []*sync.Map{
+		&antigravityCreditsFailureByAuth,
+		&antigravityShortCooldownByAuth,
+		&antigravityCreditsBalanceByAuth,
+		&antigravityCreditsHintRefreshByID,
+	} {
+		m.Range(func(key, _ any) bool {
+			m.Delete(key)
+			return true
+		})
+	}
 }
 
 func TestClassifyAntigravity429(t *testing.T) {

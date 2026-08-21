@@ -87,20 +87,21 @@ func writeImagesStreamKeepAlive(c *gin.Context, flusher http.Flusher) {
 	flusher.Flush()
 }
 
-func writeImagesStreamErrorEvent(c *gin.Context, errMsg *interfaces.ErrorMessage) {
+func writeImagesStreamErrorEvent(c *gin.Context, errMsg *interfaces.ErrorMessage) *interfaces.ErrorMessage {
+	original := errMsg
+	errMsg = sanitizeResponsesStreamErrorMessage(errMsg)
 	if errMsg == nil {
-		return
+		return nil
 	}
-	status := http.StatusInternalServerError
-	if errMsg.StatusCode > 0 {
-		status = errMsg.StatusCode
+	if original != nil {
+		*original = *errMsg
+		errMsg = original
 	}
-	errText := http.StatusText(status)
-	if errMsg.Error != nil && strings.TrimSpace(errMsg.Error.Error()) != "" {
-		errText = errMsg.Error.Error()
-	}
+	status := errMsg.StatusCode
+	errText := responsesStreamErrorText(errMsg, status)
 	body := handlers.BuildErrorResponseBody(status, errText)
 	_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", string(body))
+	return errMsg
 }
 
 func (h *OpenAIAPIHandler) waitImagesStreamExecution(c *gin.Context, flusher http.Flusher, execute func() imagesStreamExecutionResult) (imagesStreamExecutionResult, bool, bool) {

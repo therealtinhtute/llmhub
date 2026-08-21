@@ -79,7 +79,7 @@ func TestConfigSynthesizer_GeminiKeys(t *testing.T) {
 		{
 			name: "gemini key disable cooling",
 			geminiKeys: []config.GeminiKey{
-				{APIKey: "test-key-123", Prefix: "team-a", DisableCooling: true},
+				{APIKey: "test-key-123", Prefix: "team-a", DisableCooling: boolPointer(true)},
 			},
 			wantLen: 1,
 			validate: func(t *testing.T, auths []*coreauth.Auth) {
@@ -178,7 +178,7 @@ func TestConfigSynthesizer_ClaudeKeys(t *testing.T) {
 					APIKey:         "sk-ant-api-xxx",
 					Prefix:         "main",
 					BaseURL:        "https://api.anthropic.com",
-					DisableCooling: true,
+					DisableCooling: boolPointer(true),
 					Models: []config.ClaudeModel{
 						{Name: "claude-3-opus"},
 						{Name: "claude-3-sonnet"},
@@ -255,7 +255,7 @@ func TestConfigSynthesizer_CodexKeys(t *testing.T) {
 					BaseURL:        "https://api.openai.com",
 					ProxyURL:       "http://proxy.local",
 					Websockets:     true,
-					DisableCooling: true,
+					DisableCooling: boolPointer(true),
 				},
 			},
 		},
@@ -326,7 +326,7 @@ func TestConfigSynthesizer_OpenAICompat(t *testing.T) {
 				{
 					Name:           "CustomProvider",
 					BaseURL:        "https://custom.api.com",
-					DisableCooling: true,
+					DisableCooling: boolPointer(true),
 					APIKeyEntries: []config.OpenAICompatibilityAPIKey{
 						{APIKey: "key-1"},
 						{APIKey: "key-2"},
@@ -705,6 +705,62 @@ func TestConfigSynthesizer_DefaultStaticProviderWeightsAreOmitted(t *testing.T) 
 	for _, auth := range auths {
 		if _, ok := auth.Attributes["weight"]; ok {
 			t.Fatalf("expected default weight to be omitted for %s, got %v", auth.Provider, auth.Attributes)
+		}
+	}
+}
+
+func TestConfigSynthesizer_RequestScopedErrors(t *testing.T) {
+	synth := NewConfigSynthesizer()
+	rules := []config.RequestScopedErrorRule{
+		{
+			Status: 400,
+			Match:  []string{"maximum_context_length"},
+			Action: "stop",
+		},
+	}
+
+	ctx := &SynthesisContext{
+		Config: &config.Config{
+			GeminiKey: []config.GeminiKey{
+				{APIKey: "gemini-key", RequestScopedErrors: rules},
+			},
+			ClaudeKey: []config.ClaudeKey{
+				{APIKey: "claude-key", RequestScopedErrors: rules},
+			},
+			CodexKey: []config.CodexKey{
+				{APIKey: "codex-key", BaseURL: "https://codex.api", RequestScopedErrors: rules},
+			},
+			OpenAICompatibility: []config.OpenAICompatibility{
+				{
+					Name:                "compat",
+					BaseURL:             "https://compat.api",
+					RequestScopedErrors: rules,
+					APIKeyEntries: []config.OpenAICompatibilityAPIKey{
+						{APIKey: "compat-key"},
+					},
+				},
+			},
+		},
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, errSynthesize := synth.Synthesize(ctx)
+	if errSynthesize != nil {
+		t.Fatalf("Synthesize() error = %v", errSynthesize)
+	}
+
+	for _, auth := range auths {
+		if auth.Metadata == nil {
+			t.Fatalf("auth %s has nil metadata", auth.ID)
+		}
+		val, exists := auth.Metadata["request_scoped_errors"]
+		if !exists {
+			t.Fatalf("auth %s missing request_scoped_errors in metadata", auth.ID)
+		}
+		extracted, ok := val.([]config.RequestScopedErrorRule)
+		if !ok || len(extracted) != 1 || extracted[0].Action != "stop" {
+			t.Fatalf("auth %s unexpected request_scoped_errors: %#v", auth.ID, val)
 		}
 	}
 }

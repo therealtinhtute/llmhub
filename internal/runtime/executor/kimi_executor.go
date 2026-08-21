@@ -105,7 +105,7 @@ func (e *KimiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	body := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), false)
 
 	// Strip kimi- prefix for upstream API
-	upstreamModel := stripKimiPrefix(baseModel)
+	upstreamModel := normalizeKimiUpstreamModel(baseModel)
 	body, err = sjson.SetBytes(body, "model", upstreamModel)
 	if err != nil {
 		return resp, fmt.Errorf("kimi executor: failed to set model in payload: %w", err)
@@ -183,6 +183,9 @@ func (e *KimiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	// Note: TranslateNonStream uses req.Model (original with suffix) to preserve
 	// the original model name in the response for client compatibility.
 	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, body, data, &param)
+	if from == sdktranslator.FormatOpenAIResponse {
+		out = helps.EnsureResponsesUsageDetails(out)
+	}
 	resp = cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}
 	return resp, nil
 }
@@ -219,7 +222,7 @@ func (e *KimiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	body := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), true)
 
 	// Strip kimi- prefix for upstream API
-	upstreamModel := stripKimiPrefix(baseModel)
+	upstreamModel := normalizeKimiUpstreamModel(baseModel)
 	body, err = sjson.SetBytes(body, "model", upstreamModel)
 	if err != nil {
 		return nil, fmt.Errorf("kimi executor: failed to set model in payload: %w", err)
@@ -764,4 +767,24 @@ func stripKimiPrefix(model string) string {
 		return model[5:]
 	}
 	return model
+}
+
+// normalizeKimiUpstreamModel canonicalizes K2.7 Code model aliases to the
+// official Kimi-For-Coding IDs before generic prefix stripping, so
+// already-canonical IDs stay idempotent.
+func normalizeKimiUpstreamModel(model string) string {
+	base := strings.TrimSpace(model)
+	lower := strings.ToLower(base)
+	if strings.HasSuffix(lower, "[1m]") {
+		base = strings.TrimSpace(base[:len(base)-len("[1m]")])
+		lower = strings.TrimSpace(lower[:len(lower)-len("[1m]")])
+	}
+	switch lower {
+	case "kimi-k2.7-code", "k2.7-code", "kimi-for-coding", "for-coding":
+		return "kimi-for-coding"
+	case "kimi-k2.7-code-highspeed", "k2.7-code-highspeed", "kimi-for-coding-highspeed", "for-coding-highspeed":
+		return "kimi-for-coding-highspeed"
+	default:
+		return stripKimiPrefix(base)
+	}
 }

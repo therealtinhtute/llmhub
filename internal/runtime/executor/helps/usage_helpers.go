@@ -23,6 +23,7 @@ type UsageReporter struct {
 	alias       string
 	authID      string
 	authIndex   string
+	accessToken string
 	authType    string
 	apiKey      string
 	source      string
@@ -50,6 +51,7 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 	if auth != nil {
 		reporter.authID = auth.ID
 		reporter.authIndex = auth.EnsureIndex()
+		reporter.accessToken = authAccessTokenSHA256(auth)
 	}
 	return reporter
 }

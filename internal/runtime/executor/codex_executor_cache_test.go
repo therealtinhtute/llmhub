@@ -45,8 +45,11 @@ func TestCodexExecutorCacheHelper_OpenAIChatCompletions_StablePromptCacheKeyFrom
 	if gotConversation := httpReq.Header.Get("Conversation_id"); gotConversation != "" {
 		t.Fatalf("Conversation_id = %q, want empty", gotConversation)
 	}
-	if gotSession := httpReq.Header.Get("Session_id"); gotSession != expectedKey {
-		t.Fatalf("Session_id = %q, want %q", gotSession, expectedKey)
+	if gotSession := httpReq.Header["Session-Id"]; len(gotSession) != 1 || gotSession[0] != expectedKey {
+		t.Fatalf("Session-Id = %#v, want [%q]", gotSession, expectedKey)
+	}
+	if gotLegacySession := httpReq.Header.Get("Session_id"); gotLegacySession != "" {
+		t.Fatalf("Session_id = %q, want empty", gotLegacySession)
 	}
 
 	httpReq2, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai"), url, req, rawJSON)

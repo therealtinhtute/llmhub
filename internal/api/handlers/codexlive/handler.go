@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/client/codex/live"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -118,7 +120,8 @@ func (h *Handler) CreateCall(c *gin.Context) {
 		if mediaSession != nil {
 			resources.Add(mediaSession.Close)
 		}
-		h.sessions.Put(callID, live.Session{AuthID: auth.ID, Model: model, Resources: resources})
+		ownerPrincipal, ownerProvider := requestRealtimeOwner(c)
+		h.sessions.Put(callID, live.Session{AuthID: auth.ID, Model: model, Resources: resources, OwnerPrincipal: ownerPrincipal, OwnerProvider: ownerProvider})
 		if mediaSession != nil {
 			mediaSession.SetCallID(callID)
 			mediaSession.SetCloseHandler(func(string) {
@@ -226,6 +229,151 @@ func (h *Handler) Close() {
 		return
 	}
 	h.sessions.CloseAll()
+}
+
+// HandleHangup forwards a hangup for a locally created WebRTC call using the
+// OAuth credential pinned to the call's session, completing the local session
+// when the upstream call ends successfully.
+func (h *Handler) HandleHangup(c *gin.Context) {
+	if h == nil || h.authManager == nil || h.sessions == nil {
+		writeRealtimeError(c, http.StatusServiceUnavailable, "Codex live session service unavailable", "server_error", "realtime_session_unavailable")
+		return
+	}
+	callID := strings.TrimSpace(c.Param("call_id"))
+	if !live.ValidCallID(callID) {
+		writeRealtimeError(c, http.StatusBadRequest, "Invalid Realtime call ID", "invalid_request_error", "invalid_call_id")
+		return
+	}
+	session, ok := h.sessions.Peek(callID)
+	if !ok {
+		writeRealtimeError(c, http.StatusNotFound, "Realtime call not found", "invalid_request_error", "realtime_call_not_found")
+		return
+	}
+	if session.OwnerPrincipal != "" {
+		ownerPrincipal, ownerProvider := requestRealtimeOwner(c)
+		if ownerPrincipal != session.OwnerPrincipal || ownerProvider != session.OwnerProvider {
+			writeRealtimeError(c, http.StatusForbidden, "Realtime call belongs to another API principal", "invalid_request_error", "realtime_call_scope_mismatch")
+			return
+		}
+	}
+	auth, ok := h.authManager.GetByID(session.AuthID)
+	if !ok || auth == nil || auth.Disabled || auth.Unavailable || !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
+		writeRealtimeError(c, http.StatusServiceUnavailable, "Codex auth unavailable", "server_error", "codex_auth_unavailable")
+		return
+	}
+	body, errRead := live.ReadBody(c.Request.Body)
+	if errRead != nil {
+		status := http.StatusBadRequest
+		if errors.Is(errRead, live.ErrBodyTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeRealtimeError(c, status, errRead.Error(), "invalid_request_error", "invalid_request")
+		return
+	}
+	upstreamURL := realtimeCallsBaseURL() + "/realtime/calls/" + url.PathEscape(callID) + "/hangup"
+	headers := live.ProtocolHeaders(c.Request.Header)
+	if contentType := strings.TrimSpace(c.GetHeader("Content-Type")); contentType != "" {
+		headers.Set("Content-Type", contentType)
+	}
+	setCodexAccountHeader(headers, auth)
+	upstreamReq, errRequest := h.authManager.NewHttpRequest(c.Request.Context(), auth, http.MethodPost, upstreamURL, body, headers)
+	if errRequest != nil {
+		writeRealtimeError(c, http.StatusBadGateway, errRequest.Error(), "api_error", "realtime_upstream_unavailable")
+		return
+	}
+	resp, errRequest := h.authManager.HttpRequest(c.Request.Context(), auth, upstreamReq)
+	if errRequest != nil {
+		writeRealtimeError(c, http.StatusBadGateway, errRequest.Error(), "api_error", "realtime_upstream_unavailable")
+		return
+	}
+	defer func() {
+		if errClose := resp.Body.Close(); errClose != nil {
+			log.Warnf("codex realtime hangup: close response body error: %v", errClose)
+		}
+	}()
+	responseBody, errRead := live.ReadBody(resp.Body)
+	if errRead != nil {
+		writeRealtimeError(c, http.StatusBadGateway, "Failed to read Realtime hangup response", "api_error", "realtime_upstream_unavailable")
+		return
+	}
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		h.sessions.Complete(session)
+	}
+	if contentType := resp.Header.Get("Content-Type"); contentType != "" {
+		c.Header("Content-Type", contentType)
+	}
+	copyRealtimeHandshakeHeaders(c.Writer.Header(), resp.Header)
+	c.Status(resp.StatusCode)
+	if _, errWrite := c.Writer.Write(responseBody); errWrite != nil {
+		log.WithError(errWrite).Warn("codex realtime hangup: write response body failed")
+	}
+}
+
+// HandleTranslation reports that the Codex OAuth upstream has no translation session capability.
+func (h *Handler) HandleTranslation(c *gin.Context) {
+	writeCapabilityNotSupported(c, "Realtime translation sessions")
+}
+
+// HandleTranscriptionSession reports that the Codex OAuth upstream has no transcription-only capability.
+func (h *Handler) HandleTranscriptionSession(c *gin.Context) {
+	writeCapabilityNotSupported(c, "Realtime transcription-only sessions")
+}
+
+// HandleSIPControl reports that the Codex OAuth upstream has no SIP dialog capability.
+func (h *Handler) HandleSIPControl(c *gin.Context) {
+	action := "control"
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		parts := strings.Split(strings.Trim(c.Request.URL.Path, "/"), "/")
+		if len(parts) > 0 && strings.TrimSpace(parts[len(parts)-1]) != "" {
+			action = parts[len(parts)-1]
+		}
+	}
+	writeCapabilityNotSupported(c, "Realtime SIP "+action)
+}
+
+func requestRealtimeOwner(c *gin.Context) (string, string) {
+	if c == nil {
+		return "", ""
+	}
+	principalValue, _ := c.Get("userApiKey")
+	providerValue, _ := c.Get("accessProvider")
+	principal, _ := principalValue.(string)
+	provider, _ := providerValue.(string)
+	return strings.TrimSpace(principal), strings.TrimSpace(provider)
+}
+
+func writeCapabilityNotSupported(c *gin.Context, capability string) {
+	writeRealtimeError(c, http.StatusNotImplemented, capability+" are not supported by the ChatGPT/Codex OAuth upstream", "not_supported_error", "realtime_capability_not_supported")
+}
+
+func writeRealtimeError(c *gin.Context, status int, message, errorType, code string) {
+	c.JSON(status, gin.H{"error": gin.H{
+		"message": message,
+		"type":    errorType,
+		"param":   nil,
+		"code":    code,
+	}})
+}
+
+func setCodexAccountHeader(headers http.Header, auth *coreauth.Auth) {
+	if auth == nil {
+		return
+	}
+	if accountID, ok := auth.Metadata["account_id"].(string); ok && strings.TrimSpace(accountID) != "" {
+		headers.Set("Chatgpt-Account-Id", accountID)
+	}
+}
+
+func copyRealtimeHandshakeHeaders(destination, source http.Header) {
+	for _, name := range []string{"Retry-After", "X-Request-Id", "OpenAI-Request-Id"} {
+		for _, value := range source.Values(name) {
+			destination.Add(name, value)
+		}
+	}
+}
+
+func realtimeCallsBaseURL() string {
+	return strings.TrimRight(live.WebsocketHTTPURL(live.UpstreamSidebandBaseURL), "/")
 }
 
 func (h *Handler) liveSettings(c *gin.Context) (runtimecontrol.CodexLiveSettings, bool) {

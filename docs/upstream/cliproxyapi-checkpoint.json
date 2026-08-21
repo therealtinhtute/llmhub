@@ -26,17 +26,17 @@
   ]
  },
  "checkpoint": {
-  "tag": "v7.2.135",
-  "commit": "856ddd8df746a38a6033dbbf6c140974bf5aea0f",
-  "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.135",
-  "published_at": "2026-08-17T04:55:59Z",
-  "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.135",
+  "tag": "v7.2.137",
+  "commit": "85d2faddd17e6f4f8675a84ee28b131f702e8eaa",
+  "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.137",
+  "published_at": "2026-08-19T18:26:19Z",
+  "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.137",
   "target_commitish": "main",
-  "checked_at": "2026-08-17T06:44:08Z"
+  "checked_at": "2026-08-20T11:47:26Z"
  },
  "local_baseline": {
-  "commit": "f08bec3531566f0dfbea57bd44721da50fb648f0",
-  "branch": "master"
+  "commit": "6f74bae110394fedc5120acc8b9cc0b17aa31e57",
+  "branch": "docs/upstream-v7.2.135-parity"
  },
  "prior_checkpoints": [
   {
@@ -62,145 +62,31 @@
    "commit": "bc71c77f5cc42f3fbe1bf040cf14d4f166894835",
    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.113",
    "role": "prior-checkpoint"
-  }
- ],
- "source_range": {
-  "from_exclusive": "v7.2.113",
-  "to_inclusive": "v7.2.135"
- },
- "releases": [
-  {
-   "tag": "v7.2.114",
-   "commit": "41fc5e134631789e98137245f576680c7fb9b322",
-   "published_at": "2026-08-02T17:32:20Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.114"
-  },
-  {
-   "tag": "v7.2.115",
-   "commit": "ffdb9c9fbc78a6235d59c9ccbdc4243ba35ecdcd",
-   "published_at": "2026-08-02T21:50:55Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.115"
-  },
-  {
-   "tag": "v7.2.116",
-   "commit": "a88197f845c979132c8978ea223c6af05cc81536",
-   "published_at": "2026-08-03T14:17:39Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.116"
-  },
-  {
-   "tag": "v7.2.117",
-   "commit": "82d6242098a707fcca8eaefa43aaf3a10ea760f1",
-   "published_at": "2026-08-04T14:20:38Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.117"
-  },
-  {
-   "tag": "v7.2.118",
-   "commit": "29bdd3c1492c383b89d0be76b353a2891aa04c54",
-   "published_at": "2026-08-04T16:41:06Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.118"
-  },
-  {
-   "tag": "v7.2.119",
-   "commit": "6e92e3e60e64e99b6d41a08388340e7435493350",
-   "published_at": "2026-08-04T22:08:06Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.119"
-  },
-  {
-   "tag": "v7.2.120",
-   "commit": "ea37d13a9eced4af835cad10bcb030d770a5ba88",
-   "published_at": "2026-08-05T16:18:50Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.120"
-  },
-  {
-   "tag": "v7.2.121",
-   "commit": "8392b180ce3789eba9fd06ebc812b4fc237876e1",
-   "published_at": "2026-08-06T14:55:38Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.121"
-  },
-  {
-   "tag": "v7.2.122",
-   "commit": "0a95fa62a10648fea7de742d7067b52d46e29000",
-   "published_at": "2026-08-07T11:21:52Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.122"
-  },
-  {
-   "tag": "v7.2.123",
-   "commit": "31a4e9b4870f4510f3e2b8c5122236b67a61f730",
-   "published_at": "2026-08-07T14:39:21Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.123"
-  },
-  {
-   "tag": "v7.2.124",
-   "commit": "197f520426374e514218ed155933ac546c98d345",
-   "published_at": "2026-08-08T15:36:16Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.124"
-  },
-  {
-   "tag": "v7.2.125",
-   "commit": "2e6b1d83f6c304a102aa33c1faf0a4f94d0d331e",
-   "published_at": "2026-08-08T21:13:12Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.125"
-  },
-  {
-   "tag": "v7.2.126",
-   "commit": "a6825fe9922b91bbfdc83a074bd7a30d1eedba45",
-   "published_at": "2026-08-09T18:57:32Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.126"
-  },
-  {
-   "tag": "v7.2.127",
-   "commit": "ecc9aa72b32f34b680d03b0724b531a21ae74472",
-   "published_at": "2026-08-09T21:15:51Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.127"
-  },
-  {
-   "tag": "v7.2.128",
-   "commit": "bd34ceca04209ef0460f4b05e3a1a047fb7fad2a",
-   "published_at": "2026-08-10T14:54:57Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.128"
-  },
-  {
-   "tag": "v7.2.129",
-   "commit": "934da2379d6272a704953a02322b666b2a2efa3e",
-   "published_at": "2026-08-12T04:07:34Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.129"
-  },
-  {
-   "tag": "v7.2.130",
-   "commit": "f43aad7637ad813745bf7d341acb5663617570c5",
-   "published_at": "2026-08-12T10:30:26Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.130"
-  },
-  {
-   "tag": "v7.2.131",
-   "commit": "323b7276bc5bd251e5497699e42c556d6316b30c",
-   "published_at": "2026-08-13T06:39:54Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.131"
-  },
-  {
-   "tag": "v7.2.132",
-   "commit": "78f0c4079e3e6273d65d03b5549cffc898703264",
-   "published_at": "2026-08-14T20:36:46Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.132"
-  },
-  {
-   "tag": "v7.2.133",
-   "commit": "7efe0a7c11adfecb7fe82f2d1128f873a9f4cbf3",
-   "published_at": "2026-08-15T19:07:37Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.133"
-  },
-  {
-   "tag": "v7.2.134",
-   "commit": "b8fbe70b37a69198568e0590d88337e793d59993",
-   "published_at": "2026-08-16T17:45:02Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.134"
   },
   {
    "tag": "v7.2.135",
    "commit": "856ddd8df746a38a6033dbbf6c140974bf5aea0f",
-   "published_at": "2026-08-17T04:55:59Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.135"
+   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.135",
+   "role": "prior-checkpoint"
   }
  ],
- "generated_at": "2026-08-17T06:47:32Z"
+ "source_range": {
+  "from_exclusive": "v7.2.135",
+  "to_inclusive": "v7.2.137"
+ },
+ "releases": [
+  {
+   "tag": "v7.2.136",
+   "commit": "497673bf6bdab783b767641bb5228e914960a879",
+   "published_at": "2026-08-18T18:19:51Z",
+   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.136"
+  },
+  {
+   "tag": "v7.2.137",
+   "commit": "85d2faddd17e6f4f8675a84ee28b131f702e8eaa",
+   "published_at": "2026-08-19T18:26:19Z",
+   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.137"
+  }
+ ],
+ "generated_at": "2026-08-20T11:47:28Z"
 }

@@ -159,7 +159,7 @@ updated: 2026-08-20
         escalation: Do not stage conflicting files; append the conflict and owner to Progress and route back to the phase lead.
   - phase_slug: r10c-gemini-leading-user-turn
     story_id: 01M0FR426Q85GCF3G8VQY1EGF0
-    status: in-progress
+    status: checked
     goal: Prepend the required empty user turn for model-first Gemini-family requests (R10c).
     depends_on: none
     allowed_surfaces:
@@ -240,6 +240,14 @@ updated: 2026-08-20
 - `2026-08-20T23:58:11Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b durable gate recorded APPROVE_WITH_REQUESTS; approved paths are verified, no SDK/config/frontend/deferred surfaces were touched, and the known baseline concerns are explicit..
 - `2026-08-20T23:59:14Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b plan synchronization recorded after the durable gate: phase checked, check 01M0GSQ4NJ9Y3A8A54G5FTA9EP linked, wave traces and proof gaps captured, and next action is owned-path commit followed by R10c..
 - `2026-08-21T00:06:15Z` — wave 1. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Phase r10c-gemini-leading-user-turn started (in-progress); mapping model-first Gemini-family validation and all normal, streaming, and count-token construction paths..
+- `2026-08-21T00:11:01Z` — wave 1, task Identify the shared turn-order helper and every Gemini, Vertex, AI Studio, and Antigravity model/count-token call path; expected output is a provider-matrix map distinguishing model-first and already-valid histories.. task_status: `DONE`. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Inventory complete: no existing shared leading-turn helper; Gemini Execute/stream/CountTokens and Vertex normal/stream/count paths use top-level contents, AI Studio translateRequest covers normal/stream/count, and Antigravity Execute/stream/CountTokens use request.contents after replay. Exact rg inventory and go test ./internal/runtime/executor/... pass; Claude models must remain untouched in Antigravity..
+- `2026-08-21T00:11:01Z` — wave 1. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c wave 1 complete: provider matrix and insertion points are mapped, with normalization deferred to executor boundaries after payload/replay rewrites and before upstream request construction..
+- `2026-08-21T12:54:05Z` — wave 2, task Prepend one empty user turn where provider validation requires it for normal model and count-token requests, without duplicating a leading user turn or mutating valid ordering. task_status: `DONE`. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Added idempotent helps.EnsureGeminiLeadingUserContent with no-copy valid-path behavior; wired Gemini, Vertex, AI Studio, and Antigravity normal/count-token boundaries, including Antigravity Claude bypass. Verified with go test ./internal/runtime/executor/... -run 'Gemini|Vertex|AIStudio|Antigravity' -count=1 and full executor tests..
+- `2026-08-21T12:54:05Z` — wave 2, task Preserve streaming and non-streaming request behavior across all four provider families. task_status: `DONE`. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Applied normalization after payload/replay rewrites and before upstream request construction for Gemini, Vertex, AI Studio, and Antigravity streaming/non-streaming paths. Regression fixtures cover normal, stream, count-token, nested payload, idempotency, and Claude bypass; focused tests and git diff --check pass..
+- `2026-08-21T12:54:11Z` — wave 2. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c wave 2 complete: shared leading-user normalization is implemented and wired across Gemini, Vertex, AI Studio, and Antigravity normal/stream/count-token paths; focused and full executor tests pass, with Claude bypass and scope checks verified..
+- `2026-08-21T12:54:46Z` — wave 3, task Run request/count-token regression coverage and inspect the diff for translator, SDK, config, and frontend drift. task_status: `DONE`. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c provider-matrix regression command passes; git diff --check passes; forbidden-surface diff is empty and working tree contains only the active plan plus approved executor/helper/test files..
+- `2026-08-21T12:54:46Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c wave 3 complete: provider-matrix regression coverage and scope invariants pass; no translator, SDK, config, or frontend drift detected..
+- `2026-08-21T13:02:44Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c durable gate synchronized: check 01M0J6J3SYKAX3P1A1YXYKHS94 recorded APPROVE_WITH_REQUESTS; aggregate baseline failures and Vertex fixture gap are explicit; phase is checked and ready for owned-path commit without push..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -267,14 +275,24 @@ updated: 2026-08-20
   - `git diff --check` → R10b unstaged whitespace check: pass
   - `git diff --cached --check` → R10b staged whitespace check: pass
   - proof_gaps: same-session gate; no independent manual review. Full internal/util remains red only on stale `.claude/worktrees/agent-*` no-copy findings, and this branch has no internal/clienterror package or upstream StreamUsageBuffer equivalent.
+- `2026-08-21T13:01:00Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0J6J3SYKAX3P1A1YXYKHS94`. run: `01M0GT77XCHB5BVSQMP34790VB`. phase: `r10c-gemini-leading-user-turn`. judge: `same-session` (gpt-5.6-luna).
+  - `go test ./internal/runtime/executor/... -run 'Gemini|Vertex|AIStudio|Antigravity' -count=1` → 2026-08-21 R10c full check: provider-matrix regression tests passed
+  - `go test ./internal/runtime/executor/... -count=1` → 2026-08-21 R10c full check: all executor package tests passed
+  - `make build` → 2026-08-21 R10c full check: web and Go build passed
+  - `git diff --check` → 2026-08-21 R10c full check: no whitespace errors
+  - `go test ./...` → FAIL: `cmd/server/TestUpdateCommandStages` reports release `v9.9.9` has no `llmhub-darwin-arm64` asset, and `internal/util/TestInPlaceByteWritesAreReviewed` reports only stale `.claude/worktrees/agent-*` writes; all R10c-owned executor packages pass. Accepted as pre-existing baseline; no R10c-owned path is implicated.
+  - `git diff -- config.example.yaml sdk web internal/managementasset/static` → pass: forbidden surfaces are unchanged.
+  - `rg` credential-pattern scan over the final R10c scope → pass: no high-confidence credential patterns found.
+  - Full Security/Performance/Architecture/Code Quality review → pass: normalization is bounded to approved executor boundaries, preserves Antigravity Claude behavior, avoids valid-path copies, and introduces no new secret, logging, retry, concurrency, SDK, translator, config, or frontend surface.
+  - proof_gaps: same-session review; Vertex normal/stream/count-token request bodies were verified by complete call-site inspection and package tests but lack dedicated HTTP capture fixtures. Aggregate repository tests remain red only on the unrelated baseline failures recorded above.
 
 ## Current State and Next Action
 - active_phase: r10c-gemini-leading-user-turn
-- lifecycle_status: in-progress
+- lifecycle_status: checked
 - latest_run_id: 01M0GT77XCHB5BVSQMP34790VB
-- latest_trace_ids: [01M0GT7G6VGEJ5W7TKBHD40WZF]
-- latest_check_id: none
+- latest_trace_ids: [01M0GTG7ZVKER9BG22PQ8Q00HG, 01M0GTG805E5HJ0J0815W6EC0M]
+- latest_check_id: 01M0J6J3SYKAX3P1A1YXYKHS94
 - latest_handoff_id: none
 - blockers: none
-- open_items: [map model-first Gemini-family request/count-token paths; implement and verify idempotent leading-user-turn normalization; run aggregate gate]
-- exact_next_action: inventory shared turn-order helpers and every Gemini, Vertex, AI Studio, and Antigravity normal/stream/count-token path before editing approved executor files
+- open_items: [commit the verified R10c implementation, helper, tests, and plan update without pushing; retain the unrelated aggregate baseline failures as explicit context]
+- exact_next_action: run the pre-commit security/scope review, stage only approved R10c paths, and create the commit without pushing

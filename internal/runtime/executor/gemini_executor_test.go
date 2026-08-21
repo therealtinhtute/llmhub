@@ -88,3 +88,109 @@ func TestGeminiExecutorExecuteCapsMaxOutputTokensBeforeUpstream(t *testing.T) {
 		t.Fatalf("upstream maxOutputTokens = %d, want 65536", upstreamMaxOutputTokens)
 	}
 }
+
+func assertGeminiLeadingUserContents(t *testing.T, body []byte) {
+	t.Helper()
+	contents := gjson.GetBytes(body, "contents").Array()
+	if len(contents) < 2 {
+		t.Fatalf("contents length = %d, want at least 2; body=%s", len(contents), body)
+	}
+	if contents[0].Get("role").String() != "user" || contents[1].Get("role").String() != "model" {
+		t.Fatalf("leading roles = %q, %q; body=%s", contents[0].Get("role").String(), contents[1].Get("role").String(), body)
+	}
+	if text := contents[0].Get("parts.0.text"); !text.Exists() || text.String() != "" {
+		t.Fatalf("synthetic leading user missing; body=%s", body)
+	}
+}
+
+func TestGeminiExecutorExecutePrependsLeadingUser(t *testing.T) {
+	var upstreamBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, errRead := io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Fatalf("read request body: %v", errRead)
+		}
+		upstreamBody = append([]byte(nil), body...)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
+	}))
+	defer server.Close()
+
+	exec := NewGeminiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	}}
+	request := cliproxyexecutor.Request{
+		Model:   "gemini-3.7-flash",
+		Payload: []byte(`{"contents":[{"role":"model","parts":[{"text":"prior output"}]},{"role":"user","parts":[{"text":"continue"}]}]}`),
+	}
+
+	if _, errExecute := exec.Execute(context.Background(), auth, request, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatGemini}); errExecute != nil {
+		t.Fatalf("Execute() error = %v", errExecute)
+	}
+	assertGeminiLeadingUserContents(t, upstreamBody)
+}
+
+func TestGeminiExecutorStreamPrependsLeadingUser(t *testing.T) {
+	captured := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, errRead := io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Errorf("read request body: %v", errRead)
+			return
+		}
+		captured <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n"))
+	}))
+	defer server.Close()
+
+	exec := NewGeminiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	}}
+	result, errExecute := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "gemini-3.7-flash",
+		Payload: []byte(`{"contents":[{"role":"model","parts":[{"text":"prior output"}]}]}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatGemini, Stream: true})
+	if errExecute != nil {
+		t.Fatalf("ExecuteStream() error = %v", errExecute)
+	}
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream chunk error = %v", chunk.Err)
+		}
+	}
+	assertGeminiLeadingUserContents(t, <-captured)
+}
+
+func TestGeminiExecutorCountTokensPrependsLeadingUser(t *testing.T) {
+	var upstreamBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, errRead := io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Fatalf("read request body: %v", errRead)
+		}
+		upstreamBody = append([]byte(nil), body...)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"totalTokens":7}`))
+	}))
+	defer server.Close()
+
+	exec := NewGeminiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	}}
+	request := cliproxyexecutor.Request{
+		Model:   "gemini-3.7-flash",
+		Payload: []byte(`{"contents":[{"role":"model","parts":[{"text":"prior output"}]}]}`),
+	}
+
+	if _, errCount := exec.CountTokens(context.Background(), auth, request, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatGemini}); errCount != nil {
+		t.Fatalf("CountTokens() error = %v", errCount)
+	}
+	assertGeminiLeadingUserContents(t, upstreamBody)
+}

@@ -2,6 +2,10 @@ package middleware
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -199,4 +203,164 @@ func (w *testStreamingLogWriter) SetFirstChunkTimestamp(time.Time) {}
 func (w *testStreamingLogWriter) Close() error {
 	w.closed = true
 	return nil
+}
+
+func TestShouldBufferResponseBodyExcludesClientCancellation(t *testing.T) {
+	wrapper := &ResponseWriterWrapper{
+		logOnErrorOnly: true,
+		statusCode:     statusClientClosedRequest,
+	}
+	if wrapper.shouldBufferResponseBody() {
+		t.Fatal("expected 499 response body not to be buffered in error-only mode")
+	}
+
+	wrapper.statusCode = http.StatusInternalServerError
+	if !wrapper.shouldBufferResponseBody() {
+		t.Fatal("expected 500 response body to be buffered in error-only mode")
+	}
+}
+
+func TestHasActionableError(t *testing.T) {
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		ctx        context.Context
+		apiErrors  []*interfaces.ErrorMessage
+		want       bool
+	}{
+		{
+			name:       "499 client closed request",
+			statusCode: statusClientClosedRequest,
+		},
+		{
+			name:       "200 with canceled context",
+			statusCode: http.StatusOK,
+			ctx:        canceledCtx,
+		},
+		{
+			name:       "400 bad request",
+			statusCode: http.StatusBadRequest,
+			want:       true,
+		},
+		{
+			name:       "503 with canceled context remains actionable",
+			statusCode: http.StatusServiceUnavailable,
+			ctx:        canceledCtx,
+			want:       true,
+		},
+		{
+			name:       "200 with wrapped canceled API error",
+			statusCode: http.StatusOK,
+			apiErrors: []*interfaces.ErrorMessage{{
+				Error: fmt.Errorf("read: %w", context.Canceled),
+			}},
+		},
+		{
+			name:       "200 with actionable API error",
+			statusCode: http.StatusOK,
+			apiErrors: []*interfaces.ErrorMessage{{
+				StatusCode: http.StatusBadGateway,
+				Error:      errors.New("upstream failed"),
+			}},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			if tc.ctx != nil {
+				request = request.WithContext(tc.ctx)
+			}
+			c.Request = request
+
+			if got := hasActionableError(c, tc.statusCode, tc.apiErrors); got != tc.want {
+				t.Fatalf("hasActionableError(status=%d) = %t, want %t", tc.statusCode, got, tc.want)
+			}
+		})
+	}
+}
+
+type recordingRequestLogger struct {
+	loggedCalls []int
+	enabled     bool
+}
+
+func (l *recordingRequestLogger) LogRequest(_ string, _ string, _ map[string][]string, _ []byte, statusCode int, _ map[string][]string, _ []byte, _ []byte, _ []byte, _ []byte, _ []byte, _ []*interfaces.ErrorMessage, _ string, _ time.Time, _ time.Time) error {
+	l.loggedCalls = append(l.loggedCalls, statusCode)
+	return nil
+}
+
+func (l *recordingRequestLogger) LogStreamingRequest(string, string, map[string][]string, []byte, string) (logging.StreamingLogWriter, error) {
+	return &testStreamingLogWriter{}, nil
+}
+
+func (l *recordingRequestLogger) IsEnabled() bool {
+	return l.enabled
+}
+
+func (l *recordingRequestLogger) LogRequestWithOptions(_ string, _ string, _ map[string][]string, _ []byte, statusCode int, _ map[string][]string, _ []byte, _ []byte, _ []byte, _ []byte, _ []byte, _ []*interfaces.ErrorMessage, force bool, _ string, _ time.Time, _ time.Time) error {
+	if force || l.enabled {
+		l.loggedCalls = append(l.loggedCalls, statusCode)
+	}
+	return nil
+}
+
+func TestFinalizeExcludesClientCancellationFromForceLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	logger := &recordingRequestLogger{}
+	wrapper := &ResponseWriterWrapper{
+		ResponseWriter: c.Writer,
+		logger:         logger,
+		logOnErrorOnly: true,
+		statusCode:     statusClientClosedRequest,
+		requestInfo: &RequestInfo{
+			URL:       "/v1/responses",
+			Method:    http.MethodPost,
+			RequestID: "req-499",
+		},
+	}
+
+	if err := wrapper.Finalize(c); err != nil {
+		t.Fatalf("Finalize error: %v", err)
+	}
+	if len(logger.loggedCalls) != 0 {
+		t.Fatalf("expected no forced log for 499, got %v", logger.loggedCalls)
+	}
+}
+
+func TestFinalizeIncludesServerFailureInForceLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	logger := &recordingRequestLogger{}
+	wrapper := &ResponseWriterWrapper{
+		ResponseWriter: c.Writer,
+		logger:         logger,
+		logOnErrorOnly: true,
+		statusCode:     http.StatusInternalServerError,
+		requestInfo: &RequestInfo{
+			URL:       "/v1/responses",
+			Method:    http.MethodPost,
+			RequestID: "req-500",
+		},
+	}
+
+	if err := wrapper.Finalize(c); err != nil {
+		t.Fatalf("Finalize error: %v", err)
+	}
+	if len(logger.loggedCalls) != 1 || logger.loggedCalls[0] != http.StatusInternalServerError {
+		t.Fatalf("expected one forced 500 log, got %v", logger.loggedCalls)
+	}
 }

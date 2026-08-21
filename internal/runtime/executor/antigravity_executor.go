@@ -335,6 +335,13 @@ func validateAntigravityRequestSignatures(from sdktranslator.Format, rawJSON []b
 	return rawJSON, nil
 }
 
+func ensureAntigravityGeminiLeadingUserContent(modelName string, payload []byte) []byte {
+	if strings.Contains(strings.ToLower(modelName), "claude") {
+		return payload
+	}
+	return helps.EnsureGeminiLeadingUserContent(payload, "request.contents")
+}
+
 // Identifier returns the executor identifier.
 func (e *AntigravityExecutor) Identifier() string { return antigravityAuthType }
 
@@ -628,6 +635,7 @@ attemptLoop:
 				}
 			}
 
+			requestPayload = ensureAntigravityGeminiLeadingUserContent(baseModel, requestPayload)
 			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, false, opts.Alt, baseURL)
 			if errReq != nil {
 				err = errReq
@@ -830,6 +838,7 @@ attemptLoop:
 					helps.MarkCreditsUsed(ctx)
 				}
 			}
+			requestPayload = ensureAntigravityGeminiLeadingUserContent(baseModel, requestPayload)
 			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL)
 			if errReq != nil {
 				err = errReq
@@ -1298,6 +1307,7 @@ attemptLoop:
 					helps.MarkCreditsUsed(ctx)
 				}
 			}
+			requestPayload = ensureAntigravityGeminiLeadingUserContent(baseModel, requestPayload)
 			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL)
 			if errReq != nil {
 				err = errReq
@@ -1586,6 +1596,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 	payload = deleteJSONField(payload, "project")
 	payload = deleteJSONField(payload, "model")
 	payload = deleteJSONField(payload, "request.safetySettings")
+	payload = ensureAntigravityGeminiLeadingUserContent(baseModel, payload)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newAntigravityHTTPClient(ctx, e.cfg, auth, 0)

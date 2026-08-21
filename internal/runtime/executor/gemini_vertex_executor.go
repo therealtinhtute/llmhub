@@ -356,6 +356,7 @@ func (e *GeminiVertexExecutor) executeWithServiceAccount(ctx context.Context, au
 		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
 	}
 	body, _ = sjson.DeleteBytes(body, "session_id")
+	body = helps.EnsureGeminiLeadingUserContent(body, "contents")
 
 	httpReq, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if errNewReq != nil {
@@ -484,6 +485,7 @@ func (e *GeminiVertexExecutor) executeWithAPIKey(ctx context.Context, auth *clip
 		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
 	}
 	body, _ = sjson.DeleteBytes(body, "session_id")
+	body = helps.EnsureGeminiLeadingUserContent(body, "contents")
 
 	httpReq, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if errNewReq != nil {
@@ -595,6 +597,7 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 		}
 	}
 	body, _ = sjson.DeleteBytes(body, "session_id")
+	body = helps.EnsureGeminiLeadingUserContent(body, "contents")
 
 	httpReq, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if errNewReq != nil {
@@ -741,6 +744,7 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 		}
 	}
 	body, _ = sjson.DeleteBytes(body, "session_id")
+	body = helps.EnsureGeminiLeadingUserContent(body, "contents")
 
 	httpReq, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if errNewReq != nil {
@@ -860,6 +864,7 @@ func (e *GeminiVertexExecutor) countTokensWithServiceAccount(ctx context.Context
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "tools")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "generationConfig")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "safetySettings")
+	translatedReq = helps.EnsureGeminiLeadingUserContent(translatedReq, "contents")
 
 	baseURL := vertexBaseURL(location)
 	url := fmt.Sprintf("%s/%s/projects/%s/locations/%s/publishers/google/models/%s:%s", baseURL, vertexAPIVersion, projectID, location, baseModel, "countTokens")
@@ -950,6 +955,7 @@ func (e *GeminiVertexExecutor) countTokensWithAPIKey(ctx context.Context, auth *
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "tools")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "generationConfig")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "safetySettings")
+	translatedReq = helps.EnsureGeminiLeadingUserContent(translatedReq, "contents")
 
 	// For API key auth, use simpler URL format without project/location
 	if baseURL == "" {

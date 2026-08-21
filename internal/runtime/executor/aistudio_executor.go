@@ -469,6 +469,7 @@ func (e *AIStudioExecutor) translateRequest(req cliproxyexecutor.Request, opts c
 		action = "streamGenerateContent"
 	}
 	payload, _ = sjson.DeleteBytes(payload, "session_id")
+	payload = helps.EnsureGeminiLeadingUserContent(payload, "contents")
 	return payload, translatedPayload{payload: payload, action: action, toFormat: to}, nil
 }
 

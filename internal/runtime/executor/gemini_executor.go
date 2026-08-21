@@ -151,6 +151,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 
 	body, _ = sjson.DeleteBytes(body, "session_id")
+	body = helps.EnsureGeminiLeadingUserContent(body, "contents")
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -259,6 +260,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	}
 
 	body, _ = sjson.DeleteBytes(body, "session_id")
+	body = helps.EnsureGeminiLeadingUserContent(body, "contents")
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -379,6 +381,7 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "generationConfig")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "safetySettings")
 	translatedReq, _ = sjson.SetBytes(translatedReq, "model", baseModel)
+	translatedReq = helps.EnsureGeminiLeadingUserContent(translatedReq, "contents")
 
 	baseURL := resolveGeminiBaseURL(auth)
 	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, baseModel, "countTokens")

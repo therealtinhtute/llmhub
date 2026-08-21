@@ -159,7 +159,7 @@ updated: 2026-08-20
         escalation: Do not stage conflicting files; append the conflict and owner to Progress and route back to the phase lead.
   - phase_slug: r10c-gemini-leading-user-turn
     story_id: 01M0FR426Q85GCF3G8VQY1EGF0
-    status: planned
+    status: in-progress
     goal: Prepend the required empty user turn for model-first Gemini-family requests (R10c).
     depends_on: none
     allowed_surfaces:
@@ -239,6 +239,7 @@ updated: 2026-08-20
 - `2026-08-20T23:58:11Z` — wave 3, task Run the native-parity package matrix, inspect staged paths, and confirm no deferred/rejected delta was included; expected output is a reviewable R10b diff and exact verification record.. task_status: `DONE_WITH_CONCERNS`. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: Translator, executor, middleware, focused schema, and staged/unstaged whitespace checks pass. The local branch has no internal/clienterror package, and full internal/util remains affected only by stale sibling-worktree no-copy findings; neither was expanded into R10b..
 - `2026-08-20T23:58:11Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b durable gate recorded APPROVE_WITH_REQUESTS; approved paths are verified, no SDK/config/frontend/deferred surfaces were touched, and the known baseline concerns are explicit..
 - `2026-08-20T23:59:14Z` — wave 3. run: `01M0FTXH2WRSCTAF4RGFRBNM6Q`. summary: R10b plan synchronization recorded after the durable gate: phase checked, check 01M0GSQ4NJ9Y3A8A54G5FTA9EP linked, wave traces and proof gaps captured, and next action is owned-path commit followed by R10c..
+- `2026-08-21T00:06:15Z` — wave 1. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Phase r10c-gemini-leading-user-turn started (in-progress); mapping model-first Gemini-family validation and all normal, streaming, and count-token construction paths..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -268,12 +269,12 @@ updated: 2026-08-20
   - proof_gaps: same-session gate; no independent manual review. Full internal/util remains red only on stale `.claude/worktrees/agent-*` no-copy findings, and this branch has no internal/clienterror package or upstream StreamUsageBuffer equivalent.
 
 ## Current State and Next Action
-- active_phase: r10b-native-parity
-- lifecycle_status: checked
-- latest_run_id: 01M0FTXH2WRSCTAF4RGFRBNM6Q
-- latest_trace_ids: [01M0GSRQM2MX3EVRMQR5VBSTYJ, 01M0GSRQM2MX3EVRMQR825026G, 01M0GSRQMASXBN410NYTZFV3G8, 01M0GSRQMJ0H84DZAB6Y2ZC8JK, 01M0GSRQMSBYEXAT855ERMPGBC]
-- latest_check_id: 01M0GSQ4NJ9Y3A8A54G5FTA9EP
+- active_phase: r10c-gemini-leading-user-turn
+- lifecycle_status: in-progress
+- latest_run_id: 01M0GT77XCHB5BVSQMP34790VB
+- latest_trace_ids: [01M0GT7G6VGEJ5W7TKBHD40WZF]
+- latest_check_id: none
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit R10b owned paths; then start R10c Gemini/Antigravity leading-user-turn phase]
-- exact_next_action: stage and commit only the verified R10b translator, executor, middleware, and test paths; do not include deferred or rejected upstream deltas
+- open_items: [map model-first Gemini-family request/count-token paths; implement and verify idempotent leading-user-turn normalization; run aggregate gate]
+- exact_next_action: inventory shared turn-order helpers and every Gemini, Vertex, AI Studio, and Antigravity normal/stream/count-token path before editing approved executor files

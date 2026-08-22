@@ -6,11 +6,9 @@
 package gemini
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"strings"
 
 	"github.com/google/uuid"
@@ -67,24 +65,12 @@ func ConvertGeminiRequestToClaude(modelName string, inputRawJSON []byte, stream 
 
 	root := gjson.ParseBytes(rawJSON)
 
-	// Helper for generating tool call IDs in the form: toolu_<alphanum>
-	// This ensures unique identifiers for tool calls in the Claude Code format
-	genToolCallID := func() string {
-		const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-		var b strings.Builder
-		// 24 chars random suffix for uniqueness
-		for i := 0; i < 24; i++ {
-			n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
-			b.WriteByte(letters[n.Int64()])
-		}
-		return "toolu_" + b.String()
-	}
-
 	// FIFO queue to store tool call IDs for matching with tool results
 	// Gemini uses sequential pairing across possibly multiple in-flight
 	// functionCalls, so we keep a FIFO queue of generated tool IDs and
 	// consume them in order when functionResponses arrive.
 	var pendingToolIDs []string
+	toolCallCounter := 0
 
 	// Model mapping to specify which Claude Code model to use
 	out, _ = sjson.SetBytes(out, "model", modelName)
@@ -262,9 +248,10 @@ func ConvertGeminiRequestToClaude(modelName string, inputRawJSON []byte, stream 
 					if fc := part.Get("functionCall"); fc.Exists() && role == "assistant" {
 						toolUse := []byte(`{"type":"tool_use","id":"","name":"","input":{}}`)
 
-						// Generate a unique tool ID and enqueue it for later matching
-						// with the corresponding functionResponse
-						toolID := genToolCallID()
+						// Generate a deterministic sequential tool ID and enqueue it
+						// for later matching with the corresponding functionResponse
+						toolCallCounter++
+						toolID := fmt.Sprintf("toolu_gemini_%016d", toolCallCounter)
 						pendingToolIDs = append(pendingToolIDs, toolID)
 						toolUse, _ = sjson.SetBytes(toolUse, "id", toolID)
 
@@ -291,7 +278,8 @@ func ConvertGeminiRequestToClaude(modelName string, inputRawJSON []byte, stream 
 							pendingToolIDs = pendingToolIDs[1:]
 						} else {
 							// Fallback: generate new ID if no pending tool_use found
-							toolID = genToolCallID()
+							toolCallCounter++
+							toolID = fmt.Sprintf("toolu_gemini_%016d", toolCallCounter)
 						}
 						toolResult, _ = sjson.SetBytes(toolResult, "tool_use_id", toolID)
 

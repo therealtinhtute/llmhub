@@ -116,7 +116,7 @@ updated: 2026-08-22
         escalation: Mark blocked with the colliding format evidence; do not change ID scheme unilaterally.
   - phase_slug: r11b-runtime-hardening
     story_id: 01M0MPWHTF122GTAAM3DZ5KMHG
-    status: planned
+    status: checked
     goal: Port xAI incomplete-terminal handling, the Gemini thought-signature sanitizer, and Gemini 3.7 Flash registry entries (R7, R8, R9).
     depends_on: none
     allowed_surfaces:
@@ -248,24 +248,35 @@ updated: 2026-08-22
 - `2026-08-22T13:22:20Z` — wave 3, task Preserve Gemini thought signatures into thinking blocks in non-stream Claude conversion including signature-only part skip per 3db591eecd6a. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: gemini_claude_response.go ConvertGeminiResponseToClaudeNonStream now captures thoughtSignature/thought_signature into the thinking block signature field, treats signature-bearing text as thinking, skips signature-only parts, and flushes signature-only trailing blocks; new gemini_claude_response_test.go covers preserve/snake-case/trailing cases; full translator suite + git diff --check green.
 - `2026-08-22T13:22:42Z` — wave 3. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: R11a wave 3 complete: R5 deterministic tool-call IDs in claude/codex gemini request conversions and R6 thought-signature preservation in non-stream Claude conversion ported with regression tests; full go test ./internal/translator/... -count=1 green; git diff --check clean; all changed files within internal/translator/ allowed surfaces (plan file excluded as harness bookkeeping)..
 - `2026-08-22T13:35:47Z` — wave 0. summary: R11a phase gated: check 01M0MTTEXG8S1HD5K7K3KYC1E0 APPROVE_WITH_REQUESTS by independent judge; out_of_order drift resolved (latest check now belongs to latest run); remaining stale_index refreshes with this record; next action commit r11a diff then work full on r11b wave 1..
+- `2026-08-22T14:01:44Z` — wave 1, task phase-start. task_status: `DONE`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Phase r11b-runtime-hardening started: run created; wave 1 = R7 xAI response.incomplete terminal success..
+- `2026-08-22T14:46:19Z` — wave 1, task Treat response.incomplete as terminal success in both execute and stream switches per 9d6b5cdd163b, feeding no incomplete event into any replay cache. task_status: `DONE`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Both switches in xai_executor.go accept response.incomplete; no replay cache exists locally so the gating clause is vacuous (recorded honestly); required extending ConvertCodexResponseToOpenAIResponsesNonStream to accept incomplete as terminal (decision 01M0MXCKM76WG4YPEN7NQHGC37); TestXAIExecutorExecuteAcceptsResponseIncomplete + ExecuteStreamForwardsResponseIncomplete pass.
+- `2026-08-22T14:46:41Z` — wave 2, task Add a request thought-signature sanitizer under internal/signature/ per 4053c026e79c with unit coverage. task_status: `DONE`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Copied upstream gemini_sanitize.go + tests, adapted module path, added local GeminiSkipThoughtSignatureValidator constant and test envelope helpers; full internal/signature suite green.
+- `2026-08-22T14:46:41Z` — wave 2, task Wire it into Gemini and Vertex executors across execute/stream/count-tokens call sites. task_status: `DONE_WITH_CONCERNS`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Wired 9 call sites (3 gemini + 6 vertex) matching upstream positions after payload-config/cap/strip and before leading-user normalization; concern recorded as decision: local signature package lacked field-2 Gemini 3.x envelope recognition so helpers were ported into gemini_validation.go and Gemini detection now precedes loose Claude probes in DetectSignatureProviderForBlock; all executor/signature/registry suites green.
+- `2026-08-22T14:46:59Z` — wave 3, task Register gemini-3.7-flash in the gemini, vertex, and gemini-cli sections via manual JSON merge of the locally diverged models.json per 85e7add6adf3. task_status: `DONE_WITH_CONCERNS`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Merged upstream entries into gemini, vertex, and aistudio sections (upstream commit actually touches aistudio, not gemini-cli — decision 01M0MYZ4VQMWCZSS82PE2TCPXZ records following the commit as authority); inserted after gemini-3.6-flash anchor in each; TestGemini37FlashRegisteredAcrossGeminiSurfaces asserts type/context/thinking across all three; registry suite green.
+- `2026-08-22T14:46:59Z` — wave 3. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: R11b waves complete: R7 xAI incomplete-terminal (executor + codex converter), R8 thought-signature sanitizer package + 9-site wiring with envelope-recognition port, R9 gemini-3.7-flash registry entries; go test executor+signature+registry all green; git diff --check clean..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- none
+- `2026-08-22T14:18:25Z` — Extend R7 surface into internal/translator/codex/openai/responses/codex_openai-responses_response.go: the non-stream converter must accept response.incomplete alongside response.completed as terminal. rationale: The executor switch alone returns an empty translated payload because the registered OpenaiResponse-Codex non-stream converter rejects incomplete events; upstream v7.2.139 converter accepts both (verified against 9d6b5cdd163b tree) and the local codex_claude_response.go:274 already follows the same both-terminal pattern.
+- `2026-08-22T14:46:01Z` — Ported the missing Gemini thought-signature envelope recognition instead of copying upstream gemini_validation.go wholesale. rationale: Local signature package diverged: it lacked the field-2 (Gemini 3.x) envelope validator that upstream Decide relies on, so native signatures were replaced with bypass sentinels. Added consumeGeminiField2Field1Value/isLikelyGeminiOpaquePayload/isASCIIUUIDBytes to gemini_validation.go and ordered exact-shape Gemini detection before the looser Claude decodability probes in DetectSignatureProviderForBlock; full package suite stays green.
+- `2026-08-22T14:46:01Z` — Registered gemini-3.7-flash in the gemini, vertex, and aistudio sections rather than gemini-cli as the plan wording states. rationale: Upstream commit 85e7add6adf3 touches exactly those three sections in models.json; the commit is the requirement authority and the local aistudio section exists with the same gemini-3.6-flash insertion anchor.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
 - `2026-08-22T13:33:34Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0MTTEXG8S1HD5K7K3KYC1E0`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. phase: `r11a-translator-fixes`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd65aa099ffekIoBCqCGPbqgjH)).
   - `go test ./internal/translator/... -count=1` → Validation r11a gate: pass (19 ok packages, exit 0)
   - `git diff --check` → Validation r11a gate: pass
+- `2026-08-22T15:05:39Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0N032VA6FTS9Z6GNMGAAHX9`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. phase: `r11b-runtime-hardening`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd6049328ffe8QaVykMsKseP5C)).
+  - `go test ./internal/runtime/executor/ ./internal/signature/ ./internal/registry/ -count=1` → Validation r11b gate: all three packages ok
+  - `git diff --check` → Validation r11b gate: pass
 
 ## Current State and Next Action
-- active_phase: r11a-translator-fixes
+- active_phase: r11b-runtime-hardening
 - lifecycle_status: checked
-- latest_run_id: 01M0MQXH8A4KX2DRTWKQWGY045
-- latest_trace_ids: [01M0MT6K0EPJQ91R3NRG8GMKVJ]
-- latest_check_id: 01M0MTTEXG8S1HD5K7K3KYC1E0
+- latest_run_id: 01M0MWDKZMR02ATRAGMXDJ5577
+- latest_trace_ids: [01M0MZ0X3D8VEGAZ28BZQ079CY]
+- latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit the approved r11a diff without pushing; then execute r11b-runtime-hardening]
-- exact_next_action: commit the r11a translator diff via git, then run `work full` on phase r11b-runtime-hardening wave 1
+- open_items: [commit the approved r11b diff; then execute r11c-managed-settings]
+- exact_next_action: commit r11b via git without pushing, then run `work full` on phase r11c-managed-settings wave 1

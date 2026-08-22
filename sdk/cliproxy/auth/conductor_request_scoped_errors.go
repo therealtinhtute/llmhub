@@ -87,6 +87,18 @@ func extractRequestScopedErrorRules(auth *Auth, cfg *internalconfig.Config) []in
 		return nil
 	}
 
+	// Global OAuth request-scoped rules apply only to OAuth/file-backed auth entries;
+	// API-key credentials keep their per-credential and per-provider rules below.
+	if auth.Attributes != nil && strings.EqualFold(strings.TrimSpace(auth.Attributes["auth_kind"]), "oauth") {
+		if len(cfg.OAuthRequestScopedErrors) > 0 {
+			oauthProvider := strings.ToLower(strings.TrimSpace(auth.Provider))
+			if rules, ok := cfg.OAuthRequestScopedErrors[oauthProvider]; ok && len(rules) > 0 {
+				return rules
+			}
+		}
+		return nil
+	}
+
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
 	index := -1
 	if auth.Attributes != nil {

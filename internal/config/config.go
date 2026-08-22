@@ -168,6 +168,12 @@ type Config struct {
 	// gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, and vertex-api-key.
 	OAuthModelAlias map[string][]OAuthModelAlias `yaml:"oauth-model-alias,omitempty" json:"oauth-model-alias,omitempty"`
 
+	// OAuthRequestScopedErrors defines per-provider request-scoped error rules applied to OAuth/file-backed auth entries.
+	// Supported channels include: vertex, aistudio, antigravity, claude, codex, kimi, xai, and OAuth plugin provider keys.
+	//
+	// NOTE: This applies only to OAuth credentials and does not affect per-credential request-scoped-errors under *-api-key.
+	OAuthRequestScopedErrors map[string][]RequestScopedErrorRule `yaml:"oauth-request-scoped-errors,omitempty" json:"oauth-request-scoped-errors,omitempty"`
+
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
@@ -815,6 +821,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize global OAuth model name aliases.
 	cfg.SanitizeOAuthModelAlias()
 
+	// Normalize and validate global OAuth request-scoped error rules.
+	cfg.SanitizeOAuthRequestScopedErrors()
+
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 
@@ -962,6 +971,54 @@ func (cfg *Config) SanitizeOAuthModelAlias() {
 		}
 	}
 	cfg.OAuthModelAlias = out
+}
+
+// SanitizeOAuthRequestScopedErrors normalizes and validates global OAuth request-scoped error rules.
+// It trims whitespace, normalizes channel keys to lower-case, validates status/action, and drops invalid rules.
+func (cfg *Config) SanitizeOAuthRequestScopedErrors() {
+	if cfg == nil || len(cfg.OAuthRequestScopedErrors) == 0 {
+		return
+	}
+	out := make(map[string][]RequestScopedErrorRule, len(cfg.OAuthRequestScopedErrors))
+	for rawChannel, rules := range cfg.OAuthRequestScopedErrors {
+		channel := strings.ToLower(strings.TrimSpace(rawChannel))
+		if channel == "" || len(rules) == 0 {
+			continue
+		}
+		clean := make([]RequestScopedErrorRule, 0, len(rules))
+		for _, r := range rules {
+			action := strings.ToLower(strings.TrimSpace(r.Action))
+			match := make([]string, 0, len(r.Match))
+			for _, m := range r.Match {
+				if tm := strings.TrimSpace(m); tm != "" {
+					match = append(match, tm)
+				}
+			}
+			matchRegexr := make([]string, 0, len(r.MatchRegexr))
+			for _, re := range r.MatchRegexr {
+				if tre := strings.TrimSpace(re); tre != "" {
+					matchRegexr = append(matchRegexr, tre)
+				}
+			}
+			if r.Status <= 0 || (len(match) == 0 && len(matchRegexr) == 0) || action == "" {
+				continue
+			}
+			clean = append(clean, RequestScopedErrorRule{
+				Status:      r.Status,
+				Match:       match,
+				MatchRegexr: matchRegexr,
+				Action:      action,
+			})
+		}
+		if len(clean) > 0 {
+			out[channel] = clean
+		}
+	}
+	if len(out) == 0 {
+		cfg.OAuthRequestScopedErrors = nil
+		return
+	}
+	cfg.OAuthRequestScopedErrors = out
 }
 
 // SanitizeOpenAICompatibility removes OpenAI-compatibility provider entries that are

@@ -795,7 +795,7 @@ export function LogsPage() {
                         'grid grid-cols-[170px_1fr] gap-3 py-[10px] px-3 border-b border-border',
                         'border-l-[3px] border-l-transparent cursor-copy',
                         'font-mono text-[12.5px] leading-[1.45] text-foreground',
-                        'hover:bg-primary/[0.06]',
+                        'transition-colors duration-100 hover:bg-primary/[0.06]',
                         // tablet
                         'max-[960px]:grid-cols-[140px_1fr] max-[960px]:gap-2 max-[960px]:py-2 max-[960px]:px-[10px] max-[960px]:text-[12px]',
                         // mobile

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { FormInput } from '@/components/ui/FormInput';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Reveal, useAnimatedNumber } from '@/components/motion';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { quotaAlertsApi } from '@/services/api';
@@ -32,6 +33,15 @@ const PROVIDERS: Array<{ provider: QuotaAlertProvider; label: string }> = [
 ];
 
 const pageQuery: QuotaAlertPageQuery = { limit: 100 };
+
+function StatNumber({ value, className }: { value: number; className?: string }) {
+  const animated = useAnimatedNumber(value);
+  return (
+    <div className={cn('text-2xl font-bold tabular-nums', className)}>
+      {Math.round(animated)}
+    </div>
+  );
+}
 
 const defaultSettings = (): QuotaAlertSettings => ({
   revision: 0,
@@ -450,22 +460,19 @@ export function QuotaMonitoringPage() {
       {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
       <div className="grid gap-3 md:grid-cols-4">
-        <Card className="gap-2 py-4">
-          <div className="text-xs font-medium text-muted-foreground">{t('quota_monitoring.summary_total', { defaultValue: 'Tracked states' })}</div>
-          <div className="text-2xl font-bold text-foreground tabular-nums">{states.length}</div>
-        </Card>
-        <Card className="gap-2 py-4">
-          <div className="text-xs font-medium text-muted-foreground">{t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' })}</div>
-          <div className="text-2xl font-bold text-red-600 tabular-nums">{healthSummary.exhausted}</div>
-        </Card>
-        <Card className="gap-2 py-4">
-          <div className="text-xs font-medium text-muted-foreground">{t('quota_monitoring.summary_warning', { defaultValue: 'Warning' })}</div>
-          <div className="text-2xl font-bold text-amber-600 tabular-nums">{healthSummary.warning}</div>
-        </Card>
-        <Card className="gap-2 py-4">
-          <div className="text-xs font-medium text-muted-foreground">{t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' })}</div>
-          <div className="text-2xl font-bold text-emerald-600 tabular-nums">{healthSummary.healthy}</div>
-        </Card>
+        {[
+          { label: t('quota_monitoring.summary_total', { defaultValue: 'Tracked states' }), value: states.length, className: 'text-foreground' },
+          { label: t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' }), value: healthSummary.exhausted, className: 'text-red-600' },
+          { label: t('quota_monitoring.summary_warning', { defaultValue: 'Warning' }), value: healthSummary.warning, className: 'text-amber-600' },
+          { label: t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' }), value: healthSummary.healthy, className: 'text-emerald-600' },
+        ].map((stat, index) => (
+          <Reveal key={stat.label} delay={index * 45}>
+            <Card className="gap-2 py-4">
+              <div className="text-xs font-medium text-muted-foreground">{stat.label}</div>
+              <StatNumber value={stat.value} className={stat.className} />
+            </Card>
+          </Reveal>
+        ))}
       </div>
 
       <Card title={t('quota_monitoring.settings_title', { defaultValue: 'Alert settings' })}>

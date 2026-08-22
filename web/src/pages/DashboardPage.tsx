@@ -1,18 +1,55 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { IconKey, IconBot, IconFileText, IconSatellite } from '@/components/ui/icons';
+import { Reveal, useAnimatedNumber } from '@/components/motion';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { useAuthStore, useConfigStore, useModelsStore } from '@/stores';
 import { apiKeysApi, providersApi, authFilesApi } from '@/services/api';
 
 interface QuickStat {
   label: string;
-  value: number | string;
+  value: number | null;
   icon: React.ReactNode;
   path: string;
   loading?: boolean;
   sublabel?: string;
 }
+
+/**
+ * Count-up stat display. Stays mounted across loading flips so
+ * useAnimatedNumber can tween 0 -> N on first data arrival.
+ */
+function StatNumber({
+  value,
+  loading,
+  large,
+}: {
+  value: number | null;
+  loading: boolean;
+  large?: boolean;
+}) {
+  const animated = useAnimatedNumber(value ?? 0);
+
+  if (value === null) {
+    if (!loading) return <>-</>;
+    return (
+      <Skeleton
+        className={large ? 'inline-block h-10 w-28 align-middle' : 'inline-block h-7 w-16 align-middle'}
+      />
+    );
+  }
+  return <>{Math.round(animated)}</>;
+}
+
+const pillStyle: CSSProperties = {
+  background: 'color-mix(in srgb, var(--background) 68%, transparent)',
+  border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
+};
+const pillClass =
+  'inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px] backdrop-blur-[10px]';
 
 interface ProviderStats {
   gemini: number | null;
@@ -200,7 +237,7 @@ export function DashboardPage() {
   const quickStats: QuickStat[] = [
     {
       label: t('dashboard.management_keys'),
-      value: stats.apiKeys ?? '-',
+      value: stats.apiKeys,
       icon: <IconKey size={24} />,
       path: '/config',
       loading: loading && stats.apiKeys === null,
@@ -208,7 +245,7 @@ export function DashboardPage() {
     },
     {
       label: t('nav.ai_providers'),
-      value: loading ? '-' : providerStatsReady ? totalProviderKeys : '-',
+      value: providerStatsReady ? totalProviderKeys : null,
       icon: <IconBot size={24} />,
       path: '/ai-providers',
       loading: loading,
@@ -223,7 +260,7 @@ export function DashboardPage() {
     },
     {
       label: t('nav.auth_files'),
-      value: stats.authFiles ?? '-',
+      value: stats.authFiles,
       icon: <IconFileText size={24} />,
       path: '/auth-files',
       loading: loading && stats.authFiles === null,
@@ -231,7 +268,7 @@ export function DashboardPage() {
     },
     {
       label: t('dashboard.available_models'),
-      value: modelsLoading ? '-' : models.length,
+      value: modelsLoading ? null : models.length,
       icon: <IconSatellite size={24} />,
       path: '/models',
       loading: modelsLoading,
@@ -273,20 +310,40 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-8 max-w-[1000px] mx-auto relative">
+      {/* Ambient orb drift — transform-only, disabled under prefers-reduced-motion */}
+      <style>{`
+        @keyframes llmhub-dash-orb-drift {
+          from { transform: translate3d(0, 0, 0) scale(1); }
+          to { transform: translate3d(-22px, 28px, 0) scale(1.05); }
+        }
+        .dashboard-orb-a {
+          animation: llmhub-dash-orb-drift 38s var(--ease-out, ease-out) infinite alternate;
+        }
+        .dashboard-orb-b {
+          animation: llmhub-dash-orb-drift 46s var(--ease-out, ease-out) infinite alternate-reverse;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dashboard-orb-a,
+          .dashboard-orb-b {
+            animation: none;
+          }
+        }
+      `}</style>
+
       {/* Decorative background orbs */}
       <div
         className="absolute inset-0 pointer-events-none z-0 overflow-hidden opacity-[0.42] blur-[16px]"
         aria-hidden="true"
       >
         <div
-          className="absolute w-[420px] h-[420px] rounded-full top-[-140px] right-[-80px]"
+          className="dashboard-orb-a absolute w-[420px] h-[420px] rounded-full top-[-140px] right-[-80px] will-change-transform"
           style={{
             background:
               'radial-gradient(circle, color-mix(in srgb, var(--primary) 6%, transparent), transparent 70%)',
             }}
         />
         <div
-          className="absolute w-[320px] h-[320px] rounded-full bottom-[18%] left-[-100px]"
+          className="dashboard-orb-b absolute w-[320px] h-[320px] rounded-full bottom-[18%] left-[-100px] will-change-transform"
           style={{
             background:
               'radial-gradient(circle, color-mix(in srgb, var(--success) 4%, transparent), transparent 70%)',
@@ -296,13 +353,11 @@ export function DashboardPage() {
 
       {/* Hero welcome section */}
       <section
-        className="relative z-[1] flex items-end justify-between gap-6 px-8 py-12 overflow-hidden max-md:flex-col max-md:items-start max-md:px-6 max-md:py-8"
+        className="relative z-[1] flex items-end justify-between gap-6 px-8 py-12 overflow-hidden backdrop-blur-md max-md:flex-col max-md:items-start max-md:px-6 max-md:py-8"
         style={{
           background:
             'linear-gradient(135deg, color-mix(in srgb, var(--background) 92%, transparent), color-mix(in srgb, var(--muted) 80%, transparent))',
           border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
         }}
       >
         <span
@@ -336,12 +391,10 @@ export function DashboardPage() {
             <span className="text-[12px] text-muted-foreground">{formattedDate}</span>
           </div>
           <div
-            className="inline-flex items-center gap-[6px] px-3 py-[5px] rounded-full text-[12px]"
+            className="inline-flex items-center gap-[6px] px-3 py-[5px] rounded-full text-[12px] backdrop-blur-[8px]"
             style={{
               background: 'color-mix(in srgb, var(--muted) 80%, transparent)',
               border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
             }}
           >
             <span
@@ -381,174 +434,133 @@ export function DashboardPage() {
         </h2>
         <div className="grid grid-cols-3 gap-4 max-[900px]:grid-cols-2 max-[500px]:grid-cols-1">
           {quickStats.map((stat, index) => (
-            <Link
+            <Reveal
               key={stat.path}
-              to={stat.path}
-              className={[
-                'flex flex-col gap-4 p-6 text-decoration-none',
-                index === 0 ? 'row-span-2 justify-center max-[900px]:row-auto' : '',
-              ].join(' ')}
-              style={{
-                background:
-                  index === 0
-                    ? 'linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--background)), color-mix(in srgb, var(--background) 84%, transparent))'
-                    : 'linear-gradient(145deg, color-mix(in srgb, var(--background) 86%, transparent), color-mix(in srgb, var(--muted) 72%, transparent))',
-                border: '1px solid color-mix(in srgb, var(--border) 66%, transparent)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                boxShadow: '0 18px 42px rgb(0 0 0 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.03)',
-                textDecoration: 'none',
-              }}
+              delay={index * 45}
+              className={index === 0 ? 'row-span-2 max-[900px]:row-auto' : ''}
             >
-              <div
-                className="flex items-center justify-center w-11 h-11 text-primary"
+              <Link
+                to={stat.path}
+                className={cn(
+                  'lift no-underline flex h-full flex-col gap-4 p-6 backdrop-blur-md',
+                  '[box-shadow:0_18px_42px_rgb(0_0_0/0.12),inset_0_1px_0_rgb(255_255_255/0.03)]',
+                  index === 0 && 'justify-center'
+                )}
                 style={{
-                  background: 'color-mix(in srgb, var(--primary) 10%, var(--muted))',
+                  background:
+                    index === 0
+                      ? 'linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--background)), color-mix(in srgb, var(--background) 84%, transparent))'
+                      : 'linear-gradient(145deg, color-mix(in srgb, var(--background) 86%, transparent), color-mix(in srgb, var(--muted) 72%, transparent))',
+                  border: '1px solid color-mix(in srgb, var(--border) 66%, transparent)',
                 }}
               >
-                {stat.icon}
-              </div>
-              <div className="flex flex-col gap-[2px]">
-                <span
-                  className={[
-                    'font-extrabold text-foreground tabular-nums leading-[1.2]',
-                    index === 0 ? 'text-[44px] max-[900px]:text-[32px]' : 'text-[28px]',
-                  ].join(' ')}
+                <div
+                  className="flex items-center justify-center w-11 h-11 text-primary"
+                  style={{
+                    background: 'color-mix(in srgb, var(--primary) 10%, var(--muted))',
+                  }}
                 >
-                  {stat.loading ? '...' : stat.value}
-                </span>
-                <span className="text-[13px] text-muted-foreground">{stat.label}</span>
-                {stat.sublabel && !stat.loading && (
-                  <span className="text-[11px] text-muted-foreground opacity-70 mt-[2px]">
-                    {stat.sublabel}
+                  {stat.icon}
+                </div>
+                <div className="flex flex-col gap-[2px]">
+                  <span
+                    className={[
+                      'font-extrabold text-foreground tabular-nums leading-[1.2]',
+                      index === 0 ? 'text-[44px] max-[900px]:text-[32px]' : 'text-[28px]',
+                    ].join(' ')}
+                  >
+                    <StatNumber value={stat.value} loading={!!stat.loading} large={index === 0} />
                   </span>
-                )}
-              </div>
-            </Link>
+                  <span className="text-[13px] text-muted-foreground">{stat.label}</span>
+                  {stat.sublabel && !stat.loading && (
+                    <span className="text-[11px] text-muted-foreground opacity-70 mt-[2px]">
+                      {stat.sublabel}
+                    </span>
+                  )}
+                </div>
+              </Link>
+            </Reveal>
           ))}
         </div>
       </section>
 
       {/* Config pills section */}
       {config && (
-        <section
-          className="relative z-[1] flex flex-col gap-4"
-        >
+        <section className="relative z-[1] flex flex-col gap-4">
           <h2 className="text-[12px] font-bold uppercase text-muted-foreground m-0 mb-3">
             {t('dashboard.current_config')}
           </h2>
-          <div className="flex flex-wrap gap-2">
-            <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
-              style={{
-                background: 'color-mix(in srgb, var(--background) 68%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-              }}
-            >
-              <span className="text-muted-foreground whitespace-nowrap">
-                {t('basic_settings.debug_enable')}
-              </span>
-              <span
-                className={`font-semibold ${config.debug ? 'text-success' : 'text-muted-foreground'}`}
-              >
-                {config.debug ? t('common.yes') : t('common.no')}
-              </span>
-            </div>
-            <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
-              style={{
-                background: 'color-mix(in srgb, var(--background) 68%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-              }}
-            >
-              <span className="text-muted-foreground whitespace-nowrap">
-                {t('basic_settings.logging_to_file_enable')}
-              </span>
-              <span
-                className={`font-semibold ${config.loggingToFile ? 'text-success' : 'text-muted-foreground'}`}
-              >
-                {config.loggingToFile ? t('common.yes') : t('common.no')}
-              </span>
-            </div>
-            <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
-              style={{
-                background: 'color-mix(in srgb, var(--background) 68%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-              }}
-            >
-              <span className="text-muted-foreground whitespace-nowrap">
-                {t('basic_settings.retry_count_label')}
-              </span>
-              <span className="font-semibold text-foreground">{config.requestRetry ?? 0}</span>
-            </div>
-            <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
-              style={{
-                background: 'color-mix(in srgb, var(--background) 68%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-              }}
-            >
-              <span className="text-muted-foreground whitespace-nowrap">
-                {t('basic_settings.ws_auth_enable')}
-              </span>
-              <span
-                className={`font-semibold ${config.wsAuth ? 'text-success' : 'text-muted-foreground'}`}
-              >
-                {config.wsAuth ? t('common.yes') : t('common.no')}
-              </span>
-            </div>
-            <div
-              className="inline-flex items-center gap-2 px-[14px] py-[6px] rounded-full text-[13px]"
-              style={{
-                background: 'color-mix(in srgb, var(--background) 68%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-              }}
-            >
-              <span className="text-muted-foreground whitespace-nowrap">
-                {t('dashboard.routing_strategy')}
-              </span>
-              <span
-                className={`inline-flex items-center justify-center px-2 py-[2px] rounded-full border text-[11px] font-semibold leading-[1.2] max-w-full overflow-hidden text-ellipsis whitespace-nowrap border-border ${routingStrategyBadgeClass}`}
-              >
-                {routingStrategyDisplay}
-              </span>
-            </div>
-            {config.proxyUrl && (
-              <div
-                className="inline-flex items-center gap-2 px-[14px] py-[6px] text-[13px] basis-full"
-                style={{
-                  background: 'color-mix(in srgb, var(--background) 68%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--border) 68%, transparent)',
-                  backdropFilter: 'blur(10px)',
-                  WebkitBackdropFilter: 'blur(10px)',
-                }}
-              >
+          <Reveal delay={180} className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-2">
+              <div className={pillClass} style={pillStyle}>
                 <span className="text-muted-foreground whitespace-nowrap">
-                  {t('basic_settings.proxy_url_label')}
+                  {t('basic_settings.debug_enable')}
                 </span>
-                <span className="text-[12px] font-mono text-muted-foreground break-all">
-                  {config.proxyUrl}
+                <span
+                  className={`font-semibold ${config.debug ? 'text-success' : 'text-muted-foreground'}`}
+                >
+                  {config.debug ? t('common.yes') : t('common.no')}
                 </span>
               </div>
-            )}
-          </div>
-          <Link
-            to="/config"
-            className="inline-flex items-center text-[13px] text-primary no-underline mt-1 hover:underline"
-          >
-            {t('dashboard.edit_settings')} →
-          </Link>
+              <div className={pillClass} style={pillStyle}>
+                <span className="text-muted-foreground whitespace-nowrap">
+                  {t('basic_settings.logging_to_file_enable')}
+                </span>
+                <span
+                  className={`font-semibold ${config.loggingToFile ? 'text-success' : 'text-muted-foreground'}`}
+                >
+                  {config.loggingToFile ? t('common.yes') : t('common.no')}
+                </span>
+              </div>
+              <div className={pillClass} style={pillStyle}>
+                <span className="text-muted-foreground whitespace-nowrap">
+                  {t('basic_settings.retry_count_label')}
+                </span>
+                <span className="font-semibold text-foreground tabular-nums">
+                  {config.requestRetry ?? 0}
+                </span>
+              </div>
+              <div className={pillClass} style={pillStyle}>
+                <span className="text-muted-foreground whitespace-nowrap">
+                  {t('basic_settings.ws_auth_enable')}
+                </span>
+                <span
+                  className={`font-semibold ${config.wsAuth ? 'text-success' : 'text-muted-foreground'}`}
+                >
+                  {config.wsAuth ? t('common.yes') : t('common.no')}
+                </span>
+              </div>
+              <div className={pillClass} style={pillStyle}>
+                <span className="text-muted-foreground whitespace-nowrap">
+                  {t('dashboard.routing_strategy')}
+                </span>
+                <span
+                  className={`inline-flex items-center justify-center px-2 py-[2px] rounded-full border text-[11px] font-semibold leading-[1.2] max-w-full overflow-hidden text-ellipsis whitespace-nowrap border-border ${routingStrategyBadgeClass}`}
+                >
+                  {routingStrategyDisplay}
+                </span>
+              </div>
+              {config.proxyUrl && (
+                <div
+                  className="inline-flex items-center gap-2 px-[14px] py-[6px] text-[13px] basis-full backdrop-blur-[10px]"
+                  style={pillStyle}
+                >
+                  <span className="text-muted-foreground whitespace-nowrap">
+                    {t('basic_settings.proxy_url_label')}
+                  </span>
+                  <span className="text-[12px] font-mono text-muted-foreground break-all">
+                    {config.proxyUrl}
+                  </span>
+                </div>
+              )}
+            </div>
+            <Link
+              to="/config"
+              className="inline-flex items-center text-[13px] text-primary no-underline mt-1 hover:underline"
+            >
+              {t('dashboard.edit_settings')} →
+            </Link>
+          </Reveal>
         </section>
       )}
     </div>

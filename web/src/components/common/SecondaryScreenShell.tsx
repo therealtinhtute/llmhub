@@ -1,5 +1,6 @@
 import { forwardRef, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { motion, useReducedMotion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconChevronLeft } from '@/components/ui/icons';
@@ -53,6 +54,7 @@ export const SecondaryScreenShell = forwardRef<HTMLDivElement, SecondaryScreenSh
     const resolvedBackAriaLabel = backAriaLabel ?? backLabel;
     const shouldRenderFloatingAction = Boolean(floatingAction);
     const floatingActionRef = useRef<HTMLDivElement | null>(null);
+    const reduceMotion = useReducedMotion();
 
     useLayoutEffect(() => {
       if (!shouldRenderFloatingAction) return;
@@ -133,12 +135,15 @@ export const SecondaryScreenShell = forwardRef<HTMLDivElement, SecondaryScreenSh
                   transform: 'translateX(-50%)',
                 }}
               >
-                <div
+                <motion.div
                   className="pointer-events-auto inline-flex items-center gap-2 px-3 py-[10px] rounded-full border border-border/50 bg-background/80 backdrop-blur-md shadow-[0_4px_24px_rgba(0,0,0,0.08)] max-[1200px]:px-[10px] max-[1200px]:py-2"
+                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
                   ref={floatingActionRef}
                 >
                   {floatingAction}
-                </div>
+                </motion.div>
               </div>,
               document.body
             )

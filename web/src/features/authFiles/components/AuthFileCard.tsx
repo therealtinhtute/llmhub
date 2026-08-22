@@ -121,7 +121,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
   return (
     <div
-      className={`relative overflow-hidden border border-border/70 ${compact ? 'p-3' : 'p-4'} flex flex-col min-h-full bg-background/85 backdrop-blur-[8px] ${selected ? 'border-primary/60' : ''} ${file.disabled ? 'border-border/62' : ''}`}
+      className={`lift relative overflow-hidden border border-border/70 ${compact ? 'p-3' : 'p-4'} flex flex-col min-h-full bg-background/85 backdrop-blur-[8px] ${selected ? 'border-primary/60' : ''} ${file.disabled ? 'border-border/62' : ''}`}
       style={providerCardBgImage ? { backgroundImage: providerCardBgImage } : undefined}
     >
       <div className="flex items-stretch gap-3 min-h-full">

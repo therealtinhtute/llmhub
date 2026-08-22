@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useImperativeHandle, useMemo, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
+import { motion, useReducedMotion } from 'motion/react';
 import { AppSheet as Sheet } from '@/components/ui/AppSheet';
 import { IconLoader2, IconPencil } from '@/components/ui/icons';
 import {
@@ -116,6 +117,7 @@ export function ProviderSheet({
   ref,
 }: ProviderSheetProps) {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const { showConfirmation } = useConfirmationStore();
   const formId = useId();
   const [submitting, setSubmitting] = useState(false);
@@ -622,7 +624,14 @@ export function ProviderSheet({
       closeDisabled={submitting}
       confirmClose={confirmDiscardIfDirty}
     >
-      {renderBody()}
+      <motion.div
+        key={`${state.mode}:${state.entryKey ?? state.brand}:${state.resourceId ?? ''}`}
+        initial={reduceMotion ? false : { opacity: 0, x: 10 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+      >
+        {renderBody()}
+      </motion.div>
     </Sheet>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { FormInput as Input } from '@/components/ui/FormInput';
 import { FormSelect as Select } from '@/components/ui/FormSelect';
@@ -20,9 +21,9 @@ import type { ApiError } from '@/types';
 type RedirectState = { from?: { pathname?: string } };
 
 const BRAND_WORDS = [
-  { word: 'CLI', style: { '--target-opacity': '0.95' } as React.CSSProperties },
-  { word: 'PROXY', style: { '--target-opacity': '0.70' } as React.CSSProperties },
-  { word: 'API', style: { '--target-opacity': '0.45' } as React.CSSProperties },
+  { word: 'CLI', finalOpacity: 0.95 },
+  { word: 'PROXY', finalOpacity: 0.7 },
+  { word: 'API', finalOpacity: 0.45 },
 ];
 
 function getLocalizedErrorMessage(error: unknown, t: (key: string) => string): string {
@@ -91,6 +92,7 @@ export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const reduceMotion = useReducedMotion();
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -205,33 +207,66 @@ export function LoginPage() {
       {/* 左侧品牌展示区 */}
       <div className="flex-1 flex flex-col justify-center items-center bg-black px-8 py-8 relative overflow-hidden max-md:hidden">
         <div className="relative z-[1] flex flex-col items-end w-full">
-          {BRAND_WORDS.map(({ word, style }) => (
-            <span
+          {BRAND_WORDS.map(({ word, finalOpacity }, index) => (
+            <motion.span
               key={word}
-              className="text-[14vw] font-black text-white/90 tracking-tight leading-[0.85] uppercase text-right opacity-0"
-              style={style}
+              className="text-[14vw] font-black text-white tracking-tight leading-[0.85] uppercase text-right"
+              style={{ opacity: reduceMotion ? finalOpacity : 0 }}
+              initial={reduceMotion ? false : { opacity: 0, x: 24 }}
+              animate={{ opacity: finalOpacity, x: 0 }}
+              transition={{ duration: 0.5, delay: 0.15 + index * 0.09, ease: [0.23, 1, 0.32, 1] }}
             >
               {word}
-            </span>
+            </motion.span>
           ))}
         </div>
       </div>
 
       {/* 右侧功能交互区 */}
       <div className="flex-1 flex flex-col justify-center items-center p-8 bg-background relative max-md:p-6 max-md:min-h-screen">
-        {showSplash ? (
-          /* 启动动画 */
-          <div className="flex flex-col items-center gap-4">
-            <img src={INLINE_LOGO_JPEG} alt="LLMHUB" className="h-30 w-auto" />
-            <h1 className="text-[28px] font-extrabold text-foreground m-0 tracking-tight">{t('splash.title')}</h1>
-            <p className="text-base font-medium text-muted-foreground m-0 -mt-2">{t('splash.subtitle')}</p>
-            <div className="w-[120px] h-[3px] bg-border overflow-hidden mt-4">
-              <div className="w-full h-full bg-primary" />
-            </div>
-          </div>
-        ) : (
-          /* 登录表单 */
-          <div className="w-full max-w-[420px] flex flex-col items-center gap-6">
+        <AnimatePresence mode="wait" initial={false}>
+          {showSplash ? (
+            /* 启动动画 */
+            <motion.div
+              key="splash"
+              className="flex flex-col items-center gap-4"
+              exit={reduceMotion ? undefined : { opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              <img src={INLINE_LOGO_JPEG} alt="LLMHUB" className="h-30 w-auto" />
+              <h1 className="text-[28px] font-serif italic font-semibold text-foreground m-0 tracking-tight">{t('splash.title')}</h1>
+              <p className="text-base font-medium text-muted-foreground m-0 -mt-2">{t('splash.subtitle')}</p>
+              <div className="w-[120px] h-[3px] bg-border overflow-hidden rounded-full mt-4">
+                {autoLoginSuccess ? (
+                  <motion.div
+                    className="h-full bg-primary rounded-full"
+                    initial={{ width: '0%' }}
+                    animate={{ width: '100%' }}
+                    transition={{ duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
+                  />
+                ) : (
+                  <motion.div
+                    className="h-full w-1/3 bg-primary/70 rounded-full"
+                    animate={reduceMotion ? undefined : { x: ['-40px', '120px'] }}
+                    transition={
+                      reduceMotion
+                        ? undefined
+                        : { duration: 1.1, repeat: Infinity, ease: 'easeInOut', repeatDelay: 0.15 }
+                    }
+                    style={reduceMotion ? { opacity: 0.6 } : undefined}
+                  />
+                )}
+              </div>
+            </motion.div>
+          ) : (
+            /* 登录表单 */
+            <motion.div
+              key="login-form"
+              className="w-full max-w-[420px] flex flex-col items-center gap-6"
+              initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
+            >
             {/* Logo */}
             <img src={INLINE_LOGO_JPEG} alt="Logo" className="w-20 h-20 object-cover shadow-lg border-[3px] border-border" />
 
@@ -239,7 +274,7 @@ export function LoginPage() {
             <div className="w-full bg-card border border-border shadow-lg p-6 flex flex-col gap-4 max-md:p-4 max-md:shadow-none max-md:border-0 max-md:bg-transparent">
               <div className="flex flex-col gap-2 text-center">
                 <div className="flex items-center justify-center gap-2 flex-wrap">
-                  <div className="text-[22px] font-extrabold text-foreground">{t('title.login')}</div>
+                  <div className="text-[22px] font-serif italic font-semibold text-foreground">{t('title.login')}</div>
                   <Select
                     className="min-w-[108px] shrink-0"
                     value={language}
@@ -289,7 +324,7 @@ export function LoginPage() {
                 rightElement={
                   <button
                     type="button"
-                    className="btn btn-ghost btn-sm"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => setShowKey((prev) => !prev)}
                     aria-label={
                       showKey
@@ -321,10 +356,24 @@ export function LoginPage() {
                 {loading ? t('login.submitting') : t('login.submit_button')}
               </Button>
 
-              {error && <div className="bg-destructive/10 border border-destructive/40 px-3 py-2 text-destructive text-sm">{error}</div>}
+              <AnimatePresence initial={false}>
+                {error && (
+                  <motion.div
+                    className="bg-destructive/10 border border-destructive/40 px-3 py-2 text-destructive text-sm"
+                    initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reduceMotion ? undefined : { opacity: 0 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    role="alert"
+                  >
+                    {error}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

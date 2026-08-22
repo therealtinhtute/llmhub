@@ -473,7 +473,7 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit hover:bg-accent hover:border-primary"
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-colors duration-150 hover:bg-accent hover:border-primary"
             >
               <div className={linkIconClass('github')}>
                 <IconGithub size={22} />
@@ -491,7 +491,7 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit hover:bg-accent hover:border-primary"
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-colors duration-150 hover:bg-accent hover:border-primary"
             >
               <div className={linkIconClass('github')}>
                 <IconCode size={22} />
@@ -509,7 +509,7 @@ export function SystemPage() {
               href="https://github.com/therealtinhtute/llmhub"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit hover:bg-accent hover:border-primary"
+              className="flex items-center gap-3 px-4 py-3 bg-muted border border-border no-underline text-inherit transition-colors duration-150 hover:bg-accent hover:border-primary"
             >
               <div className={linkIconClass('docs')}>
                 <IconBookOpen size={22} />

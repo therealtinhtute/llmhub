@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { animate } from 'motion/mini';
 import type { AnimationPlaybackControlsWithThen } from 'motion-dom';
+import { Reveal } from '@/components/motion';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { AppCard as Card } from '@/components/ui/AppCard';
@@ -52,6 +53,12 @@ const BATCH_BAR_BASE_TRANSFORM = 'translateX(-50%)';
 const BATCH_BAR_HIDDEN_TRANSFORM = 'translateX(-50%) translateY(56px)';
 const DEFAULT_REGULAR_PAGE_SIZE = 9;
 const DEFAULT_COMPACT_PAGE_SIZE = 12;
+const CARD_REVEAL_STAGGER_MS = 40;
+const CARD_REVEAL_MAX_DELAY_MS = 240;
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const escapeWildcardSearchSegment = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -452,6 +459,17 @@ export function AuthFilesPage() {
     batchActionAnimationRef.current?.stop();
     batchActionAnimationRef.current = null;
 
+    if (prefersReducedMotion()) {
+      if (currentCount > 0 && previousCount === 0) {
+        actionsEl.style.transform = BATCH_BAR_BASE_TRANSFORM;
+        actionsEl.style.opacity = '1';
+      } else if (currentCount === 0 && previousCount > 0 && selectionCountRef.current === 0) {
+        setBatchActionBarVisible(false);
+      }
+      previousSelectionCountRef.current = currentCount;
+      return;
+    }
+
     if (currentCount > 0 && previousCount === 0) {
       batchActionAnimationRef.current = animate(
         actionsEl,
@@ -755,24 +773,26 @@ export function AuthFilesPage() {
               />
             ) : (
               <div
+                key={normalizedFilter}
                 className={`grid gap-3 ${compactMode ? '[grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]' : '[grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]'}`}
               >
-                {pageItems.map((file) => (
-                  <AuthFileCard
-                    key={file.name}
-                    file={file}
-                    compact={compactMode}
-                    selected={selectedFiles.has(file.name)}
-                    resolvedTheme={resolvedTheme}
-                    disableControls={disableControls}
-                    deleting={deleting}
-                    statusUpdating={statusUpdating}
-                    statusBarCache={statusBarCache}
-                    onDownload={handleDownload}
-                    onDelete={handleDelete}
-                    onToggleStatus={handleStatusToggle}
-                    onToggleSelect={toggleSelect}
-                  />
+                {pageItems.map((file, index) => (
+                  <Reveal key={file.name} delay={Math.min(index * CARD_REVEAL_STAGGER_MS, CARD_REVEAL_MAX_DELAY_MS)}>
+                    <AuthFileCard
+                      file={file}
+                      compact={compactMode}
+                      selected={selectedFiles.has(file.name)}
+                      resolvedTheme={resolvedTheme}
+                      disableControls={disableControls}
+                      deleting={deleting}
+                      statusUpdating={statusUpdating}
+                      statusBarCache={statusBarCache}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onToggleStatus={handleStatusToggle}
+                      onToggleSelect={toggleSelect}
+                    />
+                  </Reveal>
                 ))}
               </div>
             )}

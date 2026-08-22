@@ -57,7 +57,7 @@ export function AuthFileModelsModal(props: AuthFileModelsModalProps) {
             return (
               <div
                 key={model.id}
-                className={`flex items-center gap-2 py-2 px-3 border flex-wrap cursor-pointer ${excludedModel ? 'opacity-60 bg-secondary border-dashed hover:border-destructive' : 'bg-muted border-border hover:bg-accent hover:border-primary'}`}
+                className={`flex items-center gap-2 py-2 px-3 border flex-wrap cursor-pointer transition-colors duration-150 ${excludedModel ? 'opacity-60 bg-secondary border-dashed hover:border-destructive' : 'bg-muted border-border hover:bg-accent hover:border-primary'}`}
                 onClick={() => {
                   onCopyText(model.id);
                 }}

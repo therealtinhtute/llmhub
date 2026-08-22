@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
 } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -138,6 +139,7 @@ export function MainLayout() {
 
   const contentRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const isLogsPage = location.pathname.startsWith('/logs');
 
@@ -259,20 +261,26 @@ export function MainLayout() {
   );
 
   const handleRefreshAll = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
     clearCache();
-    const results = await Promise.allSettled([
-      fetchConfig(undefined, true),
-      triggerHeaderRefresh(),
-    ]);
-    const rejected = results.find((r) => r.status === 'rejected');
-    if (rejected && rejected.status === 'rejected') {
-      const reason = rejected.reason;
-      const message =
-        typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : '';
-      toast.error(`${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`);
-      return;
+    try {
+      const results = await Promise.allSettled([
+        fetchConfig(undefined, true),
+        triggerHeaderRefresh(),
+      ]);
+      const rejected = results.find((r) => r.status === 'rejected');
+      if (rejected && rejected.status === 'rejected') {
+        const reason = rejected.reason;
+        const message =
+          typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : '';
+        toast.error(`${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`);
+        return;
+      }
+      toast.success(t('notification.data_refreshed'));
+    } finally {
+      setRefreshing(false);
     }
-    toast.success(t('notification.data_refreshed'));
   };
 
   const handleThemeSelect = useCallback(
@@ -344,9 +352,12 @@ export function MainLayout() {
               variant="ghost"
               size="sm"
               onClick={handleRefreshAll}
+              disabled={refreshing}
               title={t('header.refresh_all')}
             >
-              {headerIcons.refresh}
+              <span className={cn('inline-flex', refreshing && 'animate-spin')}>
+                {headerIcons.refresh}
+              </span>
             </Button>
 
             <DropdownMenu>
@@ -407,8 +418,9 @@ export function MainLayout() {
           )}
         >
           <div
+            key={location.pathname}
             className={cn(
-              'flex flex-1 flex-col gap-6 min-h-full px-[clamp(20px,3vw,48px)] pt-6 pb-10 overflow-x-hidden [&_h1]:font-serif [&_h1]:italic',
+              'page-enter flex flex-1 flex-col gap-6 min-h-full px-[clamp(20px,3vw,48px)] pt-6 pb-10 overflow-x-hidden [&_h1]:font-serif [&_h1]:italic',
               isLogsPage && 'flex-auto min-h-0 overflow-hidden'
             )}
           >

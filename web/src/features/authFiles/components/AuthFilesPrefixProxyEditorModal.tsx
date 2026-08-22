@@ -150,8 +150,10 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                     onChange={(e) => onChange('weight', e.target.value)}
                   />
                   {editor.providerKey === 'codex' && (
-                    <div className="flex flex-col gap-1.5 mb-3">
-                      <label>{t('auth_files.codex_websockets_label')}</label>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[12px] text-muted-foreground font-semibold">
+                        {t('auth_files.codex_websockets_label')}
+                      </label>
                       <ToggleSwitch
                         checked={editor.websockets}
                         onChange={(value) => onChange('websockets', value)}
@@ -161,10 +163,12 @@ export function AuthFilesPrefixProxyEditorModal(props: AuthFilesPrefixProxyEdito
                       <div className="text-[13px] text-muted-foreground leading-[1.55]">{t('auth_files.codex_websockets_hint')}</div>
                     </div>
                   )}
-                  <div className="flex flex-col gap-1.5 mb-3">
-                    <label>{t('auth_files.headers_label')}</label>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[12px] text-muted-foreground font-semibold">
+                      {t('auth_files.headers_label')}
+                    </label>
                     <textarea
-                      className={`min-h-[42px] bg-muted border border-border shadow-none focus:bg-background focus:border-foreground min-h-[112px] w-full px-3 py-2 text-sm ${editor.headersError ? 'border-destructive' : ''}`}
+                      className={`min-h-[112px] bg-muted border border-border shadow-none focus:bg-background focus:border-primary w-full px-3 py-2 text-sm ${editor.headersError ? 'border-destructive' : ''}`}
                       value={editor.headersText}
                       placeholder={t('auth_files.headers_placeholder')}
                       rows={4}

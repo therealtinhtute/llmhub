@@ -136,7 +136,7 @@ export function QuotaPage() {
           <TabsList className="flex justify-start items-start gap-0 p-0 bg-transparent overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1 min-w-0">
             <TabsTrigger
               value="all"
-              className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
             >
               <span className="inline-flex items-center gap-1.5">
                 <IconFilterAll data-icon="inline-start" />
@@ -148,7 +148,7 @@ export function QuotaPage() {
               <TabsTrigger
                 key={config.type}
                 value={config.type}
-                className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
               >
                 <span className="inline-flex items-center gap-1.5">
                   {iconSrc ? (

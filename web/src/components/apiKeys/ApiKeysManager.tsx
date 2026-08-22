@@ -146,7 +146,7 @@ export function ApiKeysManager(props: ApiKeysManagerProps) {
           {keys.map((key, index) => (
             <div
               key={renderKeyIds[index] ?? `${key}-${index}`}
-              className="flex items-center justify-between gap-2 p-3 border-b border-border last:border-b-0 bg-transparent max-md:flex-col max-md:items-stretch"
+              className="flex items-center justify-between gap-2 p-3 border-b border-border last:border-b-0 bg-transparent transition-colors duration-150 hover:bg-muted/50 max-md:flex-col max-md:items-stretch"
             >
               <div className="flex flex-col gap-1 min-w-0 flex-1">
                 <div className="inline-flex items-center px-2 py-[2px] text-[0.6875rem] font-semibold border border-border bg-transparent text-muted-foreground leading-[1.5] rounded-sm w-fit">

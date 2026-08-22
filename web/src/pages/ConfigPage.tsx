@@ -538,14 +538,14 @@ export function ConfigPage() {
               <TabsTrigger
                 value="visual"
                 disabled={saving || loading}
-                className="px-3 text-muted-foreground border-b-4 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                className="px-3 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
               >
                 {t('config_management.tabs.visual', { defaultValue: '可视化编辑' })}
               </TabsTrigger>
               <TabsTrigger
                 value="source"
                 disabled={saving || loading}
-                className="px-3 text-muted-foreground border-b-4 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+                className="px-3 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
               >
                 {t('config_management.tabs.source', { defaultValue: '源代码编辑' })}
               </TabsTrigger>

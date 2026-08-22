@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Reveal } from '@/components/motion';
 import claudeLogo from '@/assets/icons/claude.svg';
 import codexLogo from '@/assets/icons/codex.svg';
 import geminiLogo from '@/assets/icons/gemini.svg';
@@ -56,26 +58,42 @@ export function ProviderCategoryGrid({
 }: ProviderCategoryGridProps) {
   const { t } = useTranslation();
 
+  const sections = useMemo(() => {
+    let cardIndex = 0;
+    return CATEGORY_ORDER.map((category) => ({
+      category,
+      items: entries.filter((entry) => entry.category === category),
+    }))
+      .filter((section) => section.items.length > 0)
+      .map((section) => ({
+        ...section,
+        cards: section.items.map((entry) => ({
+          entry,
+          delay: Math.min(cardIndex * 40, 240),
+          index: cardIndex++,
+        })),
+      }));
+  }, [entries]);
+
   return (
     <div className="flex flex-col gap-6">
-      {CATEGORY_ORDER.map((category) => {
-        const items = entries.filter((entry) => entry.category === category);
-        if (items.length === 0) return null;
+      {sections.map(({ category, cards }) => {
         return (
           <section key={category} className="min-w-0">
             <p className="mx-2 mt-1 mb-2 text-[11px] font-medium tracking-[0.05em] uppercase text-muted-foreground">
               {t(`providersPage.categories.sections.${category}`)}
             </p>
             <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3 max-md:grid-cols-[minmax(0,1fr)]">
-              {items.map((entry) => (
-                <ProviderEntryCard
-                  key={entry.key}
-                  entry={entry}
-                  onOpen={onOpen}
-                  pendingStatus={
-                    entry.kind === 'oauth' ? oauthPendingStatus?.[entry.oauthId] : undefined
-                  }
-                />
+              {cards.map(({ entry, delay }) => (
+                <Reveal key={entry.key} delay={delay} className="h-full">
+                  <ProviderEntryCard
+                    entry={entry}
+                    onOpen={onOpen}
+                    pendingStatus={
+                      entry.kind === 'oauth' ? oauthPendingStatus?.[entry.oauthId] : undefined
+                    }
+                  />
+                </Reveal>
               ))}
             </div>
           </section>
@@ -174,8 +192,9 @@ function ProviderEntryCard({
     <button
       type="button"
       className={[
-        'flex items-center justify-between gap-3 p-3 border text-left w-full cursor-pointer min-w-0',
+        'flex items-center justify-between gap-3 p-3 border text-left w-full cursor-pointer min-w-0 h-full',
         'border-border bg-background hover:bg-[color-mix(in_srgb,var(--accent-bg)_50%,transparent)] hover:border-[var(--primary-30)]',
+        'transition-colors duration-150 ease-out',
         'focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2',
       ].join(' ')}
       onClick={() => onOpen(entry.key)}

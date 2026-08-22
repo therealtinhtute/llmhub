@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Reveal } from '@/components/motion';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { toast } from 'sonner';
 import { useConfirmationStore, useQuotaStore, useThemeStore } from '@/stores';
@@ -371,7 +372,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
       ) : (
         <>
           <div ref={gridRef} className={config.gridClassName}>
-            {pageItems.map((item) => {
+            {pageItems.map((item, cardIndex) => {
               const itemQuota = quota[item.name];
               const isResettingQuota = resettingNames.has(item.name);
               const canUseQuotaAction =
@@ -397,21 +398,22 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
                 ) : undefined;
 
               return (
-                <QuotaCard
-                  key={item.name}
-                  item={item}
-                  quota={itemQuota}
-                  resolvedTheme={resolvedTheme}
-                  i18nPrefix={config.i18nPrefix}
-                  cardIdleMessageKey={config.cardIdleMessageKey}
-                  cardClassName={config.cardClassName}
-                  defaultType={config.type}
-                  canRefresh={!disabled && !item.disabled}
-                  onRefresh={() => void refreshQuotaForFile(item)}
-                  resetQuotaAction={resetQuotaAction}
-                  placeResetQuotaAction={config.placeResetQuotaAction}
-                  renderQuotaItems={config.renderQuotaItems}
-                />
+                <Reveal key={item.name} delay={Math.min(cardIndex * 40, 240)} className="h-full">
+                  <QuotaCard
+                    item={item}
+                    quota={itemQuota}
+                    resolvedTheme={resolvedTheme}
+                    i18nPrefix={config.i18nPrefix}
+                    cardIdleMessageKey={config.cardIdleMessageKey}
+                    cardClassName={config.cardClassName}
+                    defaultType={config.type}
+                    canRefresh={!disabled && !item.disabled}
+                    onRefresh={() => void refreshQuotaForFile(item)}
+                    resetQuotaAction={resetQuotaAction}
+                    placeResetQuotaAction={config.placeResetQuotaAction}
+                    renderQuotaItems={config.renderQuotaItems}
+                  />
+                </Reveal>
               );
             })}
           </div>

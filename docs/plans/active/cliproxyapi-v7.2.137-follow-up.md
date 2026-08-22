@@ -248,6 +248,8 @@ updated: 2026-08-20
 - `2026-08-21T12:54:46Z` — wave 3, task Run request/count-token regression coverage and inspect the diff for translator, SDK, config, and frontend drift. task_status: `DONE`. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c provider-matrix regression command passes; git diff --check passes; forbidden-surface diff is empty and working tree contains only the active plan plus approved executor/helper/test files..
 - `2026-08-21T12:54:46Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c wave 3 complete: provider-matrix regression coverage and scope invariants pass; no translator, SDK, config, or frontend drift detected..
 - `2026-08-21T13:02:44Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c durable gate synchronized: check 01M0J6J3SYKAX3P1A1YXYKHS94 recorded APPROVE_WITH_REQUESTS; aggregate baseline failures and Vertex fixture gap are explicit; phase is checked and ready for owned-path commit without push..
+- `2026-08-22T11:57:26Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Reconciliation: R10c implementation, tests, and plan gate evidence were committed (dc084516, ed582ff8, 637e932e) and pushed to origin/master; master is in sync with origin (0/0). Stale exact-next-action superseded; remaining WIP is an unrelated frontend motion/polish diff in web/..
+- `2026-08-22T11:58:31Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Plan current-state hand-edited after reconciliation trace: refreshed exact_next_action to check-gate the frontend WIP (bounded intent, unrelated to parity phases); recording to refresh stale plan_index..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -290,9 +292,9 @@ updated: 2026-08-20
 - active_phase: r10c-gemini-leading-user-turn
 - lifecycle_status: checked
 - latest_run_id: 01M0GT77XCHB5BVSQMP34790VB
-- latest_trace_ids: [01M0GTG7ZVKER9BG22PQ8Q00HG, 01M0GTG805E5HJ0J0815W6EC0M]
+- latest_trace_ids: [01M0GTG7ZVKER9BG22PQ8Q00HG, 01M0GTG805E5HJ0J0815W6EC0M, 01M0MNAF1SZTZ5N7X31JA58TN6]
 - latest_check_id: 01M0J6J3SYKAX3P1A1YXYKHS94
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit the verified R10c implementation, helper, tests, and plan update without pushing; retain the unrelated aggregate baseline failures as explicit context]
-- exact_next_action: run the pre-commit security/scope review, stage only approved R10c paths, and create the commit without pushing
+- open_items: [R10c committed (dc084516, ed582ff8, 637e932e) and pushed to origin/master; plan outcome fully delivered — archive candidate; unrelated frontend WIP in web/ pending check gate + commit]
+- exact_next_action: run the check gate on the frontend WIP diff (web/* plus untracked web/src/components/motion/) and commit it if approved

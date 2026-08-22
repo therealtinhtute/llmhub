@@ -1,7 +1,7 @@
 ---
 id: 01M0M64B2TYGG69CS1SSMVYF57
 type: plan
-intake_id: 01M0M64B31GWB39C3FH5AZPNRJ
+intake_id: 01M0MPP37ZXX9HY4VVVHXWS32G
 lane: high-risk
 status: active
 created: 2026-08-22
@@ -65,7 +65,7 @@ updated: 2026-08-22
 
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
-- none
+- `2026-08-22T12:21:51Z` — wave 0. summary: Initiative re-registered on local DB after branch merge 92bce00e: intake 01M0MPP37ZXX9HY4VVVHXWS32G (spec-slice/high-risk) linked to plan 01M0M64B2TYGG69CS1SSMVYF57; plan frontmatter intake_id synced; scope authority remains checkpoint scope_policy targeted-semantic-ports; next action to-plan..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->

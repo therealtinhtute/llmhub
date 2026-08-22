@@ -18,6 +18,7 @@ import (
 	vertexauth "github.com/therealtinhtute/llmhub/internal/auth/vertex"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
+	internalsignature "github.com/therealtinhtute/llmhub/internal/signature"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
@@ -342,6 +343,7 @@ func (e *GeminiVertexExecutor) executeWithServiceAccount(ctx context.Context, au
 		body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 		body, _ = sjson.SetBytes(body, "model", baseModel)
 		body = helps.StripVertexOpenAIResponsesToolCallIDs(body, from.String())
+		body = internalsignature.SanitizeGeminiRequestThoughtSignatures(body, "contents")
 	}
 
 	action := getVertexAction(baseModel, false)
@@ -468,6 +470,7 @@ func (e *GeminiVertexExecutor) executeWithAPIKey(ctx context.Context, auth *clip
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body = helps.StripVertexOpenAIResponsesToolCallIDs(body, from.String())
+	body = internalsignature.SanitizeGeminiRequestThoughtSignatures(body, "contents")
 
 	action := getVertexAction(baseModel, false)
 	if req.Metadata != nil {
@@ -584,6 +587,7 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body = helps.StripVertexOpenAIResponsesToolCallIDs(body, from.String())
+	body = internalsignature.SanitizeGeminiRequestThoughtSignatures(body, "contents")
 
 	action := getVertexAction(baseModel, true)
 	baseURL := vertexBaseURL(location)
@@ -728,6 +732,7 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body = helps.StripVertexOpenAIResponsesToolCallIDs(body, from.String())
+	body = internalsignature.SanitizeGeminiRequestThoughtSignatures(body, "contents")
 
 	action := getVertexAction(baseModel, true)
 	// For API key auth, use simpler URL format without project/location
@@ -860,6 +865,7 @@ func (e *GeminiVertexExecutor) countTokensWithServiceAccount(ctx context.Context
 	translatedReq = fixGeminiImageAspectRatio(baseModel, translatedReq)
 	translatedReq, _ = sjson.SetBytes(translatedReq, "model", baseModel)
 	translatedReq = helps.StripVertexOpenAIResponsesToolCallIDs(translatedReq, from.String())
+	translatedReq = internalsignature.SanitizeGeminiRequestThoughtSignatures(translatedReq, "contents")
 	respCtx := context.WithValue(ctx, "alt", opts.Alt)
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "tools")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "generationConfig")
@@ -951,6 +957,7 @@ func (e *GeminiVertexExecutor) countTokensWithAPIKey(ctx context.Context, auth *
 	translatedReq = fixGeminiImageAspectRatio(baseModel, translatedReq)
 	translatedReq, _ = sjson.SetBytes(translatedReq, "model", baseModel)
 	translatedReq = helps.StripVertexOpenAIResponsesToolCallIDs(translatedReq, from.String())
+	translatedReq = internalsignature.SanitizeGeminiRequestThoughtSignatures(translatedReq, "contents")
 	respCtx := context.WithValue(ctx, "alt", opts.Alt)
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "tools")
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "generationConfig")

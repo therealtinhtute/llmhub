@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 type geminiFunctionCallRef struct {
@@ -169,4 +170,76 @@ func IsGeminiThoughtSignatureBypass(rawSignature string) bool {
 	default:
 		return false
 	}
+}
+
+// isGeminiField2WrappedSignature reports whether decoded bytes match Gemini's
+// field-2 outer protobuf envelope wrapping a single field-1 opaque payload
+// (Tink-style primitive output or an ASCII UUID), as carried by Gemini 3.x models.
+func isGeminiField2WrappedSignature(decoded []byte) bool {
+	value, ok := consumeGeminiField2Field1Value(decoded)
+	if !ok {
+		return false
+	}
+	return isLikelyGeminiOpaquePayload(value) || isASCIIUUIDBytes(value)
+}
+
+// consumeGeminiField2Field1Value parses the outer field-2 length-delimited
+// record and returns its inner field-1 payload when the envelope is exact.
+func consumeGeminiField2Field1Value(decoded []byte) ([]byte, bool) {
+	num, typ, n := protowire.ConsumeTag(decoded)
+	if n < 0 || num != 2 || typ != protowire.BytesType {
+		return nil, false
+	}
+	offset := n
+	container, n := protowire.ConsumeBytes(decoded[offset:])
+	if n < 0 {
+		return nil, false
+	}
+	offset += n
+	if offset != len(decoded) {
+		return nil, false
+	}
+
+	num, typ, n = protowire.ConsumeTag(container)
+	if n < 0 || num != 1 || typ != protowire.BytesType {
+		return nil, false
+	}
+	containerOffset := n
+	value, n := protowire.ConsumeBytes(container[containerOffset:])
+	if n < 0 {
+		return nil, false
+	}
+	containerOffset += n
+	if containerOffset != len(container) {
+		return nil, false
+	}
+	return value, true
+}
+
+// isLikelyGeminiOpaquePayload checks only the Tink prefix-type byte (0x01);
+// the four-byte key id that follows is rotated key material, so pinning it
+// would reject every signature whenever Google rotates keys.
+func isLikelyGeminiOpaquePayload(value []byte) bool {
+	return len(value) > 0 && value[0] == 0x01
+}
+
+// isASCIIUUIDBytes reports whether decoded bytes form a canonical 36-char
+// ASCII UUID (8-4-4-4-12 with hyphens at fixed offsets).
+func isASCIIUUIDBytes(decoded []byte) bool {
+	if len(decoded) != 36 {
+		return false
+	}
+	for i, b := range decoded {
+		switch i {
+		case 8, 13, 18, 23:
+			if b != '-' {
+				return false
+			}
+		default:
+			if !((b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }

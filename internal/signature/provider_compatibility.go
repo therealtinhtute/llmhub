@@ -84,11 +84,15 @@ func DetectSignatureProviderForBlock(rawSignature string, blockKind SignatureBlo
 	if IsGeminiThoughtSignatureBypass(payload) {
 		return SignatureProviderGeminiBypass
 	}
-	if IsValidClaudeCAISSignature(payload) || HasDecodableClaudeThinkingSignature(payload) {
-		return SignatureProviderClaude
-	}
+	// Gemini wire-shape matching runs before the Claude probes: Gemini's
+	// exact single-record envelope requirement keeps the families separable,
+	// while a loose Claude decodability probe can otherwise claim a native
+	// Gemini 3.x field-2 signature.
 	if isGeminiNativeSignature(payload) {
 		return SignatureProviderGemini
+	}
+	if IsValidClaudeCAISSignature(payload) || HasDecodableClaudeThinkingSignature(payload) {
+		return SignatureProviderClaude
 	}
 	if hasProviderPrefix && prefixProvider != SignatureProviderUnknown {
 		return prefixProvider
@@ -251,5 +255,11 @@ func isGeminiNativeSignature(rawSignature string) bool {
 		return false
 	}
 	decoded, err := base64.StdEncoding.DecodeString(sig)
-	return err == nil && len(decoded) > 0 && decoded[0] == 0x0a
+	if err != nil || len(decoded) == 0 {
+		return false
+	}
+	if decoded[0] == 0x0a {
+		return true
+	}
+	return isGeminiField2WrappedSignature(decoded)
 }

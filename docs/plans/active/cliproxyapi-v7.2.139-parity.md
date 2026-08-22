@@ -74,7 +74,7 @@ updated: 2026-08-22
 - phases:
   - phase_slug: r11a-translator-fixes
     story_id: 01M0MPWHT5Q93NYTAKB9SA6RYK
-    status: planned
+    status: checked
     goal: Port the six approved mechanical translator correctness fixes R1-R6 from upstream v7.2.138 with focused regression tests.
     depends_on: none
     allowed_surfaces:
@@ -237,6 +237,17 @@ updated: 2026-08-22
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
 - `2026-08-22T12:21:51Z` — wave 0. summary: Initiative re-registered on local DB after branch merge 92bce00e: intake 01M0MPP37ZXX9HY4VVVHXWS32G (spec-slice/high-risk) linked to plan 01M0M64B2TYGG69CS1SSMVYF57; plan frontmatter intake_id synced; scope authority remains checkpoint scope_policy targeted-semantic-ports; next action to-plan..
 - `2026-08-22T12:28:48Z` — wave 0. summary: to-plan complete: four phases r11a-translator-fixes, r11b-runtime-hardening, r11c-managed-settings, r11d-credential-lifecycle (depends_on r11c) planned with story IDs 01M0MPWHT5Q93NYTAKB9SA6RYK/01M0MPWHTF122GTAAM3DZ5KMHG/01M0MPWQFPVZB8VCSKH6BS1DMX/01M0MPWQFYTQKRQ0WE7DZE2BV0; waves, tasks, checks, and R16 final gate written into plan; next action work full on r11a wave 1..
+- `2026-08-22T12:44:14Z` — wave 1, task phase-start. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: Phase r11a-translator-fixes started: run 01M0MQXH8A4KX2DRTWKQWGY045 created; executing wave 1 (R2 claude reasoning_content, R3 responses reasoning fallback); plan status synced in-progress..
+- `2026-08-22T12:50:03Z` — wave 1, task Prove no local consumer reads the legacy reasoning key on the Claude-to-OpenAI non-stream path, then emit choices.0.message.reasoning_content replacing the legacy key per aa5dccc23688. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: rg over internal/ and sdk/ found exactly one hit: the producer itself at claude_openai_response.go:430 (no consumers); ported key to message.reasoning_content; added TestConvertClaudeResponseToOpenAINonStream_ReasoningContent asserting reasoning_content set and legacy key absent; go test ./internal/translator/claude/openai/chat-completions/ -run ReasoningContent -count=1 pass.
+- `2026-08-22T12:50:03Z` — wave 1, task Fall back to choices.0.message.reasoning when reasoning_content is missing in OpenAI Responses non-stream conversion per 8eb3ac2e036b. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: Added exists-or-empty fallback to choices.0.message.reasoning in openai_openai-responses_response.go ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream; added TestConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream_ReasoningFallback covering missing and empty reasoning_content subcases; focused tests pass.
+- `2026-08-22T12:50:57Z` — wave 1. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: R11a wave 1 complete: R2 reasoning_content key ported with zero-consumer grep proof, R3 responses reasoning fallback added; both upstream-derived regression tests pass; full go test ./internal/translator/... -count=1 green (19 ok packages, exit 0); changed only internal/translator files per allowed surfaces..
+- `2026-08-22T12:56:39Z` — wave 2, task Map max_completion_tokens to Antigravity maxOutputTokens preserving existing max_tokens precedence per 68e96c27165e. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: Added else-if fallback on max_completion_tokens in antigravity_openai_request.go after max_tokens branch; TestConvertOpenAIRequestToAntigravity_MaxCompletionTokens covers only-max_tokens/only-max_completion_tokens/preferred cases; focused and full translator suites pass.
+- `2026-08-22T12:56:39Z` — wave 2, task Emit empty annotations and logprobs arrays in the Gemini-to-OpenAI Responses streaming response.output_item.done message template per b1c000590b47. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: gemini_openai-responses_response.go:197 output_text content now includes annotations:[] and logprobs:[] matching partDone/non-stream templates; TestConvertGeminiResponseToOpenAIResponses_MessageOutputItemDoneFields asserts both arrays exist; full translator suite green.
+- `2026-08-22T12:56:46Z` — wave 2. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: R11a wave 2 complete: R4 max_completion_tokens fallback with precedence matrix test and R1 annotations/logprobs in output_item.done template both ported; focused tests pass; full go test ./internal/translator/... -count=1 green..
+- `2026-08-22T13:22:20Z` — wave 3, task Generate deterministic sequential tool-call IDs (toolu_gemini_%016d, call_gemini_%016d) in Claude-from-Gemini and Codex-from-Gemini conversions per 5b232e3e981b. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: Replaced random generators with counters in claude_gemini_request.go and codex_gemini_request.go; removed now-dead rand closures and crypto/rand+math/big imports; DeterministicToolIDs/DeterministicCallIDs tests assert byte-identical repeat conversions and exact sequential IDs; full translator suite green.
+- `2026-08-22T13:22:20Z` — wave 3, task Preserve Gemini thought signatures into thinking blocks in non-stream Claude conversion including signature-only part skip per 3db591eecd6a. task_status: `DONE`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: gemini_claude_response.go ConvertGeminiResponseToClaudeNonStream now captures thoughtSignature/thought_signature into the thinking block signature field, treats signature-bearing text as thinking, skips signature-only parts, and flushes signature-only trailing blocks; new gemini_claude_response_test.go covers preserve/snake-case/trailing cases; full translator suite + git diff --check green.
+- `2026-08-22T13:22:42Z` — wave 3. run: `01M0MQXH8A4KX2DRTWKQWGY045`. summary: R11a wave 3 complete: R5 deterministic tool-call IDs in claude/codex gemini request conversions and R6 thought-signature preservation in non-stream Claude conversion ported with regression tests; full go test ./internal/translator/... -count=1 green; git diff --check clean; all changed files within internal/translator/ allowed surfaces (plan file excluded as harness bookkeeping)..
+- `2026-08-22T13:35:47Z` — wave 0. summary: R11a phase gated: check 01M0MTTEXG8S1HD5K7K3KYC1E0 APPROVE_WITH_REQUESTS by independent judge; out_of_order drift resolved (latest check now belongs to latest run); remaining stale_index refreshes with this record; next action commit r11a diff then work full on r11b wave 1..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -244,15 +255,17 @@ updated: 2026-08-22
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
-- none
+- `2026-08-22T13:33:34Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0MTTEXG8S1HD5K7K3KYC1E0`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. phase: `r11a-translator-fixes`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd65aa099ffekIoBCqCGPbqgjH)).
+  - `go test ./internal/translator/... -count=1` → Validation r11a gate: pass (19 ok packages, exit 0)
+  - `git diff --check` → Validation r11a gate: pass
 
 ## Current State and Next Action
-- active_phase: none
-- lifecycle_status: planned
-- latest_run_id: none
-- latest_trace_ids: [01M0MPQ5E0Y36TVPX6RNB7JXCF]
-- latest_check_id: none
+- active_phase: r11a-translator-fixes
+- lifecycle_status: checked
+- latest_run_id: 01M0MQXH8A4KX2DRTWKQWGY045
+- latest_trace_ids: [01M0MT6K0EPJQ91R3NRG8GMKVJ]
+- latest_check_id: 01M0MTTEXG8S1HD5K7K3KYC1E0
 - latest_handoff_id: none
 - blockers: none
-- open_items: [execute four planned phases r11a-r11d]
-- exact_next_action: start `work full` on phase r11a-translator-fixes wave 1 (reasoning-key correctness, R2+R3)
+- open_items: [commit the approved r11a diff without pushing; then execute r11b-runtime-hardening]
+- exact_next_action: commit the r11a translator diff via git, then run `work full` on phase r11b-runtime-hardening wave 1

@@ -156,7 +156,7 @@ updated: 2026-08-22
         escalation: Record `NEEDS_CONTEXT` with the schema diff; do not regenerate models.json from upstream wholesale.
   - phase_slug: r11c-managed-settings
     story_id: 01M0MPWQFPVZB8VCSKH6BS1DMX
-    status: planned
+    status: in-progress
     goal: Port OAuth request-scoped error rules and Codex stream bootstrap buffering as DB-backed settings with management CRUD (R11, R12).
     depends_on: none
     execution_gate: Land before r11d because its OAuth branch sits beside the credential engine regions r11d later edits.
@@ -254,6 +254,9 @@ updated: 2026-08-22
 - `2026-08-22T14:46:41Z` — wave 2, task Wire it into Gemini and Vertex executors across execute/stream/count-tokens call sites. task_status: `DONE_WITH_CONCERNS`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Wired 9 call sites (3 gemini + 6 vertex) matching upstream positions after payload-config/cap/strip and before leading-user normalization; concern recorded as decision: local signature package lacked field-2 Gemini 3.x envelope recognition so helpers were ported into gemini_validation.go and Gemini detection now precedes loose Claude probes in DetectSignatureProviderForBlock; all executor/signature/registry suites green.
 - `2026-08-22T14:46:59Z` — wave 3, task Register gemini-3.7-flash in the gemini, vertex, and gemini-cli sections via manual JSON merge of the locally diverged models.json per 85e7add6adf3. task_status: `DONE_WITH_CONCERNS`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: Merged upstream entries into gemini, vertex, and aistudio sections (upstream commit actually touches aistudio, not gemini-cli — decision 01M0MYZ4VQMWCZSS82PE2TCPXZ records following the commit as authority); inserted after gemini-3.6-flash anchor in each; TestGemini37FlashRegisteredAcrossGeminiSurfaces asserts type/context/thinking across all three; registry suite green.
 - `2026-08-22T14:46:59Z` — wave 3. run: `01M0MWDKZMR02ATRAGMXDJ5577`. summary: R11b waves complete: R7 xAI incomplete-terminal (executor + codex converter), R8 thought-signature sanitizer package + 9-site wiring with envelope-recognition port, R9 gemini-3.7-flash registry entries; go test executor+signature+registry all green; git diff --check clean..
+- `2026-08-22T15:27:30Z` — wave 1, task Add the DB-backed setting plus sanitize hook for OAuth-kind request-scoped error rules per 9dc51b1f8777. task_status: `DONE`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: Added Config.OAuthRequestScopedErrors map field + SanitizeOAuthRequestScopedErrors normalization hooked into ParseConfigBytes and management apply paths; watcher/diff ported (Summarize/Diff + config_diff hook); internal/config and internal/watcher/diff suites green.
+- `2026-08-22T15:27:30Z` — wave 1, task Branch on OAuth kind beside the per-credential engine and expose management CRUD handlers on local routes. task_status: `DONE`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: conductor_request_scoped_errors.go routes auth_kind=oauth auths to global rules before provider/index logic (local Auth has no AuthKind method so uses the synthesizer-set auth_kind attribute); Get/Put/Patch/Delete handlers + sanitizedOAuthRequestScopedErrors helper mirror oauth-model-alias; four routes registered in server.go; TestOAuthRequestScopedErrors_AppliesToOAuthAuth and _DoesNotApplyToAPIKey pass.
+- `2026-08-22T15:27:52Z` — wave 1. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: R11c wave 1 (R11 OAuth request-scoped error rules) complete: config field + sanitize + parse/apply hooks, conductor OAuth branch, CRUD handlers on /oauth-request-scoped-errors, watcher diff reporting; config/diff/auth suites green. R12 (Codex bootstrap buffering) NOT started — session budget stop at clean slice boundary; next session implements R12 then r11d..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -271,12 +274,12 @@ updated: 2026-08-22
   - `git diff --check` → Validation r11b gate: pass
 
 ## Current State and Next Action
-- active_phase: r11b-runtime-hardening
-- lifecycle_status: checked
-- latest_run_id: 01M0MWDKZMR02ATRAGMXDJ5577
-- latest_trace_ids: [01M0MZ0X3D8VEGAZ28BZQ079CY]
+- active_phase: r11c-managed-settings
+- lifecycle_status: in-progress
+- latest_run_id: 01M0N04HD71AY6F9N0XT2PHC49
+- latest_trace_ids: [01M0N1B2Y80565DWWSK3VMZS51]
 - latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit the approved r11b diff; then execute r11c-managed-settings]
-- exact_next_action: commit r11b via git without pushing, then run `work full` on phase r11c-managed-settings wave 1
+- open_items: [implement R12 Codex stream bootstrap buffering (HTTP+WS paths) in r11c wave 2; then execute r11d]
+- exact_next_action: implement R12 per upstream 4b9d404fb04f — config flag CodexStreamBootstrapBuffering, terminal helpers, buffered HTTP ExecuteStream phase, WS path — then gate r11c

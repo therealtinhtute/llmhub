@@ -3,9 +3,9 @@ id: 01M0FR0JSNWR6FKSBBZCZSYYEH
 type: plan
 intake_id: 01M0FR170W7VPYF2QB0S0K2S7S
 lane: high-risk
-status: active
+status: completed
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-22
 ---
 
 # Plan: CLIProxyAPI v7.2.137 parity follow-up
@@ -67,7 +67,7 @@ updated: 2026-08-20
 - phases:
   - phase_slug: r10a-custom-headers
     story_id: 01M0FR4267GSYRQ5GQ6EKS5H8A
-    status: checked
+    status: done
     goal: Resolve approved `$VAR` custom headers and preserve caller-owned Claude incoming headers (R10a).
     depends_on: none
     allowed_surfaces:
@@ -113,7 +113,7 @@ updated: 2026-08-20
         escalation: Mark the phase blocked at the first second failure, append the exact output to Progress, and do not stage or commit.
   - phase_slug: r10b-native-parity
     story_id: 01M0FR426FG9XE3JNAGAY0J6EE
-    status: checked
+    status: done
     goal: Port approved Claude, Codex, Gemini, Antigravity, logging, and CCH native-parity micro-fixes (R10b).
     depends_on: none
     execution_gate: Begin after R10a has established the shared header ownership boundary; the Claude-header task must not edit a file still owned by an active R10a task.
@@ -159,7 +159,7 @@ updated: 2026-08-20
         escalation: Do not stage conflicting files; append the conflict and owner to Progress and route back to the phase lead.
   - phase_slug: r10c-gemini-leading-user-turn
     story_id: 01M0FR426Q85GCF3G8VQY1EGF0
-    status: checked
+    status: done
     goal: Prepend the required empty user turn for model-first Gemini-family requests (R10c).
     depends_on: none
     allowed_surfaces:
@@ -248,6 +248,9 @@ updated: 2026-08-20
 - `2026-08-21T12:54:46Z` — wave 3, task Run request/count-token regression coverage and inspect the diff for translator, SDK, config, and frontend drift. task_status: `DONE`. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c provider-matrix regression command passes; git diff --check passes; forbidden-surface diff is empty and working tree contains only the active plan plus approved executor/helper/test files..
 - `2026-08-21T12:54:46Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c wave 3 complete: provider-matrix regression coverage and scope invariants pass; no translator, SDK, config, or frontend drift detected..
 - `2026-08-21T13:02:44Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: R10c durable gate synchronized: check 01M0J6J3SYKAX3P1A1YXYKHS94 recorded APPROVE_WITH_REQUESTS; aggregate baseline failures and Vertex fixture gap are explicit; phase is checked and ready for owned-path commit without push..
+- `2026-08-22T07:28:29Z` — handoff recorded. handoff: `01M0M5XZASSFZ8378FH6FB66CX`. run: `01M0M5QT9CTP0DTSSQ9AK6XK2S`. check: `01M0M5SZVM48ABW9439R4DSE81`. phase closed.
+- `2026-08-22T07:28:39Z` — handoff recorded. handoff: `01M0M5Y9XS1KHZ4HZGG4YWQB9B`. run: `01M0M5QT9TM1V2MM7NVB71TDS5`. check: `01M0M5TYJ4TC27KBFB3392Z50S`. phase closed.
+- `2026-08-22T07:28:39Z` — handoff recorded. handoff: `01M0M5Y9Y8QS600BNYZ2CDNZRX`. run: `01M0M5QTA556380CCDW3TYF1J5`. check: `01M0M5X967B5ZSS2490CRWJDQQ`. phase closed.
 - `2026-08-22T11:57:26Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Reconciliation: R10c implementation, tests, and plan gate evidence were committed (dc084516, ed582ff8, 637e932e) and pushed to origin/master; master is in sync with origin (0/0). Stale exact-next-action superseded; remaining WIP is an unrelated frontend motion/polish diff in web/..
 - `2026-08-22T11:58:31Z` — wave 3. run: `01M0GT77XCHB5BVSQMP34790VB`. summary: Plan current-state hand-edited after reconciliation trace: refreshed exact_next_action to check-gate the frontend WIP (bounded intent, unrelated to parity phases); recording to refresh stale plan_index..
 
@@ -257,6 +260,7 @@ updated: 2026-08-20
 - `2026-08-20T14:28:46Z` — Sequence R10c Gemini leading-turn edits in gemini_executor.go and gemini_vertex_executor.go after R10a completes because both phases modify the same request-path regions (phase: `r10a-custom-headers`), task: wave-2-ownership. rationale: The R10c inventory found definite overlap where R10a threads Options.Headers and R10c inserts turn normalization. Keeping R10a as the first owner prevents concurrent hunk conflicts while preserving parallelism for disjoint future surfaces..
 - `2026-08-20T14:47:41Z` — Include the local Codex alpha-search path in R10a header threading (phase: `r10a-custom-headers`), task: wave-2-implementation. rationale: Although the upstream delta does not contain this legacy method, the local executor already passes Options into executeAlphaSearch and applies the shared custom-header helper. Threading opts.Headers closes a real local request path without changing any public interface or adding provider scope..
 - `2026-08-20T14:47:50Z` — Leave Claude PrepareRequest and other static-only executor helper callers unchanged for dynamic `$VAR` resolution (phase: `r10a-custom-headers`), task: wave-2-implementation. rationale: Those paths have no request-scoped Options.Headers or public interface slot; changing sdk RequestPreparer or static-only callers would expand scope and violate SDK compatibility. All live request paths that carry Options.Headers are threaded..
+- `2026-08-22T07:30:56Z` — plan completed. rationale: every phase_slug is a done story.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -287,14 +291,23 @@ updated: 2026-08-20
   - `rg` credential-pattern scan over the final R10c scope → pass: no high-confidence credential patterns found.
   - Full Security/Performance/Architecture/Code Quality review → pass: normalization is bounded to approved executor boundaries, preserves Antigravity Claude behavior, avoids valid-path copies, and introduces no new secret, logging, retry, concurrency, SDK, translator, config, or frontend surface.
   - proof_gaps: same-session review; Vertex normal/stream/count-token request bodies were verified by complete call-site inspection and package tests but lack dedicated HTTP capture fixtures. Aggregate repository tests remain red only on the unrelated baseline failures recorded above.
+- `2026-08-22T07:26:18Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0M5SZVM48ABW9439R4DSE81`. run: `01M0M5QT9CTP0DTSSQ9AK6XK2S`. phase: `r10a-custom-headers`. judge: `same-session` (gpt-5.6-luna).
+  - `go test ./internal/util -run TestApplyCustomHeadersFromAttrs -count=1; go test ./internal/runtime/executor/... -count=1` → plan cliproxyapi-v7.2.137-follow-up.md Validation 2026-08-20T14:55:18Z (check 01M0FTPPNFWEAD96M2RBDZX51X); commits e424bfad00a6/5fef17e2ecd1 ports merged in 3e8cb015
+  - `git diff --check; git diff -- config.example.yaml sdk web internal/managementasset/static` → plan Validation 2026-08-20T14:55:18Z: forbidden surfaces unchanged
+- `2026-08-22T07:26:49Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0M5TYJ4TC27KBFB3392Z50S`. run: `01M0M5QT9TM1V2MM7NVB71TDS5`. phase: `r10b-native-parity`. judge: `same-session` (gpt-5.6-luna).
+  - `go test ./internal/translator/... ./internal/runtime/executor/... ./internal/api/middleware/... -count=1` → plan cliproxyapi-v7.2.137-follow-up.md Validation 2026-08-20T23:57:18Z (check 01M0GSQ4NJ9Y3A8A54G5FTA9EP); commits f2bedb4b/93cf1563 merged in 3e8cb015
+  - `git diff --cached --check` → plan Validation 2026-08-20T23:57:18Z: staged/unstaged whitespace pass; known util no-copy baseline unchanged
+- `2026-08-22T07:28:06Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0M5X967B5ZSS2490CRWJDQQ`. run: `01M0M5QTA556380CCDW3TYF1J5`. phase: `r10c-gemini-leading-user-turn`. judge: `same-session` (gpt-5.6-luna).
+  - `go test ./internal/runtime/executor/... -count=1` → plan cliproxyapi-v7.2.137-follow-up.md Validation 2026-08-21T13:01:00Z (check 01M0J6J3SYKAX3P1A1YXYKHS94); commits dc084516/ed582ff8 merged in 3e8cb015
+  - `git diff --check` → plan Validation 2026-08-21T13:01:00Z: whitespace pass; aggregate go test red only on unrelated self-update + stale-worktree baselines
 
 ## Current State and Next Action
-- active_phase: r10c-gemini-leading-user-turn
-- lifecycle_status: checked
-- latest_run_id: 01M0GT77XCHB5BVSQMP34790VB
-- latest_trace_ids: [01M0GTG7ZVKER9BG22PQ8Q00HG, 01M0GTG805E5HJ0J0815W6EC0M, 01M0MNAF1SZTZ5N7X31JA58TN6]
-- latest_check_id: 01M0J6J3SYKAX3P1A1YXYKHS94
-- latest_handoff_id: none
+- active_phase: none
+- lifecycle_status: done
+- latest_run_id: 01M0M5QTA556380CCDW3TYF1J5
+- latest_trace_ids: [01M0GTG7ZVKER9BG22PQ8Q00HG, 01M0GTG805E5HJ0J0815W6EC0M]
+- latest_check_id: 01M0M5X967B5ZSS2490CRWJDQQ
+- latest_handoff_id: 01M0M5Y9Y8QS600BNYZ2CDNZRX
 - blockers: none
-- open_items: [R10c committed (dc084516, ed582ff8, 637e932e) and pushed to origin/master; plan outcome fully delivered — archive candidate; unrelated frontend WIP in web/ pending check gate + commit]
-- exact_next_action: run the check gate on the frontend WIP diff (web/* plus untracked web/src/components/motion/) and commit it if approved
+- open_items: none
+- exact_next_action: complete the initiative — all three phases shipped and merged in `3e8cb015`; DB lifecycle backfilled on 2026-08-22 after worktree DB loss (stories/runs/checks/handoffs reference plan Validation evidence and merged commits)

@@ -236,6 +236,7 @@ updated: 2026-08-22
 ## Progress
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
 - `2026-08-22T12:21:51Z` — wave 0. summary: Initiative re-registered on local DB after branch merge 92bce00e: intake 01M0MPP37ZXX9HY4VVVHXWS32G (spec-slice/high-risk) linked to plan 01M0M64B2TYGG69CS1SSMVYF57; plan frontmatter intake_id synced; scope authority remains checkpoint scope_policy targeted-semantic-ports; next action to-plan..
+- `2026-08-22T12:28:48Z` — wave 0. summary: to-plan complete: four phases r11a-translator-fixes, r11b-runtime-hardening, r11c-managed-settings, r11d-credential-lifecycle (depends_on r11c) planned with story IDs 01M0MPWHT5Q93NYTAKB9SA6RYK/01M0MPWHTF122GTAAM3DZ5KMHG/01M0MPWQFPVZB8VCSKH6BS1DMX/01M0MPWQFYTQKRQ0WE7DZE2BV0; waves, tasks, checks, and R16 final gate written into plan; next action work full on r11a wave 1..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->

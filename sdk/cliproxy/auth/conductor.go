@@ -2944,6 +2944,14 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		return
 	}
 	modelKey := canonicalModelKey(result.Model)
+	if !result.Success && !shouldSkipCredentialCooldown(result.Error) {
+		// Warn-level credential diagnostic identifying the failing credential
+		// without leaking secret material; cancellations are filtered inside.
+		m.mu.RLock()
+		failedAuth := m.auths[result.AuthID]
+		m.mu.RUnlock()
+		warnLogUpstreamFailure(ctx, nil, result.Provider, result.Model, failedAuth, 0, result.Error)
+	}
 	if !result.Success && (result.RequestScoped || shouldSkipCredentialCooldown(result.Error)) {
 		m.hook.OnResult(ctx, result)
 		return
@@ -4419,11 +4427,13 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	available, errAvailable := m.availableAuthsForSelector(m.selector, candidates, provider, model, time.Now())
 	if errAvailable != nil {
 		m.mu.RUnlock()
+		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, nil, errAvailable)
 		return nil, nil, errAvailable
 	}
 	selected, errPick := m.selector.Pick(ctx, provider, selectionArgForSelector(m.selector, model), opts, available)
 	if errPick != nil {
 		m.mu.RUnlock()
+		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, nil, errPick)
 		return nil, nil, errPick
 	}
 	if selected == nil {
@@ -4484,6 +4494,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 			selected, errPick = m.scheduler.pickSingle(ctx, provider, model, opts, tried)
 		}
 		if errPick != nil {
+			m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, tried, errPick)
 			return nil, nil, errPick
 		}
 		if selected == nil {
@@ -4582,11 +4593,13 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	available, errAvailable := m.availableAuthsForSelector(m.selector, candidates, "mixed", model, time.Now())
 	if errAvailable != nil {
 		m.mu.RUnlock()
+		m.warnLogAuthUnavailable(ctx, providers, model, opts, nil, errAvailable)
 		return nil, nil, "", errAvailable
 	}
 	selected, errPick := m.selector.Pick(ctx, "mixed", selectionArgForSelector(m.selector, model), opts, available)
 	if errPick != nil {
 		m.mu.RUnlock()
+		m.warnLogAuthUnavailable(ctx, providers, model, opts, nil, errPick)
 		return nil, nil, "", errPick
 	}
 	if selected == nil {

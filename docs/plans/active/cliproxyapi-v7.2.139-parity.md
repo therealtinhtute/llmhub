@@ -265,6 +265,7 @@ updated: 2026-08-22
 - `2026-08-23T03:49:12Z` — wave 0. summary: R11d wave 1 (R10) committed; R13/R14 remain for next session per plan Current State.
 - `2026-08-23T04:23:58Z` — wave 2, task Support base_URL-only credentials in the synthesis/config dedup layer per 92d96e0b729d. task_status: `DONE`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: SanitizeGeminiKeys keeps base_URL-only entries and dedups via formatGeminiKeyDedupID (key+baseURL+proxy+prefix+FormatSortedHeaders); synthesizer synthesizes base_url-only records as auth_kind=apikey with no fabricated api_key; migration proof TestGeminiBaseURLOnlyCredentialDoesNotOrphanExistingIDs pins that StableIDGenerator content-addressed IDs keep existing credential IDs byte-identical so cooldown/index mappings survive.
 - `2026-08-23T04:23:58Z` — wave 2, task Change the auth-ID scheme with a mapping-preservation test proving existing index/cooldown mappings survive, then add executor stale-auth-header else-Del branches. task_status: `DONE`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: ID scheme proven stable by construction (StableIDGenerator hashes kind+apiKey+baseURL, not index) plus the preservation test; stale-auth-header else-Del branches added to Gemini/XAI/Codex PrepareRequest and Claude restructured per upstream (auth_kind=apikey detection adapted to local attribute since local Auth lacks AuthKind method); executor+config+synthesizer+auth suites green.
+- `2026-08-23T04:25:57Z` — wave 3, task Retry-round contract (R14). task_status: `NEEDS_CONTEXT`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: Upstream R14 spans 3377 lines across 601ca43090f7+0a14eb70ce19 redefining request-retry as credential retry rounds on upstream-only split-conductor files (conductor_home/home_execution/home_concurrency/selection) plus an internal/home client subsystem absent locally; porting into the monolithic conductor (NG5) needs a fresh session with full context to redesign round exclusion/counting/admission filtering safely - not attemptable under remaining session budget.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -293,5 +294,5 @@ updated: 2026-08-22
 - latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit R10 diagnostics; implement R13 base_URL-only credentials with auth-ID migration proof (wave 2); implement R14 retry-round contract inside monolithic conductor (wave 3); then phase gate + R16 final-gate refresh]
-- exact_next_action: commit R10 diagnostics wave 1, then implement R13 per 92d96e0b729d in a fresh session
+- open_items: [commit R13 (done in-session, uncommitted at trace time); implement R14 retry-round contract in a fresh session — needs full read of local Execute/ExecuteStream retry loops plus upstream 601ca43090f7+0a14eb70ce19; then r11d phase gate; R16 final-gate checkpoint refresh; push all local commits]
+- exact_next_action: fresh session - run watzup, commit any pending R13 files if uncommitted, then port R14 retry-round contract into the monolithic conductor per NG5

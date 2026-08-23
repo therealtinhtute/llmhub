@@ -268,6 +268,7 @@ updated: 2026-08-22
 - `2026-08-23T04:25:57Z` — wave 3, task Retry-round contract (R14). task_status: `NEEDS_CONTEXT`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: Upstream R14 spans 3377 lines across 601ca43090f7+0a14eb70ce19 redefining request-retry as credential retry rounds on upstream-only split-conductor files (conductor_home/home_execution/home_concurrency/selection) plus an internal/home client subsystem absent locally; porting into the monolithic conductor (NG5) needs a fresh session with full context to redesign round exclusion/counting/admission filtering safely - not attemptable under remaining session budget.
 - `2026-08-23T08:53:15Z` — wave 3, task Carry round-exclusion metadata through dispatch, count rounds, mark exhausted rounds, and apply per-round admission filtering per 601ca43090f7 + 0a14eb70ce19. task_status: `DONE`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: Monolithic-conductor port: execute/executeCount/executeStream MixedOnce take roundExcluded set seeded into tried; cap-exhausted rounds (max-retry-credentials reached) merge attempted IDs into next-round exclusions; pick-failure with consumed pool marks exclusion and returns progressed=false so outer loop stops instead of replaying filtered credentials; request-retry rounds counted via existing attempt/retryAllowed. TestExecute_RetryRoundsExcludeCappedCredentials pins [a,c,b] no-replay across capped rounds; legacy single-credential cooldown retry preserved (DisableCooling test green). Upstream home-dispatch-specific pieces (internal/home client, homeRetryLimit) intentionally not portable - local has no such subsystem; NG5 respected.
 - `2026-08-23T08:53:15Z` — wave 3. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: R11d wave 3 (R14) complete: retry-round contract ported into monolithic conductor - round exclusion on cap exhaustion, admission filtering via tried seeding, progressed-signal stops futile rounds; all suites green.
+- `2026-08-23T09:01:14Z` — wave 0. summary: R16 final gate executed: checkpoint re-resolved v7.2.139 -> v7.2.140 (0a14eb70ce19 -> a7e3596b7e35, 13 non-merge commits); gap trio refreshed (55 paths: 7 add-absent/17 diverged-absent/31 semantic-review); newer delta pinned as explicit follow-up plan per final-gate contract - no silent scope growth; all four r11 phases checked.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -299,5 +300,5 @@ updated: 2026-08-22
 - latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [R16 final gate: re-resolve latest upstream release + refresh checkpoint/gap/ledger trio, pin newer delta as follow-up; then closing handoff; push local commits]
-- exact_next_action: run the R16 final-gate upstream refresh, then route to closing handoff
+- open_items: [v7.2.140 delta (13 commits) pinned as explicit follow-up plan via upstream triage; closing handoff for this initiative; push local commits]
+- exact_next_action: run closing handoff for the initiative, then push

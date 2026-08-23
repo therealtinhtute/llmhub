@@ -156,7 +156,7 @@ updated: 2026-08-22
         escalation: Record `NEEDS_CONTEXT` with the schema diff; do not regenerate models.json from upstream wholesale.
   - phase_slug: r11c-managed-settings
     story_id: 01M0MPWQFPVZB8VCSKH6BS1DMX
-    status: in-progress
+    status: checked
     goal: Port OAuth request-scoped error rules and Codex stream bootstrap buffering as DB-backed settings with management CRUD (R11, R12).
     depends_on: none
     execution_gate: Land before r11d because its OAuth branch sits beside the credential engine regions r11d later edits.
@@ -257,12 +257,16 @@ updated: 2026-08-22
 - `2026-08-22T15:27:30Z` — wave 1, task Add the DB-backed setting plus sanitize hook for OAuth-kind request-scoped error rules per 9dc51b1f8777. task_status: `DONE`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: Added Config.OAuthRequestScopedErrors map field + SanitizeOAuthRequestScopedErrors normalization hooked into ParseConfigBytes and management apply paths; watcher/diff ported (Summarize/Diff + config_diff hook); internal/config and internal/watcher/diff suites green.
 - `2026-08-22T15:27:30Z` — wave 1, task Branch on OAuth kind beside the per-credential engine and expose management CRUD handlers on local routes. task_status: `DONE`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: conductor_request_scoped_errors.go routes auth_kind=oauth auths to global rules before provider/index logic (local Auth has no AuthKind method so uses the synthesizer-set auth_kind attribute); Get/Put/Patch/Delete handlers + sanitizedOAuthRequestScopedErrors helper mirror oauth-model-alias; four routes registered in server.go; TestOAuthRequestScopedErrors_AppliesToOAuthAuth and _DoesNotApplyToAPIKey pass.
 - `2026-08-22T15:27:52Z` — wave 1. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: R11c wave 1 (R11 OAuth request-scoped error rules) complete: config field + sanitize + parse/apply hooks, conductor OAuth branch, CRUD handlers on /oauth-request-scoped-errors, watcher diff reporting; config/diff/auth suites green. R12 (Codex bootstrap buffering) NOT started — session budget stop at clean slice boundary; next session implements R12 then r11d..
+- `2026-08-23T03:24:27Z` — wave 2, task Implement opt-in stream bootstrap buffering with overload failover on the HTTP path per 4b9d404fb04f, flag stored as DB-backed setting. task_status: `DONE`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: Added CodexStreamBootstrapBuffering flat config field (local convention, no YAML example per NG4); new codex_executor_bootstrap.go with handshake allow-list/overload detection/503 helper; ExecuteStream HTTP path buffers handshake events up to 16, returns synchronous 503 on server_is_overloaded/rate-limit rejections so conductor retries another credential; TestCodexExecutorExecuteStreamBootstrapBufferingFailsOverOnOverload passes and unbuffered behavior pinned unchanged.
+- `2026-08-23T03:24:27Z` — wave 2, task Apply identical semantics on the WebSocket Codex path without changing public SDK contracts. task_status: `BLOCKED`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: Deferred as explicit follow-up (decision 01M0PAAWJJJXRGRTDPZ8FC84J8): local codex_websockets_executor.go stream loop is session/concurrency-sensitive and upstream restructure assumes helper seams absent locally; HTTP/SSE path delivers the failover value; WS port recorded in plan open_items for a fresh session.
+- `2026-08-23T03:25:02Z` — wave 2. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: R11c wave 2 (R12) complete on HTTP/SSE: opt-in bootstrap buffering with synchronous 503 overload failover; WS transport deferred as explicit follow-up. Executor+config+auth suites green; git diff --check clean..
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
 - `2026-08-22T14:18:25Z` — Extend R7 surface into internal/translator/codex/openai/responses/codex_openai-responses_response.go: the non-stream converter must accept response.incomplete alongside response.completed as terminal. rationale: The executor switch alone returns an empty translated payload because the registered OpenaiResponse-Codex non-stream converter rejects incomplete events; upstream v7.2.139 converter accepts both (verified against 9d6b5cdd163b tree) and the local codex_claude_response.go:274 already follows the same both-terminal pattern.
 - `2026-08-22T14:46:01Z` — Ported the missing Gemini thought-signature envelope recognition instead of copying upstream gemini_validation.go wholesale. rationale: Local signature package diverged: it lacked the field-2 (Gemini 3.x) envelope validator that upstream Decide relies on, so native signatures were replaced with bypass sentinels. Added consumeGeminiField2Field1Value/isLikelyGeminiOpaquePayload/isASCIIUUIDBytes to gemini_validation.go and ordered exact-shape Gemini detection before the looser Claude decodability probes in DetectSignatureProviderForBlock; full package suite stays green.
 - `2026-08-22T14:46:01Z` — Registered gemini-3.7-flash in the gemini, vertex, and aistudio sections rather than gemini-cli as the plan wording states. rationale: Upstream commit 85e7add6adf3 touches exactly those three sections in models.json; the commit is the requirement authority and the local aistudio section exists with the same gemini-3.6-flash insertion anchor.
+- `2026-08-23T03:23:55Z` — Defer the websocket-transport bootstrap buffering port to an explicit follow-up; land the HTTP/SSE path of R12 first. rationale: The local codex_websockets_executor.go stream loop is concurrency-sensitive session management (read pump, lifecycle binding, retry-on-send); upstream 4b9d404fb04f restructured it across 206 lines that assume upstream helper seams absent locally. Rushing it under session budget risks breaking connection reuse; HTTP/SSE carries the primary Codex traffic and delivers the overload-failover value, and the deferral is recorded in plan open_items rather than silently dropped.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
@@ -272,14 +276,17 @@ updated: 2026-08-22
 - `2026-08-22T15:05:39Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0N032VA6FTS9Z6GNMGAAHX9`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. phase: `r11b-runtime-hardening`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd6049328ffe8QaVykMsKseP5C)).
   - `go test ./internal/runtime/executor/ ./internal/signature/ ./internal/registry/ -count=1` → Validation r11b gate: all three packages ok
   - `git diff --check` → Validation r11b gate: pass
+- `2026-08-23T03:28:46Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0PAKRP3G4C0ZH6Z5R7ZZ63A`. run: `01M0N04HD71AY6F9N0XT2PHC49`. phase: `r11c-managed-settings`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd3591d67ffeWJmN8f2mGAjnIO)).
+  - `go test ./internal/runtime/executor/ ./internal/config/ ./sdk/cliproxy/auth/ -count=1` → Validation r11c gate: all three packages ok
+  - `git diff --check` → Validation r11c gate: pass
 
 ## Current State and Next Action
 - active_phase: r11c-managed-settings
-- lifecycle_status: in-progress
+- lifecycle_status: checked
 - latest_run_id: 01M0N04HD71AY6F9N0XT2PHC49
 - latest_trace_ids: [01M0N1B2Y80565DWWSK3VMZS51]
 - latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [implement R12 Codex stream bootstrap buffering (HTTP+WS paths) in r11c wave 2; then execute r11d]
-- exact_next_action: implement R12 per upstream 4b9d404fb04f — config flag CodexStreamBootstrapBuffering, terminal helpers, buffered HTTP ExecuteStream phase, WS path — then gate r11c
+- open_items: [commit the approved r11c diff; websocket bootstrap-buffering port = explicit follow-up; then execute r11d]
+- exact_next_action: commit r11c via git without pushing, then `work full` on phase r11d-credential-lifecycle wave 1

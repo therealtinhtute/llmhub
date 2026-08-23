@@ -71,6 +71,11 @@ func (e *GeminiExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Au
 	} else if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 		req.Header.Del("x-goog-api-key")
+	} else {
+		// base_URL-only credential: clear any stale auth headers so unrelated
+		// state from a reused connection cannot leak upstream.
+		req.Header.Del("x-goog-api-key")
+		req.Header.Del("Authorization")
 	}
 	applyGeminiHeaders(req, auth)
 	return nil

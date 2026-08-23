@@ -93,17 +93,22 @@ func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Au
 		return nil
 	}
 	apiKey, _ := claudeCreds(auth)
-	if strings.TrimSpace(apiKey) == "" {
-		return nil
-	}
-	useAPIKey := auth != nil && auth.Attributes != nil && strings.TrimSpace(auth.Attributes["api_key"]) != ""
+	isConfigAPIKey := auth != nil && auth.Attributes != nil && (strings.EqualFold(strings.TrimSpace(auth.Attributes["auth_kind"]), "apikey") || strings.TrimSpace(auth.Attributes["api_key"]) != "")
+	useAPIKey := auth != nil && isConfigAPIKey
 	isAnthropicBase := req.URL != nil && strings.EqualFold(req.URL.Scheme, "https") && strings.EqualFold(req.URL.Host, "api.anthropic.com")
-	if isAnthropicBase && useAPIKey {
-		req.Header.Del("Authorization")
-		req.Header.Set("x-api-key", apiKey)
+	if strings.TrimSpace(apiKey) != "" {
+		if isAnthropicBase && useAPIKey {
+			req.Header.Del("Authorization")
+			req.Header.Set("x-api-key", apiKey)
+		} else {
+			req.Header.Del("x-api-key")
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 	} else {
+		// base_URL-only credential: drop both auth headers instead of leaving
+		// whatever the inbound request carried.
+		req.Header.Del("Authorization")
 		req.Header.Del("x-api-key")
-		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	var attrs map[string]string
 	if auth != nil {

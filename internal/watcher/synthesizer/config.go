@@ -56,16 +56,18 @@ func (s *ConfigSynthesizer) synthesizeGeminiKeys(ctx *SynthesisContext) []*corea
 	for i := range cfg.GeminiKey {
 		entry := cfg.GeminiKey[i]
 		key := strings.TrimSpace(entry.APIKey)
-		if key == "" {
-			continue
-		}
 		prefix := strings.TrimSpace(entry.Prefix)
 		base := strings.TrimSpace(entry.BaseURL)
+		if key == "" && base == "" {
+			continue
+		}
 		proxyURL := strings.TrimSpace(entry.ProxyURL)
 		id, token := idGen.Next("gemini:apikey", key, base)
 		attrs := map[string]string{
-			"source":  fmt.Sprintf("config:gemini[%s]", token),
-			"api_key": key,
+			"source": fmt.Sprintf("config:gemini[%s]", token),
+		}
+		if key != "" {
+			attrs["api_key"] = key
 		}
 		metadata := map[string]any{}
 		if entry.DisableCooling != nil {

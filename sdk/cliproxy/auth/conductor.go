@@ -2201,7 +2201,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if lastErr != nil {
 				return nil, lastErr, progressed
 			}
-			return nil, nil, progressed
+			return nil, &Error{Code: "auth_not_found", Message: "no auth available"}, progressed
 		}
 		pickOpts := opts
 		if homeMode {

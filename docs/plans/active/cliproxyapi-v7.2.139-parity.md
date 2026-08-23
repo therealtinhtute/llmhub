@@ -190,7 +190,7 @@ updated: 2026-08-22
         escalation: Ship HTTP-only behind the opt-in flag, mark WS follow-up explicitly in Progress; do not force the SDK change.
   - phase_slug: r11d-credential-lifecycle
     story_id: 01M0MPWQFYTQKRQ0WE7DZE2BV0
-    status: in-progress
+    status: checked
     goal: Port warn-level auth diagnostics, base_URL-only credentials, and the credential retry-round contract inside the monolithic conductor (R10, R13, R14).
     depends_on: r11c-managed-settings
     execution_gate: Begin only after r11c lands; both phases edit adjacent conductor regions.
@@ -287,14 +287,17 @@ updated: 2026-08-22
 - `2026-08-23T03:28:46Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0PAKRP3G4C0ZH6Z5R7ZZ63A`. run: `01M0N04HD71AY6F9N0XT2PHC49`. phase: `r11c-managed-settings`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd3591d67ffeWJmN8f2mGAjnIO)).
   - `go test ./internal/runtime/executor/ ./internal/config/ ./sdk/cliproxy/auth/ -count=1` → Validation r11c gate: all three packages ok
   - `git diff --check` → Validation r11c gate: pass
+- `2026-08-23T08:59:55Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0PXJ46K27RMQQJPR1E0RCHY`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. phase: `r11d-credential-lifecycle`. judge: `independent` (opencode-go/ox-alpha-free (goal-verify subagent ses_fd22c9040ffefp0OgA4VEez8x0)).
+  - `go test ./sdk/cliproxy/auth/ ./internal/watcher/synthesizer/ ./internal/runtime/executor/ ./internal/config/ -count=1` → Validation r11d gate: all four packages ok
+  - `git diff --check` → Validation r11d gate: pass
 
 ## Current State and Next Action
 - active_phase: r11d-credential-lifecycle
-- lifecycle_status: in-progress
+- lifecycle_status: checked
 - latest_run_id: 01M0PAQ6VT9SCGN9CTGG44623C
 - latest_trace_ids: [01M0PBRJHCKVNNAME46W8X6CDW]
 - latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [run the r11d phase gate with independent judge; then R16 final-gate checkpoint refresh; push all local commits]
-- exact_next_action: gate r11d via independent review, commit approved diff, then run R16 final-gate refresh and route to handoff
+- open_items: [R16 final gate: re-resolve latest upstream release + refresh checkpoint/gap/ledger trio, pin newer delta as follow-up; then closing handoff; push local commits]
+- exact_next_action: run the R16 final-gate upstream refresh, then route to closing handoff

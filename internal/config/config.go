@@ -139,6 +139,15 @@ type Config struct {
 	// agent_message input into standard user messages for non-Codex upstreams.
 	CodexOptimizeMultiAgentV2 bool `yaml:"codex-optimize-multi-agent-v2,omitempty" json:"codex-optimize-multi-agent-v2,omitempty"`
 
+	// CodexStreamBootstrapBuffering holds back initial handshake events (response.created,
+	// response.in_progress and websocket metadata frames) until the first generated event
+	// arrives. Upstream delivers server_is_overloaded rejections inside an HTTP 200 stream
+	// right after those handshake events instead of returning 503 on the wire, so buffering
+	// them keeps downstream response headers uncommitted long enough for the conductor to
+	// retry on another credential. Trade-off: response headers are delayed until the upstream
+	// starts generating, which can trip client or reverse-proxy read timeouts. Default false.
+	CodexStreamBootstrapBuffering bool `yaml:"codex-stream-bootstrap-buffering,omitempty" json:"codex-stream-bootstrap-buffering,omitempty"`
+
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
 

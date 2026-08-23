@@ -719,7 +719,138 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		err = newCodexStatusErr(httpResp.StatusCode, data)
 		return nil, err
 	}
-	out := make(chan cliproxyexecutor.StreamChunk)
+	buffering := e.cfg != nil && e.cfg.CodexStreamBootstrapBuffering
+
+	scanner := bufio.NewScanner(httpResp.Body)
+	scanner.Buffer(nil, 52_428_800) // 50MB
+	claudeInputTokens := helps.NewClaudeInputTokenState(from, to, from, originalPayload)
+	var param any
+	outputItemsByIndex := make(map[int64][]byte)
+	var outputItemsFallback [][]byte
+
+	var bufferedChunks [][]byte
+	var initialChunks [][]byte
+	var bootstrapCtxErr statusErr
+	hasBootstrapCtxErr := false
+	streamStarted := false
+	immediateTerminal := false
+	closeBootstrapBody := func() {
+		if errClose := httpResp.Body.Close(); errClose != nil {
+			log.Errorf("codex executor: close response body error: %v", errClose)
+		}
+	}
+
+	if buffering {
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
+			translatedLines := [][]byte{bytes.Clone(line)}
+			isHandshake := true
+			terminalSuccess := false
+			if bytes.HasPrefix(line, dataTag) {
+				data := bytes.TrimSpace(line[5:])
+				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
+				eventType := gjson.GetBytes(data, "type").String()
+				isHandshake = isCodexHandshakeMetadataEvent(eventType)
+				if streamErr, terminalBody, ok := codexBootstrapTerminalFailure(data); ok {
+					closeBootstrapBody()
+					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
+					reporter.PublishFailure(ctx, streamErr)
+					if isCodexOverloadBootstrapFailure(terminalBody) {
+						// Transient capacity rejection smuggled into an HTTP 200 stream. Fail the
+						// attempt before downstream headers commit so the conductor can retry on
+						// another credential, reporting the status upstream refused to put on the wire.
+						helps.LogWithRequestID(ctx).Debugf("codex executor: bootstrap overload rejection after %d buffered handshake events, failing over", len(bufferedChunks))
+						return nil, newCodexBootstrapOverloadErr(terminalBody)
+					}
+					// Non-overload terminal failure: keep original in-stream delivery semantics.
+				}
+				if streamErr, ok := codexTerminalStreamContextLengthErr(data); ok {
+					bootstrapCtxErr, hasBootstrapCtxErr = streamErr, true
+				}
+				switch eventType {
+				case "response.output_item.done":
+					collectCodexOutputItemDone(data, outputItemsByIndex, &outputItemsFallback)
+				case "response.completed", "response.incomplete":
+					terminalSuccess = true
+					if detail, ok := helps.ParseCodexUsage(data); ok {
+						reporter.Publish(ctx, detail)
+					}
+					publishCodexImageToolUsage(ctx, reporter, body, data)
+					data = patchCodexCompletedOutput(data, outputItemsByIndex, outputItemsFallback)
+				}
+				restoredEvents := [][]byte{data}
+				if declarationTable != nil {
+					restoredEvents = declarationTable.RestoreResponsesToolCallEvents(data)
+				}
+				translatedLines = translatedLines[:0]
+				for _, restoredEvent := range restoredEvents {
+					translatedLines = append(translatedLines, append([]byte("data: "), restoredEvent...))
+				}
+			}
+
+			for _, translatedLine := range translatedLines {
+				chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, from, req.Model, originalPayload, body, translatedLine, &param, claudeInputTokens)
+				if isHandshake && !terminalSuccess && !hasBootstrapCtxErr {
+					if len(bufferedChunks) < codexBootstrapMaxBufferedEvents {
+						bufferedChunks = append(bufferedChunks, chunks...)
+						continue
+					}
+					helps.LogWithRequestID(ctx).Debugf("codex executor: bootstrap buffer limit %d reached, releasing stream without overload probing", codexBootstrapMaxBufferedEvents)
+				}
+				if len(initialChunks) == 0 && !streamStarted {
+					initialChunks = append(initialChunks, chunks...)
+				} else {
+					initialChunks = append(initialChunks, chunks...)
+				}
+			}
+			if hasBootstrapCtxErr || terminalSuccess || !isHandshake {
+				streamStarted = true
+				if terminalSuccess {
+					immediateTerminal = true
+				}
+				break
+			}
+		}
+
+		if !streamStarted {
+			closeBootstrapBody()
+			if errScan := scanner.Err(); errScan != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+				reporter.PublishFailure(ctx, errScan)
+				return nil, errScan
+			}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, newCodexStatusErr(http.StatusRequestTimeout, []byte("codex stream error: stream disconnected before any generated event"))
+		}
+	}
+
+	chanCapacity := len(bufferedChunks) + len(initialChunks)
+	out := make(chan cliproxyexecutor.StreamChunk, chanCapacity+1)
+	for _, chunk := range bufferedChunks {
+		out <- cliproxyexecutor.StreamChunk{Payload: chunk}
+	}
+	for _, chunk := range initialChunks {
+		out <- cliproxyexecutor.StreamChunk{Payload: chunk}
+	}
+	if hasBootstrapCtxErr {
+		// Context-length failures keep unbuffered semantics: delivered as an in-stream
+		// error chunk after any flushed handshake payloads.
+		out <- cliproxyexecutor.StreamChunk{Err: bootstrapCtxErr}
+		close(out)
+		return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
+	}
+	if immediateTerminal {
+		closeBootstrapBody()
+		close(out)
+		return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
+	}
+
 	go func() {
 		defer close(out)
 		defer func() {
@@ -727,12 +858,6 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				log.Errorf("codex executor: close response body error: %v", errClose)
 			}
 		}()
-		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(nil, 52_428_800) // 50MB
-		claudeInputTokens := helps.NewClaudeInputTokenState(from, to, from, originalPayload)
-		var param any
-		outputItemsByIndex := make(map[int64][]byte)
-		var outputItemsFallback [][]byte
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)

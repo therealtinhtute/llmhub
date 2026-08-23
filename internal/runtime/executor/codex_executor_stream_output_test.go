@@ -3,10 +3,12 @@ package executor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -266,5 +268,114 @@ func TestCodexAutoExecutorHTTPFallbackForwardsSequentialCutoffReasoningSummaryDe
 	}
 	if !strings.Contains(output.String(), `"type":"response.reasoning_summary_text.done"`) {
 		t.Fatalf("missing sequential-cutoff summary event; output=%s", output.String())
+	}
+}
+
+func TestCodexBootstrapOverloadDetection(t *testing.T) {
+	overload := []byte(`{"error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"busy"}}`)
+	rateLimit := []byte(`{"error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`)
+	other := []byte(`{"error":{"type":"invalid_request_error","code":"bad_request","message":"no"}}`)
+	if !isCodexOverloadBootstrapFailure(overload) {
+		t.Fatalf("server_is_overloaded must be an overload bootstrap failure")
+	}
+	if !isCodexOverloadBootstrapFailure(rateLimit) {
+		t.Fatalf("rate_limit_exceeded must be an overload bootstrap failure")
+	}
+	if isCodexOverloadBootstrapFailure(other) {
+		t.Fatalf("non-capacity failures must stay in-stream")
+	}
+	err := newCodexBootstrapOverloadErr(overload)
+	if err.StatusCode() != http.StatusServiceUnavailable {
+		t.Fatalf("bootstrap overload status = %d, want 503", err.StatusCode())
+	}
+}
+
+func TestCodexHandshakeMetadataEventAllowList(t *testing.T) {
+	handshake := []string{"response.created", "response.in_progress", "codex.rate_limits", "codex.response.metadata"}
+	for _, eventType := range handshake {
+		if !isCodexHandshakeMetadataEvent(eventType) {
+			t.Fatalf("%q should be a handshake metadata event", eventType)
+		}
+	}
+	generated := []string{"response.output_item.added", "response.output_item.done", "response.completed", "error", ""}
+	for _, eventType := range generated {
+		if isCodexHandshakeMetadataEvent(eventType) {
+			t.Fatalf("%q should NOT be a handshake metadata event", eventType)
+		}
+	}
+}
+
+func TestCodexExecutorExecuteStreamBootstrapBufferingFailsOverOnOverload(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"The server is overloaded\"}}\n\n"))
+		atomic.AddInt32(&requestCount, 1)
+	}))
+	defer server.Close()
+
+	exec := NewCodexExecutor(&config.Config{CodexStreamBootstrapBuffering: true})
+	auth := &cliproxyauth.Auth{
+		ID:       "codex-auth",
+		Provider: "codex",
+		Attributes: map[string]string{
+			"base_url":  server.URL,
+			"auth_kind": "oauth",
+		},
+		Metadata: map[string]any{"access_token": "codex-token"},
+	}
+	_, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "gpt-5.2",
+		Payload: []byte(`{"model":"gpt-5.2","input":"hi","stream":true}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       true,
+	})
+	var statusE statusErr
+	if !errors.As(err, &statusE) {
+		t.Fatalf("expected synchronous statusErr for buffered overload, got %v", err)
+	}
+	if statusE.StatusCode() != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", statusE.StatusCode())
+	}
+}
+
+func TestCodexExecutorExecuteStreamWithoutBufferingKeepsInStreamError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"The server is overloaded\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	exec := NewCodexExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		ID:       "codex-auth",
+		Provider: "codex",
+		Attributes: map[string]string{
+			"base_url":  server.URL,
+			"auth_kind": "oauth",
+		},
+		Metadata: map[string]any{"access_token": "codex-token"},
+	}
+	result, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "gpt-5.2",
+		Payload: []byte(`{"model":"gpt-5.2","input":"hi","stream":true}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       true,
+	})
+	if err != nil {
+		t.Fatalf("unbuffered rejection must stay committed: %v", err)
+	}
+	// Local unbuffered semantics: the in-stream error event is translated downstream as
+	// data (no Err chunk), so assert the committed stream carries the rejection payload.
+	var combined strings.Builder
+	for chunk := range result.Chunks {
+		combined.Write(chunk.Payload)
+	}
+	if !strings.Contains(combined.String(), "server_is_overloaded") {
+		t.Fatalf("expected in-stream rejection payload when buffering disabled, got: %s", combined.String())
 	}
 }

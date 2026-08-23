@@ -190,7 +190,7 @@ updated: 2026-08-22
         escalation: Ship HTTP-only behind the opt-in flag, mark WS follow-up explicitly in Progress; do not force the SDK change.
   - phase_slug: r11d-credential-lifecycle
     story_id: 01M0MPWQFYTQKRQ0WE7DZE2BV0
-    status: planned
+    status: in-progress
     goal: Port warn-level auth diagnostics, base_URL-only credentials, and the credential retry-round contract inside the monolithic conductor (R10, R13, R14).
     depends_on: r11c-managed-settings
     execution_gate: Begin only after r11c lands; both phases edit adjacent conductor regions.
@@ -260,6 +260,8 @@ updated: 2026-08-22
 - `2026-08-23T03:24:27Z` — wave 2, task Implement opt-in stream bootstrap buffering with overload failover on the HTTP path per 4b9d404fb04f, flag stored as DB-backed setting. task_status: `DONE`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: Added CodexStreamBootstrapBuffering flat config field (local convention, no YAML example per NG4); new codex_executor_bootstrap.go with handshake allow-list/overload detection/503 helper; ExecuteStream HTTP path buffers handshake events up to 16, returns synchronous 503 on server_is_overloaded/rate-limit rejections so conductor retries another credential; TestCodexExecutorExecuteStreamBootstrapBufferingFailsOverOnOverload passes and unbuffered behavior pinned unchanged.
 - `2026-08-23T03:24:27Z` — wave 2, task Apply identical semantics on the WebSocket Codex path without changing public SDK contracts. task_status: `BLOCKED`. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: Deferred as explicit follow-up (decision 01M0PAAWJJJXRGRTDPZ8FC84J8): local codex_websockets_executor.go stream loop is session/concurrency-sensitive and upstream restructure assumes helper seams absent locally; HTTP/SSE path delivers the failover value; WS port recorded in plan open_items for a fresh session.
 - `2026-08-23T03:25:02Z` — wave 2. run: `01M0N04HD71AY6F9N0XT2PHC49`. summary: R11c wave 2 (R12) complete on HTTP/SSE: opt-in bootstrap buffering with synchronous 503 overload failover; WS transport deferred as explicit follow-up. Executor+config+auth suites green; git diff --check clean..
+- `2026-08-23T03:29:39Z` — wave 0. summary: R11c gated: check 01M0PAKRP3G4C0ZH6Z5R7ZZ63A APPROVE_WITH_REQUESTS independent judge; HTTP bootstrap buffering landed, WS port explicit follow-up in plan open_items; commits created; next action work full r11d wave 1.
+- `2026-08-23T03:48:52Z` — wave 1, task Emit warn-level diagnostics identifying the affected credential on auth cooldown entry and upstream execution failure paths per 48749717645e. task_status: `DONE_WITH_CONCERNS`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: New conductor_diagnostics.go ports cooldownReason/formatAuthIdentity/summarizeErrorForLog/warnLogUpstreamFailure/isAuthUnavailableError/authCoolingSummary/warnLogAuthUnavailable; wired warnLogAuthUnavailable at pick errAvailable/errPick sites and warnLogUpstreamFailure inside MarkResult as single choke point covering execute/stream/count-token failures; tests prove credential identification without api-key leak plus cancellation filtering. Concerns: upstream home-execution eligibility filter omitted (concept absent locally); execution durations not tracked locally so duration field logs 0s; both noted honestly.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -281,12 +283,12 @@ updated: 2026-08-22
   - `git diff --check` → Validation r11c gate: pass
 
 ## Current State and Next Action
-- active_phase: r11c-managed-settings
-- lifecycle_status: checked
-- latest_run_id: 01M0N04HD71AY6F9N0XT2PHC49
-- latest_trace_ids: [01M0N1B2Y80565DWWSK3VMZS51]
+- active_phase: r11d-credential-lifecycle
+- lifecycle_status: in-progress
+- latest_run_id: 01M0PAQ6VT9SCGN9CTGG44623C
+- latest_trace_ids: [01M0PBRJHCKVNNAME46W8X6CDW]
 - latest_check_id: 01M0N032VA6FTS9Z6GNMGAAHX9
 - latest_handoff_id: none
 - blockers: none
-- open_items: [commit the approved r11c diff; websocket bootstrap-buffering port = explicit follow-up; then execute r11d]
-- exact_next_action: commit r11c via git without pushing, then `work full` on phase r11d-credential-lifecycle wave 1
+- open_items: [commit R10 diagnostics; implement R13 base_URL-only credentials with auth-ID migration proof (wave 2); implement R14 retry-round contract inside monolithic conductor (wave 3); then phase gate + R16 final-gate refresh]
+- exact_next_action: commit R10 diagnostics wave 1, then implement R13 per 92d96e0b729d in a fresh session

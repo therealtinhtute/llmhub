@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	internalconfig "github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
-	log "github.com/sirupsen/logrus"
 )
 
 type antigravityCreditsFallbackExecutor struct {

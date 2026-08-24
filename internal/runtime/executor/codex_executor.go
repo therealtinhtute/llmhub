@@ -800,11 +800,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					}
 					helps.LogWithRequestID(ctx).Debugf("codex executor: bootstrap buffer limit %d reached, releasing stream without overload probing", codexBootstrapMaxBufferedEvents)
 				}
-				if len(initialChunks) == 0 && !streamStarted {
-					initialChunks = append(initialChunks, chunks...)
-				} else {
-					initialChunks = append(initialChunks, chunks...)
-				}
+				initialChunks = append(initialChunks, chunks...)
 			}
 			if hasBootstrapCtxErr || terminalSuccess || !isHandshake {
 				streamStarted = true

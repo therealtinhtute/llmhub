@@ -3,9 +3,9 @@ id: 01M0SZEF7HGRXZT8NC0DXKTB68
 type: plan
 intake_id: 01M0SZG9KJ2PW4REZWH3J8CMT8
 lane: high-risk
-status: active
+status: completed
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-24
 ---
 
 # Plan: CLIProxyAPI v7.2.140 targeted parity
@@ -63,7 +63,7 @@ updated: 2026-08-23
 - phases:
   - phase_slug: r12a-translator-userid-sigs
     story_id: 01M0SZH1Z5RJ1D0KVB9YTD8AYZ
-    status: checked
+    status: done
     goal: Port the Gemini schema normalization merge, shared stable Claude user_id helper, and Gemini-from-Claude thinking-signature normalization (R1-R3).
     depends_on: none
     allowed_surfaces:
@@ -97,7 +97,7 @@ updated: 2026-08-23
           - check: go build ./... && git diff --check
   - phase_slug: r12b-runtime-auth-fixes
     story_id: 01M0SZH1DW73THPXTMX8JWPFC
-    status: checked
+    status: done
     goal: Port xAI orphaned tool_choice and grok-4.6+ image_generation fixes, management key delete/patch base-URL validation, and the antigravity fallback client bump (R4-R7).
     depends_on: none
     allowed_surfaces:
@@ -144,10 +144,12 @@ updated: 2026-08-23
 - `2026-08-24T15:08:39Z` — wave 1, task xAI keeps image_generation on grok-4.6+ conversation requests per dfdf183fcfb6. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: grok-4.6+ gating plus forced-choice to allowed_tools rewrite ported with matrix test.
 - `2026-08-24T15:08:39Z` — wave 1, task Management key delete/patch base URL validation per ebda7509114d. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: Applied across four gemini-shaped families (Gemini/Claude/Codex/VertexCompat); delete_keys tests added.
 - `2026-08-24T15:08:39Z` — wave 1, task Antigravity fallback client version raised per a834917e871d. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: internal/misc/antigravity_version.go bump + refreshed fallback test.
+- `2026-08-24T15:28:34Z` — handoff recorded. handoff: `01M0T66F8A1HSE1KF14WRWRSSF`. run: `01M0T1NWPC6AHZ1CTQTHQ3V4AR`. check: `01M0T5W2EPEDGCF3WK7VX17NXD`. phase closed.
+- `2026-08-24T15:29:05Z` — handoff recorded. handoff: `01M0T67DMYA75RBDZ7NK1YPJK7`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. check: `01M0T5WJ7ARPRBAFDDBSF1ACVX`. phase closed.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
-- none
+- `2026-08-24T15:29:19Z` — plan completed. rationale: every phase_slug is a done story.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->

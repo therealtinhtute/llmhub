@@ -7,19 +7,17 @@
  "scope_policy": {
   "strategy": "targeted-semantic-ports",
   "include": [
-   "translator-correctness-fixes",
-   "xai-incomplete-terminal",
-   "gemini-thought-signature-sanitize",
-   "gemini-3-7-flash-registry",
-   "warn-diagnostics",
-   "oauth-request-scoped-errors",
-   "codex-stream-bootstrap-buffering",
-   "baseurl-only-credentials",
-   "home-retry-round-contract"
+   "gemini-schema-normalize",
+   "claude-stable-user-id",
+   "gemini-claude-thinking-sigs",
+   "xai-runtime-fixes",
+   "baseurl-delete-validation",
+   "antigravity-client-bump"
   ],
   "exclude": [
-   "plugin-executor-usage-parsing",
-   "fable-cooldown-fix"
+   "interactions-detection",
+   "grok-build-keepalive",
+   "credential-metadata-keys"
   ],
   "defer": [
    "home-401-refresh-revert",
@@ -96,5 +94,5 @@
    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.140"
   }
  ],
- "generated_at": "2026-08-23T09:00:46Z"
+ "generated_at": "2026-08-24T13:30:20Z"
 }

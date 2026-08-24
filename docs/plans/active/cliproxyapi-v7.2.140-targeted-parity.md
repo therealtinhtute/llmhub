@@ -63,7 +63,7 @@ updated: 2026-08-23
 - phases:
   - phase_slug: r12a-translator-userid-sigs
     story_id: 01M0SZH1Z5RJ1D0KVB9YTD8AYZ
-    status: planned
+    status: checked
     goal: Port the Gemini schema normalization merge, shared stable Claude user_id helper, and Gemini-from-Claude thinking-signature normalization (R1-R3).
     depends_on: none
     allowed_surfaces:
@@ -97,7 +97,7 @@ updated: 2026-08-23
           - check: go build ./... && git diff --check
   - phase_slug: r12b-runtime-auth-fixes
     story_id: 01M0SZH1DW73THPXTMX8JWPFC
-    status: planned
+    status: checked
     goal: Port xAI orphaned tool_choice and grok-4.6+ image_generation fixes, management key delete/patch base-URL validation, and the antigravity fallback client bump (R4-R7).
     depends_on: none
     allowed_surfaces:
@@ -129,6 +129,21 @@ updated: 2026-08-23
 <!-- Append-only durable entries record timestamp, phase, wave, task, task_status, run_id, trace_id, exact verification/result, and changed surfaces or blocker. -->
 - `2026-08-24T13:31:47Z` — wave 0. summary: Initiative v7.2.140 targeted parity locked: intake 01M0SZG9KJ2PW4REZWH3J8CMT8 (spec-slice/high-risk) linked to plan 01M0SZEF7HGRXZT8NC0DXKTB68; scope authority = checkpoint scope_policy targeted-semantic-ports (6 include, interactions+grok+metadata-keys excluded/deferred); next action to-plan.
 - `2026-08-24T13:33:31Z` — wave 0. summary: to-plan complete for v7.2.140 targeted parity: r12a-translator-userid-sigs (01M0SZH1Z5RJ1D0KVB9YTD8AYZ, waves user_id/schema/thinking-sigs) and r12b-runtime-auth-fixes (01M0SZH1DW73THPXTMX8JWPFC, waves xAI/auth+version) planned with tasks citing upstream commits; next action work full r12a wave 1.
+- `2026-08-24T14:09:54Z` — wave 1, task phase-start. task_status: `DONE`. run: `01M0T1NWPC6AHZ1CTQTHQ3V4AR`. summary: r12a started via parallel sub-agent implementation (surfaces disjoint from r12b).
+- `2026-08-24T14:09:54Z` — wave 1, task phase-start. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: r12b started via parallel sub-agent implementation (surfaces disjoint from r12a).
+- `2026-08-24T14:40:12Z` — r12b wave 1, task xai-orphaned-toolchoice-and-imagegen (R4+R5). task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`, trace: `01M0T3BXT7NYB7CC6MP4QK0ME6`. result: go test ./internal/runtime/executor/ -run XAI -count=1 ok; full executor suite -count=1 ok. changed: internal/runtime/executor/xai_executor.go (+xaiSupportsNativeImageGeneration/xaiParseGrokVersionPrefix/xaiCompareGrokVersion gating, normalizeXAIForcedImageGenerationToolChoice, normalizeXAIToolChoiceForTools orphan guard wired into prepareResponsesRequest; local has no /responses/compact endpoint so compact-shaped requests funnel through prepareResponsesRequest where the guard now applies), internal/runtime/executor/xai_executor_test.go (+TestXAISupportsNativeImageGeneration, +TestNormalizeXAITools_ImageGenerationByModel, +TestXAIExecutorPrepareKeepsNativeImageGenerationForGrok46, +TestXAIExecutorPrepareDropsOrphanedImageGenerationToolChoice).
+- `2026-08-24T14:40:12Z` — r12b wave 2, task management-baseurl-validation (R6). task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`, trace: `01M0T3BXT8ZYDMTS4HV34XFACY`. result: go test ./internal/api/handlers/management/... -count=1 ok. changed: internal/api/handlers/management/config_lists.go (patch match blocks honor trimmed api-key + optional base-url query filter with ambiguity 400 across Gemini/Claude/Codex/VertexCompat; delete base-url branches count matches — 404 zero, 400 ambiguous, single delete), config_lists_delete_keys_test.go (+TestDeleteGeminiStyleKeyRejectsAmbiguousRoutingIdentity, +TestPatchGeminiStyleKeyRoutingIdentity).
+- `2026-08-24T14:40:12Z` — r12b wave 2, task antigravity-version-bump (R7). task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`, trace: `01M0T3BXT8ZYDMTS4HV66QD7H9`. result: go test ./internal/misc/ -count=1 ok; go build ./... pass; git diff --check clean. changed: internal/misc/antigravity_version.go (fallback 1.21.9 -> 2.9.1 with backend-floor rationale), internal/misc/antigravity_version_test.go (new: stale-cache fallback equality + 2.9 floor assertion).
+- `2026-08-24T14:39:07Z` — wave 1, task xai-orphaned-toolchoice-and-imagegen (R4+R5). task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: Ported grok-4.6+ native image_generation gating, forced-choice allowed_tools rewrite, and normalizeXAIToolChoiceForTools orphan guard into monolithic xai_executor.go per 87fb01b23788 + dfdf183fcfb6; 4 regression tests added; XAI suite green.
+- `2026-08-24T14:39:07Z` — wave 1, task management-baseurl-validation (R6). task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: Ported delete/patch base-URL ambiguity validation across Gemini/Claude/Codex/VertexCompat key handlers per ebda7509114d; 2 adapted tests in config_lists_delete_keys_test.go; suite green.
+- `2026-08-24T14:39:07Z` — wave 1, task antigravity-version-bump (R7). task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: Raised antigravityFallbackVersion to 2.9.1 with backend-floor comment per a834917e871d; new antigravity_version_test.go asserts fallback equality and 2.9 floor; misc suite green.
+- `2026-08-24T15:08:39Z` — wave 3, task Stable Claude user_id helper replacing three duplicated converters per ab8f00dbd91f. task_status: `DONE`. run: `01M0T1NWPC6AHZ1CTQTHQ3V4AR`. summary: New internal/translator/common/claude_user_id.go+test; replaced copies in claude_openai_request.go/claude_gemini_request.go/claude_openai-responses_request.go; common+claude translator suites green.
+- `2026-08-24T15:08:39Z` — wave 3, task Merge upstream malformed-schema-node normalization into local gemini_schema.go per a7e3596b7e35. task_status: `DONE`. run: `01M0T1NWPC6AHZ1CTQTHQ3V4AR`. summary: normalizeMalformedSchemaObjects wired before cleanup at gemini_schema.go:51-52 with adapted tests; internal/util passes except documented stale-worktree no-copy baseline.
+- `2026-08-24T15:08:39Z` — wave 3, task Port Claude thinking-signature normalization in Gemini conversion per b3f72cef6565. task_status: `DONE`. run: `01M0T1NWPC6AHZ1CTQTHQ3V4AR`. summary: gemini_claude_response.go + request touch + new response tests; internal/translator/gemini/claude and internal/signature suites green.
+- `2026-08-24T15:08:39Z` — wave 1, task xAI drops orphaned tool_choice after compact strips tools per 87fb01b23788. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: Local has no /responses/compact endpoint; normalizer wired into prepareResponsesRequest funnel instead; regression test added.
+- `2026-08-24T15:08:39Z` — wave 1, task xAI keeps image_generation on grok-4.6+ conversation requests per dfdf183fcfb6. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: grok-4.6+ gating plus forced-choice to allowed_tools rewrite ported with matrix test.
+- `2026-08-24T15:08:39Z` — wave 1, task Management key delete/patch base URL validation per ebda7509114d. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: Applied across four gemini-shaped families (Gemini/Claude/Codex/VertexCompat); delete_keys tests added.
+- `2026-08-24T15:08:39Z` — wave 1, task Antigravity fallback client version raised per a834917e871d. task_status: `DONE`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. summary: internal/misc/antigravity_version.go bump + refreshed fallback test.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -136,15 +151,21 @@ updated: 2026-08-23
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->
-- none
+- `2026-08-24T15:22:53Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0T5W2EPEDGCF3WK7VX17NXD`. run: `01M0T1NWPC6AHZ1CTQTHQ3V4AR`. phase: `r12a-translator-userid-sigs`. judge: `independent` (opencode-go/ox-alpha-free (orchestrator session; implementer was sub-agent)).
+  - `go test ./internal/translator/common/... ./internal/translator/claude/... ./internal/translator/gemini/claude/... -count=1` → check full Validation r12a: all ok
+  - `go test ./internal/util/ -run Schema -count=1` → check full Validation r12a: schema tests pass
+  - `git diff --check` → check full Validation r12a: pass
+- `2026-08-24T15:23:09Z` — check. verdict: `APPROVE_WITH_REQUESTS`. check: `01M0T5WJ7ARPRBAFDDBSF1ACVX`. run: `01M0T1NWPWJ53TCJHTPE3YQ1NS`. phase: `r12b-runtime-auth-fixes`. judge: `independent` (opencode-go/ox-alpha-free (orchestrator session; implementer was sub-agent)).
+  - `go test ./internal/runtime/executor/ ./internal/api/handlers/management/... ./internal/misc/ -count=1` → check full Validation r12b: all ok
+  - `git diff --check` → check full Validation r12b: pass
 
 ## Current State and Next Action
-- active_phase: none
-- lifecycle_status: planned
-- latest_run_id: none
-- latest_trace_ids: []
+- active_phase: r12b-runtime-auth-fixes
+- lifecycle_status: in-progress
+- latest_run_id: 01M0T1NWPWJ53TCJHTPE3YQ1NS
+- latest_trace_ids: [01M0T3BXT7NYB7CC6MP4QK0ME6, 01M0T3BXT8ZYDMTS4HV34XFACY, 01M0T3BXT8ZYDMTS4HV66QD7H9]
 - latest_check_id: none
 - latest_handoff_id: none
 - blockers: none
-- open_items: [execute r12a then r12b; R8 final gate after both]
-- exact_next_action: start `work full` on phase r12a-translator-userid-sigs wave 1 (stable Claude user_id helper)
+- open_items: [closing handoff for both phases (R8 final gate = refresh checkpoint at closure); v7.2.140 deferred slices tracked]
+- exact_next_action: run closing handoff with check-full evidence already recorded, then plan complete

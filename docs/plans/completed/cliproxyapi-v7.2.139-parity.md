@@ -3,9 +3,9 @@ id: 01M0M64B2TYGG69CS1SSMVYF57
 type: plan
 intake_id: 01M0MPP37ZXX9HY4VVVHXWS32G
 lane: high-risk
-status: active
+status: completed
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-24
 ---
 
 # Plan: CLIProxyAPI v7.2.139 targeted parity
@@ -74,7 +74,7 @@ updated: 2026-08-22
 - phases:
   - phase_slug: r11a-translator-fixes
     story_id: 01M0MPWHT5Q93NYTAKB9SA6RYK
-    status: checked
+    status: done
     goal: Port the six approved mechanical translator correctness fixes R1-R6 from upstream v7.2.138 with focused regression tests.
     depends_on: none
     allowed_surfaces:
@@ -116,7 +116,7 @@ updated: 2026-08-22
         escalation: Mark blocked with the colliding format evidence; do not change ID scheme unilaterally.
   - phase_slug: r11b-runtime-hardening
     story_id: 01M0MPWHTF122GTAAM3DZ5KMHG
-    status: checked
+    status: done
     goal: Port xAI incomplete-terminal handling, the Gemini thought-signature sanitizer, and Gemini 3.7 Flash registry entries (R7, R8, R9).
     depends_on: none
     allowed_surfaces:
@@ -156,7 +156,7 @@ updated: 2026-08-22
         escalation: Record `NEEDS_CONTEXT` with the schema diff; do not regenerate models.json from upstream wholesale.
   - phase_slug: r11c-managed-settings
     story_id: 01M0MPWQFPVZB8VCSKH6BS1DMX
-    status: checked
+    status: done
     goal: Port OAuth request-scoped error rules and Codex stream bootstrap buffering as DB-backed settings with management CRUD (R11, R12).
     depends_on: none
     execution_gate: Land before r11d because its OAuth branch sits beside the credential engine regions r11d later edits.
@@ -190,7 +190,7 @@ updated: 2026-08-22
         escalation: Ship HTTP-only behind the opt-in flag, mark WS follow-up explicitly in Progress; do not force the SDK change.
   - phase_slug: r11d-credential-lifecycle
     story_id: 01M0MPWQFYTQKRQ0WE7DZE2BV0
-    status: checked
+    status: done
     goal: Port warn-level auth diagnostics, base_URL-only credentials, and the credential retry-round contract inside the monolithic conductor (R10, R13, R14).
     depends_on: r11c-managed-settings
     execution_gate: Begin only after r11c lands; both phases edit adjacent conductor regions.
@@ -269,6 +269,10 @@ updated: 2026-08-22
 - `2026-08-23T08:53:15Z` — wave 3, task Carry round-exclusion metadata through dispatch, count rounds, mark exhausted rounds, and apply per-round admission filtering per 601ca43090f7 + 0a14eb70ce19. task_status: `DONE`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: Monolithic-conductor port: execute/executeCount/executeStream MixedOnce take roundExcluded set seeded into tried; cap-exhausted rounds (max-retry-credentials reached) merge attempted IDs into next-round exclusions; pick-failure with consumed pool marks exclusion and returns progressed=false so outer loop stops instead of replaying filtered credentials; request-retry rounds counted via existing attempt/retryAllowed. TestExecute_RetryRoundsExcludeCappedCredentials pins [a,c,b] no-replay across capped rounds; legacy single-credential cooldown retry preserved (DisableCooling test green). Upstream home-dispatch-specific pieces (internal/home client, homeRetryLimit) intentionally not portable - local has no such subsystem; NG5 respected.
 - `2026-08-23T08:53:15Z` — wave 3. run: `01M0PAQ6VT9SCGN9CTGG44623C`. summary: R11d wave 3 (R14) complete: retry-round contract ported into monolithic conductor - round exclusion on cap exhaustion, admission filtering via tried seeding, progressed-signal stops futile rounds; all suites green.
 - `2026-08-23T09:01:14Z` — wave 0. summary: R16 final gate executed: checkpoint re-resolved v7.2.139 -> v7.2.140 (0a14eb70ce19 -> a7e3596b7e35, 13 non-merge commits); gap trio refreshed (55 paths: 7 add-absent/17 diverged-absent/31 semantic-review); newer delta pinned as explicit follow-up plan per final-gate contract - no silent scope growth; all four r11 phases checked.
+- `2026-08-24T12:52:33Z` — handoff recorded. handoff: `01M0SX8SW6AAP5R6M5JCD2PARN`. run: `01M0MQXH8A4KX2DRTWKQWGY045`. check: `01M0MTTEXG8S1HD5K7K3KYC1E0`. phase closed.
+- `2026-08-24T12:52:33Z` — handoff recorded. handoff: `01M0SX8SWGSGSJXHDBF2V9129P`. run: `01M0MWDKZMR02ATRAGMXDJ5577`. check: `01M0N032VA6FTS9Z6GNMGAAHX9`. phase closed.
+- `2026-08-24T12:52:48Z` — handoff recorded. handoff: `01M0SX98ETK268YBHNC2SYWX8H`. run: `01M0N04HD71AY6F9N0XT2PHC49`. check: `01M0PAKRP3G4C0ZH6Z5R7ZZ63A`. phase closed.
+- `2026-08-24T12:52:48Z` — handoff recorded. handoff: `01M0SX98F6D5H41H9BCHMEX5BN`. run: `01M0PAQ6VT9SCGN9CTGG44623C`. check: `01M0PXJ46K27RMQQJPR1E0RCHY`. phase closed.
 
 ## Decisions
 <!-- Append-only durable entries record timestamp, phase/task, decision, and rationale. -->
@@ -276,6 +280,8 @@ updated: 2026-08-22
 - `2026-08-22T14:46:01Z` — Ported the missing Gemini thought-signature envelope recognition instead of copying upstream gemini_validation.go wholesale. rationale: Local signature package diverged: it lacked the field-2 (Gemini 3.x) envelope validator that upstream Decide relies on, so native signatures were replaced with bypass sentinels. Added consumeGeminiField2Field1Value/isLikelyGeminiOpaquePayload/isASCIIUUIDBytes to gemini_validation.go and ordered exact-shape Gemini detection before the looser Claude decodability probes in DetectSignatureProviderForBlock; full package suite stays green.
 - `2026-08-22T14:46:01Z` — Registered gemini-3.7-flash in the gemini, vertex, and aistudio sections rather than gemini-cli as the plan wording states. rationale: Upstream commit 85e7add6adf3 touches exactly those three sections in models.json; the commit is the requirement authority and the local aistudio section exists with the same gemini-3.6-flash insertion anchor.
 - `2026-08-23T03:23:55Z` — Defer the websocket-transport bootstrap buffering port to an explicit follow-up; land the HTTP/SSE path of R12 first. rationale: The local codex_websockets_executor.go stream loop is concurrency-sensitive session management (read pump, lifecycle binding, retry-on-send); upstream 4b9d404fb04f restructured it across 206 lines that assume upstream helper seams absent locally. Rushing it under session budget risks breaking connection reuse; HTTP/SSE carries the primary Codex traffic and delivers the overload-failover value, and the deferral is recorded in plan open_items rather than silently dropped.
+- `2026-08-24T12:51:10Z` — Final-phase closure uses the existing r11d check 01M0PXJ46K27RMQQJPR1E0RCHY as the clean verdict, with check-full invocation evidenced in-session. rationale: handoff.md step 6 accepts the sessions own record of invoking check full since check record does not persist mode; preflight check --mode full ran ready, independent reviewer ses_fcc390785ffegONU0h2FuzaRjO returned APPROVED across Security/Performance/Architecture/CodeQuality over 742a20e8..ba6738da, and automated proofs (4-package go test + git diff --check) were executed green in-session; re-recording was blocked by story_not_checkable because the story already transitioned to checked.
+- `2026-08-24T12:53:17Z` — plan completed. rationale: every phase_slug is a done story.
 
 ## Validation
 <!-- Append-only durable entries record timestamp, phase, exact command/result/output, run_id, check_id, verdict, and proof_gaps. -->

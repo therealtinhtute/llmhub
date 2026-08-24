@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/therealtinhtute/llmhub/internal/registry"
+	sigcompat "github.com/therealtinhtute/llmhub/internal/signature"
 	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
@@ -92,6 +93,13 @@ func ConvertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 						}
 						part := []byte(`{"text":""}`)
 						part, _ = sjson.SetBytes(part, "text", text)
+						contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
+
+					case "thinking":
+						part := []byte(`{"text":"","thought":true,"thoughtSignature":""}`)
+						part, _ = sjson.SetBytes(part, "text", contentResult.Get("thinking").String())
+						signature := sigcompat.GeminiReplaySignatureOrBypass(contentResult.Get("signature").String(), sigcompat.SignatureBlockKindGeminiModelPart)
+						part, _ = sjson.SetBytes(part, "thoughtSignature", signature)
 						contentJSON, _ = sjson.SetRawBytes(contentJSON, "parts.-1", part)
 
 					case "tool_use":

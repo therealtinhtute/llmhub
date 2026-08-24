@@ -3,6 +3,7 @@ package claude
 import (
 	"testing"
 
+	signature "github.com/therealtinhtute/llmhub/internal/signature"
 	"github.com/tidwall/gjson"
 )
 
@@ -130,5 +131,45 @@ func TestConvertClaudeRequestToGemini_SkipsEmptyTextParts(t *testing.T) {
 	}
 	if got := parts[0].Get("text").String(); got != "hello" {
 		t.Fatalf("Expected part text 'hello', got '%s'", got)
+	}
+}
+
+const capturedGeminiThinkingSignature = "EjQKMgEMOdbHO0Gd+c9Mxk4ELwPGbpCEcp2mFfYYLix2UVtBH3fL8GECc4+JITVnHF4qZDsA"
+
+func TestConvertClaudeRequestToGemini_SignatureCompatibility(t *testing.T) {
+	tests := []struct {
+		name          string
+		signature     string
+		wantSignature string
+	}{
+		{
+			name:          "preserves valid gemini signature",
+			signature:     "gemini#" + capturedGeminiThinkingSignature,
+			wantSignature: capturedGeminiThinkingSignature,
+		},
+		{
+			name:          "foreign claude signature maps to bypass sentinel",
+			signature:     "claude#opaque-signature-12345",
+			wantSignature: signature.GeminiSkipThoughtSignatureValidator,
+		},
+		{
+			name:          "empty signature maps to bypass sentinel",
+			signature:     "",
+			wantSignature: signature.GeminiSkipThoughtSignatureValidator,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := []byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"reason","signature":"` + tt.signature + `"}]}]}`)
+			out := ConvertClaudeRequestToGemini("deepseek-v4", payload, false)
+			part := gjson.GetBytes(out, "contents.0.parts.0")
+			if !part.Get("thought").Bool() || part.Get("text").String() != "reason" {
+				t.Fatalf("translation missing thought part: %s", out)
+			}
+			if got := part.Get("thoughtSignature").String(); got != tt.wantSignature {
+				t.Fatalf("thoughtSignature = %q, want %q; output: %s", got, tt.wantSignature, out)
+			}
+		})
 	}
 }

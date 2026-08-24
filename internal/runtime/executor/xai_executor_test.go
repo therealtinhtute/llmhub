@@ -1093,3 +1093,180 @@ func TestXAIExecutorExecuteStreamForwardsResponseIncomplete(t *testing.T) {
 		}
 	}
 }
+
+func TestXAISupportsNativeImageGeneration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{model: "", want: false},
+		{model: "grok-4.5", want: false},
+		{model: "grok-4.3", want: false},
+		{model: "grok-4", want: false},
+		{model: "grok-4.20-0309-reasoning", want: false},
+		{model: "grok-4.20-multi-agent-0309", want: false},
+		{model: "grok-build-0.1", want: false},
+		{model: "grok-composer-2.5-fast", want: false},
+		{model: "grok-3-mini", want: false},
+		{model: "gpt-5.6", want: false},
+		{model: "grok-4.6", want: true},
+		{model: "grok-4.6(high)", want: true},
+		{model: "xai/grok-4.6", want: true},
+		{model: "grok-4.7", want: true},
+		{model: "grok-5", want: true},
+		{model: "grok-5.0", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			t.Parallel()
+			if got := xaiSupportsNativeImageGeneration(tt.model); got != tt.want {
+				t.Fatalf("xaiSupportsNativeImageGeneration(%q) = %t, want %t", tt.model, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeXAITools_ImageGenerationByModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       []byte
+		wantKeep   bool
+		wantAction string
+	}{
+		{
+			name:     "missing model still strips",
+			body:     []byte(`{"tools":[{"type":"image_generation"},{"type":"web_search"}]}`),
+			wantKeep: false,
+		},
+		{
+			name:     "grok-4.5 strips",
+			body:     []byte(`{"model":"grok-4.5","tools":[{"type":"image_generation"},{"type":"web_search"}]}`),
+			wantKeep: false,
+		},
+		{
+			name:     "grok-4.20 strips despite larger minor",
+			body:     []byte(`{"model":"grok-4.20-0309-reasoning","tools":[{"type":"image_generation"},{"type":"web_search"}]}`),
+			wantKeep: false,
+		},
+		{
+			name:       "grok-4.6 keeps action",
+			body:       []byte(`{"model":"grok-4.6","tools":[{"type":"image_generation","action":"generate"},{"type":"web_search"}]}`),
+			wantKeep:   true,
+			wantAction: "generate",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out := normalizeXAITools(tt.body)
+			tools := gjson.GetBytes(out, "tools").Array()
+			foundImage := false
+			foundWebSearch := false
+			var imageTool gjson.Result
+			for _, tool := range tools {
+				switch tool.Get("type").String() {
+				case "image_generation":
+					foundImage = true
+					imageTool = tool
+				case "web_search":
+					foundWebSearch = true
+				}
+			}
+			if !foundWebSearch {
+				t.Fatalf("web_search missing; body=%s", out)
+			}
+			if foundImage != tt.wantKeep {
+				t.Fatalf("image_generation kept=%t, want %t; body=%s", foundImage, tt.wantKeep, out)
+			}
+			if tt.wantKeep && tt.wantAction != "" {
+				if got := imageTool.Get("action").String(); got != tt.wantAction {
+					t.Fatalf("image_generation.action = %q, want %q; body=%s", got, tt.wantAction, out)
+				}
+			}
+		})
+	}
+}
+
+func TestXAIExecutorPrepareKeepsNativeImageGenerationForGrok46(t *testing.T) {
+	t.Parallel()
+
+	exec := NewXAIExecutor(&config.Config{})
+	prepared, err := exec.prepareResponsesRequest(context.Background(), cliproxyexecutor.Request{
+		Model: "grok-4.6",
+		Payload: []byte(`{
+			"model":"grok-4.6",
+			"input":"draw a red circle",
+			"tools":[{"type":"image_generation","action":"generate"}],
+			"tool_choice":{"type":"image_generation"}
+		}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       false,
+	}, false)
+	if err != nil {
+		t.Fatalf("prepareResponsesRequest() error = %v", err)
+	}
+
+	tools := gjson.GetBytes(prepared.body, "tools").Array()
+	if len(tools) != 1 {
+		t.Fatalf("tools length = %d, want 1; body=%s", len(tools), prepared.body)
+	}
+	if got := tools[0].Get("type").String(); got != "image_generation" {
+		t.Fatalf("tools.0.type = %q, want image_generation; body=%s", got, prepared.body)
+	}
+	if got := tools[0].Get("action").String(); got != "generate" {
+		t.Fatalf("tools.0.action = %q, want generate; body=%s", got, prepared.body)
+	}
+	choice := gjson.GetBytes(prepared.body, "tool_choice")
+	if got := choice.Get("type").String(); got != "allowed_tools" {
+		t.Fatalf("tool_choice.type = %q, want allowed_tools; body=%s", got, prepared.body)
+	}
+	if got := choice.Get("mode").String(); got != "required" {
+		t.Fatalf("tool_choice.mode = %q, want required; body=%s", got, prepared.body)
+	}
+	allowed := choice.Get("tools").Array()
+	if len(allowed) != 1 {
+		t.Fatalf("tool_choice.tools length = %d, want 1; body=%s", len(allowed), prepared.body)
+	}
+	if got := allowed[0].Get("type").String(); got != "image_generation" {
+		t.Fatalf("tool_choice.tools.0.type = %q, want image_generation; body=%s", got, prepared.body)
+	}
+}
+
+// Compact-shaped requests funnel through the same preparation path locally, so
+// an orphaned tool_choice must be dropped there once normalization strips the
+// referenced hosted tool (87fb01b23788).
+func TestXAIExecutorPrepareDropsOrphanedImageGenerationToolChoice(t *testing.T) {
+	t.Parallel()
+
+	exec := NewXAIExecutor(&config.Config{})
+	prepared, err := exec.prepareResponsesRequest(context.Background(), cliproxyexecutor.Request{
+		Model: "grok-4.5",
+		Payload: []byte(`{
+			"model":"grok-4.5",
+			"input":"compact this",
+			"tools":[{"type":"image_generation","action":"generate"}],
+			"tool_choice":{"type":"image_generation"},
+			"parallel_tool_calls":true
+		}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       false,
+	}, false)
+	if err != nil {
+		t.Fatalf("prepareResponsesRequest() error = %v", err)
+	}
+	if gjson.GetBytes(prepared.body, "tools").Exists() {
+		t.Fatalf("tools exists in prepared body: %s", prepared.body)
+	}
+	if gjson.GetBytes(prepared.body, "tool_choice").Exists() {
+		t.Fatalf("orphaned tool_choice leaked into prepared body: %s", prepared.body)
+	}
+	if gjson.GetBytes(prepared.body, "parallel_tool_calls").Exists() {
+		t.Fatalf("parallel_tool_calls exists in prepared body: %s", prepared.body)
+	}
+}

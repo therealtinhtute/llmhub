@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -168,5 +169,83 @@ func TestDeleteCodexKey_RequiresBaseURLWhenAPIKeyDuplicated(t *testing.T) {
 	}
 	if got := len(h.cfg.CodexKey); got != 2 {
 		t.Fatalf("codex keys len = %d, want 2", got)
+	}
+}
+
+// Deletion keyed by api-key+base-url must stay unambiguous: duplicate routing
+// identities sharing both fields are rejected instead of silently deleting one
+// arbitrary entry (ebda7509114d).
+func TestDeleteGeminiStyleKeyRejectsAmbiguousRoutingIdentity(t *testing.T) {
+	t.Parallel()
+
+	h := &Handler{
+		cfg: &config.Config{
+			GeminiKey: []config.GeminiKey{
+				{APIKey: "shared-key", BaseURL: "https://shared.example.com", Prefix: "team-a"},
+				{APIKey: "shared-key", BaseURL: "https://shared.example.com", Prefix: "team-b"},
+			},
+		},
+		configStore:    &recordingConfigStore{},
+		configFilePath: writeTestConfigFile(t),
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/management/gemini-api-key?api-key=shared-key&base-url=https://shared.example.com", nil)
+
+	h.DeleteGeminiKey(c)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if got := len(h.cfg.GeminiKey); got != 2 {
+		t.Fatalf("remaining credential count = %d, want 2", got)
+	}
+}
+
+// Patching by api-key match honors an optional base-url query filter and
+// refuses ambiguous multi-matches without mutating anything (ebda7509114d).
+func TestPatchGeminiStyleKeyRoutingIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		firstBase  string
+		wantStatus int
+	}{
+		{name: "unique base URL", firstBase: "https://first.example.com", wantStatus: http.StatusOK},
+		{name: "ambiguous base URL", firstBase: "https://shared.example.com", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := &Handler{
+				cfg: &config.Config{
+					GeminiKey: []config.GeminiKey{
+						{APIKey: "shared-key", BaseURL: tc.firstBase, Prefix: "team-a"},
+						{APIKey: "shared-key", BaseURL: "https://shared.example.com", Prefix: "team-b"},
+					},
+				},
+				configStore:    &recordingConfigStore{},
+				configFilePath: writeTestConfigFile(t),
+			}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/gemini-api-key?base-url=https://shared.example.com", strings.NewReader(`{"match":"shared-key","value":{"prefix":"updated"}}`))
+
+			h.PatchGeminiKey(c)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if tc.wantStatus == http.StatusOK {
+				if h.cfg.GeminiKey[0].Prefix != "team-a" || h.cfg.GeminiKey[1].Prefix != "updated" {
+					t.Fatalf("prefixes = %q, %q; want team-a, updated", h.cfg.GeminiKey[0].Prefix, h.cfg.GeminiKey[1].Prefix)
+				}
+			} else if h.cfg.GeminiKey[0].Prefix != "team-a" || h.cfg.GeminiKey[1].Prefix != "team-b" {
+				t.Fatalf("ambiguous patch changed prefixes to %q, %q", h.cfg.GeminiKey[0].Prefix, h.cfg.GeminiKey[1].Prefix)
+			}
+		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -705,10 +706,12 @@ func (e *XAIExecutor) prepareResponsesRequest(ctx context.Context, req cliproxye
 	}
 	body = normalizeXAIToolsWithDeclarations(body, declarations)
 	body = promoteXAIAdditionalTools(body)
+	body = normalizeXAIForcedImageGenerationToolChoice(body)
 	body = normalizeXAIToolChoices(body, declarations)
 	body = normalizeXAIInputReasoningItems(body)
 	body = normalizeCodexInstructions(body)
 	body = sanitizeXAIResponsesBody(body, baseModel)
+	body = normalizeXAIToolChoiceForTools(body)
 
 	sessionID := xaiExecutionSessionID(req, opts)
 	if sessionID != "" {
@@ -998,13 +1001,14 @@ func normalizeXAITools(body []byte) []byte {
 }
 
 func normalizeXAIToolsWithDeclarations(body []byte, declarations *xaiToolDeclarations) []byte {
+	keepImageGeneration := xaiSupportsNativeImageGeneration(gjson.GetBytes(body, "model").String())
 	original := body
 	normalizeAtPath := func(path string) bool {
 		tools := gjson.GetBytes(body, path)
 		if !tools.IsArray() {
 			return true
 		}
-		filtered, changed, ok := normalizeXAIToolArray(tools, "", declarations)
+		filtered, changed, ok := normalizeXAIToolArray(tools, "", declarations, keepImageGeneration)
 		if !ok {
 			return false
 		}
@@ -1035,7 +1039,7 @@ func normalizeXAIToolsWithDeclarations(body []byte, declarations *xaiToolDeclara
 	return body
 }
 
-func normalizeXAIToolArray(tools gjson.Result, namespace string, declarations *xaiToolDeclarations) ([]byte, bool, bool) {
+func normalizeXAIToolArray(tools gjson.Result, namespace string, declarations *xaiToolDeclarations, keepImageGeneration bool) ([]byte, bool, bool) {
 	filtered := make([][]byte, 0, len(tools.Array()))
 	changed := false
 	for _, tool := range tools.Array() {
@@ -1043,7 +1047,7 @@ func normalizeXAIToolArray(tools gjson.Result, namespace string, declarations *x
 			changed = true
 			nestedNamespace := tool.Get("name").String()
 			for _, nestedTool := range tool.Get("tools").Array() {
-				raw, nestedChanged, ok := normalizeXAIToolWithDeclaration(nestedTool, nestedNamespace, declarations)
+				raw, nestedChanged, ok := normalizeXAIToolWithDeclaration(nestedTool, nestedNamespace, declarations, keepImageGeneration)
 				if !ok {
 					return nil, false, false
 				}
@@ -1054,7 +1058,7 @@ func normalizeXAIToolArray(tools gjson.Result, namespace string, declarations *x
 			}
 			continue
 		}
-		raw, toolChanged, ok := normalizeXAIToolWithDeclaration(tool, namespace, declarations)
+		raw, toolChanged, ok := normalizeXAIToolWithDeclaration(tool, namespace, declarations, keepImageGeneration)
 		if !ok {
 			return nil, false, false
 		}
@@ -1083,13 +1087,16 @@ func xaiJoinRawJSONArray(items [][]byte) []byte {
 }
 
 func normalizeXAITool(tool gjson.Result) ([]byte, bool, bool) {
-	return normalizeXAIToolWithDeclaration(tool, "", nil)
+	return normalizeXAIToolWithDeclaration(tool, "", nil, false)
 }
 
-func normalizeXAIToolWithDeclaration(tool gjson.Result, namespace string, declarations *xaiToolDeclarations) ([]byte, bool, bool) {
+func normalizeXAIToolWithDeclaration(tool gjson.Result, namespace string, declarations *xaiToolDeclarations, keepImageGeneration bool) ([]byte, bool, bool) {
 	toolType := tool.Get("type").String()
 	changed := false
-	if toolType == xaiToolSearchType || toolType == xaiImageGenerationToolType {
+	if toolType == xaiToolSearchType {
+		return nil, true, true
+	}
+	if toolType == xaiImageGenerationToolType && !keepImageGeneration {
 		return nil, true, true
 	}
 	raw := []byte(tool.Raw)
@@ -1178,6 +1185,61 @@ func promoteXAIAdditionalTools(body []byte) []byte {
 		return body
 	}
 	return updated
+}
+
+// normalizeXAIForcedImageGenerationToolChoice rewrites a forced image_generation
+// choice into the allowed_tools form accepted by xAI's ModelToolChoice schema,
+// matching the forced web_search rewrite upstream applies where the native
+// image_generation tool is kept (dfdf183fcfb6).
+func normalizeXAIForcedImageGenerationToolChoice(body []byte) []byte {
+	choice := gjson.GetBytes(body, "tool_choice")
+	if !choice.IsObject() || strings.TrimSpace(choice.Get("type").String()) != xaiImageGenerationToolType {
+		return body
+	}
+	allowedChoice := []byte(`{"type":"allowed_tools","mode":"required","tools":[]}`)
+	allowedChoice, errSetAllowed := sjson.SetRawBytes(allowedChoice, "tools.-1", []byte(choice.Raw))
+	if errSetAllowed != nil {
+		return body
+	}
+	updated, errSetChoice := sjson.SetRawBytes(body, "tool_choice", allowedChoice)
+	if errSetChoice != nil {
+		return body
+	}
+	return updated
+}
+
+// normalizeXAIToolChoiceForTools drops tool_choice and parallel_tool_calls when
+// tools are absent or empty (including after normalizeXAITools filtering).
+// xAI rejects payloads that include tool_choice without any tools defined, so
+// compact-shaped and conversation requests must never emit an orphaned choice.
+func normalizeXAIToolChoiceForTools(body []byte) []byte {
+	tools := gjson.GetBytes(body, "tools")
+	hasTools := tools.Exists() && tools.IsArray() && len(tools.Array()) > 0
+	if !hasTools {
+		input := gjson.GetBytes(body, "input")
+		if input.Exists() && input.IsArray() {
+			for _, item := range input.Array() {
+				additionalTools := item.Get("tools")
+				if item.Get("type").String() == "additional_tools" && additionalTools.IsArray() && len(additionalTools.Array()) > 0 {
+					hasTools = true
+					break
+				}
+			}
+		}
+	}
+	if hasTools {
+		return body
+	}
+	if tools.Exists() {
+		body, _ = sjson.DeleteBytes(body, "tools")
+	}
+	if gjson.GetBytes(body, "tool_choice").Exists() {
+		body, _ = sjson.DeleteBytes(body, "tool_choice")
+	}
+	if gjson.GetBytes(body, "parallel_tool_calls").Exists() {
+		body, _ = sjson.DeleteBytes(body, "parallel_tool_calls")
+	}
+	return body
 }
 
 func normalizeXAIToolChoices(body []byte, declarations *xaiToolDeclarations) []byte {
@@ -1767,6 +1829,91 @@ func removeXAIEncryptedReasoningInclude(body []byte) []byte {
 	}
 	body, _ = sjson.SetBytes(body, "include", kept)
 	return body
+}
+
+// xaiGrokImageGenerationMinVersion is the first Grok line that accepts xAI's
+// native Responses image_generation tool. Older conversation models still
+// reject that hosted type, so the executor keeps stripping it there.
+var xaiGrokImageGenerationMinVersion = xaiGrokVersion{major: 4, minor: 6}
+
+type xaiGrokVersion struct {
+	major int
+	minor int
+}
+
+// xaiSupportsNativeImageGeneration reports whether the Grok model accepts
+// xAI's native Responses image_generation tool. grok-4.20-* is an older
+// product line whose dotted minor is not comparable to grok-4.6.
+func xaiSupportsNativeImageGeneration(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(model).ModelName))
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	if name == "" || !strings.HasPrefix(name, "grok-") {
+		return false
+	}
+	rest := strings.TrimPrefix(name, "grok-")
+	if rest == "4.20" || strings.HasPrefix(rest, "4.20-") {
+		return false
+	}
+	ver, ok := xaiParseGrokVersionPrefix(rest)
+	if !ok {
+		return false
+	}
+	return xaiCompareGrokVersion(ver, xaiGrokImageGenerationMinVersion) >= 0
+}
+
+func xaiParseGrokVersionPrefix(rest string) (xaiGrokVersion, bool) {
+	i := 0
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return xaiGrokVersion{}, false
+	}
+	major, err := strconv.Atoi(rest[:i])
+	if err != nil {
+		return xaiGrokVersion{}, false
+	}
+	if i == len(rest) || rest[i] != '.' {
+		return xaiGrokVersion{major: major, minor: -1}, true
+	}
+	j := i + 1
+	for j < len(rest) && rest[j] >= '0' && rest[j] <= '9' {
+		j++
+	}
+	if j == i+1 {
+		return xaiGrokVersion{major: major, minor: -1}, true
+	}
+	minor, err := strconv.Atoi(rest[i+1 : j])
+	if err != nil {
+		return xaiGrokVersion{}, false
+	}
+	return xaiGrokVersion{major: major, minor: minor}, true
+}
+
+func xaiCompareGrokVersion(a, b xaiGrokVersion) int {
+	if a.major != b.major {
+		if a.major < b.major {
+			return -1
+		}
+		return 1
+	}
+	aMinor := a.minor
+	if aMinor < 0 {
+		aMinor = 0
+	}
+	bMinor := b.minor
+	if bMinor < 0 {
+		bMinor = 0
+	}
+	if aMinor < bMinor {
+		return -1
+	}
+	if aMinor > bMinor {
+		return 1
+	}
+	return 0
 }
 
 func xaiSupportsReasoningEffort(model string) bool {

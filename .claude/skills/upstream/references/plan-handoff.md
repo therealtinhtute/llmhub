@@ -84,3 +84,11 @@ write phases, tasks, or code — that authority belongs to the next stage.
   work from being done anyway.
 - **One requirement per commit.** Produces dozens of unorderable requirements and phases
   that cannot be tested independently.
+
+## Release note (llmhub)
+
+- llmhub release series is `v0.0.x` (see `gh release list --repo therealtinhtute/llmhub`). The `v6.10.x` tags are stale local tags — never use them.
+- Next version = `incpatch` of latest GitHub release: `gh api repos/therealtinhtute/llmhub/releases/latest --jq .tag_name` or `git ls-remote --tags origin | grep -E 'v0\.0\.[0-9]+' | sort -V | tail -1`. Never use `git tag --sort=-v:refname` alone — it picks the stale `v6` series.
+- Tag must be annotated and pushed before release: `git tag -a v0.0.N -m "v0.0.N: ..." <commit> && git push origin v0.0.N`; workflow `.github/workflows/release.yml` triggers on `v*` and runs `goreleaser` with `ldflags -X 'main.Version={{.Version}}'`.
+- Never create releases manually via `gh release create` — it bypasses `goreleaser` and produces a release with 0 assets. Always push the tag and let the workflow create the draft, or use `gh workflow run "Release" --ref master -f tag=v0.0.N` for an existing tag.
+- Verify with `gh release view v0.0.N --repo therealtinhtute/llmhub --json tagName,assets` (expect 9 assets) and `git ls-remote --tags origin | grep v0.0.N`.

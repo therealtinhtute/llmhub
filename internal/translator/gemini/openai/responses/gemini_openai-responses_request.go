@@ -1,7 +1,6 @@
 package responses
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
@@ -339,14 +338,10 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 				functionResponse, _ = sjson.SetBytes(functionResponse, "functionResponse.name", functionName)
 				functionResponse, _ = sjson.SetBytes(functionResponse, "functionResponse.id", callID)
 
-				// Set the raw JSON output directly (preserves string encoding)
 				if outputRaw != "" && outputRaw != "null" {
-					output := gjson.Parse(outputRaw)
-					if output.Type == gjson.JSON && json.Valid([]byte(output.Raw)) {
-						functionResponse, _ = sjson.SetRawBytes(functionResponse, "functionResponse.response.result", []byte(output.Raw))
-					} else {
-						functionResponse, _ = sjson.SetBytes(functionResponse, "functionResponse.response.result", outputRaw)
-					}
+					// Keep it as a string instead of parsing it into JSON.
+					// Parsing it as JSON, similar to reading a JSON file with readFile, may trigger an upstream 400 error.
+					functionResponse, _ = sjson.SetBytes(functionResponse, "functionResponse.response.result", outputRaw)
 				}
 				functionContent, _ = sjson.SetRawBytes(functionContent, "parts.-1", functionResponse)
 				out, _ = sjson.SetRawBytes(out, "contents.-1", functionContent)

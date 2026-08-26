@@ -162,6 +162,10 @@ type Result struct {
 	RequestScoped bool
 	// Options carries execution request options (headers, metadata, etc.) for result tracking.
 	Options cliproxyexecutor.Options
+	// SkipQuotaObservation reports that this result must not replace the last
+	// observed watermark. Count-tokens requests reuse the credential but are not
+	// generation traffic; their response headers are not a generation snapshot.
+	SkipQuotaObservation bool
 	// UsageDetail carries provider token usage for runtime account accounting.
 	UsageDetail coreusage.Detail
 	// UsageEstimated marks usage values estimated from provider runtime signals.
@@ -3133,12 +3137,12 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								}
 							}
 							state.NextRetryAfter = next
-							state.Quota = QuotaState{
+							applyCooldownFields(&state.Quota, QuotaState{
 								Exceeded:      true,
 								Reason:        "quota",
 								NextRecoverAt: next,
 								BackoffLevel:  backoffLevel,
-							}
+							})
 							if !disableCooling {
 								suspendReason = "quota"
 								shouldSuspendModel = true
@@ -3170,6 +3174,15 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		}
 
 		applyKiroRuntimeUsageStats(auth, result, now)
+		if !result.SkipQuotaObservation {
+			responseHeaders := logging.GetResponseHeaders(ctx)
+			auth.Quota.ObserveResponseHeadersForProvider(result.Provider, responseHeaders, now)
+			if modelKey != "" {
+				if ms, ok := auth.ModelStates[modelKey]; ok && ms != nil {
+					ms.Quota.ObserveResponseHeadersForProvider(result.Provider, responseHeaders, now)
+				}
+			}
+		}
 		_ = m.persist(ctx, auth)
 		authSnapshot = auth.Clone()
 	}
@@ -3440,6 +3453,8 @@ func mergeModelState(target, source *ModelState) *ModelState {
 		},
 		UpdatedAt: preferred.UpdatedAt,
 	}
+	merged.Quota = mergeQuotaObservation(merged.Quota, fallback.Quota)
+	merged.Quota = mergeQuotaObservation(merged.Quota, preferred.Quota)
 	if fallback.NextRetryAfter.After(merged.NextRetryAfter) {
 		merged.NextRetryAfter = fallback.NextRetryAfter
 	}
@@ -3458,7 +3473,7 @@ func resetModelState(state *ModelState, now time.Time) {
 	state.StatusMessage = ""
 	state.NextRetryAfter = time.Time{}
 	state.LastError = nil
-	state.Quota = QuotaState{}
+	applyCooldownFields(&state.Quota, QuotaState{})
 	state.UpdatedAt = now
 }
 
@@ -3555,7 +3570,7 @@ func clearAggregatedAvailability(auth *Auth) {
 	}
 	auth.Unavailable = false
 	auth.NextRetryAfter = time.Time{}
-	auth.Quota = QuotaState{}
+	applyCooldownFields(&auth.Quota, QuotaState{})
 }
 
 func hasModelError(auth *Auth, now time.Time) bool {

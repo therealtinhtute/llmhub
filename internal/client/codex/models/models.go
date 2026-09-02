@@ -4,6 +4,7 @@ package models
 import (
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -37,14 +38,28 @@ var codexClientAllowedReasoningLevels = map[string]struct{}{
 	"ultra":   {},
 }
 
+var codexClientLegacyAllowedReasoningLevels = map[string]struct{}{
+	"none":    {},
+	"minimal": {},
+	"low":     {},
+	"medium":  {},
+	"high":    {},
+	"xhigh":   {},
+}
+
 // BuildResponse builds a Codex client model response from available models.
 func BuildResponse(availableModels []map[string]any, providersForModel ProvidersForModelFunc, optimizeMultiAgentV2 bool) map[string]any {
+	return BuildResponseForClient(availableModels, providersForModel, optimizeMultiAgentV2, "")
+}
+
+// BuildResponseForClient builds a Codex client model response tailored for a client version.
+func BuildResponseForClient(availableModels []map[string]any, providersForModel ProvidersForModelFunc, optimizeMultiAgentV2 bool, clientVersion string) map[string]any {
 	return map[string]any{
-		"models": buildCodexClientModels(availableModels, providersForModel, optimizeMultiAgentV2),
+		"models": buildCodexClientModels(availableModels, providersForModel, optimizeMultiAgentV2, clientVersion),
 	}
 }
 
-func buildCodexClientModels(models []map[string]any, providersForModel ProvidersForModelFunc, optimizeMultiAgentV2 bool) []map[string]any {
+func buildCodexClientModels(models []map[string]any, providersForModel ProvidersForModelFunc, optimizeMultiAgentV2 bool, clientVersion string) []map[string]any {
 	templates, defaultTemplate, err := loadCodexClientModelTemplates()
 	if err != nil || defaultTemplate == nil {
 		return nil
@@ -62,7 +77,7 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 			applyCodexClientDisplayName(entry, model)
 			applyCodexClientMaxContextLengthOverride(entry, model)
 			applyCodexClientSearchToolSupport(entry, id, true, providersForModel)
-			sanitizeCodexClientReasoningMetadata(entry)
+			sanitizeCodexClientReasoningMetadata(entry, clientVersion)
 			applyCodexClientVisibilityOverride(entry, id)
 			if optimizeMultiAgentV2 {
 				entry["multi_agent_version"] = "v2"
@@ -72,9 +87,9 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 		}
 
 		entry := cloneCodexClientModelMap(defaultTemplate)
-		applyCodexClientModelMetadata(entry, id, model, optimizeMultiAgentV2)
+		applyCodexClientModelMetadata(entry, id, model, optimizeMultiAgentV2, clientVersion)
 		applyCodexClientSearchToolSupport(entry, id, false, providersForModel)
-		sanitizeCodexClientReasoningMetadata(entry)
+		sanitizeCodexClientReasoningMetadata(entry, clientVersion)
 		applyCodexClientVisibilityOverride(entry, id)
 		result = append(result, entry)
 	}
@@ -220,7 +235,7 @@ func applyCodexClientSearchToolSupport(entry map[string]any, id string, template
 	}
 }
 
-func applyCodexClientModelMetadata(entry map[string]any, id string, model map[string]any, optimizeMultiAgentV2 bool) {
+func applyCodexClientModelMetadata(entry map[string]any, id string, model map[string]any, optimizeMultiAgentV2 bool, clientVersion string) {
 	info := registry.LookupModelInfo(id)
 
 	displayName := stringModelValue(model, "display_name")
@@ -244,7 +259,7 @@ func applyCodexClientModelMetadata(entry map[string]any, id string, model map[st
 		} else {
 			applyCodexClientInputModalitiesMetadata(entry, info.SupportedInputModalities)
 		}
-		applyCodexClientThinkingMetadata(entry, info.Thinking)
+		applyCodexClientThinkingMetadata(entry, info.Thinking, clientVersion)
 	}
 
 	if maxContextWindow := intModelValue(model, "max_context_length"); maxContextWindow > 0 {
@@ -322,7 +337,7 @@ func applyCodexClientInputModalitiesMetadata(entry map[string]any, modalities []
 	}
 }
 
-func applyCodexClientThinkingMetadata(entry map[string]any, thinking *registry.ThinkingSupport) {
+func applyCodexClientThinkingMetadata(entry map[string]any, thinking *registry.ThinkingSupport, clientVersion string) {
 	if thinking == nil || len(thinking.Levels) == 0 {
 		return
 	}
@@ -331,7 +346,7 @@ func applyCodexClientThinkingMetadata(entry map[string]any, thinking *registry.T
 	defaultLevel := ""
 	firstLevel := ""
 	for _, rawLevel := range thinking.Levels {
-		level := normalizeCodexClientReasoningLevel(rawLevel)
+		level := normalizeCodexClientReasoningLevel(rawLevel, clientVersion)
 		if level == "" {
 			continue
 		}
@@ -357,7 +372,7 @@ func applyCodexClientThinkingMetadata(entry map[string]any, thinking *registry.T
 	entry["default_reasoning_level"] = defaultLevel
 }
 
-func sanitizeCodexClientReasoningMetadata(entry map[string]any) {
+func sanitizeCodexClientReasoningMetadata(entry map[string]any, clientVersion string) {
 	rawLevels, ok := entry["supported_reasoning_levels"].([]any)
 	if !ok {
 		return
@@ -370,7 +385,7 @@ func sanitizeCodexClientReasoningMetadata(entry map[string]any) {
 		if !ok {
 			continue
 		}
-		level := normalizeCodexClientReasoningLevel(stringModelValue(levelEntry, "effort"))
+		level := normalizeCodexClientReasoningLevel(stringModelValue(levelEntry, "effort"), clientVersion)
 		if level == "" {
 			continue
 		}
@@ -386,7 +401,7 @@ func sanitizeCodexClientReasoningMetadata(entry map[string]any) {
 		return
 	}
 
-	defaultLevel := normalizeCodexClientReasoningLevel(stringModelValue(entry, "default_reasoning_level"))
+	defaultLevel := normalizeCodexClientReasoningLevel(stringModelValue(entry, "default_reasoning_level"), clientVersion)
 	if _, ok := allowedDefaults[defaultLevel]; !ok {
 		defaultLevel = stringModelValue(levels[0].(map[string]any), "effort")
 	}
@@ -395,12 +410,82 @@ func sanitizeCodexClientReasoningMetadata(entry map[string]any) {
 	entry["default_reasoning_level"] = defaultLevel
 }
 
-func normalizeCodexClientReasoningLevel(rawLevel string) string {
+func normalizeCodexClientReasoningLevel(rawLevel string, clientVersion string) string {
 	level := strings.ToLower(strings.TrimSpace(rawLevel))
+	if !supportsExtendedReasoningLevels(clientVersion) {
+		if _, ok := codexClientLegacyAllowedReasoningLevels[level]; !ok {
+			return ""
+		}
+		return level
+	}
 	if _, ok := codexClientAllowedReasoningLevels[level]; !ok {
 		return ""
 	}
 	return level
+}
+
+func supportsExtendedReasoningLevels(clientVersion string) bool {
+	clientVersion = strings.TrimSpace(clientVersion)
+	if clientVersion == "" {
+		return true
+	}
+	cmp, ok := compareDottedVersions(clientVersion, "0.144.0")
+	if !ok {
+		return true
+	}
+	return cmp >= 0
+}
+
+func parseDottedVersion(version string) []int64 {
+	version = strings.TrimSpace(version)
+	if strings.HasPrefix(version, "v") || strings.HasPrefix(version, "V") {
+		version = version[1:]
+	}
+	if idx := strings.IndexAny(version, "-+"); idx != -1 {
+		version = version[:idx]
+	}
+	parts := strings.Split(version, ".")
+	nums := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		num, errParse := strconv.ParseInt(part, 10, 64)
+		if errParse != nil || num < 0 {
+			return nil
+		}
+		nums = append(nums, num)
+	}
+	return nums
+}
+
+func compareDottedVersions(a, b string) (int, bool) {
+	numsA := parseDottedVersion(a)
+	numsB := parseDottedVersion(b)
+	if len(numsA) == 0 || len(numsB) == 0 {
+		return 0, false
+	}
+	maxLen := len(numsA)
+	if len(numsB) > maxLen {
+		maxLen = len(numsB)
+	}
+	for i := range maxLen {
+		var valA, valB int64
+		if i < len(numsA) {
+			valA = numsA[i]
+		}
+		if i < len(numsB) {
+			valB = numsB[i]
+		}
+		if valA < valB {
+			return -1, true
+		}
+		if valA > valB {
+			return 1, true
+		}
+	}
+	return 0, true
 }
 
 func codexClientReasoningDescription(level string) string {

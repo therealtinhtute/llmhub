@@ -37,6 +37,16 @@ const (
 	SessionAffinityProviderMetadataKey = "session_affinity_provider"
 	// SessionAffinityModelMetadataKey carries the model used during session affinity selection.
 	SessionAffinityModelMetadataKey = "session_affinity_model"
+	// LCPAffinitySessionIDMetadataKey stores an LCP-only routing identity.
+	LCPAffinitySessionIDMetadataKey = "lcp_affinity_session_id"
+	// CanonicalSessionIDMetadataKey stores the single unified session identity reconciled.
+	CanonicalSessionIDMetadataKey = "canonical_session_id"
+	// LCPFingerprintMetadataKey stores bounded request-scoped turn fingerprints.
+	LCPFingerprintMetadataKey = "lcp_fingerprints"
+	// LCPMinPrefixLengthMetadataKey stores the minimum eligible prefix boundary.
+	LCPMinPrefixLengthMetadataKey = "lcp_min_prefix_length"
+	// CallerScopeMetadataKey isolates inferred session identities between downstream callers.
+	CallerScopeMetadataKey = "caller_scope"
 )
 
 // Request encapsulates the translated payload that will be sent to a provider executor.

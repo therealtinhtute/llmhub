@@ -71,6 +71,10 @@ type Auth struct {
 	ProxyURL string `json:"proxy_url,omitempty"`
 	// Attributes stores provider specific metadata needed by executors (immutable configuration).
 	Attributes map[string]string `json:"attributes,omitempty"`
+	// RegistrationEpoch tracks monotonic registration cycles across unregister/re-register.
+	RegistrationEpoch uint64 `json:"registration_epoch,omitempty"`
+	// Generation tracks monotonic mutations to resolve scheduler/reconcile snapshot races.
+	Generation uint64 `json:"generation,omitempty"`
 	// Metadata stores runtime mutable provider state (e.g. tokens, cookies).
 	Metadata map[string]any `json:"metadata,omitempty"`
 	// Quota captures recent quota information for load balancers.

@@ -6,11 +6,11 @@
 
 Classify the request before mutation. Read-only requests inspect only what the answer needs and do not mutate harness state. Change requests remain limited to the active stage and the user-approved scope. Discovery does not grant authority to fix adjacent findings.
 
-Repository docs, code, tests, and observable runtime behavior define current truth. `harness.db` records lifecycle position, evidence links, and recovery state; it does not define product policy.
+Repository docs, code, tests, and observable runtime behavior define current truth. A legacy per-machine index, if one still exists locally, is only a recovery cache; it does not define product policy.
 
 ## Context
 
-Run `zharness preflight <stage> [--mode <mode>] --json`. Follow a returned stop and recovery. When `playbook` is present, read that file and no other stage playbook.
+The lifecycle needs no binary: route through the table below and read only the named playbook. The `zharness` binary (install / update / uninstall) scaffolds and updates these managed docs; it plays no part in running a stage.
 
 | Stage | Playbook |
 |---|---|
@@ -21,8 +21,10 @@ Run `zharness preflight <stage> [--mode <mode>] --json`. Follow a returned stop 
 | handoff | `docs/playbooks/handoff.md` |
 | watzup | `docs/playbooks/watzup.md` |
 
-`git` and `interview` use preflight but keep their skill-local procedure.
+`git` and `interview` keep their skill-local procedure and are never harness-gated.
 
 ## Execution boundary
 
-Reduced mode is read-only with respect to harness state. Durable stages require an initialized database and use changeset-first CLI commands. Every proof claim must name actual command output or observable evidence. If the live CLI and a playbook disagree, trust `--help` and report the docs mismatch.
+Reduced mode mutates nothing durable. Durable stages append to the active plan's markdown sections exactly as each playbook directs; nothing else writes them. Every proof claim must name actual command output or observable evidence. If repository tooling and a playbook disagree, trust the repository and report the docs mismatch.
+
+escalate_when: ask the owner and stop — locked schema or requirements would change; the same verification command failed twice; a product rule conflicts.

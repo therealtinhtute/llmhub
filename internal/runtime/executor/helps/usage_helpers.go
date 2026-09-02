@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -18,18 +20,25 @@ import (
 )
 
 type UsageReporter struct {
-	provider    string
-	model       string
-	alias       string
-	authID      string
-	authIndex   string
-	accessToken string
-	authType    string
-	apiKey      string
-	source      string
-	reasoning   string
-	requestedAt time.Time
-	once        sync.Once
+	provider            string
+	model               string
+	alias               string
+	authID              string
+	authIndex           string
+	accessToken         string
+	authType            string
+	apiKey              string
+	source              string
+	reasoning           string
+	stream              bool
+	requestedAt         time.Time
+	ttftMu              sync.RWMutex
+	ttft                time.Duration
+	firstPacketDuration time.Duration
+	firstPacketSet      bool
+	ttftStart           time.Time
+	ttftSet             bool
+	once                sync.Once
 }
 
 func NewUsageReporter(ctx context.Context, provider, model string, auth *cliproxyauth.Auth) *UsageReporter {
@@ -47,6 +56,7 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		source:      resolveUsageSource(auth, apiKey),
 		authType:    resolveUsageAuthType(auth),
 		reasoning:   usage.ReasoningEffortFromContext(ctx),
+		stream:      usage.StreamFromContext(ctx),
 	}
 	if auth != nil {
 		reporter.authID = auth.ID
@@ -54,6 +64,196 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		reporter.accessToken = authAccessTokenSHA256(auth)
 	}
 	return reporter
+}
+
+// SetStream records whether the request was executed in streaming mode.
+func (r *UsageReporter) SetStream(stream bool) {
+	if r == nil {
+		return
+	}
+	r.stream = stream
+}
+
+func (r *UsageReporter) TrackHTTPClient(client *http.Client) *http.Client {
+	return r.trackHTTPClient(client, false)
+}
+
+// TrackHTTPClientRoundTripOnly records the TTFT start time upon sending the request
+// and captures first-packet arrival fallback on initial body reads, while keeping
+// effective TTFT unset. This allows protocol-aware streaming executors (like Codex SSE)
+// to mark effective TTFT explicitly upon receiving substantive token events, while
+// preserving first-packet fallback metrics for non-2xx error bodies or keepalive streams.
+func (r *UsageReporter) TrackHTTPClientRoundTripOnly(client *http.Client) *http.Client {
+	return r.trackHTTPClient(client, true)
+}
+
+func (r *UsageReporter) trackHTTPClient(client *http.Client, packetOnly bool) *http.Client {
+	if r == nil || client == nil {
+		return client
+	}
+	tracked := *client
+	transport := tracked.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	tracked.Transport = usageTTFTRoundTripper{
+		base:       transport,
+		reporter:   r,
+		packetOnly: packetOnly,
+	}
+	return &tracked
+}
+
+func (r *UsageReporter) ObserveResponse(resp *http.Response) {
+	if r == nil || resp == nil || resp.Body == nil {
+		return
+	}
+	r.StartResponseTTFT()
+	resp.Body = &usageTTFTReadCloser{
+		ReadCloser: resp.Body,
+		mark: func() {
+			r.MarkFirstResponseByte()
+		},
+	}
+}
+
+func (r *UsageReporter) ObserveResponsePacketOnly(resp *http.Response) {
+	if r == nil || resp == nil || resp.Body == nil {
+		return
+	}
+	r.StartResponseTTFT()
+	resp.Body = &usageTTFTReadCloser{
+		ReadCloser: resp.Body,
+		mark: func() {
+			r.RecordFirstPacket()
+		},
+	}
+}
+
+func (r *UsageReporter) StartResponseTTFT() {
+	if r == nil {
+		return
+	}
+	r.ttftMu.Lock()
+	if !r.ttftSet && r.ttftStart.IsZero() {
+		r.ttftStart = time.Now()
+	}
+	r.ttftMu.Unlock()
+}
+
+func (r *UsageReporter) IsTTFTSet() bool {
+	if r == nil {
+		return false
+	}
+	r.ttftMu.RLock()
+	defer r.ttftMu.RUnlock()
+	return r.ttftSet
+}
+
+func (r *UsageReporter) IsFirstPacketSet() bool {
+	if r == nil {
+		return false
+	}
+	r.ttftMu.RLock()
+	defer r.ttftMu.RUnlock()
+	return r.firstPacketSet
+}
+
+// RecordFirstPacket records the arrival time of the first packet/chunk from upstream as a fallback.
+func (r *UsageReporter) RecordFirstPacket() {
+	r.ObserveTokenEvent(false)
+}
+
+// ObserveTokenEvent records the first packet fallback time on the first frame,
+// and if isToken is true, records the effective TTFT. It uses a fast-path
+// read check to return immediately with zero write lock contention once TTFT is set
+// or when subsequent non-token metadata frames arrive after the first packet.
+func (r *UsageReporter) ObserveTokenEvent(isToken bool) {
+	if r == nil {
+		return
+	}
+	r.ttftMu.RLock()
+	if r.ttftSet {
+		r.ttftMu.RUnlock()
+		return
+	}
+	start := r.ttftStart
+	alreadyRecordedPacket := r.firstPacketSet
+	r.ttftMu.RUnlock()
+
+	if start.IsZero() {
+		return
+	}
+
+	if !isToken && alreadyRecordedPacket {
+		return
+	}
+
+	r.ttftMu.Lock()
+	defer r.ttftMu.Unlock()
+	if r.ttftSet {
+		return
+	}
+	if !r.firstPacketSet {
+		r.firstPacketDuration = time.Since(start)
+		r.firstPacketSet = true
+	}
+	if isToken {
+		r.ttft = time.Since(start)
+		r.ttftSet = true
+		r.ttftStart = time.Time{}
+	}
+}
+
+func (r *UsageReporter) MarkFirstResponseByte() {
+	if r == nil {
+		return
+	}
+	r.ttftMu.Lock()
+	if r.ttftSet {
+		r.ttftMu.Unlock()
+		return
+	}
+	start := r.ttftStart
+	r.ttftStart = time.Time{}
+	r.ttftMu.Unlock()
+	if start.IsZero() {
+		return
+	}
+	r.setTTFT(time.Since(start))
+}
+
+func (r *UsageReporter) setTTFT(ttft time.Duration) {
+	if r == nil {
+		return
+	}
+	if ttft < 0 {
+		ttft = 0
+	}
+	r.ttftMu.Lock()
+	if r.ttftSet {
+		r.ttftMu.Unlock()
+		return
+	}
+	r.ttft = ttft
+	r.ttftSet = true
+	r.ttftStart = time.Time{}
+	r.ttftMu.Unlock()
+}
+
+func (r *UsageReporter) ttftDuration() time.Duration {
+	if r == nil {
+		return 0
+	}
+	r.ttftMu.RLock()
+	defer r.ttftMu.RUnlock()
+	if r.ttftSet {
+		return r.ttft
+	}
+	if r.firstPacketSet {
+		return r.firstPacketDuration
+	}
+	return 0
 }
 
 func (r *UsageReporter) Publish(ctx context.Context, detail usage.Detail) {
@@ -169,11 +369,12 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		AuthIndex:       r.authIndex,
 		AuthType:        r.authType,
 		ReasoningEffort: r.reasoning,
+		Stream:          r.stream,
 		RequestedAt:     r.requestedAt,
 		Latency:         r.latency(),
+		TTFT:            r.ttftDuration(),
 		Failed:          failed,
 		Fail:            fail,
-		Detail:          detail,
 	}
 }
 
@@ -203,6 +404,43 @@ func (r *UsageReporter) latency() time.Duration {
 		return 0
 	}
 	return latency
+}
+
+type usageTTFTRoundTripper struct {
+	base       http.RoundTripper
+	reporter   *UsageReporter
+	packetOnly bool
+}
+
+func (t usageTTFTRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.reporter.StartResponseTTFT()
+	resp, errRoundTrip := t.base.RoundTrip(req)
+	if errRoundTrip != nil {
+		return resp, errRoundTrip
+	}
+	if t.packetOnly {
+		t.reporter.ObserveResponsePacketOnly(resp)
+	} else {
+		t.reporter.ObserveResponse(resp)
+	}
+	return resp, nil
+}
+
+type usageTTFTReadCloser struct {
+	io.ReadCloser
+	once sync.Once
+	mark func()
+}
+
+func (r *usageTTFTReadCloser) Read(p []byte) (int, error) {
+	if r == nil || r.ReadCloser == nil {
+		return 0, io.ErrClosedPipe
+	}
+	n, errRead := r.ReadCloser.Read(p)
+	if n > 0 && r.mark != nil {
+		r.once.Do(r.mark)
+	}
+	return n, errRead
 }
 
 func APIKeyFromContext(ctx context.Context) string {

@@ -90,6 +90,21 @@ func TestBuildXAIVideosCreateRequestAllowsCustomSeconds(t *testing.T) {
 	}
 }
 
+func TestBuildXAIVideosCreateRequestPreservesMultiReferenceDuration(t *testing.T) {
+	rawJSON := []byte(`{"model":"grok-imagine-video","prompt":"animate","seconds":"15","reference_images":["https://example.com/a.png","https://example.com/b.png"]}`)
+
+	req, meta, err := buildXAIVideosCreateRequest(rawJSON, "grok-imagine-video")
+	if err != nil {
+		t.Fatalf("buildXAIVideosCreateRequest() error = %v", err)
+	}
+	if got := gjson.GetBytes(req, "duration").Int(); got != 15 {
+		t.Fatalf("duration = %d, want 15", got)
+	}
+	if meta.Seconds != "15" {
+		t.Fatalf("meta seconds = %q, want 15", meta.Seconds)
+	}
+}
+
 func TestBuildXAIVideosCreateRequestRejectsFileIDReference(t *testing.T) {
 	rawJSON := []byte(`{"prompt":"animate","input_reference":{"file_id":"file_123"}}`)
 

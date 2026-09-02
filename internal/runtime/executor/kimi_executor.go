@@ -123,6 +123,7 @@ func (e *KimiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	if err != nil {
 		return resp, err
 	}
+	body = normalizeKimiTools(body)
 
 	url := kimiauth.KimiAPIBaseURL + "/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -244,6 +245,7 @@ func (e *KimiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	if err != nil {
 		return nil, err
 	}
+	body = normalizeKimiTools(body)
 
 	url := kimiauth.KimiAPIBaseURL + "/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -787,4 +789,82 @@ func normalizeKimiUpstreamModel(model string) string {
 	default:
 		return stripKimiPrefix(base)
 	}
+}
+
+func normalizeKimiTools(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	body = normalizeKimiToolList(body, "tools", true)
+	body = normalizeKimiToolList(body, "functions", false)
+	return body
+}
+
+func normalizeKimiToolList(body []byte, arrayKey string, isTools bool) []byte {
+	items := gjson.GetBytes(body, arrayKey)
+	if !items.Exists() || !items.IsArray() {
+		return body
+	}
+	arr := items.Array()
+	if len(arr) == 0 {
+		return body
+	}
+	changed := false
+	updatedItems := make([]string, 0, len(arr))
+	for _, item := range arr {
+		itemRaw := item.Raw
+		paramPath := ""
+		if isTools && item.Get("function.parameters").Exists() {
+			paramPath = "function.parameters"
+		} else if item.Get("parameters").Exists() {
+			paramPath = "parameters"
+		}
+		if paramPath != "" {
+			rawParams := item.Get(paramPath)
+			if rawParams.IsObject() {
+				normalizedParams := normalizeKimiParametersSchema(rawParams.Raw)
+				if normalizedParams != rawParams.Raw {
+					if updated, errSet := sjson.SetRawBytes([]byte(itemRaw), paramPath, []byte(normalizedParams)); errSet == nil {
+						itemRaw = string(updated)
+						changed = true
+					}
+				}
+			}
+		}
+		updatedItems = append(updatedItems, itemRaw)
+	}
+	if !changed {
+		return body
+	}
+	joined := make([]byte, 0, 2)
+	joined = append(joined, '[')
+	for i, item := range updatedItems {
+		if i > 0 {
+			joined = append(joined, ',')
+		}
+		joined = append(joined, item...)
+	}
+	joined = append(joined, ']')
+	out, errSetRaw := sjson.SetRawBytes(body, arrayKey, joined)
+	if errSetRaw != nil {
+		return body
+	}
+	return out
+}
+
+func normalizeKimiParametersSchema(paramsRaw string) string {
+	if strings.TrimSpace(paramsRaw) == "" {
+		return paramsRaw
+	}
+	paramBytes := []byte(paramsRaw)
+	if gjson.GetBytes(paramBytes, "$defs").Exists() {
+		paramBytes, _ = sjson.DeleteBytes(paramBytes, "$defs")
+	}
+	if gjson.GetBytes(paramBytes, "definitions").Exists() {
+		paramBytes, _ = sjson.DeleteBytes(paramBytes, "definitions")
+	}
+	if !gjson.GetBytes(paramBytes, "type").Exists() {
+		paramBytes, _ = sjson.SetBytes(paramBytes, "type", "object")
+	}
+	return string(paramBytes)
 }

@@ -1730,3 +1730,65 @@ func TestCleanJSONSchema_PreservesAdditionalPropertiesObjectSchema(t *testing.T)
 		t.Errorf("additionalProperties was wrapped into properties: %s", got)
 	}
 }
+
+func TestCleanJSONSchemaForAntigravityResponse_AnyOfRequiredOnlyBranches(t *testing.T) {
+	input := `{
+		"type": "object",
+		"anyOf": [
+			{"required": ["left"]},
+			{"required": ["right"]}
+		],
+		"properties": {
+			"left": {"type": "integer"},
+			"right": {"type": "integer"}
+		},
+		"additionalProperties": false
+	}`
+
+	got := CleanJSONSchemaForAntigravity(input)
+	parsed := gjson.Parse(got)
+
+	if parsed.Get("type").String() != "object" {
+		t.Fatalf("type = %q, want object; cleaned: %s", parsed.Get("type").String(), got)
+	}
+	if !parsed.Get("properties.left").Exists() || !parsed.Get("properties.right").Exists() {
+		t.Fatalf("properties were wiped out; cleaned: %s", got)
+	}
+	if parsed.Get("anyOf").Exists() {
+		t.Fatalf("anyOf was not removed; cleaned: %s", got)
+	}
+}
+
+func TestCleanJSONSchema_ToolArraysMissingItems(t *testing.T) {
+	input := `{
+		"type": "object",
+		"properties": {
+			"params": { "type": "array" },
+			"values": { "type": ["array", "null"], "description": "no items" },
+			"existing": { "type": "array", "items": { "type": "number" } }
+		}
+	}`
+
+	for cleaner, clean := range map[string]func(string) string{
+		"antigravity": CleanJSONSchemaForAntigravity,
+		"gemini":      CleanJSONSchemaForGemini,
+	} {
+		t.Run(cleaner, func(t *testing.T) {
+			got := gjson.Parse(clean(input))
+
+			for _, path := range []string{"properties.params.items.type", "properties.values.items.type"} {
+				if itemType := got.Get(path).String(); itemType != "string" {
+					t.Errorf("%s = %q, want string; got schema: %s", path, itemType, got.Raw)
+				}
+			}
+			if itemType := got.Get("properties.existing.items.type").String(); itemType != "number" {
+				t.Errorf("existing items type = %q, want number; got schema: %s", itemType, got.Raw)
+			}
+
+			rootArray := gjson.Parse(clean(`{"type":"array"}`))
+			if itemType := rootArray.Get("items.type").String(); itemType != "string" {
+				t.Errorf("root items type = %q, want string; got schema: %s", itemType, rootArray.Raw)
+			}
+		})
+	}
+}

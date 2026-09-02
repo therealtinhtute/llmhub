@@ -5,6 +5,9 @@ import "github.com/therealtinhtute/llmhub/internal/registry"
 // ModelInfo re-exports the registry model info structure.
 type ModelInfo = registry.ModelInfo
 
+// ClientModelProjection re-exports the registry model projection structure.
+type ClientModelProjection = registry.ClientModelProjection
+
 // ModelRegistryHook re-exports the registry hook interface for external integrations.
 type ModelRegistryHook = registry.ModelRegistryHook
 
@@ -15,6 +18,10 @@ type ModelRegistry interface {
 	SetModelQuotaExceeded(clientID, modelID string)
 	ClearModelQuotaExceeded(clientID, modelID string)
 	ClientSupportsModel(clientID, modelID string) bool
+	ApplyClientModelProjections(clientID string, epoch uint64, generation uint64, projections []ClientModelProjection) bool
+	GetModelsForClient(clientID string) []*ModelInfo
+	GetModelsAndEpochForClient(clientID string) ([]*ModelInfo, uint64)
+	ClientRegistrationEpoch(clientID string) uint64
 	GetAvailableModels(handlerType string) []map[string]any
 	GetAvailableModelsByProvider(provider string) []*ModelInfo
 }

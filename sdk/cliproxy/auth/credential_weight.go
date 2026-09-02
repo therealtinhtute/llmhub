@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	AttributeWeight         = "weight"
 	DefaultCredentialWeight = int64(1)
 	MaxCredentialWeight     = int64(1_000_000)
 )

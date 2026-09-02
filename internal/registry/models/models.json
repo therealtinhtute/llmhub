@@ -3766,37 +3766,6 @@
       ]
     },
     {
-      "id": "gemini-3-flash-agent",
-      "object": "model",
-      "owned_by": "antigravity",
-      "type": "antigravity",
-      "display_name": "Gemini 3.5 Flash",
-      "name": "gemini-3-flash-agent",
-      "description": "Gemini 3.5 Flash",
-      "context_length": 1048576,
-      "max_completion_tokens": 65536,
-      "thinking": {
-        "min": 128,
-        "max": 32768,
-        "dynamic_allowed": true,
-        "levels": [
-          "minimal",
-          "low",
-          "medium",
-          "high"
-        ]
-      },
-      "supportedInputModalities": [
-        "text",
-        "image",
-        "audio",
-        "video"
-      ],
-      "supportedOutputModalities": [
-        "text"
-      ]
-    },
-    {
       "id": "gemini-3-pro-high",
       "object": "model",
       "owned_by": "antigravity",

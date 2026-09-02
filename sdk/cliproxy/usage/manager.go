@@ -24,11 +24,14 @@ type Record struct {
 	Source            string
 	// ReasoningEffort stores the client-requested thinking level for request event logs.
 	ReasoningEffort string
-	RequestedAt     time.Time
-	Latency         time.Duration
-	Failed          bool
-	Fail            Failure
-	Detail          Detail
+	// Stream reports whether the request was executed in streaming mode.
+	Stream      bool
+	RequestedAt time.Time
+	Latency     time.Duration
+	TTFT        time.Duration
+	Failed      bool
+	Fail        Failure
+	Detail      Detail
 	// ResponseHeaders stores a snapshot of upstream response headers for usage sinks.
 	ResponseHeaders http.Header
 }
@@ -52,6 +55,7 @@ type Detail struct {
 
 type requestedModelAliasContextKey struct{}
 type reasoningEffortContextKey struct{}
+type streamContextKey struct{}
 
 // WithRequestedModelAlias stores the client-requested model name for usage sinks.
 func WithRequestedModelAlias(ctx context.Context, alias string) context.Context {
@@ -106,6 +110,29 @@ func ReasoningEffortFromContext(ctx context.Context) string {
 		return strings.TrimSpace(string(value))
 	default:
 		return ""
+	}
+}
+
+// WithStream stores whether the request was executed in streaming mode for usage sinks.
+func WithStream(ctx context.Context, stream bool) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, streamContextKey{}, stream)
+}
+
+// StreamFromContext returns whether the request was executed in streaming mode.
+// Missing values default to false.
+func StreamFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	raw := ctx.Value(streamContextKey{})
+	switch value := raw.(type) {
+	case bool:
+		return value
+	default:
+		return false
 	}
 }
 

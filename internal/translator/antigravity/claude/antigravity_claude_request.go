@@ -8,12 +8,12 @@ package claude
 import (
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/cache"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
 	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -217,6 +217,9 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						if functionID != "" && functionName != "" {
 							toolNameByID[functionID] = functionName
 						}
+						if originalRole == "assistant" && functionID != "" {
+							pendingToolUseIDs = append(pendingToolUseIDs, functionID)
+						}
 
 						// Preserve every present input as valid JSON for the function call.
 						var argsRaw string
@@ -259,9 +262,6 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 							partJSON, _ = sjson.SetBytes(partJSON, "functionCall.name", functionName)
 							partJSON, _ = sjson.SetRawBytes(partJSON, "functionCall.args", []byte(argsRaw))
 							clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
-							if originalRole == "assistant" {
-								pendingToolUseIDs = append(pendingToolUseIDs, functionID)
-							}
 						}
 					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "tool_result" {
 						toolCallID := contentResult.Get("tool_use_id").String()

@@ -152,6 +152,8 @@ type Result struct {
 	Provider string
 	// Model is the upstream model identifier used for the request.
 	Model string
+	// RouteModel is the requested logical route model before alias resolution.
+	RouteModel string
 	// Success marks whether the execution succeeded.
 	Success bool
 	// RetryAfter carries a provider supplied retry hint (e.g. 429 retryDelay).
@@ -208,13 +210,13 @@ func (NoopHook) OnResult(context.Context, Result) {}
 
 // Manager orchestrates auth lifecycle, selection, execution, and persistence.
 type Manager struct {
-	store     Store
-	executors map[string]ProviderExecutor
-	selector  Selector
-	hook      Hook
-	mu        sync.RWMutex
-	auths     map[string]*Auth
-	scheduler *authScheduler
+	store      Store
+	executors  map[string]ProviderExecutor
+	selector   Selector
+	hook       Hook
+	mu         sync.RWMutex
+	auths      map[string]*Auth
+	scheduler  *authScheduler
 	// homeRuntimeAuths caches auths returned by Home so websocket sessions can
 	// reuse an established upstream credential without dispatching every turn.
 	homeRuntimeAuths      map[string]map[string]*Auth
@@ -1101,6 +1103,9 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 	}
 
 	if len(availableByPriority) == 0 {
+		lastCandidateErr := latestCandidateErrorForModel(auths, func(candidate *Auth) string {
+			return m.selectionModelForAuth(candidate, routeModel)
+		})
 		if cooldownCount == len(auths) && !earliest.IsZero() {
 			providerForError := provider
 			if providerForError == "mixed" {
@@ -1110,12 +1115,106 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 			if resetIn < 0 {
 				resetIn = 0
 			}
-			return nil, newModelCooldownError(routeModel, providerForError, resetIn)
+			return nil, newModelCooldownErrorWithCause(routeModel, providerForError, resetIn, lastCandidateErr)
 		}
-		return nil, &Error{Code: "auth_unavailable", Message: "no auth available"}
+		return nil, WithCause(&Error{Code: "auth_unavailable", Message: "no auth available"}, lastCandidateErr)
 	}
 
 	return availableAuthsFromPriorityBuckets(availableByPriority, allPriorities), nil
+}
+
+func latestCandidateErrorForModel(auths []*Auth, selectionModelFunc func(*Auth) string) error {
+	var latestModelTime time.Time
+	var latestModelAuthID string
+	var latestModelErr error
+
+	var latestAuthTime time.Time
+	var latestAuthID string
+	var latestAuthErr error
+
+	for _, candidate := range auths {
+		if candidate == nil {
+			continue
+		}
+		var curModelErr error
+		var curModelTime time.Time
+		if len(candidate.ModelStates) > 0 {
+			checkModel := ""
+			if selectionModelFunc != nil {
+				checkModel = selectionModelFunc(candidate)
+			}
+			modelKey := canonicalModelKey(checkModel)
+			if checkModel != "" {
+				if state, ok := candidate.ModelStates[checkModel]; ok && state != nil {
+					if state.LastError != nil {
+						curModelErr = state.LastError
+						curModelTime = state.UpdatedAt
+					} else if strings.TrimSpace(state.StatusMessage) != "" {
+						curModelErr = errors.New(state.StatusMessage)
+						curModelTime = state.UpdatedAt
+					}
+				}
+			}
+			if curModelErr == nil && modelKey != "" {
+				if state, ok := candidate.ModelStates[modelKey]; ok && state != nil {
+					if state.LastError != nil {
+						curModelErr = state.LastError
+						curModelTime = state.UpdatedAt
+					} else if strings.TrimSpace(state.StatusMessage) != "" {
+						curModelErr = errors.New(state.StatusMessage)
+						curModelTime = state.UpdatedAt
+					}
+				}
+			}
+		}
+
+		if curModelErr != nil {
+			if curModelTime.IsZero() {
+				curModelTime = candidate.UpdatedAt
+			}
+			if latestModelErr == nil || curModelTime.After(latestModelTime) || (curModelTime.Equal(latestModelTime) && candidate.ID > latestModelAuthID) {
+				latestModelTime = curModelTime
+				latestModelAuthID = candidate.ID
+				latestModelErr = curModelErr
+			}
+		} else {
+			var curAuthErr error
+			var curAuthTime time.Time
+			if candidate.LastError != nil {
+				curAuthErr = candidate.LastError
+				curAuthTime = candidate.UpdatedAt
+			} else if strings.TrimSpace(candidate.StatusMessage) != "" {
+				curAuthErr = errors.New(candidate.StatusMessage)
+				curAuthTime = candidate.UpdatedAt
+			}
+			if curAuthErr != nil {
+				if curAuthTime.IsZero() {
+					curAuthTime = candidate.UpdatedAt
+				}
+				if latestAuthErr == nil || curAuthTime.After(latestAuthTime) || (curAuthTime.Equal(latestAuthTime) && candidate.ID > latestAuthID) {
+					latestAuthTime = curAuthTime
+					latestAuthID = candidate.ID
+					latestAuthErr = curAuthErr
+				}
+			}
+		}
+	}
+
+	if latestModelErr != nil {
+		return latestModelErr
+	}
+	return latestAuthErr
+}
+
+func restoreModelCooldownErrorModel(err error, requestedModel string) error {
+	var cooldownErr *modelCooldownError
+	if !errors.As(err, &cooldownErr) || cooldownErr == nil {
+		return err
+	}
+	if requestedModel == "" || requestedModel == cooldownErr.model {
+		return err
+	}
+	return newModelCooldownErrorWithCause(requestedModel, cooldownErr.provider, cooldownErr.resetIn, cooldownErr.cause)
 }
 
 // availableAuthsForSelector reports the candidates handed to the configured selector.

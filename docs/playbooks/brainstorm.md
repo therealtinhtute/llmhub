@@ -7,18 +7,17 @@ Explore a decision in the response, or lock/refine the durable initiative at `do
 ## Preconditions
 
 1. Choose `explore`, `lock-from-idea`, `lock-from-files`, or `refine` from the request shape. Ask only when mode or scope is genuinely ambiguous.
-2. Run `zharness preflight brainstorm --mode {explore|lock} --json`. Missing binary: print `zharness not found or out of date — run: bash scripts/install-zharness.sh` and stop. Otherwise check its `version` field — a `dev` build satisfies the gate; below MIN_ZHARNESS_VERSION (`0.8.1` — see `skills/workflow/README.md`), print the same message and stop. Then follow its status and recovery exactly. Explore may continue in reduced mode; lock/refine requires durable readiness.
 
 ## Modes
 
 | Mode | Input | Durable effect |
 |---|---|---|
 | `explore` | Trade-off or recommendation request without lock intent | None; answer in the response only |
-| `lock-from-idea` | Raw idea or bounded initiative | Create one active plan and one intake row |
-| `lock-from-files` | Authoritative source files | Create one active plan and one intake row |
+| `lock-from-idea` | Raw idea or bounded initiative | Create one active plan |
+| `lock-from-files` | Authoritative source files | Create one active plan |
 | `refine` | Existing active plan needs scope changes | Update the same plan; preserve its IDs |
 
-**Zero-write rule:** explore creates no lifecycle rows, plans, reports, changesets, or markdown artifacts. If exploration leads to lock intent, switch modes explicitly and rerun preflight in lock mode before writing anything.
+**Zero-write rule:** explore creates no lifecycle rows, plans, reports, changesets, or markdown artifacts. If exploration leads to lock intent, switch modes explicitly before writing anything.
 
 ## Owned Plan Sections
 
@@ -28,35 +27,28 @@ Brainstorm writes or refines only these initiative-definition sections:
 - `## Authority and Requirements` — authoritative sources plus numbered, falsifiable requirements.
 - `## Non-goals` — explicit exclusions and deferred scope.
 
-Preserve all later-stage content already present in the plan. Once `to-plan` has defined phases and tasks, those definitions are immutable; a refinement must not alter them, replace the plan, mint a new plan ID, or create another intake row. Append-only `## Progress` is the sole task execution-status source; task definitions never contain status fields.
+Preserve all later-stage content already present in the plan. Once `to-plan` has defined phases and tasks, those definitions are immutable; a refinement must not alter them, replace the plan, mint a new plan ID, or reset lifecycle history. Append-only `## Progress` is the sole task execution-status source; task definitions never contain status fields.
 
 ## Steps
 
 1. **Resolve intent and classification** — choose input type (`new-spec`, `spec-slice`, `change-request`, `new-initiative`, `maintenance`, or `harness-improvement`), lane (`tiny`, `normal`, or `high-risk`), applicable risk flags, and affected surfaces.
-2. **Gather minimum authority** — read named source files and repository instructions. Discovery may clarify scope but must not expand it.
+2. **Gather minimum authority** — read named source files and repository instructions. Check prior durable lessons first: `grep -ri "<topic keywords>" docs/memory/` — memory is plain committed files, retrieved by direct grep, never a database. Discovery may clarify scope but must not expand it.
 3. **Compare options** — evaluate 2–3 viable paths, or identify 1–2 alternatives rejected by authoritative source files. State the recommendation and trade-offs before locking.
 4. **Clarify the boundary** — require a concrete outcome, actors, constraints, accepted requirements, non-goals, and checkable success conditions. Stop instead of inventing an unresolved product decision.
 5. **Choose the stable slug** — use a short initiative slug. The canonical active path is `docs/plans/active/{slug}.md`; do not create a second durable initiative markdown for the same work.
-6. **Create a new lock**:
-   - Run `zharness id --json` and keep the returned ID as the plan's own `id`.
-   - Run `zharness scaffold plan --path docs/plans/active/{slug}.md --json`. This refuses with `active_plan_exists` (R1, D1) when a non-empty plan already exists under `docs/plans/active/` — at most one may exist at a time. Its message names the existing path; run `zharness plan complete` or `zharness plan abandon` on it before locking a new initiative.
-   - Run `zharness intake --type {input-type} --summary "{one-line summary}" --lane {lane} --plan-path docs/plans/active/{slug}.md --json`; keep the returned ID as `intake_id`.
-   - Fill frontmatter with both IDs, `status: active`, lane, and dates, then fill the three owned sections.
+6. **Force the identity write (the stage's single forced write step)** — ensure `docs/PROJECT.md` exists: if absent, copy `cli/docs/embedded/templates/project.identity.md` into place. Fill every identity question inline; the lock does not complete while any question remains in unanswered `<...>` form — halt and name the unanswered questions. Only the owner-facing scope decision may justify pausing here; an unanswered PROJECT.md never locks.
+7. **Create a new lock**:
+   - Confirm at most one non-empty plan exists under `docs/plans/active/`; if one exists, stop and name it — it must be completed or moved aside by the owner first.
+   - Mint two unique identifier tokens locally (timestamp-suffixed tokens are acceptable): one as the plan's own `id`, one as `intake_id`.
+   - Create `docs/plans/active/{slug}.md`; fill frontmatter with both IDs, `status: active`, lane, and dates, then fill the three owned sections.
    - Replace every unowned template placeholder with honest bootstrap state: `approach: not-planned`; `planning_status: not-planned`; phases, Progress, Decisions, and Validation as `none`; Current State IDs/blockers as `none`; and `exact_next_action: to-plan`.
-7. **Refine an existing lock** — read the active plan, preserve `id`, `intake_id`, lane unless reclassification is explicitly approved, and all non-owned sections; update the three owned sections in place and refresh `updated`.
-8. **Self-review** — remove all literal scaffold placeholders; confirm requirements are numbered and falsifiable; confirm Outcome, requirements, and Non-goals do not contradict; confirm rejected alternatives were surfaced; confirm the bootstrap state is honest; confirm no second markdown was created.
-9. **Review gate and handoff** — show the active plan path and concise decision summary. Explicit execution intent may satisfy the procedural gate when scope is bounded and no unresolved product decision, destructive action, or outward-facing action remains. Otherwise wait for approval before routing to `to-plan`.
-
-## Command Reference
-
-- `zharness preflight brainstorm --mode {explore|lock} --json`
-- `zharness id --json`
-- `zharness scaffold plan --path docs/plans/active/{slug}.md --json`
-- `zharness intake --type {input-type} --summary "..." --lane {lane} --plan-path docs/plans/active/{slug}.md --json`
+8. **Refine an existing lock** — read the active plan, preserve `id`, `intake_id`, lane unless reclassification is explicitly approved, and all non-owned sections; update the three owned sections in place and refresh `updated`. Re-check `docs/PROJECT.md`: if the refinement changes what the project is or how it is verified, update the affected identity answers in the same pass.
+9. **Self-review** — remove all literal template placeholders so no literal fake lifecycle placeholders remain; confirm `docs/PROJECT.md` carries no unanswered `<...>` question and no template marker; confirm requirements are numbered and falsifiable; confirm Outcome, requirements, and Non-goals do not contradict; confirm rejected alternatives were surfaced; confirm the bootstrap state is honest; confirm no second markdown was created.
+10. **Review gate and handoff** — show the active plan path, the answered `docs/PROJECT.md`, and a concise decision summary. Explicit execution intent may satisfy the procedural gate when scope is bounded and no unresolved product decision, destructive action, or outward-facing action remains. Otherwise wait for approval before routing to `to-plan`.
 
 ## Exit Conditions
 
 - Explore: one recommendation, rationale, and rejected alternatives in the response; zero durable writes.
-- Lock: exactly one active plan exists with valid plan/intake IDs, complete owned sections, no literal fake lifecycle placeholders, honest `not-planned`/`none` bootstrap state, and exact next action `to-plan`.
+- Lock: exactly one active plan exists with unique plan/intake identifiers, complete owned sections, an answered `docs/PROJECT.md` (no unanswered questions, no template marker), honest `not-planned`/`none` bootstrap state, and exact next action `to-plan`.
 - Refine: the same active plan and IDs remain, with later-stage sections preserved.
 - Durable next step: `to-plan` updates the same file.

@@ -76,7 +76,6 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 		out, _ = sjson.SetRawBytes(out, "systemInstruction", systemInstruction)
 	}
 
-	// contents
 	if messagesResult := gjson.GetBytes(rawJSON, "messages"); messagesResult.IsArray() {
 		contentItems := translatorcommon.NewRawArrayItems(messagesResult.Get("#").Int())
 		toolNameByID := make(map[string]string)

@@ -257,6 +257,35 @@ func TestCodexClientModelsResponse_PreservesUltraReasoningEffort(t *testing.T) {
 	t.Fatalf("supported_reasoning_levels = %#v, want ultra", levels)
 }
 
+func TestBuildResponseForClientFiltersExtendedReasoningForLegacyCLI(t *testing.T) {
+	legacy := BuildResponseForClient([]map[string]any{{"id": "gpt-5.6-sol"}}, nil, false, "0.143.0")
+	modern := BuildResponseForClient([]map[string]any{{"id": "gpt-5.6-sol"}}, nil, false, "0.144.0")
+
+	hasEffort := func(resp map[string]any, effort string) bool {
+		models, _ := resp["models"].([]map[string]any)
+		for _, entry := range models {
+			if stringModelValue(entry, "slug") != "gpt-5.6-sol" {
+				continue
+			}
+			levels, _ := entry["supported_reasoning_levels"].([]any)
+			for _, rawLevel := range levels {
+				level, ok := rawLevel.(map[string]any)
+				if ok && stringModelValue(level, "effort") == effort {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if hasEffort(legacy, "ultra") || hasEffort(legacy, "max") {
+		t.Fatal("legacy client_version 0.143.0 should not advertise ultra/max")
+	}
+	if !hasEffort(modern, "ultra") {
+		t.Fatal("client_version 0.144.0 should keep ultra")
+	}
+}
+
 func TestLoadCodexClientModelTemplatesRefreshesOnRevision(t *testing.T) {
 	codexClientModelTemplatesMu.Lock()
 	previousLoaded := codexClientModelTemplatesLoaded
@@ -313,12 +342,12 @@ func TestApplyCodexClientModelMetadataPreservesMultiAgentVersionWhenDisabled(t *
 	entry := map[string]any{"multi_agent_version": "v1"}
 	model := map[string]any{"id": "custom-model"}
 
-	applyCodexClientModelMetadata(entry, "custom-model", model, false)
+	applyCodexClientModelMetadata(entry, "custom-model", model, false, "")
 	if got := entry["multi_agent_version"]; got != "v1" {
 		t.Fatalf("disabled multi_agent_version = %#v, want preserved v1", got)
 	}
 
-	applyCodexClientModelMetadata(entry, "custom-model", model, true)
+	applyCodexClientModelMetadata(entry, "custom-model", model, true, "")
 	if got := entry["multi_agent_version"]; got != "v2" {
 		t.Fatalf("enabled multi_agent_version = %#v, want v2", got)
 	}

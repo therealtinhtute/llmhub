@@ -71,3 +71,5 @@ docs/upstream/*-gap-*.json
 # Python bytecode
 __pycache__/
 *.pyc
+# zharness v0.15 managed set
+/.zharness/

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	codexmodels "github.com/therealtinhtute/llmhub/internal/client/codex/models"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 )
 
@@ -21,21 +22,39 @@ var (
 )
 
 var codexClientAllowedReasoningLevels = map[string]struct{}{
-	"none":   {},
-	"low":    {},
-	"medium": {},
-	"high":   {},
-	"xhigh":  {},
+	"none":    {},
+	"minimal": {},
+	"low":     {},
+	"medium":  {},
+	"high":    {},
+	"xhigh":   {},
+	"max":     {},
+	"ultra":   {},
 }
 
-func (h *OpenAIAPIHandler) codexClientModelsResponse() map[string]any {
-	return CodexClientModelsResponse(h.Models())
+var codexClientLegacyAllowedReasoningLevels = map[string]struct{}{
+	"none":    {},
+	"minimal": {},
+	"low":     {},
+	"medium":  {},
+	"high":    {},
+	"xhigh":   {},
+}
+
+func (h *OpenAIAPIHandler) codexClientModelsResponse(clientVersion ...string) map[string]any {
+	version := ""
+	if len(clientVersion) > 0 {
+		version = clientVersion[0]
+	}
+	return CodexClientModelsResponseForClient(h.Models(), version)
 }
 
 func CodexClientModelsResponse(models []map[string]any) map[string]any {
-	return map[string]any{
-		"models": buildCodexClientModels(models),
-	}
+	return CodexClientModelsResponseForClient(models, "")
+}
+
+func CodexClientModelsResponseForClient(models []map[string]any, clientVersion string) map[string]any {
+	return codexmodels.BuildResponseForClient(models, nil, false, clientVersion)
 }
 
 func buildCodexClientModels(models []map[string]any) []map[string]any {

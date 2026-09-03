@@ -50,6 +50,9 @@ web/dist/
 web/node_modules/
 internal/managementasset/static/
 
+# Self-update runtime state
+update/
+
 # macOS
 .DS_Store
 ._*

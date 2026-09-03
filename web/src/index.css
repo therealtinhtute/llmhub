@@ -19,6 +19,10 @@
   --accent-foreground: oklch(0.3917 0.0748 236.0547);
   --destructive: oklch(0.6266 0.2173 24.9380);
   --destructive-foreground: oklch(1.0000 0 0);
+  --success: oklch(0.58 0.16 142.5);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.65 0.17 72.0);
+  --warning-foreground: oklch(0.98 0 0);
   --border: oklch(0.9219 0 0);
   --input: oklch(0.9219 0 0);
   --ring: oklch(0.3917 0.0748 236.0547);
@@ -35,10 +39,10 @@
   --sidebar-accent-foreground: oklch(0.3917 0.0748 236.0547);
   --sidebar-border: oklch(0.9219 0 0);
   --sidebar-ring: oklch(0.3917 0.0748 236.0547);
-  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: Lora, ui-serif, serif;
-  --font-mono: Geist Mono, ui-monospace, monospace;
-  --radius: 0.275rem;
+  --font-sans: 'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: 'Xanh Mono', Lora, ui-serif, serif;
+  --font-mono: 'Google Sans Code', 'Geist Mono', ui-monospace, monospace;
+  --radius: 0.3rem;
   --shadow-x: 0;
   --shadow-y: 0px;
   --shadow-blur: 4px;
@@ -74,6 +78,10 @@
   --accent-foreground: oklch(0.9663 0.0080 98.8792);
   --destructive: oklch(0.6368 0.2078 25.3313);
   --destructive-foreground: oklch(1.0000 0 0);
+  --success: oklch(0.72 0.16 142.5);
+  --success-foreground: oklch(0.18 0 0);
+  --warning: oklch(0.78 0.16 72.0);
+  --warning-foreground: oklch(0.18 0 0);
   --border: oklch(0.3618 0.0101 106.8928);
   --input: oklch(0.4336 0.0113 100.2195);
   --ring: oklch(0.5200 0.1050 223.1280);
@@ -90,10 +98,10 @@
   --sidebar-accent-foreground: oklch(0.8074 0.0142 93.0137);
   --sidebar-border: oklch(0.9401 0 0);
   --sidebar-ring: oklch(0.7731 0 0);
-  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: Lora, ui-serif, serif;
-  --font-mono: Geist Mono, ui-monospace, monospace;
-  --radius: 0.275rem;
+  --font-sans: 'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: 'Xanh Mono', Lora, ui-serif, serif;
+  --font-mono: 'Google Sans Code', 'Geist Mono', ui-monospace, monospace;
+  --radius: 0.3rem;
   --shadow-x: 0;
   --shadow-y: 0px;
   --shadow-blur: 4px;
@@ -127,6 +135,10 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -144,9 +156,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
-  --font-mono: Geist Mono, ui-monospace, monospace;
-  --font-serif: Lora, ui-serif, serif;
+  --font-sans: 'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-mono: 'Google Sans Code', 'Geist Mono', ui-monospace, monospace;
+  --font-serif: 'Xanh Mono', Lora, ui-serif, serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

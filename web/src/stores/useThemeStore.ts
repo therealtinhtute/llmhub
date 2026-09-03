@@ -11,21 +11,34 @@ interface ThemeState {
   initializeTheme: () => () => void;
 }
 
+const applyTheme = (theme: Theme) => {
+  if (typeof document === 'undefined') return;
+  if (theme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+};
+
 export const useThemeStore = create<ThemeState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       theme: 'light',
       resolvedTheme: 'light',
 
-      setTheme: () => {
-        document.documentElement.classList.remove('dark');
-        set({ theme: 'light', resolvedTheme: 'light' });
+      setTheme: (theme) => {
+        applyTheme(theme);
+        set({ theme, resolvedTheme: theme });
       },
 
-      cycleTheme: () => {},
+      cycleTheme: () => {
+        const { theme, setTheme } = get();
+        setTheme(theme === 'light' ? 'dark' : 'light');
+      },
 
       initializeTheme: () => {
-        document.documentElement.classList.remove('dark');
+        const { theme } = get();
+        applyTheme(theme);
         return () => {};
       },
     }),

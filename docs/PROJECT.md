@@ -9,13 +9,13 @@
 ## Non-goals
 - Upstream branding, README/sponsors, or management-asset GitHub updater.
 - File/YAML as runtime source of truth; pluginhost gRPC platform.
-- Replacing llmhub management UI layout, tokens, or i18n.
+- Replacing llmhub management UI layout structure, navigation, or i18n translations (theme styling tokens and dark mode fixes are governed by active plans).
 
 ## How do we run the tests?
 - `go test ./...`
 - `make build`
 - `git diff --check`
-- Frontend: type check, lint, production build, browser runtime — no new files under `web/`
+- Frontend: type check, lint, production build, browser runtime — no new test files under `web/`
 
 ## Architecture in one breath
 - runtime shape: Go Gin proxy plus embedded React management panel
@@ -23,4 +23,4 @@
 - entrypoints: `cmd/server`, `sdk/cliproxy.Service`
 
 ## What are we working on right now?
-- plan: docs/plans/active/cliproxyapi-v7.2.147-parity.md (active)
+- plan: none (completed web-theme-walter.md)

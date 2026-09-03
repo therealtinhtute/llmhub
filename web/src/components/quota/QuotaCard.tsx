@@ -31,16 +31,12 @@ export function QuotaProgressBar({ percent, muted = false }: QuotaProgressBarPro
     muted
       ? 'bg-muted-foreground/25'
       : normalized === null
-      ? 'bg-amber-500'
-      : normalized > 80
-        ? 'bg-green-500'
+        ? 'bg-warning'
         : normalized > 50
-          ? 'bg-lime-500'
+          ? 'bg-success'
           : normalized > 20
-            ? 'bg-amber-500'
-            : normalized > 10
-              ? 'bg-orange-500'
-              : 'bg-destructive';
+            ? 'bg-warning'
+            : 'bg-destructive';
   const widthPercent = Math.round(normalized ?? 0);
 
   return (

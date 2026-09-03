@@ -46,9 +46,9 @@ export function ProviderStatusBar({ statusData }: ProviderStatusBarProps) {
   const rateClass = !hasData
     ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px bg-muted text-muted-foreground tabular-nums'
     : statusData.successRate >= 90
-      ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-emerald-700 bg-emerald-100'
+      ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-success bg-success/12'
       : statusData.successRate >= 50
-        ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-amber-700 bg-amber-100'
+        ? 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-warning bg-warning/12'
         : 'inline-flex items-center text-[11px] font-semibold whitespace-nowrap px-1.5 py-px tabular-nums text-destructive bg-destructive/10';
 
   useEffect(() => {

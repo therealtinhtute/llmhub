@@ -75,13 +75,13 @@ const eventBadgeClass = (value: string) => {
     case 'healthy':
     case 'recovery':
     case 'sent':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700';
+      return 'border-success/30 bg-success/12 text-success';
     case 'warning':
     case 'pending':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-700';
+      return 'border-warning/30 bg-warning/12 text-warning';
     case 'exhausted':
     case 'failed':
-      return 'border-red-500/30 bg-red-500/10 text-red-700';
+      return 'border-destructive/30 bg-destructive/10 text-destructive';
     default:
       return 'border-border bg-muted text-muted-foreground';
   }
@@ -462,9 +462,9 @@ export function QuotaMonitoringPage() {
       <div className="grid gap-3 md:grid-cols-4">
         {[
           { label: t('quota_monitoring.summary_total', { defaultValue: 'Tracked states' }), value: states.length, className: 'text-foreground' },
-          { label: t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' }), value: healthSummary.exhausted, className: 'text-red-600' },
-          { label: t('quota_monitoring.summary_warning', { defaultValue: 'Warning' }), value: healthSummary.warning, className: 'text-amber-600' },
-          { label: t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' }), value: healthSummary.healthy, className: 'text-emerald-600' },
+          { label: t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' }), value: healthSummary.exhausted, className: 'text-destructive' },
+          { label: t('quota_monitoring.summary_warning', { defaultValue: 'Warning' }), value: healthSummary.warning, className: 'text-warning' },
+          { label: t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' }), value: healthSummary.healthy, className: 'text-success' },
         ].map((stat, index) => (
           <Reveal key={stat.label} delay={index * 45}>
             <Card className="gap-2 py-4">
@@ -563,7 +563,7 @@ export function QuotaMonitoringPage() {
               className={cn(
                 badgeClass,
                 activeSettings.telegram.tokenConfigured
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+                  ? 'border-success/30 bg-success/12 text-success'
                   : 'border-border bg-muted text-muted-foreground'
               )}
             >

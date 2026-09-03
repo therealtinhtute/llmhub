@@ -310,46 +310,6 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-8 max-w-[1000px] mx-auto relative">
-      {/* Ambient orb drift — transform-only, disabled under prefers-reduced-motion */}
-      <style>{`
-        @keyframes llmhub-dash-orb-drift {
-          from { transform: translate3d(0, 0, 0) scale(1); }
-          to { transform: translate3d(-22px, 28px, 0) scale(1.05); }
-        }
-        .dashboard-orb-a {
-          animation: llmhub-dash-orb-drift 38s var(--ease-out, ease-out) infinite alternate;
-        }
-        .dashboard-orb-b {
-          animation: llmhub-dash-orb-drift 46s var(--ease-out, ease-out) infinite alternate-reverse;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .dashboard-orb-a,
-          .dashboard-orb-b {
-            animation: none;
-          }
-        }
-      `}</style>
-
-      {/* Decorative background orbs */}
-      <div
-        className="absolute inset-0 pointer-events-none z-0 overflow-hidden opacity-[0.42] blur-[16px]"
-        aria-hidden="true"
-      >
-        <div
-          className="dashboard-orb-a absolute w-[420px] h-[420px] rounded-full top-[-140px] right-[-80px] will-change-transform"
-          style={{
-            background:
-              'radial-gradient(circle, color-mix(in srgb, var(--primary) 6%, transparent), transparent 70%)',
-            }}
-        />
-        <div
-          className="dashboard-orb-b absolute w-[320px] h-[320px] rounded-full bottom-[18%] left-[-100px] will-change-transform"
-          style={{
-            background:
-              'radial-gradient(circle, color-mix(in srgb, var(--success) 4%, transparent), transparent 70%)',
-            }}
-        />
-      </div>
 
       {/* Hero welcome section */}
       <section
@@ -360,12 +320,6 @@ export function DashboardPage() {
           border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
         }}
       >
-        <span
-          className="absolute top-1/2 left-8 -translate-y-1/2 text-[104px] font-black leading-none uppercase text-foreground opacity-[0.04] whitespace-nowrap pointer-events-none select-none max-md:text-[58px] max-md:left-6"
-          aria-hidden="true"
-        >
-          OVERVIEW
-        </span>
         <div
           className="relative z-[1] flex flex-col gap-1"
         >

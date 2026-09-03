@@ -116,8 +116,8 @@ export function AuthFileCard(props: AuthFileCardProps) {
     : file.disabled
       ? 'text-muted-foreground bg-secondary/85 border border-border'
       : hasStatusWarning
-        ? 'text-amber-700 bg-amber-100 border border-amber-400/30'
-        : 'text-emerald-700 bg-emerald-100 border border-emerald-400/40';
+        ? 'text-warning bg-warning/12 border border-warning/30'
+        : 'text-success bg-success/12 border border-success/30';
 
   return (
     <div
@@ -245,7 +245,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
           {rawStatusMessage && hasStatusWarning && (
             <div
-              className={`flex items-start gap-[6px] text-[11px] text-amber-700 bg-amber-100/60 border border-amber-400/30 p-[8px_10px] break-words ${compact ? 'text-[11px] p-[6px_8px]' : ''}`}
+              className={`flex items-start gap-[6px] text-[11px] text-warning bg-warning/12 border border-warning/30 p-[8px_10px] break-words ${compact ? 'text-[11px] p-[6px_8px]' : ''}`}
               title={rawStatusMessage}
             >
               <IconInfo className="shrink-0 mt-[1px]" size={14} />
@@ -256,7 +256,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
           <div className={`flex flex-col p-[0_2px] ${compact ? 'gap-[6px]' : 'gap-2'}`}>
             <div className={`flex items-center flex-wrap ${compact ? 'gap-[6px]' : 'gap-2'}`}>
               <div
-                className={`inline-flex items-baseline gap-[5px] min-w-0 bg-emerald-100/50 text-emerald-700 ${compact ? 'py-[3px] px-2' : 'py-1 px-[10px]'}`}
+                className={`inline-flex items-baseline gap-[5px] min-w-0 bg-success/12 text-success ${compact ? 'py-[3px] px-2' : 'py-1 px-[10px]'}`}
               >
                 <span
                   className={`font-semibold leading-none ${compact ? 'text-[10px]' : 'text-[11px]'}`}

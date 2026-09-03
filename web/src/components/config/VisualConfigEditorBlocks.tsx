@@ -553,7 +553,7 @@ export const PayloadRulesEditor = memo(function PayloadRulesEditor({
   return (
     <div className="flex flex-col gap-[10px]">
       {rules.map((rule, ruleIndex) => (
-        <div key={rule.id} className="flex flex-col gap-3 p-3 border border-border bg-[color-mix(in_srgb,hsl(var(--muted))_64%,transparent)]">
+        <div key={rule.id} className="flex flex-col gap-3 p-3 border border-border bg-[color-mix(in_srgb,var(--muted)_64%,transparent)]">
           <div className="flex items-center justify-between gap-[10px] flex-wrap max-md:items-stretch">
             <div className="text-foreground text-[14px] font-bold leading-tight">
               {t('config_management.visual.payload_rules.rule')} {ruleIndex + 1}
@@ -1008,7 +1008,7 @@ export const PayloadFilterRulesEditor = memo(function PayloadFilterRulesEditor({
   return (
     <div className="flex flex-col gap-[10px]">
       {rules.map((rule, ruleIndex) => (
-        <div key={rule.id} className="flex flex-col gap-3 p-3 border border-border bg-[color-mix(in_srgb,hsl(var(--muted))_64%,transparent)]">
+        <div key={rule.id} className="flex flex-col gap-3 p-3 border border-border bg-[color-mix(in_srgb,var(--muted)_64%,transparent)]">
           <div className="flex items-center justify-between gap-[10px] flex-wrap max-md:items-stretch">
             <div className="text-foreground text-[14px] font-bold leading-tight">
               {t('config_management.visual.payload_rules.rule')} {ruleIndex + 1}

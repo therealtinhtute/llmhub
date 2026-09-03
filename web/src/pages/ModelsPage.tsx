@@ -70,9 +70,9 @@ const normalizeApiKeyList = (input: unknown): string[] => {
 };
 
 const statusClassName = (type: StatusType) => {
-  if (type === 'success') return 'text-emerald-700 bg-emerald-100 border-emerald-400/40';
+  if (type === 'success') return 'text-success bg-success/12 border-success/30';
   if (type === 'error') return 'text-destructive bg-destructive/10 border-destructive/30';
-  if (type === 'warning') return 'text-amber-700 bg-amber-100 border-amber-400/30';
+  if (type === 'warning') return 'text-warning bg-warning/12 border-warning/30';
   return 'border-border text-muted-foreground bg-muted';
 };
 

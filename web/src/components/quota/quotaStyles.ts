@@ -58,16 +58,16 @@ export const quotaStyles = {
   quotaMeta:
     'flex items-center gap-2 text-[12px] text-muted-foreground whitespace-nowrap max-md:justify-start',
   quotaPercent: 'font-semibold text-foreground',
-  quotaReset: 'text-[var(--text-tertiary,hsl(var(--muted-foreground)))]',
+  quotaReset: 'text-muted-foreground',
   quotaAmount: 'text-muted-foreground',
   quotaMessage:
-    'text-[12px] text-[var(--text-tertiary,hsl(var(--muted-foreground)))] text-center py-2',
+    'text-[12px] text-muted-foreground text-center py-2',
   quotaMessageAction:
-    'w-full border-none bg-none cursor-pointer underline text-[12px] text-[var(--text-tertiary,hsl(var(--muted-foreground)))] text-center py-2 hover:not-disabled:text-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline',
+    'w-full border-none bg-none cursor-pointer underline text-[12px] text-muted-foreground text-center py-2 hover:not-disabled:text-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline',
   quotaError:
     'text-[12px] text-destructive bg-destructive/8 border border-destructive px-2 py-1',
   quotaWarning:
-    'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 px-2 py-1',
+    'text-[12px] text-warning bg-warning/12 border border-warning/30 px-2 py-1',
   quotaCardTabs: 'flex flex-col gap-2',
   quotaCardTabsList:
     'flex w-full justify-start gap-0 border-b border-border bg-transparent p-0 overflow-x-auto',
@@ -79,13 +79,13 @@ export const quotaStyles = {
   // Codex plan row
   codexPlan: 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground',
   codexPlanItem: 'inline-flex items-center gap-1.5',
-  codexPlanLabel: 'text-[var(--text-tertiary,hsl(var(--muted-foreground)))]',
+  codexPlanLabel: 'text-muted-foreground',
   codexPlanValue: 'font-semibold text-foreground capitalize',
 
   // Codex manual reset credits
   codexResetCredits: 'flex flex-col gap-1 border border-border bg-muted/40 px-2 py-1.5',
   codexResetCreditsTitle:
-    'text-[11px] font-semibold text-[var(--text-tertiary,hsl(var(--muted-foreground)))]',
+    'text-[11px] font-semibold text-muted-foreground',
   codexResetCreditRow: 'flex items-center justify-between gap-2 text-[11px]',
   codexResetCreditLabel: 'text-muted-foreground',
   codexResetCreditTime: 'font-medium text-foreground tabular-nums',
@@ -94,7 +94,7 @@ export const quotaStyles = {
   overageToggle:
     'shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',
   premiumPlanValue:
-    'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-amber-500/15 border border-amber-500/30 text-amber-600 capitalize',
+    'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-warning/12 border border-warning/30 text-warning capitalize',
   kiroInfoRow:
     'flex items-center justify-between gap-2 text-[12px] text-muted-foreground min-w-0',
   kiroInfoValue: 'flex items-center gap-1.5 min-w-0 justify-end',
@@ -103,7 +103,7 @@ export const quotaStyles = {
   kiroChipMuted:
     'inline-flex items-center rounded-full border border-border bg-muted/60 px-2 py-[2px] text-[11px] font-semibold text-muted-foreground whitespace-nowrap',
   kiroChipSuccess:
-    'inline-flex items-center rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-[2px] text-[11px] font-semibold text-emerald-700 whitespace-nowrap',
+    'inline-flex items-center rounded-full border border-success/30 bg-success/12 px-2 py-[2px] text-[11px] font-semibold text-success whitespace-nowrap',
   kiroOverageRow:
     'flex items-center justify-between gap-3 text-[12px] text-muted-foreground min-w-0',
   kiroRuntimeFooter:

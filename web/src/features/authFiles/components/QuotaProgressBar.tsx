@@ -36,16 +36,12 @@ export function QuotaProgressBar({ percent }: QuotaProgressBarProps) {
 
   const fillColor =
     normalized === null
-      ? 'bg-amber-500'
-      : normalized > 80
-        ? 'bg-green-500'
-        : normalized > 50
-          ? 'bg-lime-500'
-          : normalized > 20
-            ? 'bg-amber-500'
-            : normalized > 10
-              ? 'bg-orange-500'
-              : 'bg-destructive';
+      ? 'bg-warning'
+      : normalized > 50
+        ? 'bg-success'
+        : normalized > 20
+          ? 'bg-warning'
+          : 'bg-destructive';
 
   return (
     <div className="h-2 bg-secondary overflow-hidden">

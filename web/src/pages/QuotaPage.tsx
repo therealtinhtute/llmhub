@@ -184,16 +184,17 @@ export function QuotaPage() {
                 {t('auth_files.view_mode_all')}
               </Button>
             </div>
-            <button
-              type="button"
-              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="min-h-[44px] min-w-[44px] sm:min-h-8 sm:min-w-8"
               onClick={() => void handleTabRefresh()}
               disabled={loading}
               title={t('quota_management.refresh_all_credentials')}
               aria-label={t('quota_management.refresh_all_credentials')}
             >
-              <IconRefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            </button>
+              <IconRefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </Button>
           </div>
         </div>
 

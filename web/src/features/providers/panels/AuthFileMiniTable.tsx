@@ -111,12 +111,12 @@ export function AuthFileMiniTable({
                   className={[
                     'inline-flex w-fit items-center border px-2 py-0.5 text-[11px] font-medium',
                     file.disabled
-                      ? 'border-amber-400/40 bg-amber-100 text-amber-700'
+                      ? 'border-warning/30 bg-warning/12 text-warning'
                       : unavailable
                         ? 'border-destructive/30 bg-destructive/10 text-destructive'
                         : hasIssue
-                          ? 'border-amber-400/40 bg-amber-100 text-amber-700'
-                          : 'border-emerald-400/40 bg-emerald-100 text-emerald-700',
+                          ? 'border-warning/30 bg-warning/12 text-warning'
+                          : 'border-success/30 bg-success/12 text-success',
                   ].join(' ')}
                 >
                   {status}

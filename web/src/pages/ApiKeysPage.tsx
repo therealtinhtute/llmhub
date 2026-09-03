@@ -132,7 +132,7 @@ export function ApiKeysPage() {
       <Card>
         <div className="flex flex-col gap-3">
           {disableControls ? (
-            <div className="border border-amber-400/30 bg-amber-100/60 p-[10px_14px] text-sm leading-[1.5] text-amber-700">
+            <div className="border border-warning/30 bg-warning/12 p-[10px_14px] text-sm leading-[1.5] text-warning">
               {t('notification.connection_required')}
             </div>
           ) : null}

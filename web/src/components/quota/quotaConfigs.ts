@@ -1882,7 +1882,7 @@ const renderKiroRuntimeStatusBadge = (
         ? helpers.styles.kiroChipMuted
         : status === 'error'
           ? `${helpers.styles.kiroChip} border-destructive/25 bg-destructive/10 text-destructive`
-          : `${helpers.styles.kiroChip} border-amber-500/25 bg-amber-500/10 text-amber-700`;
+          : `${helpers.styles.kiroChip} border-warning/30 bg-warning/12 text-warning`;
   return h('span', { className }, label);
 };
 

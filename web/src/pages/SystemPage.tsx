@@ -18,7 +18,7 @@ import { STORAGE_KEY_AUTH } from '@/utils/constants';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 
 const linkIconClass = (type: 'github' | 'docs' | 'primary') =>
-  `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-emerald-500' : 'bg-primary'}`;
+  `flex items-center justify-center w-11 h-11 shrink-0 text-white ${type === 'github' ? 'bg-[#24292f]' : type === 'docs' ? 'bg-success' : 'bg-primary'}`;
 
 const runtimeInputNumber = (value: string, fallback: number): number => {
   const parsed = Number.parseInt(value.trim(), 10);
@@ -726,7 +726,7 @@ export function SystemPage() {
         }
       >
         <div className="request-log-modal">
-          <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-amber-700 bg-amber-100 border-amber-400/30 leading-[1.5]">{t('basic_settings.request_log_warning')}</div>
+          <div className="inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border rounded-sm text-warning bg-warning/12 border-warning/30 leading-[1.5]">{t('basic_settings.request_log_warning')}</div>
           <ToggleSwitch
             label={t('basic_settings.request_log_enable')}
             labelPosition="left"

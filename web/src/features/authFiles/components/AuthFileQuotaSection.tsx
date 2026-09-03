@@ -34,7 +34,7 @@ const quotaStyleMap = {
     'w-full border-none bg-transparent cursor-pointer underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline text-[12px] text-muted-foreground/60 text-center py-2',
   quotaError:
     'text-[12px] text-destructive bg-destructive/[.08] border border-destructive py-1 px-2',
-  quotaWarning: 'text-[12px] text-amber-700 bg-amber-100 border border-amber-400/30 py-1 px-2',
+  quotaWarning: 'text-[12px] text-warning bg-warning/12 border border-warning/30 py-1 px-2',
   quotaRow: 'flex flex-col gap-1',
   quotaRowHeader: 'flex items-center justify-between gap-2 min-w-0',
   quotaModel:
@@ -59,7 +59,7 @@ const quotaStyleMap = {
   overageToggle:
     'shrink-0 border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',
   premiumPlanValue:
-    'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-amber-500/15 border border-amber-500/30 text-amber-600 capitalize',
+    'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-warning/12 border border-warning/30 text-warning capitalize',
 };
 
 type QuotaState = { status?: string; error?: string; errorStatus?: number } | undefined;

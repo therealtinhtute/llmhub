@@ -120,7 +120,7 @@ export function ProviderResourcePanel({
       </div>
 
       {group.issue ? (
-        <div className="border border-[rgba(245,158,11,0.30)] bg-[rgba(245,158,11,0.10)] p-3 px-[14px] text-[13px] text-amber-700 leading-[1.5]">
+        <div className="border border-warning/30 bg-warning/12 p-3 px-[14px] text-[13px] text-warning leading-[1.5]">
           <div className="font-semibold mb-1">
             {t('providersPage.table.providerIssue')}
             {group.issue.status ? ` · ${group.issue.status}` : ''}

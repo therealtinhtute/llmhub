@@ -183,7 +183,7 @@ function ConnectivityStatusIcon({ state }: { state: ConnectivityState }) {
   }
   if (state === 'success') {
     return (
-      <span className="inline-flex items-center justify-center w-[14px] h-[14px] text-emerald-600">
+      <span className="inline-flex items-center justify-center w-[14px] h-[14px] text-success">
         <IconCheckCircle2 size={14} />
       </span>
     );

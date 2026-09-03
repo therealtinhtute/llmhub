@@ -384,8 +384,8 @@ export function ProviderSheet({
             className={[
               'inline-flex items-center border px-2 py-0.5 text-[11px] font-medium',
               liveEntry.preset.verified
-                ? 'border-emerald-400/40 bg-emerald-100 text-emerald-700'
-                : 'border-amber-400/40 bg-amber-100 text-amber-700',
+                ? 'border-success/30 bg-success/12 text-success'
+                : 'border-warning/30 bg-warning/12 text-warning',
             ].join(' ')}
           >
             {liveEntry.preset.verified

@@ -180,9 +180,9 @@ function ProviderEntryCard({
   const statusClassName = [
     'inline-flex w-fit items-center border px-2 py-0.5 text-[11px] font-medium',
     statusTone === 'success'
-      ? 'border-emerald-400/40 bg-emerald-100 text-emerald-700'
+      ? 'border-success/30 bg-success/12 text-success'
       : statusTone === 'warning'
-        ? 'border-amber-400/40 bg-amber-100 text-amber-700'
+        ? 'border-warning/30 bg-warning/12 text-warning'
         : statusTone === 'error'
           ? 'border-destructive/30 bg-destructive/10 text-destructive'
           : 'border-border bg-muted text-muted-foreground',
@@ -221,14 +221,14 @@ function ProviderEntryCard({
       <span className="flex items-center gap-1.5 shrink-0">
         {warning ? (
           <span title={warningLabel} aria-label={warningLabel}>
-            <IconAlertTriangle size={16} className="text-amber-700" />
+            <IconAlertTriangle size={16} className="text-warning" />
           </span>
         ) : null}
         <span
           className={[
             'inline-flex items-center justify-center min-w-6 px-2 py-0.5 text-[11px] font-medium border flex-shrink-0',
             showAmberCount
-              ? 'bg-[rgba(245,158,11,0.10)] border-[rgba(245,158,11,0.30)] text-amber-700'
+              ? 'bg-warning/12 border-warning/30 text-warning'
               : 'bg-background border-border text-muted-foreground',
           ].join(' ')}
         >

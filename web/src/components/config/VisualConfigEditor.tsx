@@ -325,7 +325,7 @@ export function VisualConfigEditor({
                 </span>
                 {section.errorCount > 0 ? (
                   <span
-                    className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-amber-100 border border-amber-400/30 text-amber-700 text-[11px] font-bold flex-none"
+                    className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] bg-warning/15 border border-warning/30 text-warning text-[11px] font-bold flex-none"
                     aria-hidden="true"
                   >
                     {section.errorCount}

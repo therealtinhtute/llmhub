@@ -42,7 +42,7 @@ export function OAuthLoginPanel({
       : t(getAuthKey(provider.id, 'oauth_button'));
   const statusBadgeClassName = [
     'inline-flex items-center text-[0.8125rem] font-medium px-[10px] py-[2px] border border-border text-muted-foreground bg-muted leading-[1.5] rounded-sm',
-    state.status === 'success' ? 'text-emerald-700 bg-emerald-100 border-emerald-400/40' : '',
+    state.status === 'success' ? 'text-success bg-success/12 border-success/30' : '',
     state.status === 'error' ? 'text-destructive bg-destructive/10 border-destructive/30' : '',
   ]
     .filter(Boolean)
@@ -141,7 +141,7 @@ export function OAuthLoginPanel({
             </Button>
           </div>
           {state.callbackStatus === 'success' && state.status === 'waiting' && (
-            <div className="inline-flex items-center rounded-sm border border-emerald-400/40 bg-emerald-100 px-[10px] py-[2px] text-[0.8125rem] font-medium leading-[1.5] text-emerald-700">
+            <div className="inline-flex items-center rounded-sm border border-success/30 bg-success/12 px-[10px] py-[2px] text-[0.8125rem] font-medium leading-[1.5] text-success">
               {t('auth_login.oauth_callback_status_success')}
             </div>
           )}

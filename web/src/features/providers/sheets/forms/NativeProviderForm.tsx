@@ -234,7 +234,7 @@ export function NativeProviderForm({
                 autoComplete="new-password"
               />
             ) : (
-              <div className="flex items-center gap-2 border border-emerald-400/40 bg-emerald-100 px-3 py-2 text-[11px] text-emerald-700">
+              <div className="flex items-center gap-2 border border-success/30 bg-success/12 px-3 py-2 text-[11px] text-success">
                 {t('providersPage.native.zeroKeyEnabled')}
               </div>
             )}

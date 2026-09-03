@@ -640,7 +640,7 @@ export function AuthFilesPage() {
           </Tabs>
 
           <div className="flex flex-col gap-3 min-w-0">
-            <div className="relative overflow-hidden p-4 border border-border/60 bg-[linear-gradient(135deg,color-mix(in_srgb,hsl(var(--primary))_8%,transparent),transparent_46%),color-mix(in_srgb,hsl(var(--muted))_56%,transparent)] max-md:p-3">
+            <div className="relative overflow-hidden p-4 border border-border/60 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_8%,transparent),transparent_46%),color-mix(in_srgb,var(--muted)_56%,transparent)] max-md:p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground/60">

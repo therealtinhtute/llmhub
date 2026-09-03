@@ -87,7 +87,7 @@ export function ResourceDetailView({ resource, usageByProvider }: ResourceDetail
                     </span>
                   ) : null}
                   <div className="flex gap-1.5 ml-auto">
-                    <span className="inline-flex items-center gap-[3px] px-1.5 py-0.5 rounded-[10px] text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                    <span className="inline-flex items-center gap-[3px] px-1.5 py-0.5 rounded-[10px] text-[10px] font-semibold bg-success/12 text-success">
                       <IconCheck size={12} /> {entryStats.success}
                     </span>
                     <span className="inline-flex items-center gap-[3px] px-1.5 py-0.5 rounded-[10px] text-[10px] font-semibold bg-destructive/10 text-destructive">

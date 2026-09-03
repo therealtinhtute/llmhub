@@ -21,9 +21,8 @@ import type { ApiError } from '@/types';
 type RedirectState = { from?: { pathname?: string } };
 
 const BRAND_WORDS = [
-  { word: 'CLI', finalOpacity: 0.95 },
-  { word: 'PROXY', finalOpacity: 0.7 },
-  { word: 'API', finalOpacity: 0.45 },
+  { word: 'LLM', finalOpacity: 0.95 },
+  { word: 'HUB', finalOpacity: 0.65 },
 ];
 
 function getLocalizedErrorMessage(error: unknown, t: (key: string) => string): string {
@@ -205,12 +204,12 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex">
       {/* 左侧品牌展示区 */}
-      <div className="flex-1 flex flex-col justify-center items-center bg-black px-8 py-8 relative overflow-hidden max-md:hidden">
+      <div className="flex-1 flex flex-col justify-center items-center bg-muted border-r border-border px-8 py-8 relative overflow-hidden max-md:hidden">
         <div className="relative z-[1] flex flex-col items-end w-full">
           {BRAND_WORDS.map(({ word, finalOpacity }, index) => (
             <motion.span
               key={word}
-              className="text-[14vw] font-black text-white tracking-tight leading-[0.85] uppercase text-right"
+              className="text-[14vw] font-black text-foreground tracking-tight leading-[0.85] uppercase text-right"
               style={{ opacity: reduceMotion ? finalOpacity : 0 }}
               initial={reduceMotion ? false : { opacity: 0, x: 24 }}
               animate={{ opacity: finalOpacity, x: 0 }}

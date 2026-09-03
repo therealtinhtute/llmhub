@@ -436,9 +436,9 @@ export function ConfigPage() {
 
   const getStatusClass = () => {
     if (error || hasVisualModeError || hasVisualValidationErrors)
-      return 'text-amber-700 bg-amber-100 border-amber-400/30';
-    if (isDirty) return 'text-amber-700 bg-amber-100 border-amber-400/30';
-    if (!loading && !saving) return 'text-emerald-700 bg-emerald-100/10 border-emerald-500/34';
+      return 'text-warning bg-warning/15 border-warning/30';
+    if (isDirty) return 'text-warning bg-warning/15 border-warning/30';
+    if (!loading && !saving) return 'text-success bg-success/15 border-success/30';
     return '';
   };
 
@@ -480,7 +480,7 @@ export function ConfigPage() {
       className="fixed left-[var(--content-center-x,50%)] bottom-[calc(16px+env(safe-area-inset-bottom))] -translate-x-1/2 z-50 pointer-events-auto w-fit max-w-[calc(100vw-24px)]"
       ref={floatingActionsRef}
     >
-      <div className="inline-flex items-center gap-1.5 p-1.5 max-w-[inherit] overflow-x-auto border border-border bg-[color-mix(in_srgb,hsl(var(--background))_92%,transparent)] shadow-lg scrollbar-none [&::-webkit-scrollbar]:hidden">
+      <div className="inline-flex items-center gap-1.5 p-1.5 max-w-[inherit] overflow-x-auto border border-border bg-[color-mix(in_srgb,var(--background)_92%,transparent)] shadow-lg scrollbar-none [&::-webkit-scrollbar]:hidden">
         <div
           className={`inline-flex items-center min-w-0 min-h-[34px] px-2.5 border text-foreground text-[11px] font-bold leading-tight text-center overflow-hidden text-ellipsis whitespace-nowrap ${
             isMobile ? 'max-w-[112px] px-2 text-[10px]' : 'max-w-[min(300px,46vw)]'
@@ -517,7 +517,7 @@ export function ConfigPage() {
           <IconCheck size={16} />
           {isDirty && (
             <span
-              className="absolute top-2 right-2 w-[7px] h-[7px] rounded-full bg-amber-400"
+              className="absolute top-2 right-2 w-[7px] h-[7px] rounded-full bg-warning"
               aria-hidden="true"
             />
           )}
@@ -577,7 +577,7 @@ export function ConfigPage() {
             />
           ) : (
             <div className="flex flex-col gap-3 min-h-0">
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] max-md:grid-cols-[minmax(0,1fr)] gap-2 items-center p-2 border border-border bg-[color-mix(in_srgb,hsl(var(--background))_76%,transparent)]">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] max-md:grid-cols-[minmax(0,1fr)] gap-2 items-center p-2 border border-border bg-[color-mix(in_srgb,var(--background)_76%,transparent)]">
                 <div className="min-w-0 relative flex items-center">
                   <Input
                     value={searchQuery}
@@ -639,7 +639,7 @@ export function ConfigPage() {
                 </div>
               </div>
 
-              <div className="w-full flex-none h-[clamp(500px,70vh,1040px)] supports-[height:100dvh]:h-[clamp(500px,70dvh,1040px)] overflow-hidden bg-background [&_.cm-editor]:h-full [&_.cm-editor]:text-[13px] [&_.cm-editor]:font-mono [&_.cm-editor]:bg-transparent [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:[-webkit-overflow-scrolling:touch] [&_.cm-scroller]:[touch-action:pan-x_pan-y] [&_.cm-scroller]:[overscroll-behavior:contain] [&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-[color-mix(in_srgb,hsl(var(--muted))_86%,transparent)] [&_.cm-lineNumbers_.cm-gutterElement]:px-2 [&_.cm-lineNumbers_.cm-gutterElement]:min-w-[40px] [&_.cm-lineNumbers_.cm-gutterElement]:text-muted-foreground [&_.cm-activeLine]:bg-foreground/[0.05] [&_.cm-activeLineGutter]:bg-foreground/[0.05] [&_.cm-selectionMatch]:bg-[rgba(224,170,20,0.24)] [&_.cm-searchMatch]:bg-[rgba(224,170,20,0.32)] [&_.cm-searchMatch]:outline [&_.cm-searchMatch]:outline-1 [&_.cm-searchMatch]:outline-[rgba(224,170,20,0.48)] [&_.cm-searchMatch-selected]:bg-[rgba(198,87,70,0.32)]">
+              <div className="w-full flex-none h-[clamp(500px,70vh,1040px)] supports-[height:100dvh]:h-[clamp(500px,70dvh,1040px)] overflow-hidden bg-background [&_.cm-editor]:h-full [&_.cm-editor]:text-[13px] [&_.cm-editor]:font-mono [&_.cm-editor]:bg-transparent [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:[-webkit-overflow-scrolling:touch] [&_.cm-scroller]:[touch-action:pan-x_pan-y] [&_.cm-scroller]:[overscroll-behavior:contain] [&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-[color-mix(in_srgb,var(--muted)_86%,transparent)] [&_.cm-lineNumbers_.cm-gutterElement]:px-2 [&_.cm-lineNumbers_.cm-gutterElement]:min-w-[40px] [&_.cm-lineNumbers_.cm-gutterElement]:text-muted-foreground [&_.cm-activeLine]:bg-foreground/[0.05] [&_.cm-activeLineGutter]:bg-foreground/[0.05] [&_.cm-selectionMatch]:bg-[rgba(224,170,20,0.24)] [&_.cm-searchMatch]:bg-[rgba(224,170,20,0.32)] [&_.cm-searchMatch]:outline [&_.cm-searchMatch]:outline-1 [&_.cm-searchMatch]:outline-[rgba(224,170,20,0.48)] [&_.cm-searchMatch-selected]:bg-[rgba(198,87,70,0.32)]">
                 <Suspense fallback={null}>
                   <LazyConfigSourceEditor
                     editorRef={editorRef}

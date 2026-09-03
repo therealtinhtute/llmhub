@@ -170,16 +170,20 @@ export function MainLayout() {
     };
   }, []);
 
-  // Set --content-center-x CSS var for floating config panels and provider nav alignment.
+  // Set --content-center-x CSS var for floating config panels with debounced rAF to prevent layout thrashing.
   useLayoutEffect(() => {
+    let rafId: number | null = null;
     const updateContentCenter = () => {
-      const el = contentRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      document.documentElement.style.setProperty(
-        '--content-center-x',
-        `${rect.left + rect.width / 2}px`
-      );
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const el = contentRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        document.documentElement.style.setProperty(
+          '--content-center-x',
+          `${rect.left + rect.width / 2}px`
+        );
+      });
     };
 
     updateContentCenter();
@@ -193,9 +197,10 @@ export function MainLayout() {
       resizeObserver.observe(contentRef.current);
     }
 
-    window.addEventListener('resize', updateContentCenter);
+    window.addEventListener('resize', updateContentCenter, { passive: true });
 
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       resizeObserver?.disconnect();
       window.removeEventListener('resize', updateContentCenter);
       document.documentElement.style.removeProperty('--content-center-x');
@@ -354,6 +359,7 @@ export function MainLayout() {
               onClick={handleRefreshAll}
               disabled={refreshing}
               title={t('header.refresh_all')}
+              aria-label={t('header.refresh_all')}
             >
               <span className={cn('inline-flex', refreshing && 'animate-spin')}>
                 {headerIcons.refresh}
@@ -404,7 +410,7 @@ export function MainLayout() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button variant="ghost" size="sm" onClick={logout} title={t('header.logout')}>
+            <Button variant="ghost" size="sm" onClick={logout} title={t('header.logout')} aria-label={t('header.logout')}>
               {headerIcons.logout}
             </Button>
           </div>

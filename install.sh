@@ -249,17 +249,51 @@ main() {
     if [ ! -f "$ENV_FILE" ]; then
         log_info "Creating default environment configuration: ${ENV_FILE}"
 
-        MGMT_PASS="${MANAGEMENT_PASSWORD:-$(generate_password)}"
-        QUOTA_KEY="${LLMHUB_QUOTA_SECRET_KEY_B64:-$(generate_quota_secret)}"
-        PG_DSN="${PGSTORE_DSN:-}"
         PORT="${LLMHUB_PORT:-8317}"
         HOST="${LLMHUB_HOST:-0.0.0.0}"
+        PG_DSN="${PGSTORE_DSN:-}"
+        SCHEMA="${PGSTORE_SCHEMA:-llmhub}"
+        MGMT_PASS="${MANAGEMENT_PASSWORD:-}"
+        QUOTA_KEY="${LLMHUB_QUOTA_SECRET_KEY_B64:-$(generate_quota_secret)}"
 
-        # Interactive Postgres prompt if terminal is attached and PGSTORE_DSN is unset
-        if [ -z "$PG_DSN" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
-            printf "\nEnter PostgreSQL connection DSN (e.g. postgresql://user:pass@host:5432/llmhub) or press Enter to skip: " >/dev/tty
-            read -r PG_DSN_INPUT </dev/tty || PG_DSN_INPUT=""
-            PG_DSN="$(printf '%s' "$PG_DSN_INPUT" | tr -d ' \n')"
+        # Interactive configuration prompts if terminal is attached
+        if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+            printf "\n${BOLD}--- LLMHub Interactive Setup ---${RESET}\n" >/dev/tty
+
+            # 1. Server Port
+            if [ -z "${LLMHUB_PORT:-}" ]; then
+                printf "Server Port [default: 8317]: " >/dev/tty
+                read -r PORT_INPUT </dev/tty || PORT_INPUT=""
+                PORT_INPUT="$(printf '%s' "$PORT_INPUT" | tr -d ' \n')"
+                [ -n "$PORT_INPUT" ] && PORT="$PORT_INPUT"
+            fi
+
+            # 2. PostgreSQL DSN
+            if [ -z "$PG_DSN" ]; then
+                printf "PostgreSQL connection DSN (press Enter to skip): " >/dev/tty
+                read -r PG_DSN_INPUT </dev/tty || PG_DSN_INPUT=""
+                PG_DSN="$(printf '%s' "$PG_DSN_INPUT" | tr -d ' \n')"
+            fi
+
+            # 3. PostgreSQL Schema (only prompt if DSN is set)
+            if [ -n "$PG_DSN" ] && [ -z "${PGSTORE_SCHEMA:-}" ]; then
+                printf "PostgreSQL Schema [default: llmhub]: " >/dev/tty
+                read -r SCHEMA_INPUT </dev/tty || SCHEMA_INPUT=""
+                SCHEMA_INPUT="$(printf '%s' "$SCHEMA_INPUT" | tr -d ' \n')"
+                [ -n "$SCHEMA_INPUT" ] && SCHEMA="$SCHEMA_INPUT"
+            fi
+
+            # 4. Management Password
+            if [ -z "$MGMT_PASS" ]; then
+                printf "Management Password (press Enter to auto-generate): " >/dev/tty
+                read -r PASS_INPUT </dev/tty || PASS_INPUT=""
+                PASS_INPUT="$(printf '%s' "$PASS_INPUT" | tr -d ' \n')"
+                [ -n "$PASS_INPUT" ] && MGMT_PASS="$PASS_INPUT"
+            fi
+        fi
+
+        if [ -z "$MGMT_PASS" ]; then
+            MGMT_PASS="$(generate_password)"
         fi
         cat > "$ENV_FILE" << EOF
 # LLMHub Configuration
@@ -271,7 +305,7 @@ MANAGEMENT_PASSWORD=${MGMT_PASS}
 
 # PostgreSQL Token & Quota Store (required for quota alerts & multi-instance sync)
 PGSTORE_DSN=${PG_DSN}
-PGSTORE_SCHEMA=llmhub
+PGSTORE_SCHEMA=${SCHEMA}
 PGSTORE_USAGE_RETENTION_SECONDS=60
 
 # Quota Alert Telegram Encryption Key (AES-256-GCM 32-byte root key)

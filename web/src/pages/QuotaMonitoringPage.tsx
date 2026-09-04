@@ -133,7 +133,7 @@ function QuotaMonitoringShell({
   children: ReactNode;
 }) {
   return (
-    <div className={styles.container}>
+    <div className={cn(styles.container, 'min-h-[calc(100vh-140px)] flex-1 flex flex-col')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className={styles.pageHeader}>
           <h1 className={styles.pageTitle}>{title}</h1>
@@ -602,7 +602,7 @@ export function QuotaMonitoringPage() {
       <Tabs
         value={activeTab}
         onValueChange={(val) => setActiveTab(val as 'states' | 'settings' | 'events')}
-        className="w-full space-y-4"
+        className="w-full flex-1 flex flex-col space-y-4"
       >
         <div className="flex items-end justify-between border-b border-border">
           <TabsList className="flex items-center justify-start gap-1 p-0 bg-transparent overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

@@ -265,6 +265,7 @@ func main() {
 
 				cancel, done := cmd.StartServiceBackgroundWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 					builder.WithManagementConfigStore(pgStore).
+						WithRuntimeSettingsStore(pgStore).
 						WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
 						WithRuntimeStoragePolicy(runtimeStoragePolicy).
 						WithServerOptions(api.WithSelfUpdateEngine(newUpdateEngine()))
@@ -317,6 +318,7 @@ func main() {
 			}
 			cmd.StartServiceWithBuilder(cfg, configFilePath, password, func(builder *cliproxy.Builder) {
 				builder.WithManagementConfigStore(pgStore).
+					WithRuntimeSettingsStore(pgStore).
 					WithWatcherFactory(cliproxy.NewStorageWatcherFactory(pgStore)).
 					WithRuntimeStoragePolicy(runtimeStoragePolicy).
 					WithServerOptions(api.WithSelfUpdateEngine(newUpdateEngine()))

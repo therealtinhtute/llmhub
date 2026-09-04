@@ -233,6 +233,11 @@ as root before every service start. The operator flow:
 5. **Manual rollback** — `sudo llmhub update rollback` restores
    `<binary>.previous` immediately and clears the pending apply.
 
+Every `llmhub update` log line (check, stage, rollback) is prefixed with an
+RFC 3339 timestamp showing the current version, the target version, and each
+verification result, so update actions are traceable in shell history and
+journal output.
+
 On the systemd install, the management panel can drive the same flow from the
 **System** page's version card: **Check for updates** reports the latest
 release, **Update** stages it (same verify-and-probe path as `llmhub update`),

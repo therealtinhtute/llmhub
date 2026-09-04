@@ -42,9 +42,10 @@ type quotaAlertProviderResponse struct {
 }
 
 type quotaAlertTelegramReadResponse struct {
-	Enabled         bool   `json:"enabled"`
-	ChatID          string `json:"chat_id"`
-	TokenConfigured bool   `json:"token_configured"`
+	Enabled             bool   `json:"enabled"`
+	ChatID              string `json:"chat_id"`
+	TokenConfigured     bool   `json:"token_configured"`
+	SecretKeyConfigured bool   `json:"secret_key_configured"`
 }
 
 type quotaAlertSettingsRequest struct {
@@ -147,7 +148,7 @@ func (h *Handler) GetQuotaAlertSettings(c *gin.Context) {
 		h.quotaAlertError(c, http.StatusServiceUnavailable, "quota alert settings unavailable")
 		return
 	}
-	c.JSON(http.StatusOK, quotaAlertSettingsDTO(settings))
+	c.JSON(http.StatusOK, h.quotaAlertSettingsDTO(settings))
 }
 
 // PutQuotaAlertSettings updates global and provider quota alert settings without touching YAML config.
@@ -176,7 +177,7 @@ func (h *Handler) PutQuotaAlertSettings(c *gin.Context) {
 		h.quotaAlertError(c, quotaAlertWriteStatus(err), quotaAlertSafeError(err))
 		return
 	}
-	c.JSON(http.StatusOK, quotaAlertSettingsDTO(saved))
+	c.JSON(http.StatusOK, h.quotaAlertSettingsDTO(saved))
 }
 
 // PutQuotaAlertTelegram updates the single Telegram destination and write-only bot token.
@@ -227,7 +228,7 @@ func (h *Handler) PutQuotaAlertTelegram(c *gin.Context) {
 		h.quotaAlertError(c, quotaAlertWriteStatus(err), quotaAlertSafeError(err))
 		return
 	}
-	c.JSON(http.StatusOK, quotaAlertSettingsDTO(saved))
+	c.JSON(http.StatusOK, h.quotaAlertSettingsDTO(saved))
 }
 
 // GetQuotaAlertState lists current quota alert state rows.
@@ -352,7 +353,7 @@ func (h *Handler) quotaAlertCipherForWrite() (*quotaalert.SecretCipher, error) {
 	return h.quotaAlertCipher, nil
 }
 
-func quotaAlertSettingsDTO(settings quotaalert.Settings) quotaAlertSettingsResponse {
+func (h *Handler) quotaAlertSettingsDTO(settings quotaalert.Settings) quotaAlertSettingsResponse {
 	providers := make([]quotaAlertProviderResponse, 0, len(settings.ProviderOverrides))
 	for _, override := range settings.ProviderOverrides {
 		var threshold *float64
@@ -371,9 +372,10 @@ func quotaAlertSettingsDTO(settings quotaalert.Settings) quotaAlertSettingsRespo
 		ReminderSec:      int64(settings.ReminderInterval / time.Second),
 		Providers:        providers,
 		Telegram: quotaAlertTelegramReadResponse{
-			Enabled:         settings.Telegram.Enabled,
-			ChatID:          settings.Telegram.ChatID,
-			TokenConfigured: settings.Telegram.TokenConfigured,
+			Enabled:             settings.Telegram.Enabled,
+			ChatID:              settings.Telegram.ChatID,
+			TokenConfigured:     settings.Telegram.TokenConfigured,
+			SecretKeyConfigured: h != nil && h.quotaAlertCipher != nil,
 		},
 	}
 }

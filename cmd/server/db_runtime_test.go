@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,4 +109,71 @@ func TestQuotaSecretKeyFromEnvDefaultKeyID(t *testing.T) {
 	if cipher.KeyID() != defaultQuotaSecretKeyID {
 		t.Fatalf("key ID = %q, want %q", cipher.KeyID(), defaultQuotaSecretKeyID)
 	}
+}
+
+func TestQuotaSecretKeyFromEnvWithWrappingQuotes(t *testing.T) {
+	rawKey := base64.StdEncoding.EncodeToString(make([]byte, quotaalert.SecretKeySize))
+	for _, tc := range []struct {
+		name  string
+		key   string
+		keyID string
+		want  string
+	}{
+		{
+			name:  "double quotes",
+			key:   `"` + rawKey + `"`,
+			keyID: `"custom-id"`,
+			want:  "custom-id",
+		},
+		{
+			name:  "single quotes",
+			key:   `'` + rawKey + `'`,
+			keyID: `'single-id'`,
+			want:  "single-id",
+		},
+		{
+			name:  "whitespace around quotes",
+			key:   ` "` + rawKey + `" `,
+			keyID: ` "space-id" `,
+			want:  "space-id",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("LLMHUB_QUOTA_SECRET_KEY_B64", tc.key)
+			t.Setenv("LLMHUB_QUOTA_SECRET_KEY_ID", tc.keyID)
+			cipher, err := loadQuotaSecretCipherFromEnv()
+			if err != nil {
+				t.Fatalf("loadQuotaSecretCipherFromEnv() error = %v", err)
+			}
+			if cipher == nil || cipher.KeyID() != tc.want {
+				t.Fatalf("cipher = %#v, want key ID %q", cipher, tc.want)
+			}
+		})
+	}
+}
+
+func TestAutoLoadDotEnv(t *testing.T) {
+	tempDir := t.TempDir()
+	envPath := filepath.Join(tempDir, ".env")
+	if err := os.WriteFile(envPath, []byte("TEST_AUTOLOAD_VAR=loaded_value\n"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Chdir(tempDir)
+
+	t.Run("skip", func(t *testing.T) {
+		t.Setenv("LLMHUB_SKIP_DOTENV", "1")
+		t.Setenv("TEST_AUTOLOAD_VAR", "")
+		autoLoadDotEnv()
+		if val := os.Getenv("TEST_AUTOLOAD_VAR"); val != "" {
+			t.Fatalf("TEST_AUTOLOAD_VAR = %q, want empty (skipped)", val)
+		}
+	})
+	t.Run("autoloaded", func(t *testing.T) {
+		t.Setenv("LLMHUB_SKIP_DOTENV", "")
+		_ = os.Unsetenv("TEST_AUTOLOAD_VAR")
+		autoLoadDotEnv()
+		if val := os.Getenv("TEST_AUTOLOAD_VAR"); val != "loaded_value" {
+			t.Fatalf("TEST_AUTOLOAD_VAR = %q, want loaded_value", val)
+		}
+	})
 }

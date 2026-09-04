@@ -23,6 +23,7 @@ type RawQuotaAlertTelegramRead = {
   enabled?: boolean;
   chat_id?: string;
   token_configured?: boolean;
+  secret_key_configured?: boolean;
 };
 
 type RawQuotaAlertSettings = {
@@ -98,6 +99,7 @@ const normalizeTelegram = (telegram?: RawQuotaAlertTelegramRead): QuotaAlertTele
   enabled: Boolean(telegram?.enabled),
   chatId: telegram?.chat_id ?? '',
   tokenConfigured: Boolean(telegram?.token_configured),
+  secretKeyConfigured: telegram?.secret_key_configured,
 });
 
 const normalizeSettings = (settings: RawQuotaAlertSettings): QuotaAlertSettings => ({

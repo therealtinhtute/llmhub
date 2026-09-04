@@ -166,6 +166,14 @@ ensure_env_runtime() {
     current_b64="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_B64 2>/dev/null || true)"
     current_yaml="$(read_env_value "$env_file" LLMHUB_INIT_CONFIG_YAML 2>/dev/null || true)"
     current_mgmt_password="$(read_env_value "$env_file" MANAGEMENT_PASSWORD 2>/dev/null || true)"
+    current_quota_secret="$(read_env_value "$env_file" LLMHUB_QUOTA_SECRET_KEY_B64 2>/dev/null || true)"
+    if [ -z "$current_quota_secret" ]; then
+        current_quota_secret="$(read_env_value "$env_file" llmhub_quota_secret_key_b64 2>/dev/null || true)"
+    fi
+    current_quota_key_id="$(read_env_value "$env_file" LLMHUB_QUOTA_SECRET_KEY_ID 2>/dev/null || true)"
+    if [ -z "$current_quota_key_id" ]; then
+        current_quota_key_id="$(read_env_value "$env_file" llmhub_quota_secret_key_id 2>/dev/null || true)"
+    fi
     pg_dsn="${PGSTORE_DSN:-${PROMPTED_PGSTORE_DSN:-$current_dsn}}"
     pg_schema="${PGSTORE_SCHEMA:-${PROMPTED_PGSTORE_SCHEMA:-${current_schema:-llmhub}}}"
     pg_retention="${PGSTORE_USAGE_RETENTION_SECONDS:-${PROMPTED_PGSTORE_USAGE_RETENTION_SECONDS:-${current_retention:-60}}}"
@@ -174,6 +182,11 @@ ensure_env_runtime() {
     mgmt_password="${MANAGEMENT_PASSWORD:-$current_mgmt_password}"
     if [ -z "$mgmt_password" ]; then
         mgmt_password="$(generate_secret)"
+    fi
+    quota_secret="${LLMHUB_QUOTA_SECRET_KEY_B64:-$current_quota_secret}"
+    quota_key_id="${LLMHUB_QUOTA_SECRET_KEY_ID:-${current_quota_key_id:-runtime}}"
+    if [ -z "$quota_secret" ]; then
+        quota_secret="$(generate_quota_secret)"
     fi
     MGMT_PASSWORD_DISPLAY="$mgmt_password"
     if [ -z "$pg_dsn" ]; then
@@ -190,7 +203,9 @@ ensure_env_runtime() {
         -v retention="$pg_retention" \
         -v init_b64="$init_b64" \
         -v init_yaml="$init_yaml" \
-        -v mgmt_password="$mgmt_password" '
+        -v mgmt_password="$mgmt_password" \
+        -v quota_secret="$quota_secret" \
+        -v quota_key_id="$quota_key_id" '
         BEGIN {
             wrote_host = 0
             wrote_port = 0
@@ -200,6 +215,8 @@ ensure_env_runtime() {
             wrote_b64 = 0
             wrote_yaml = 0
             wrote_mgmt = 0
+            wrote_quota_secret = 0
+            wrote_quota_key_id = 0
         }
         /^[[:space:]]*LLMHUB_HOST=/ && !wrote_host { print "LLMHUB_HOST=" host; wrote_host = 1; next }
         /^[[:space:]]*LLMHUB_PORT=/ && !wrote_port { print "LLMHUB_PORT=" port; wrote_port = 1; next }
@@ -217,6 +234,8 @@ ensure_env_runtime() {
             next
         }
         /^[[:space:]]*MANAGEMENT_PASSWORD=/ && !wrote_mgmt { print "MANAGEMENT_PASSWORD=" mgmt_password; wrote_mgmt = 1; next }
+        /^[[:space:]]*LLMHUB_QUOTA_SECRET_KEY_B64=/ && !wrote_quota_secret { print "LLMHUB_QUOTA_SECRET_KEY_B64=" quota_secret; wrote_quota_secret = 1; next }
+        /^[[:space:]]*LLMHUB_QUOTA_SECRET_KEY_ID=/ && !wrote_quota_key_id { print "LLMHUB_QUOTA_SECRET_KEY_ID=" quota_key_id; wrote_quota_key_id = 1; next }
         { print }
         END {
             if (!wrote_host) print "LLMHUB_HOST=" host
@@ -227,6 +246,8 @@ ensure_env_runtime() {
             if (!wrote_b64 && init_b64 != "") print "LLMHUB_INIT_CONFIG_B64=" init_b64
             if (!wrote_yaml && init_yaml != "") print "LLMHUB_INIT_CONFIG_YAML=" init_yaml
             if (!wrote_mgmt) print "MANAGEMENT_PASSWORD=" mgmt_password
+            if (!wrote_quota_secret && quota_secret != "") print "LLMHUB_QUOTA_SECRET_KEY_B64=" quota_secret
+            if (!wrote_quota_key_id && quota_key_id != "") print "LLMHUB_QUOTA_SECRET_KEY_ID=" quota_key_id
         }
     ' "$env_file" >"$tmp_env"
     install -m 0640 -o root -g "$SERVICE_GROUP" "$tmp_env" "$env_file"
@@ -256,6 +277,14 @@ generate_secret() {
         openssl rand -hex 24
     else
         head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
+    fi
+}
+
+generate_quota_secret() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 32 | tr -d '\n'
+    else
+        head -c 32 /dev/urandom | base64 | tr -d '\n'
     fi
 }
 
@@ -436,6 +465,8 @@ LLMHUB_PORT=${DEFAULT_PORT}
 PGSTORE_DSN=
 PGSTORE_SCHEMA=llmhub
 PGSTORE_USAGE_RETENTION_SECONDS=60
+LLMHUB_QUOTA_SECRET_KEY_B64=$(generate_quota_secret)
+LLMHUB_QUOTA_SECRET_KEY_ID=runtime
 # Optional advanced override for first-boot config seed. If left unset, the
 # installer derives it automatically from LLMHUB_HOST/LLMHUB_PORT above.
 # LLMHUB_INIT_CONFIG_B64=

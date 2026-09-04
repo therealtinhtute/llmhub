@@ -63,6 +63,7 @@ func main() {
 	if code, handled := dispatchEarlyCommand(os.Args[1:]); handled {
 		os.Exit(code)
 	}
+	autoLoadDotEnv()
 	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
 
 	// Command-line flags to control the application's behavior.

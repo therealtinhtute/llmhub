@@ -21,6 +21,7 @@ export interface QuotaAlertTelegramRead {
   enabled: boolean;
   chatId: string;
   tokenConfigured: boolean;
+  secretKeyConfigured?: boolean;
 }
 
 export interface QuotaAlertSettings {

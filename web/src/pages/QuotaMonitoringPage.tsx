@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import {
+  Activity,
+  Bell,
+  History,
+  Search,
+  X,
+  Clock,
+  Key,
+  AlertTriangle,
+  Send,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { AppCard as Card } from '@/components/ui/AppCard';
 import { Button } from '@/components/ui/Button';
 import { FormInput } from '@/components/ui/FormInput';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Reveal, useAnimatedNumber } from '@/components/motion';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
@@ -66,9 +79,9 @@ const formatTime = (value?: string) => {
 
 const tableClass = 'w-full text-left text-sm';
 const tableHeadClass = 'border-b border-border bg-muted/40 text-xs text-muted-foreground';
-const tableCellClass = 'px-3 py-2 align-middle';
-const tableRowClass = 'border-b border-border/60 last:border-0';
-const badgeClass = 'inline-flex rounded-full border px-2 py-0.5 text-xs font-medium capitalize';
+const tableCellClass = 'px-3.5 py-2.5 align-middle';
+const tableRowClass = 'border-b border-border/60 last:border-0 hover:bg-muted/15 transition-colors';
+const badgeClass = 'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize';
 
 const eventBadgeClass = (value: string) => {
   switch (value) {
@@ -84,6 +97,19 @@ const eventBadgeClass = (value: string) => {
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     default:
       return 'border-border bg-muted text-muted-foreground';
+  }
+};
+
+const alertColorClass = (alert: string) => {
+  switch (alert) {
+    case 'healthy':
+      return 'bg-success';
+    case 'warning':
+      return 'bg-warning';
+    case 'exhausted':
+      return 'bg-destructive';
+    default:
+      return 'bg-muted-foreground';
   }
 };
 
@@ -136,6 +162,9 @@ export function QuotaMonitoringPage() {
   const [upgradeRequired, setUpgradeRequired] = useState(false);
   const [tokenDraft, setTokenDraft] = useState('');
   const [clearToken, setClearToken] = useState(false);
+  const [activeTab, setActiveTab] = useState<'states' | 'settings' | 'events'>('states');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'exhausted' | 'warning' | 'healthy'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const requestSeq = useRef(0);
 
   const dirty = !settingsEqual(settings, savedSettings) || tokenDraft.trim() !== '' || clearToken;
@@ -215,9 +244,35 @@ export function QuotaMonitoringPage() {
     return map;
   }, [settings]);
 
-  const groupedStates = useMemo(() => {
-    const groups = new Map<QuotaAlertProvider, QuotaAlertState[]>();
+  const healthSummary = useMemo(() => {
+    const counts = { exhausted: 0, warning: 0, healthy: 0, unknown: 0 };
     states.forEach((state) => {
+      counts[state.alert] += 1;
+    });
+    return counts;
+  }, [states]);
+
+  const filteredStates = useMemo(() => {
+    return states.filter((state) => {
+      if (filterStatus !== 'all' && state.alert !== filterStatus) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        const matchAuth = state.authLabel.toLowerCase().includes(query);
+        const matchResource = state.resource.toLowerCase().includes(query);
+        const matchProvider = state.provider.toLowerCase().includes(query);
+        if (!matchAuth && !matchResource && !matchProvider) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [states, filterStatus, searchQuery]);
+
+  const groupedFilteredStates = useMemo(() => {
+    const groups = new Map<QuotaAlertProvider, QuotaAlertState[]>();
+    filteredStates.forEach((state) => {
       const list = groups.get(state.provider) ?? [];
       list.push(state);
       groups.set(state.provider, list);
@@ -227,15 +282,7 @@ export function QuotaMonitoringPage() {
       label,
       states: groups.get(provider) ?? [],
     })).filter((group) => group.states.length > 0);
-  }, [states]);
-
-  const healthSummary = useMemo(() => {
-    const counts = { exhausted: 0, warning: 0, healthy: 0, unknown: 0 };
-    states.forEach((state) => {
-      counts[state.alert] += 1;
-    });
-    return counts;
-  }, [states]);
+  }, [filteredStates]);
 
   const updateSettings = (patch: Partial<QuotaAlertSettings>) => {
     setSettings((current) => (current ? { ...current, ...patch } : current));
@@ -333,7 +380,6 @@ export function QuotaMonitoringPage() {
     setSettings(cloneSettings(savedSettings));
     setTokenDraft('');
     setClearToken(false);
-    setError('');
   };
 
   const handleLoadMoreStates = async () => {
@@ -422,9 +468,9 @@ export function QuotaMonitoringPage() {
       <QuotaMonitoringShell title={pageTitle} description={pageDescription}>
         <Card>
           <div className="flex flex-col gap-3">
-            <h2 className="text-lg font-semibold text-foreground">
-              {t('quota_monitoring.unavailable_title', { defaultValue: 'Quota monitoring is unavailable' })}
-            </h2>
+            <h3 className="text-base font-semibold text-foreground">
+              {t('quota_monitoring.unavailable_title', { defaultValue: 'Quota monitoring unavailable' })}
+            </h3>
             <p className="text-sm text-muted-foreground">
               {t('quota_monitoring.unavailable_desc', {
                 defaultValue: 'This server does not expose the database-backed quota alert API yet.',
@@ -443,323 +489,665 @@ export function QuotaMonitoringPage() {
       title={pageTitle}
       description={pageDescription}
       actions={
-        <>
-          <Button variant="secondary" size="sm" onClick={() => void loadAll()} disabled={loading || saving}>
-            {loading ? <LoadingSpinner size={14} /> : null}
-            {t('common.refresh', { defaultValue: 'Refresh' })}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={handleReset} disabled={!dirty || saving}>
-            {t('common.reset', { defaultValue: 'Reset' })}
-          </Button>
-          <Button size="sm" onClick={() => void handleSave()} loading={saving} disabled={!dirty}>
-            {t('common.save', { defaultValue: 'Save' })}
-          </Button>
-        </>
-      }
-    >
-      {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-
-      <div className="grid gap-3 md:grid-cols-4">
-        {[
-          { label: t('quota_monitoring.summary_total', { defaultValue: 'Tracked states' }), value: states.length, className: 'text-foreground' },
-          { label: t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' }), value: healthSummary.exhausted, className: 'text-destructive' },
-          { label: t('quota_monitoring.summary_warning', { defaultValue: 'Warning' }), value: healthSummary.warning, className: 'text-warning' },
-          { label: t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' }), value: healthSummary.healthy, className: 'text-success' },
-        ].map((stat, index) => (
-          <Reveal key={stat.label} delay={index * 45}>
-            <Card className="gap-2 py-4">
-              <div className="text-xs font-medium text-muted-foreground">{stat.label}</div>
-              <StatNumber value={stat.value} className={stat.className} />
-            </Card>
-          </Reveal>
-        ))}
-      </div>
-
-      <Card title={t('quota_monitoring.settings_title', { defaultValue: 'Alert settings' })}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ToggleSwitch
-            checked={activeSettings.enabled}
-            onChange={(enabled) => updateSettings({ enabled })}
-            label={t('quota_monitoring.enabled', { defaultValue: 'Enable quota monitoring' })}
-          />
-          <ToggleSwitch
-            checked={activeSettings.notifyRecovery}
-            onChange={(notifyRecovery) => updateSettings({ notifyRecovery })}
-            label={t('quota_monitoring.notify_recovery', { defaultValue: 'Notify on recovery' })}
-          />
-          <FormInput
-            id="quota-poll-interval"
-            type="number"
-            min={60}
-            label={t('quota_monitoring.poll_interval', { defaultValue: 'Poll interval (seconds)' })}
-            value={activeSettings.pollIntervalSeconds}
-            onChange={(event) => updateSettings({ pollIntervalSeconds: Number(event.target.value) })}
-          />
-          <FormInput
-            id="quota-warning-threshold"
-            type="number"
-            min={0}
-            max={100}
-            label={t('quota_monitoring.warning_threshold', { defaultValue: 'Default warning threshold (%)' })}
-            value={activeSettings.warningThreshold}
-            onChange={(event) => updateSettings({ warningThreshold: Number(event.target.value) })}
-          />
-          <FormInput
-            id="quota-reminder-interval"
-            type="number"
-            min={0}
-            label={t('quota_monitoring.reminder_interval', { defaultValue: 'Reminder interval (seconds)' })}
-            hint={t('quota_monitoring.reminder_hint', { defaultValue: 'Use 0 to disable reminders.' })}
-            value={activeSettings.reminderIntervalSeconds}
-            onChange={(event) => updateSettings({ reminderIntervalSeconds: Number(event.target.value) })}
-          />
-        </div>
-      </Card>
-
-      <Card title={t('quota_monitoring.providers_title', { defaultValue: 'Provider overrides' })}>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {PROVIDERS.map(({ provider, label }) => {
-            const override = providerOverrides.get(provider) ?? { provider, enabled: true, warningThreshold: null };
-            return (
-              <div key={provider} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-foreground">{label}</div>
-                  <ToggleSwitch
-                    checked={override.enabled}
-                    onChange={(enabled) => updateProvider(provider, { enabled })}
-                    ariaLabel={`${label} enabled`}
-                  />
-                </div>
-                <FormInput
-                  id={`quota-provider-${provider}`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="mt-2"
-                  label={t('quota_monitoring.provider_threshold', { defaultValue: 'Threshold override (%)' })}
-                  placeholder={String(activeSettings.warningThreshold)}
-                  value={override.warningThreshold ?? ''}
-                  onChange={(event) =>
-                    updateProvider(provider, {
-                      warningThreshold: event.target.value === '' ? null : Number(event.target.value),
-                    })
-                  }
-                />
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      <Card title={t('quota_monitoring.telegram_title', { defaultValue: 'Telegram destination' })}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ToggleSwitch
-            checked={activeSettings.telegram.enabled}
-            onChange={(enabled) => updateTelegram({ enabled })}
-            label={t('quota_monitoring.telegram_enabled', { defaultValue: 'Enable Telegram notifications' })}
-          />
-          <div className="flex items-center">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 mr-2">
             <span
               className={cn(
-                badgeClass,
-                activeSettings.telegram.tokenConfigured
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border',
+                activeSettings.enabled
                   ? 'border-success/30 bg-success/12 text-success'
                   : 'border-border bg-muted text-muted-foreground'
               )}
             >
-              {activeSettings.telegram.tokenConfigured
-                ? t('quota_monitoring.telegram_token_configured', { defaultValue: 'Bot token configured' })
-                : t('quota_monitoring.telegram_token_missing', { defaultValue: 'Bot token not configured' })}
+              <Activity className="h-3 w-3" />
+              <span>
+                {activeSettings.enabled
+                  ? t('quota_monitoring.monitoring_active', { defaultValue: 'Monitoring Active' })
+                  : t('quota_monitoring.monitoring_paused', { defaultValue: 'Monitoring Paused' })}
+              </span>
+            </span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border',
+                activeSettings.telegram.secretKeyConfigured !== false
+                  ? 'border-success/30 bg-success/12 text-success'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              )}
+            >
+              <Key className="h-3 w-3" />
+              <span>
+                {activeSettings.telegram.secretKeyConfigured !== false
+                  ? t('quota_monitoring.key_configured', { defaultValue: 'Key Active' })
+                  : t('quota_monitoring.key_missing', { defaultValue: 'Key Missing' })}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border border-border bg-muted/40 text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span>{activeSettings.pollIntervalSeconds}s</span>
             </span>
           </div>
-          <FormInput
-            id="quota-telegram-chat"
-            label={t('quota_monitoring.telegram_chat_id', { defaultValue: 'Chat ID' })}
-            value={activeSettings.telegram.chatId}
-            onChange={(event) => updateTelegram({ chatId: event.target.value })}
-          />
-          <FormInput
-            id="quota-telegram-token"
-            type="password"
-            label={t('quota_monitoring.telegram_token', { defaultValue: 'New bot token' })}
-            hint={t('quota_monitoring.telegram_token_hint', {
-              defaultValue: 'Leave blank to preserve the stored write-only token.',
-            })}
-            value={tokenDraft}
-            onChange={(event) => {
-              setTokenDraft(event.target.value);
-              if (event.target.value.trim()) setClearToken(false);
-            }}
-          />
-          <ToggleSwitch
-            checked={clearToken}
-            onChange={(value) => {
-              setClearToken(value);
-              if (value) setTokenDraft('');
-            }}
-            label={t('quota_monitoring.telegram_clear_token', { defaultValue: 'Clear stored token on save' })}
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-fit"
-            onClick={() => void handleTelegramTest()}
-            loading={testingTelegram}
-            disabled={dirty || saving || !activeSettings.telegram.enabled || !activeSettings.telegram.tokenConfigured}
-          >
-            {t('quota_monitoring.telegram_test', { defaultValue: 'Send test message' })}
+          <Button variant="secondary" size="sm" onClick={() => void loadAll()} disabled={loading || saving}>
+            {loading ? <LoadingSpinner size={14} /> : null}
+            {t('common.refresh', { defaultValue: 'Refresh' })}
           </Button>
         </div>
-      </Card>
+      }
+    >
+      {error ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
-      <Card title={t('quota_monitoring.current_state_title', { defaultValue: 'Current states' })}>
-        {groupedStates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('quota_monitoring.empty_states', { defaultValue: 'No quota states have been collected yet.' })}</p>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {groupedStates.map((group) => (
-              <div key={group.provider} className="overflow-x-auto">
-                <h3 className="mb-2 text-sm font-semibold text-foreground">{group.label}</h3>
-                <table className={cn(tableClass, 'min-w-[760px]')}>
+      {/* Top KPI Stat Cards */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Reveal delay={0}>
+          <Card className="flex flex-col justify-between p-4 border border-border bg-card">
+            <div className="text-xs font-medium text-muted-foreground">
+              {t('quota_monitoring.summary_total', { defaultValue: 'Tracked states' })}
+            </div>
+            <div className="mt-2 text-2xl font-bold tabular-nums text-foreground">
+              <StatNumber value={states.length} />
+            </div>
+          </Card>
+        </Reveal>
+        <Reveal delay={40}>
+          <Card className="flex flex-col justify-between p-4 border border-border bg-card border-t-2 border-t-destructive">
+            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+              <span>{t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' })}</span>
+              <span className="h-2 w-2 rounded-full bg-destructive" />
+            </div>
+            <div className="mt-2 text-2xl font-bold tabular-nums text-destructive">
+              <StatNumber value={healthSummary.exhausted} />
+            </div>
+          </Card>
+        </Reveal>
+        <Reveal delay={80}>
+          <Card className="flex flex-col justify-between p-4 border border-border bg-card border-t-2 border-t-warning">
+            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+              <span>{t('quota_monitoring.summary_warning', { defaultValue: 'Warning' })}</span>
+              <span className="h-2 w-2 rounded-full bg-warning" />
+            </div>
+            <div className="mt-2 text-2xl font-bold tabular-nums text-warning">
+              <StatNumber value={healthSummary.warning} />
+            </div>
+          </Card>
+        </Reveal>
+        <Reveal delay={120}>
+          <Card className="flex flex-col justify-between p-4 border border-border bg-card border-t-2 border-t-success">
+            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+              <span>{t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' })}</span>
+              <span className="h-2 w-2 rounded-full bg-success" />
+            </div>
+            <div className="mt-2 text-2xl font-bold tabular-nums text-success">
+              <StatNumber value={healthSummary.healthy} />
+            </div>
+          </Card>
+        </Reveal>
+      </div>
+
+      {/* Tabs Layout */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as 'states' | 'settings' | 'events')}
+        className="w-full space-y-4"
+      >
+        <div className="flex items-end justify-between border-b border-border">
+          <TabsList className="flex items-center justify-start gap-1 p-0 bg-transparent overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <TabsTrigger
+              value="states"
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-muted-foreground border-b-2 border-transparent transition-colors data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+            >
+              <Activity className="h-3.5 w-3.5" />
+              <span>{t('quota_monitoring.tab_states', { defaultValue: 'Live States' })}</span>
+              <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
+                {states.length}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="settings"
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-muted-foreground border-b-2 border-transparent transition-colors data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              <span>{t('quota_monitoring.tab_settings', { defaultValue: 'Alerts & Channels' })}</span>
+              {dirty && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+            </TabsTrigger>
+            <TabsTrigger
+              value="events"
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-muted-foreground border-b-2 border-transparent transition-colors data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+            >
+              <History className="h-3.5 w-3.5" />
+              <span>{t('quota_monitoring.tab_events', { defaultValue: 'Event History' })}</span>
+              {events.length > 0 && (
+                <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
+                  {events.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Tab 1: Live States */}
+        <TabsContent value="states" className="space-y-4 outline-none">
+          {/* Filter and Search Bar */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder={t('quota_monitoring.search_placeholder', { defaultValue: 'Search auth or resource...' })}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-8 py-1.5 text-xs bg-background border border-input rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'all', label: t('quota_monitoring.filter_all', { defaultValue: 'All' }), count: states.length },
+                { id: 'exhausted', label: t('quota_monitoring.summary_exhausted', { defaultValue: 'Exhausted' }), count: healthSummary.exhausted },
+                { id: 'warning', label: t('quota_monitoring.summary_warning', { defaultValue: 'Warning' }), count: healthSummary.warning },
+                { id: 'healthy', label: t('quota_monitoring.summary_healthy', { defaultValue: 'Healthy' }), count: healthSummary.healthy },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilterStatus(f.id as typeof filterStatus)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors border',
+                    filterStatus === f.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted/40 text-muted-foreground border-border hover:text-foreground hover:bg-muted'
+                  )}
+                >
+                  <span>{f.label}</span>
+                  <span
+                    className={cn(
+                      'text-[10px] px-1 py-0.2 rounded',
+                      filterStatus === f.id ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-background text-muted-foreground'
+                    )}
+                  >
+                    {f.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* States Content */}
+          {groupedFilteredStates.length === 0 ? (
+            <Card>
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <AlertTriangle className="h-8 w-8 text-muted-foreground/60 mb-2" />
+                <p className="text-sm font-medium text-foreground">
+                  {t('quota_monitoring.no_matching_states', { defaultValue: 'No matching quota states found.' })}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {states.length === 0
+                    ? t('quota_monitoring.empty_states', { defaultValue: 'No quota states have been collected yet.' })
+                    : t('common.try_adjusting_filters', { defaultValue: 'Try adjusting your search or filters.' })}
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {groupedFilteredStates.map((group) => (
+                <Card key={group.provider} className="overflow-hidden p-0 border border-border">
+                  <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-2.5">
+                    <div className="flex items-center gap-2 font-semibold text-foreground text-sm">
+                      <span className="h-2 w-2 rounded-full bg-primary" />
+                      <span>{group.label}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {group.states.length} {group.states.length === 1 ? 'state' : 'states'}
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className={cn(tableClass, 'min-w-[760px]')}>
+                      <thead className={tableHeadClass}>
+                        <tr>
+                          <th className={tableCellClass}>{t('quota_monitoring.auth_label', { defaultValue: 'Auth' })}</th>
+                          <th className={tableCellClass}>{t('quota_monitoring.resource', { defaultValue: 'Resource' })}</th>
+                          <th className={tableCellClass}>{t('quota_monitoring.window', { defaultValue: 'Window' })}</th>
+                          <th className={tableCellClass}>{t('quota_monitoring.alert', { defaultValue: 'Alert' })}</th>
+                          <th className={cn(tableCellClass, 'w-44')}>{t('quota_monitoring.remaining', { defaultValue: 'Remaining' })}</th>
+                          <th className={tableCellClass}>{t('quota_monitoring.reset_at', { defaultValue: 'Reset at' })}</th>
+                          <th className={tableCellClass}>{t('quota_monitoring.updated_at', { defaultValue: 'Updated' })}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.states.map((state) => (
+                          <tr key={`${state.authId}:${state.resource}:${state.window}`} className={tableRowClass}>
+                            <td className={cn(tableCellClass, 'font-medium text-foreground')}>
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-foreground">{state.authLabel}</span>
+                                <span className="text-[11px] text-muted-foreground font-mono">{state.resource}</span>
+                              </div>
+                            </td>
+                            <td className={cn(tableCellClass, 'text-xs text-muted-foreground font-mono')}>
+                              {state.resource}
+                            </td>
+                            <td className={cn(tableCellClass, 'text-xs text-muted-foreground font-mono')}>
+                              {state.window}
+                            </td>
+                            <td className={tableCellClass}>
+                              <span className={cn(badgeClass, eventBadgeClass(state.alert))}>{state.alert}</span>
+                            </td>
+                            <td className={cn(tableCellClass, 'w-44')}>
+                              <div className="flex flex-col gap-1">
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-mono font-medium tabular-nums text-foreground">
+                                    {formatPercent(state.remaining)}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                                  <div
+                                    className={cn('h-full transition-all duration-300', alertColorClass(state.alert))}
+                                    style={{ width: `${Math.min(100, Math.max(0, state.remaining ?? 0))}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className={cn(tableCellClass, 'text-xs text-muted-foreground whitespace-nowrap')}>
+                              {formatTime(state.resetAt)}
+                            </td>
+                            <td className={cn(tableCellClass, 'text-xs text-muted-foreground whitespace-nowrap')}>
+                              {formatTime(state.updatedAt)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              ))}
+              {stateCursor ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-fit"
+                  loading={loadingMoreStates}
+                  onClick={() => void handleLoadMoreStates()}
+                >
+                  {t('quota_monitoring.load_more_states', { defaultValue: 'Load more states' })}
+                </Button>
+              ) : null}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Tab 2: Alerts & Channels */}
+        <TabsContent value="settings" className="space-y-6 outline-none">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Telegram Card */}
+            <Card
+              title={
+                <div className="flex items-center gap-2">
+                  <Send className="h-4 w-4 text-primary" />
+                  <span>{t('quota_monitoring.telegram_title', { defaultValue: 'Telegram destination' })}</span>
+                </div>
+              }
+              className="flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <ToggleSwitch
+                    checked={activeSettings.telegram.enabled}
+                    onChange={(enabled) => updateTelegram({ enabled })}
+                    label={t('quota_monitoring.telegram_enabled', { defaultValue: 'Enable Telegram notifications' })}
+                  />
+                  <span
+                    className={cn(
+                      badgeClass,
+                      activeSettings.telegram.tokenConfigured
+                        ? 'border-success/30 bg-success/12 text-success'
+                        : 'border-border bg-muted text-muted-foreground'
+                    )}
+                  >
+                    {activeSettings.telegram.tokenConfigured
+                      ? t('quota_monitoring.telegram_token_configured', { defaultValue: 'Bot token configured' })
+                      : t('quota_monitoring.telegram_token_missing', { defaultValue: 'Bot token not configured' })}
+                  </span>
+                </div>
+
+                {activeSettings.telegram.secretKeyConfigured === false && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+                    <p className="font-semibold flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                      {t('quota_monitoring.telegram_secret_key_missing_title', {
+                        defaultValue: 'Telegram token encryption key is not configured on the server.',
+                      })}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {t('quota_monitoring.telegram_secret_key_missing_desc', {
+                        defaultValue:
+                          'To save or test Telegram bot tokens, set the LLMHUB_QUOTA_SECRET_KEY_B64 environment variable (a 32-byte base64 key) on the server.',
+                      })}
+                    </p>
+                  </div>
+                )}
+
+                <FormInput
+                  id="quota-telegram-chat"
+                  label={t('quota_monitoring.telegram_chat_id', { defaultValue: 'Chat ID' })}
+                  value={activeSettings.telegram.chatId}
+                  onChange={(event) => updateTelegram({ chatId: event.target.value })}
+                />
+
+                <FormInput
+                  id="quota-telegram-token"
+                  type="password"
+                  label={t('quota_monitoring.telegram_token', { defaultValue: 'New bot token' })}
+                  hint={t('quota_monitoring.telegram_token_hint', {
+                    defaultValue: 'Leave blank to preserve the stored write-only token.',
+                  })}
+                  value={tokenDraft}
+                  onChange={(event) => {
+                    setTokenDraft(event.target.value);
+                    if (event.target.value.trim()) setClearToken(false);
+                  }}
+                />
+
+                <ToggleSwitch
+                  checked={clearToken}
+                  onChange={(value) => {
+                    setClearToken(value);
+                    if (value) setTokenDraft('');
+                  }}
+                  label={t('quota_monitoring.telegram_clear_token', { defaultValue: 'Clear stored token on save' })}
+                />
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-border flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-fit"
+                  onClick={() => void handleTelegramTest()}
+                  loading={testingTelegram}
+                  disabled={
+                    dirty ||
+                    saving ||
+                    !activeSettings.telegram.enabled ||
+                    !activeSettings.telegram.tokenConfigured ||
+                    activeSettings.telegram.secretKeyConfigured === false
+                  }
+                >
+                  <Send className="mr-1.5 h-3.5 w-3.5" />
+                  {t('quota_monitoring.telegram_test', { defaultValue: 'Send test message' })}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {dirty
+                    ? t('quota_monitoring.telegram_test_blocked_dirty', { defaultValue: 'Save changes before testing' })
+                    : activeSettings.telegram.secretKeyConfigured === false
+                    ? t('quota_monitoring.key_missing', { defaultValue: 'Key missing' })
+                    : ''}
+                </span>
+              </div>
+            </Card>
+
+            {/* Alert Engine Policy Card */}
+            <Card
+              title={
+                <div className="flex items-center gap-2">
+                  <Bell className="h-4 w-4 text-primary" />
+                  <span>{t('quota_monitoring.settings_title', { defaultValue: 'Alert settings' })}</span>
+                </div>
+              }
+              className="flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <ToggleSwitch
+                  checked={activeSettings.enabled}
+                  onChange={(enabled) => updateSettings({ enabled })}
+                  label={t('quota_monitoring.enabled', { defaultValue: 'Enable quota monitoring daemon' })}
+                />
+                <ToggleSwitch
+                  checked={activeSettings.notifyRecovery}
+                  onChange={(notifyRecovery) => updateSettings({ notifyRecovery })}
+                  label={t('quota_monitoring.notify_recovery', { defaultValue: 'Notify on quota recovery' })}
+                />
+                <div className="grid gap-4 sm:grid-cols-2 pt-2">
+                  <FormInput
+                    id="quota-poll-interval"
+                    type="number"
+                    min={60}
+                    label={t('quota_monitoring.poll_interval', { defaultValue: 'Poll interval (seconds)' })}
+                    value={activeSettings.pollIntervalSeconds}
+                    onChange={(event) => updateSettings({ pollIntervalSeconds: Number(event.target.value) })}
+                  />
+                  <FormInput
+                    id="quota-warning-threshold"
+                    type="number"
+                    min={0}
+                    max={100}
+                    label={t('quota_monitoring.warning_threshold', { defaultValue: 'Default warning threshold (%)' })}
+                    value={activeSettings.warningThreshold}
+                    onChange={(event) => updateSettings({ warningThreshold: Number(event.target.value) })}
+                  />
+                </div>
+                <FormInput
+                  id="quota-reminder-interval"
+                  type="number"
+                  min={0}
+                  label={t('quota_monitoring.reminder_interval', { defaultValue: 'Reminder interval (seconds)' })}
+                  hint={t('quota_monitoring.reminder_hint', { defaultValue: 'Use 0 to disable reminders.' })}
+                  value={activeSettings.reminderIntervalSeconds}
+                  onChange={(event) => updateSettings({ reminderIntervalSeconds: Number(event.target.value) })}
+                />
+              </div>
+            </Card>
+          </div>
+
+          {/* Provider Overrides Matrix */}
+          <Card
+            title={
+              <div className="flex items-center justify-between">
+                <span>{t('quota_monitoring.providers_title', { defaultValue: 'Provider overrides' })}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {t('quota_monitoring.provider_override_hint', { defaultValue: 'Override threshold or disable monitoring per provider' })}
+                </span>
+              </div>
+            }
+            className="p-0 overflow-hidden"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5">{t('quota_monitoring.provider', { defaultValue: 'Provider' })}</th>
+                    <th className="px-4 py-2.5 w-36 text-center">{t('common.status', { defaultValue: 'Status' })}</th>
+                    <th className="px-4 py-2.5 w-60">{t('quota_monitoring.provider_threshold', { defaultValue: 'Threshold override (%)' })}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {PROVIDERS.map(({ provider, label }) => {
+                    const override = providerOverrides.get(provider) ?? { provider, enabled: true, warningThreshold: null };
+                    return (
+                      <tr key={provider} className="hover:bg-muted/15 transition-colors">
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex h-2 w-2 rounded-full bg-primary" />
+                            <span>{label}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <ToggleSwitch
+                            checked={override.enabled}
+                            onChange={(enabled) => updateProvider(provider, { enabled })}
+                            ariaLabel={`${label} enabled`}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <FormInput
+                            id={`quota-provider-${provider}`}
+                            type="number"
+                            min={0}
+                            max={100}
+                            placeholder={String(activeSettings.warningThreshold)}
+                            value={override.warningThreshold ?? ''}
+                            onChange={(event) =>
+                              updateProvider(provider, {
+                                warningThreshold: event.target.value === '' ? null : Number(event.target.value),
+                              })
+                            }
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* Tab 3: Event History */}
+        <TabsContent value="events" className="space-y-4 outline-none">
+          <Card
+            title={
+              <div className="flex items-center justify-between">
+                <span>{t('quota_monitoring.events_title', { defaultValue: 'Recent events' })}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {t('quota_monitoring.delivery_note', {
+                    defaultValue: 'Telegram delivery uses the durable outbox; this API exposes in-app acknowledgement state.',
+                  })}
+                </span>
+              </div>
+            }
+            className="p-0 overflow-hidden"
+          >
+            {events.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <History className="h-8 w-8 text-muted-foreground/60 mb-2" />
+                <p className="text-sm font-medium text-foreground">
+                  {t('quota_monitoring.empty_events', { defaultValue: 'No alert events yet.' })}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className={cn(tableClass, 'min-w-[840px]')}>
                   <thead className={tableHeadClass}>
                     <tr>
+                      <th className={tableCellClass}>{t('quota_monitoring.event', { defaultValue: 'Event' })}</th>
+                      <th className={tableCellClass}>{t('quota_monitoring.provider', { defaultValue: 'Provider' })}</th>
                       <th className={tableCellClass}>{t('quota_monitoring.auth_label', { defaultValue: 'Auth' })}</th>
-                      <th className={tableCellClass}>{t('quota_monitoring.resource', { defaultValue: 'Resource' })}</th>
-                      <th className={tableCellClass}>{t('quota_monitoring.window', { defaultValue: 'Window' })}</th>
-                      <th className={tableCellClass}>{t('quota_monitoring.alert', { defaultValue: 'Alert' })}</th>
+                      <th className={tableCellClass}>{t('quota_monitoring.transition', { defaultValue: 'Transition' })}</th>
                       <th className={tableCellClass}>{t('quota_monitoring.remaining', { defaultValue: 'Remaining' })}</th>
-                      <th className={tableCellClass}>{t('quota_monitoring.reset_at', { defaultValue: 'Reset at' })}</th>
-                      <th className={tableCellClass}>{t('quota_monitoring.updated_at', { defaultValue: 'Updated' })}</th>
+                      <th className={tableCellClass}>{t('quota_monitoring.occurred_at', { defaultValue: 'Occurred' })}</th>
+                      <th className={tableCellClass}>{t('quota_monitoring.delivery_status', { defaultValue: 'Delivery' })}</th>
+                      <th className={tableCellClass}>{t('quota_monitoring.status', { defaultValue: 'Status' })}</th>
+                      <th className={tableCellClass} />
                     </tr>
                   </thead>
                   <tbody>
-                    {group.states.map((state) => (
-                      <tr key={`${state.authId}:${state.resource}:${state.window}`} className={tableRowClass}>
-                        <td className={cn(tableCellClass, 'font-medium text-foreground')}>{state.authLabel}</td>
-                        <td className={tableCellClass}>{state.resource}</td>
-                        <td className={tableCellClass}>{state.window}</td>
+                    {events.map((event) => (
+                      <tr key={event.id} className={tableRowClass}>
                         <td className={tableCellClass}>
-                          <span className={cn(badgeClass, eventBadgeClass(state.alert))}>{state.alert}</span>
+                          <span className={cn(badgeClass, eventBadgeClass(event.kind))}>{event.kind}</span>
                         </td>
-                        <td className={cn(tableCellClass, 'tabular-nums')}>{formatPercent(state.remaining)}</td>
-                        <td className={tableCellClass}>{formatTime(state.resetAt)}</td>
-                        <td className={tableCellClass}>{formatTime(state.updatedAt)}</td>
+                        <td className={tableCellClass}>{event.provider}</td>
+                        <td className={cn(tableCellClass, 'font-medium text-foreground')}>{event.authLabel}</td>
+                        <td className={tableCellClass}>{event.from} → {event.to}</td>
+                        <td className={cn(tableCellClass, 'tabular-nums font-mono')}>{formatPercent(event.remaining)}</td>
+                        <td className={tableCellClass}>{formatTime(event.occurredAt)}</td>
+                        <td className={tableCellClass}>
+                          {event.delivery ? (
+                            <span className={cn(badgeClass, eventBadgeClass(event.delivery.status))}>
+                              {event.delivery.status === 'sent'
+                                ? t('quota_monitoring.delivery_sent', { defaultValue: 'Sent' })
+                                : event.delivery.status === 'failed'
+                                  ? event.delivery.failureCode
+                                    ? t('quota_monitoring.delivery_failed_code', {
+                                        defaultValue: 'Failed: {{code}}',
+                                        code: event.delivery.failureCode,
+                                      })
+                                    : t('quota_monitoring.delivery_failed', { defaultValue: 'Failed' })
+                                  : event.delivery.attemptCount > 0
+                                    ? t('quota_monitoring.delivery_pending_count', {
+                                        defaultValue: 'Pending ({{count}})',
+                                        count: event.delivery.attemptCount,
+                                      })
+                                    : t('quota_monitoring.delivery_pending', { defaultValue: 'Pending' })}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className={tableCellClass}>
+                          <span
+                            className={cn(
+                              badgeClass,
+                              event.acknowledgedAt
+                                ? 'border-border bg-muted text-muted-foreground'
+                                : 'border-primary/30 bg-primary/10 text-primary'
+                            )}
+                          >
+                            {event.acknowledgedAt
+                              ? t('quota_monitoring.acknowledged', { defaultValue: 'Acknowledged' })
+                              : t('quota_monitoring.open', { defaultValue: 'Open' })}
+                          </span>
+                        </td>
+                        <td className={cn(tableCellClass, 'text-right')}>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={Boolean(event.acknowledgedAt)}
+                            loading={acknowledgingID === event.id}
+                            onClick={() => void handleAcknowledge(event)}
+                          >
+                            {t('quota_monitoring.acknowledge', { defaultValue: 'Acknowledge' })}
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {eventCursor ? (
+                  <div className="p-4 border-t border-border">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="w-fit"
+                      loading={loadingMoreEvents}
+                      onClick={() => void handleLoadMoreEvents()}
+                    >
+                      {t('quota_monitoring.load_more_events', { defaultValue: 'Load more events' })}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
-            ))}
-            {stateCursor ? (
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-fit"
-                loading={loadingMoreStates}
-                onClick={() => void handleLoadMoreStates()}
-              >
-                {t('quota_monitoring.load_more_states', { defaultValue: 'Load more states' })}
-              </Button>
-            ) : null}
-          </div>
-        )}
-      </Card>
+            )}
+          </Card>
+        </TabsContent>
+      </Tabs>
 
-      <Card title={t('quota_monitoring.events_title', { defaultValue: 'Recent events' })}>
-        <p className="mb-3 text-xs text-muted-foreground">
-          {t('quota_monitoring.delivery_note', {
-            defaultValue: 'Telegram delivery uses the durable outbox; this API exposes in-app acknowledgement state.',
-          })}
-        </p>
-        {events.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('quota_monitoring.empty_events', { defaultValue: 'No alert events yet.' })}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className={cn(tableClass, 'min-w-[840px]')}>
-              <thead className={tableHeadClass}>
-                <tr>
-                  <th className={tableCellClass}>{t('quota_monitoring.event', { defaultValue: 'Event' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.provider', { defaultValue: 'Provider' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.auth_label', { defaultValue: 'Auth' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.transition', { defaultValue: 'Transition' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.remaining', { defaultValue: 'Remaining' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.occurred_at', { defaultValue: 'Occurred' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.delivery_status', { defaultValue: 'Delivery' })}</th>
-                  <th className={tableCellClass}>{t('quota_monitoring.status', { defaultValue: 'Status' })}</th>
-                  <th className={tableCellClass} />
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((event) => (
-                  <tr key={event.id} className={tableRowClass}>
-                    <td className={tableCellClass}>
-                      <span className={cn(badgeClass, eventBadgeClass(event.kind))}>{event.kind}</span>
-                    </td>
-                    <td className={tableCellClass}>{event.provider}</td>
-                    <td className={cn(tableCellClass, 'font-medium text-foreground')}>{event.authLabel}</td>
-                    <td className={tableCellClass}>{event.from} → {event.to}</td>
-                    <td className={cn(tableCellClass, 'tabular-nums')}>{formatPercent(event.remaining)}</td>
-                    <td className={tableCellClass}>{formatTime(event.occurredAt)}</td>
-                    <td className={tableCellClass}>
-                      {event.delivery ? (
-                        <span className={cn(badgeClass, eventBadgeClass(event.delivery.status))}>
-                          {event.delivery.status === 'sent'
-                            ? t('quota_monitoring.delivery_sent', { defaultValue: 'Sent' })
-                            : event.delivery.status === 'failed'
-                              ? event.delivery.failureCode
-                                ? t('quota_monitoring.delivery_failed_code', {
-                                    defaultValue: 'Failed: {{code}}',
-                                    code: event.delivery.failureCode,
-                                  })
-                                : t('quota_monitoring.delivery_failed', { defaultValue: 'Failed' })
-                              : event.delivery.attemptCount > 0
-                                ? t('quota_monitoring.delivery_pending_count', {
-                                    defaultValue: 'Pending ({{count}})',
-                                    count: event.delivery.attemptCount,
-                                  })
-                                : t('quota_monitoring.delivery_pending', { defaultValue: 'Pending' })}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className={tableCellClass}>
-                      <span className={cn(badgeClass, event.acknowledgedAt ? 'border-border bg-muted text-muted-foreground' : 'border-primary/30 bg-primary/10 text-primary')}>
-                        {event.acknowledgedAt
-                          ? t('quota_monitoring.acknowledged', { defaultValue: 'Acknowledged' })
-                          : t('quota_monitoring.open', { defaultValue: 'Open' })}
-                      </span>
-                    </td>
-                    <td className={cn(tableCellClass, 'text-right')}>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={Boolean(event.acknowledgedAt)}
-                        loading={acknowledgingID === event.id}
-                        onClick={() => void handleAcknowledge(event)}
-                      >
-                        {t('quota_monitoring.acknowledge', { defaultValue: 'Acknowledge' })}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {eventCursor ? (
-              <Button
-                type="button"
-                variant="secondary"
-                className="mt-3 w-fit"
-                loading={loadingMoreEvents}
-                onClick={() => void handleLoadMoreEvents()}
-              >
-                {t('quota_monitoring.load_more_events', { defaultValue: 'Load more events' })}
-              </Button>
-            ) : null}
+      {/* Floating Save Action Bar when dirty */}
+      {dirty && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-xl backdrop-blur-md transition-all duration-200">
+          <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+            <span className="h-2 w-2 rounded-full bg-primary" />
+            <span>{t('quota_monitoring.unsaved_changes', { defaultValue: 'You have unsaved changes' })}</span>
           </div>
-        )}
-      </Card>
+          <div className="h-4 w-px bg-border" />
+          <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving}>
+            {t('common.reset', { defaultValue: 'Reset' })}
+          </Button>
+          <Button size="sm" onClick={() => void handleSave()} loading={saving}>
+            {t('quota_monitoring.save_changes', { defaultValue: 'Save changes' })}
+          </Button>
+        </div>
+      )}
     </QuotaMonitoringShell>
   );
 }

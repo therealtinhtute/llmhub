@@ -163,6 +163,22 @@ func TestQuotaAlertSettingsGetRedactsTelegramSecret(t *testing.T) {
 	if !strings.Contains(body, `"token_configured":true`) {
 		t.Fatalf("response missing token_configured=true: %s", body)
 	}
+	if !strings.Contains(body, `"secret_key_configured":false`) {
+		t.Fatalf("response missing secret_key_configured=false: %s", body)
+	}
+
+	cipher, err := quotaalert.NewSecretCipher("runtime", bytes.Repeat([]byte{1}, quotaalert.SecretKeySize))
+	if err != nil {
+		t.Fatalf("NewSecretCipher() error = %v", err)
+	}
+	hWithCipher := &Handler{quotaAlertStore: store, quotaAlertCipher: cipher}
+	recWithCipher := performQuotaAlertRequest(t, hWithCipher.GetQuotaAlertSettings, http.MethodGet, "/v0/management/quota-alerts/settings", "")
+	if recWithCipher.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recWithCipher.Code, http.StatusOK)
+	}
+	if !strings.Contains(recWithCipher.Body.String(), `"secret_key_configured":true`) {
+		t.Fatalf("response missing secret_key_configured=true: %s", recWithCipher.Body.String())
+	}
 }
 
 func TestQuotaAlertSettingsPutUsesQuotaStoreOnly(t *testing.T) {

@@ -34,10 +34,14 @@ So you can use local or multi-account CLI access with OpenAI(include Responses)/
 For production, install the latest GitHub Release binary and set up a systemd service on a Linux VPS with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/scripts/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/install.sh | sudo bash
 ```
 
-This downloads the binary, creates the `llmhub` system user, prompts for Postgres plus initial config env, seeds the remote database once, and starts the service.
+This installs LLMHub cleanly into `/opt/llmhub` (all-in-one directory containing binary, `.env`, `data/`, and auto-generated quota encryption keys), configures a systemd service, and starts it automatically. To customize the directory (e.g. `$HOME/llmhub`), specify `LLMHUB_DIR`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/install.sh | LLMHUB_DIR=/opt/llmhub sudo -E bash
+```
 
 Point your AI coding tool at `http://SERVER_IP:8317/v1`. The management panel is at `http://SERVER_IP:8317/management.html` (configure `remote-management.secret-key` and `remote-management.allow-remote` before exposing beyond localhost).
 

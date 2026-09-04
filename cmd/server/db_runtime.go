@@ -35,12 +35,23 @@ func lookupEnvTrimmed(keys ...string) (string, bool) {
 	}
 	return "", false
 }
+func stripWrappingQuotes(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			return strings.TrimSpace(s[1 : len(s)-1])
+		}
+	}
+	return s
+}
+
 
 func loadQuotaSecretCipherFromEnv() (*quotaalert.SecretCipher, error) {
 	encoded, ok := lookupEnvTrimmed("LLMHUB_QUOTA_SECRET_KEY_B64", "llmhub_quota_secret_key_b64")
 	if !ok {
 		return nil, nil
 	}
+	encoded = stripWrappingQuotes(encoded)
 	key, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("decode LLMHUB_QUOTA_SECRET_KEY_B64: %w", err)
@@ -49,7 +60,17 @@ func loadQuotaSecretCipherFromEnv() (*quotaalert.SecretCipher, error) {
 	if !ok {
 		keyID = defaultQuotaSecretKeyID
 	}
+	keyID = stripWrappingQuotes(keyID)
 	return quotaalert.NewSecretCipher(keyID, key)
+}
+
+func autoLoadDotEnv() {
+	if skip, _ := lookupEnvTrimmed("LLMHUB_SKIP_DOTENV", "llmhub_skip_dotenv"); skip == "1" || strings.EqualFold(skip, "true") {
+		return
+	}
+	if err := loadDotEnvForSetup(""); err != nil {
+		log.Warnf("failed to load .env: %v", err)
+	}
 }
 
 func loadDotEnvForSetup(path string) error {

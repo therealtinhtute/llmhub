@@ -133,7 +133,7 @@ function QuotaMonitoringShell({
   children: ReactNode;
 }) {
   return (
-    <div className={cn(styles.container, 'min-h-[calc(100vh-140px)] flex-1 flex flex-col')}>
+    <div className={cn(styles.container, 'flex-1 flex flex-col')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className={styles.pageHeader}>
           <h1 className={styles.pageTitle}>{title}</h1>
@@ -1101,8 +1101,8 @@ export function QuotaMonitoringPage() {
         </TabsContent>
 
         {/* Tab 3: Event History */}
-        <TabsContent value="events" className="outline-none flex-1 flex flex-col min-h-[calc(100vh-280px)]">
-          <Card className="flex-1 flex flex-col p-5 border border-border min-h-[calc(100vh-280px)]">
+        <TabsContent value="events" className="outline-none flex-1 flex flex-col">
+          <Card className="flex-1 flex flex-col p-5 border border-border">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3 mb-4">
               <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
                 <History className="h-4 w-4 text-primary" />
@@ -1115,7 +1115,7 @@ export function QuotaMonitoringPage() {
               </span>
             </div>
             {events.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
+              <div className="flex-1 flex flex-col items-center justify-center py-16 text-center">
                 <History className="h-10 w-10 text-muted-foreground/40 mb-3" />
                 <p className="text-sm font-medium text-foreground">
                   {t('quota_monitoring.empty_events', { defaultValue: 'No alert events yet.' })}

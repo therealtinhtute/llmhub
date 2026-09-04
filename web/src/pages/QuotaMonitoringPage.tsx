@@ -9,6 +9,8 @@ import {
   X,
   Clock,
   Key,
+  Eye,
+  EyeOff,
   AlertTriangle,
   Send,
   SlidersHorizontal,
@@ -162,6 +164,8 @@ export function QuotaMonitoringPage() {
   const [upgradeRequired, setUpgradeRequired] = useState(false);
   const [tokenDraft, setTokenDraft] = useState('');
   const [clearToken, setClearToken] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [providerSearch, setProviderSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'states' | 'settings' | 'events'>('states');
   const [filterStatus, setFilterStatus] = useState<'all' | 'exhausted' | 'warning' | 'healthy'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -243,6 +247,14 @@ export function QuotaMonitoringPage() {
     settings?.providers.forEach((provider) => map.set(provider.provider, provider));
     return map;
   }, [settings]);
+  const filteredProviders = useMemo(() => {
+    if (!providerSearch.trim()) return PROVIDERS;
+    const q = providerSearch.toLowerCase().trim();
+    return PROVIDERS.filter(
+      (p) => p.label.toLowerCase().includes(q) || p.provider.toLowerCase().includes(q)
+    );
+  }, [providerSearch]);
+
 
   const healthSummary = useMemo(() => {
     const counts = { exhausted: 0, warning: 0, healthy: 0, unknown: 0 };
@@ -798,24 +810,43 @@ export function QuotaMonitoringPage() {
               className="flex flex-col justify-between"
             >
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
                   <ToggleSwitch
                     checked={activeSettings.telegram.enabled}
                     onChange={(enabled) => updateTelegram({ enabled })}
                     label={t('quota_monitoring.telegram_enabled', { defaultValue: 'Enable Telegram notifications' })}
                   />
-                  <span
-                    className={cn(
-                      badgeClass,
-                      activeSettings.telegram.tokenConfigured
-                        ? 'border-success/30 bg-success/12 text-success'
-                        : 'border-border bg-muted text-muted-foreground'
-                    )}
-                  >
-                    {activeSettings.telegram.tokenConfigured
-                      ? t('quota_monitoring.telegram_token_configured', { defaultValue: 'Bot token configured' })
-                      : t('quota_monitoring.telegram_token_missing', { defaultValue: 'Bot token not configured' })}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        badgeClass,
+                        activeSettings.telegram.tokenConfigured
+                          ? 'border-success/30 bg-success/12 text-success'
+                          : 'border-border bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {activeSettings.telegram.tokenConfigured
+                        ? t('quota_monitoring.telegram_token_configured', { defaultValue: 'Bot token configured' })
+                        : t('quota_monitoring.telegram_token_missing', { defaultValue: 'Bot token not configured' })}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleTelegramTest()}
+                      loading={testingTelegram}
+                      disabled={
+                        dirty ||
+                        saving ||
+                        !activeSettings.telegram.enabled ||
+                        !activeSettings.telegram.tokenConfigured ||
+                        activeSettings.telegram.secretKeyConfigured === false
+                      }
+                    >
+                      <Send className="mr-1.5 h-3.5 w-3.5" />
+                      {t('quota_monitoring.telegram_test', { defaultValue: 'Send test message' })}
+                    </Button>
+                  </div>
                 </div>
 
                 {activeSettings.telegram.secretKeyConfigured === false && (
@@ -842,19 +873,47 @@ export function QuotaMonitoringPage() {
                   onChange={(event) => updateTelegram({ chatId: event.target.value })}
                 />
 
-                <FormInput
-                  id="quota-telegram-token"
-                  type="password"
-                  label={t('quota_monitoring.telegram_token', { defaultValue: 'New bot token' })}
-                  hint={t('quota_monitoring.telegram_token_hint', {
-                    defaultValue: 'Leave blank to preserve the stored write-only token.',
-                  })}
-                  value={tokenDraft}
-                  onChange={(event) => {
-                    setTokenDraft(event.target.value);
-                    if (event.target.value.trim()) setClearToken(false);
-                  }}
-                />
+                <div className="space-y-1.5">
+                  <label htmlFor="quota-telegram-token" className="text-xs font-medium text-foreground">
+                    {t('quota_monitoring.telegram_token', { defaultValue: 'New bot token' })}
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="quota-telegram-token"
+                      type={showToken ? 'text' : 'password'}
+                      placeholder={
+                        activeSettings.telegram.tokenConfigured
+                          ? '••••••••••••••••••••••••••••••••'
+                          : t('quota_monitoring.telegram_token_placeholder', {
+                              defaultValue: 'Enter Telegram bot token (123456:ABC...)',
+                            })
+                      }
+                      value={tokenDraft}
+                      onChange={(event) => {
+                        setTokenDraft(event.target.value);
+                        if (event.target.value.trim()) setClearToken(false);
+                      }}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-xs text-foreground font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowToken(!showToken)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
+                      title={showToken ? 'Hide token' : 'Show token'}
+                    >
+                      {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {activeSettings.telegram.tokenConfigured && !tokenDraft
+                      ? t('quota_monitoring.telegram_token_configured_hint', {
+                          defaultValue: 'Token is saved securely. Type a new token to update.',
+                        })
+                      : t('quota_monitoring.telegram_token_hint', {
+                          defaultValue: 'Leave blank to preserve the stored write-only token.',
+                        })}
+                  </p>
+                </div>
 
                 <ToggleSwitch
                   checked={clearToken}
@@ -864,33 +923,6 @@ export function QuotaMonitoringPage() {
                   }}
                   label={t('quota_monitoring.telegram_clear_token', { defaultValue: 'Clear stored token on save' })}
                 />
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-border flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-fit"
-                  onClick={() => void handleTelegramTest()}
-                  loading={testingTelegram}
-                  disabled={
-                    dirty ||
-                    saving ||
-                    !activeSettings.telegram.enabled ||
-                    !activeSettings.telegram.tokenConfigured ||
-                    activeSettings.telegram.secretKeyConfigured === false
-                  }
-                >
-                  <Send className="mr-1.5 h-3.5 w-3.5" />
-                  {t('quota_monitoring.telegram_test', { defaultValue: 'Send test message' })}
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  {dirty
-                    ? t('quota_monitoring.telegram_test_blocked_dirty', { defaultValue: 'Save changes before testing' })
-                    : activeSettings.telegram.secretKeyConfigured === false
-                    ? t('quota_monitoring.key_missing', { defaultValue: 'Key missing' })
-                    : ''}
-                </span>
               </div>
             </Card>
 
@@ -948,65 +980,107 @@ export function QuotaMonitoringPage() {
           </div>
 
           {/* Provider Overrides Matrix */}
-          <Card
-            title={
-              <div className="flex items-center justify-between">
-                <span>{t('quota_monitoring.providers_title', { defaultValue: 'Provider overrides' })}</span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {t('quota_monitoring.provider_override_hint', { defaultValue: 'Override threshold or disable monitoring per provider' })}
-                </span>
-              </div>
-            }
-            className="p-0 overflow-hidden"
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2.5">{t('quota_monitoring.provider', { defaultValue: 'Provider' })}</th>
-                    <th className="px-4 py-2.5 w-36 text-center">{t('common.status', { defaultValue: 'Status' })}</th>
-                    <th className="px-4 py-2.5 w-60">{t('quota_monitoring.provider_threshold', { defaultValue: 'Threshold override (%)' })}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {PROVIDERS.map(({ provider, label }) => {
-                    const override = providerOverrides.get(provider) ?? { provider, enabled: true, warningThreshold: null };
-                    return (
-                      <tr key={provider} className="hover:bg-muted/15 transition-colors">
-                        <td className="px-4 py-3 font-medium text-foreground">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-2 w-2 rounded-full bg-primary" />
-                            <span>{label}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <ToggleSwitch
-                            checked={override.enabled}
-                            onChange={(enabled) => updateProvider(provider, { enabled })}
-                            ariaLabel={`${label} enabled`}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <FormInput
-                            id={`quota-provider-${provider}`}
-                            type="number"
-                            min={0}
-                            max={100}
-                            placeholder={String(activeSettings.warningThreshold)}
-                            value={override.warningThreshold ?? ''}
-                            onChange={(event) =>
-                              updateProvider(provider, {
-                                warningThreshold: event.target.value === '' ? null : Number(event.target.value),
-                              })
-                            }
-                          />
-                        </td>
-                      </tr>
-                    );
+          <Card className="flex flex-col gap-4 p-5 border border-border">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+              <div>
+                <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-primary" />
+                  <span>{t('quota_monitoring.providers_title', { defaultValue: 'Provider overrides' })}</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t('quota_monitoring.provider_override_hint', {
+                    defaultValue: 'Override threshold or disable monitoring per provider',
                   })}
-                </tbody>
-              </table>
+                </p>
+              </div>
+              <div className="relative w-full sm:w-60">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder={t('quota_monitoring.search_provider_placeholder', {
+                    defaultValue: 'Filter providers...',
+                  })}
+                  value={providerSearch}
+                  onChange={(e) => setProviderSearch(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-background border border-input rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                {providerSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setProviderSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             </div>
+
+            {filteredProviders.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 text-center text-xs text-muted-foreground">
+                {t('quota_monitoring.no_matching_states', { defaultValue: 'No matching providers found.' })}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {filteredProviders.map(({ provider, label }) => {
+                  const override = providerOverrides.get(provider) ?? { provider, enabled: true, warningThreshold: null };
+                  return (
+                    <div
+                      key={provider}
+                      className={cn(
+                        'flex flex-col justify-between rounded-lg border p-3 transition-all',
+                        override.enabled
+                          ? 'border-border bg-card shadow-sm hover:border-primary/40'
+                          : 'border-border/60 bg-muted/25 opacity-70'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className={cn(
+                              'h-2 w-2 rounded-full shrink-0',
+                              override.enabled ? 'bg-primary' : 'bg-muted-foreground'
+                            )}
+                          />
+                          <span className="text-xs font-semibold text-foreground truncate">{label}</span>
+                        </div>
+                        <ToggleSwitch
+                          checked={override.enabled}
+                          onChange={(enabled) => updateProvider(provider, { enabled })}
+                          ariaLabel={`${label} enabled`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label
+                          htmlFor={`quota-provider-${provider}`}
+                          className="text-[11px] font-medium text-muted-foreground flex items-center justify-between"
+                        >
+                          <span>{t('quota_monitoring.provider_threshold', { defaultValue: 'Threshold (%)' })}</span>
+                          <span className="text-[10px] text-muted-foreground/80 font-mono">
+                            def: {activeSettings.warningThreshold}%
+                          </span>
+                        </label>
+                        <input
+                          id={`quota-provider-${provider}`}
+                          type="number"
+                          min={0}
+                          max={100}
+                          disabled={!override.enabled}
+                          placeholder={String(activeSettings.warningThreshold)}
+                          value={override.warningThreshold ?? ''}
+                          onChange={(event) =>
+                            updateProvider(provider, {
+                              warningThreshold: event.target.value === '' ? null : Number(event.target.value),
+                            })
+                          }
+                          className="w-full rounded-md border border-input bg-background px-2.5 py-1 text-xs text-foreground font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </Card>
         </TabsContent>
 

@@ -917,7 +917,7 @@ func validateQuotaAlertEventState(event quotaalert.TransitionEvent, state quotaa
 	if state.ResetKnown != event.ResetKnown || (state.ResetKnown && !state.ResetAt.Equal(event.ResetAt)) {
 		return fmt.Errorf("event reset evidence differs")
 	}
-	if event.OccurredAt.After(state.ObservedAt) || event.OccurredAt.After(state.UpdatedAt) {
+	if event.OccurredAt.After(state.UpdatedAt) {
 		return fmt.Errorf("event occurs after its collection state")
 	}
 	if event.Kind != quotaalert.TransitionReminder && !state.TransitionedAt.Equal(event.OccurredAt) {

@@ -140,6 +140,10 @@ func (c *Client) get(ctx context.Context, u string, timeout time.Duration, limit
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.StatusCode == http.StatusTooManyRequests ||
+			(resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0") {
+			return fmt.Errorf("GitHub API rate limit reached (HTTP %d) from %s; wait before retrying", resp.StatusCode, u)
+		}
 		return fmt.Errorf("unexpected HTTP status %d from %s", resp.StatusCode, u)
 	}
 

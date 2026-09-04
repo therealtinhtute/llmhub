@@ -119,6 +119,18 @@ func (e *Engine) StageLatest(ctx context.Context) (StagedManifest, error) {
 		return StagedManifest{}, err
 	}
 
+	// Fetch and parse the checksum manifest before downloading the binary:
+	// a missing or malformed manifest aborts without a multi-megabyte
+	// download.
+	var sums bytes.Buffer
+	if err := e.Client.FetchMetadata(ctx, sumAsset.URL, &sums); err != nil {
+		return StagedManifest{}, fmt.Errorf("fetching checksums.txt: %w", err)
+	}
+	digest, err := ParseChecksum(sums.String(), name)
+	if err != nil {
+		return StagedManifest{}, err
+	}
+
 	updateDir := filepath.Join(e.DataDir, updateDirName)
 	if err := os.MkdirAll(updateDir, 0o755); err != nil {
 		return StagedManifest{}, fmt.Errorf("creating staging directory: %w", err)
@@ -150,15 +162,6 @@ func (e *Engine) StageLatest(ctx context.Context) (StagedManifest, error) {
 	// Seal the write descriptor before hashing and probing: exec of a file
 	// with an open write handle fails with ETXTBSY on Linux.
 	if err := tmp.Close(); err != nil {
-		return fail(err)
-	}
-
-	var sums bytes.Buffer
-	if err := e.Client.FetchMetadata(ctx, sumAsset.URL, &sums); err != nil {
-		return fail(err)
-	}
-	digest, err := ParseChecksum(sums.String(), name)
-	if err != nil {
 		return fail(err)
 	}
 

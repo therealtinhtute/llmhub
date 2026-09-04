@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -176,6 +177,50 @@ func TestStageUpToDateFails(t *testing.T) {
 	engine := NewEngine(testClient(t, srv), t.TempDir(), "v9.9.9")
 	if _, err := engine.StageLatest(context.Background()); !errors.Is(err, ErrUpToDate) {
 		t.Fatalf("err = %v, want ErrUpToDate", err)
+	}
+}
+
+func TestStageFetchesChecksumsBeforeBinary(t *testing.T) {
+	requireSupportedPlatform(t)
+	helper := buildHelper(t, "v9.9.9")
+	bin, err := os.ReadFile(helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Refuse to serve the binary at all: staging must fail on the missing
+	// checksum only if it fetched the manifest first — a manifest-last order
+	// would instead download the binary and then fail differently.
+	var requested []string
+	var mu sync.Mutex
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requested = append(requested, r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case latestPath:
+			host := "https://" + r.Host
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[
+				{"name":"llmhub-linux-amd64","browser_download_url":%q,"size":%d},
+				{"name":"checksums.txt","browser_download_url":%q,"size":%d}]}`,
+				host+"/bin", len(bin), host+"/sums", 512)
+		case "/sums":
+			sums := sha256.Sum256(bin)
+			fmt.Fprintf(w, "%x  llmhub-linux-amd64\n", sums)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	dataDir := t.TempDir()
+	engine := NewEngine(testClient(t, srv), dataDir, "v1.0.0")
+
+	if _, err := engine.StageLatest(context.Background()); err == nil {
+		t.Fatal("StageLatest succeeded while the binary asset was missing")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requested) < 2 || requested[1] != "/sums" {
+		t.Fatalf("request order %v, want /sums fetched before the binary", requested)
 	}
 }
 

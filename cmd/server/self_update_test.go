@@ -11,8 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/therealtinhtute/llmhub/internal/updater"
 )
@@ -151,6 +153,22 @@ func TestUpdateCommandCheckAvailable(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte("update available: v9.9.9 (current v1.0.0)")) {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestUpdateCommandLogsAreTimestamped(t *testing.T) {
+	engine := updater.NewEngine(updateTestClient(t, "v9.9.9", nil), t.TempDir(), "v1.0.0")
+	var stdout, stderr bytes.Buffer
+	if code := runSelfUpdate([]string{"--check"}, &stdout, &stderr, engine); code != 0 {
+		t.Fatalf("exit %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	line := stdout.String()
+	space := strings.IndexByte(line, ' ')
+	if space <= 0 {
+		t.Fatalf("stdout has no timestamp prefix: %q", line)
+	}
+	if _, err := time.Parse(time.RFC3339, line[:space]); err != nil {
+		t.Fatalf("stdout prefix %q is not RFC 3339: %v", line[:space], err)
 	}
 }
 

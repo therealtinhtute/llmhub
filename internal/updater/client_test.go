@@ -53,6 +53,32 @@ func TestLatestReleaseRejectsNon200(t *testing.T) {
 	}
 }
 
+func TestLatestReleaseReportsRateLimit(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	_, err := testClient(t, srv).LatestRelease(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "rate limit") {
+		t.Fatalf("want rate-limit diagnostic, got %v", err)
+	}
+}
+
+func TestFetchAssetReportsRateLimit(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	err := testClient(t, srv).FetchAsset(context.Background(), srv.URL+"/bin", &buf)
+	if err == nil || !strings.Contains(err.Error(), "rate limit") {
+		t.Fatalf("want rate-limit diagnostic, got %v", err)
+	}
+}
+
 func TestLatestReleaseRejectsMalformedBody(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"tag_name":`))

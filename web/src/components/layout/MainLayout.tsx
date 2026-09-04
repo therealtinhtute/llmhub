@@ -310,7 +310,7 @@ export function MainLayout() {
       <Sidebar>
         <SidebarHeader className="border-b border-sidebar-border p-3">
           <div className="grid justify-items-start gap-1" title="LLMHub Management Center">
-            <img src={INLINE_LOGO_JPEG} alt="LLMHub logo" className="size-15 object-contain" />
+            <img src={INLINE_LOGO_JPEG} alt="LLMHub logo" className="size-14 object-contain drop-shadow-none" />
             <span className="truncate font-serif text-xl font-semibold italic text-sidebar-foreground">
               {t('title.abbr')}
             </span>

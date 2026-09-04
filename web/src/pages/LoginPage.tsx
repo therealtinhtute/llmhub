@@ -204,12 +204,12 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex">
       {/* 左侧品牌展示区 */}
-      <div className="flex-1 flex flex-col justify-center items-center bg-muted border-r border-border px-8 py-8 relative overflow-hidden max-md:hidden">
+      <div className="flex-1 flex flex-col justify-center items-center bg-[#0a0d12] border-r border-[#1c2128] px-8 py-8 relative overflow-hidden max-md:hidden">
         <div className="relative z-[1] flex flex-col items-end w-full">
           {BRAND_WORDS.map(({ word, finalOpacity }, index) => (
             <motion.span
               key={word}
-              className="text-[14vw] font-black text-foreground tracking-tight leading-[0.85] uppercase text-right"
+              className="text-[14vw] font-black text-white tracking-tight leading-[0.85] uppercase text-right"
               style={{ opacity: reduceMotion ? finalOpacity : 0 }}
               initial={reduceMotion ? false : { opacity: 0, x: 24 }}
               animate={{ opacity: finalOpacity, x: 0 }}
@@ -232,7 +232,7 @@ export function LoginPage() {
               exit={reduceMotion ? undefined : { opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
             >
-              <img src={INLINE_LOGO_JPEG} alt="LLMHUB" className="h-30 w-auto" />
+              <img src={INLINE_LOGO_JPEG} alt="LLMHUB" className="h-28 w-auto object-contain drop-shadow-none" />
               <h1 className="text-[28px] font-serif italic font-semibold text-foreground m-0 tracking-tight">{t('splash.title')}</h1>
               <p className="text-base font-medium text-muted-foreground m-0 -mt-2">{t('splash.subtitle')}</p>
               <div className="w-[120px] h-[3px] bg-border overflow-hidden rounded-full mt-4">
@@ -267,7 +267,7 @@ export function LoginPage() {
               transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
             >
             {/* Logo */}
-            <img src={INLINE_LOGO_JPEG} alt="Logo" className="w-20 h-20 object-cover shadow-lg border-[3px] border-border" />
+            <img src={INLINE_LOGO_JPEG} alt="Logo" className="w-20 h-20 object-contain drop-shadow-none border-0" />
 
             {/* 登录表单卡片 */}
             <div className="w-full bg-card border border-border shadow-lg p-6 flex flex-col gap-4 max-md:p-4 max-md:shadow-none max-md:border-0 max-md:bg-transparent">

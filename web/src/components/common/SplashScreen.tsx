@@ -36,7 +36,7 @@ export function SplashScreen({ onFinish, fadeOut = false }: SplashScreenProps) {
         <img
           src={INLINE_LOGO_JPEG}
           alt="LLMHUB"
-          className="h-20 w-auto shadow-lg"
+          className="h-20 w-auto object-contain drop-shadow-none"
         />
         <h1 className="text-[28px] font-extrabold text-foreground m-0 tracking-[-0.5px]">
           {t('splash.title')}

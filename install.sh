@@ -256,12 +256,11 @@ main() {
         HOST="${LLMHUB_HOST:-0.0.0.0}"
 
         # Interactive Postgres prompt if terminal is attached and PGSTORE_DSN is unset
-        if [ -z "$PG_DSN" ] && [ -t 0 ]; then
-            printf "\nEnter PostgreSQL connection DSN (e.g. postgresql://user:pass@host:5432/llmhub) or press Enter to skip: "
+        if [ -z "$PG_DSN" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+            printf "\nEnter PostgreSQL connection DSN (e.g. postgresql://user:pass@host:5432/llmhub) or press Enter to skip: " >/dev/tty
             read -r PG_DSN_INPUT </dev/tty || PG_DSN_INPUT=""
             PG_DSN="$(printf '%s' "$PG_DSN_INPUT" | tr -d ' \n')"
         fi
-
         cat > "$ENV_FILE" << EOF
 # LLMHub Configuration
 # Target Directory: ${TARGET_DIR}

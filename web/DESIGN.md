@@ -70,11 +70,11 @@ These tokens provide consistent state coloring across all pages, badges, and ale
 
 ## Typography
 
-- **Primary Sans (`--font-sans`)**: `'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui`
+- **Primary Sans (`--font-sans`)**: `Archivo, ui-sans-serif, sans-serif, system-ui`
   - Used for all interface chrome, headings, navigation, form inputs, buttons, and standard labels.
-- **Display Serif (`--font-serif`)**: `'Xanh Mono', Lora, ui-serif, serif`
+- **Display Serif (`--font-serif`)**: `'Xanh Mono', ui-monospace, monospace`
   - Used strictly for brand title accents (logo abbreviation and top splash heading). Never used for form labels, table cells, or body text.
-- **Monospace (`--font-mono`)**: `'Google Sans Code', 'Geist Mono', ui-monospace, monospace`
+- **Monospace (`--font-mono`)**: `'Google Sans Code', ui-monospace, monospace`
   - Used for API keys, model identifiers, endpoints, HTTP status codes, numbers, and YAML/JSON code editors.
 
 ### Scale & Hierarchy

@@ -39,9 +39,9 @@
   --sidebar-accent-foreground: oklch(0.3917 0.0748 236.0547);
   --sidebar-border: oklch(0.9219 0 0);
   --sidebar-ring: oklch(0.3917 0.0748 236.0547);
-  --font-sans: 'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: 'Xanh Mono', Lora, ui-serif, serif;
-  --font-mono: 'Google Sans Code', 'Geist Mono', ui-monospace, monospace;
+  --font-sans: Archivo, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: 'Xanh Mono', ui-monospace, monospace;
+  --font-mono: 'Google Sans Code', ui-monospace, monospace;
   --radius: 0.3rem;
   --shadow-x: 0;
   --shadow-y: 0px;
@@ -98,9 +98,9 @@
   --sidebar-accent-foreground: oklch(0.8074 0.0142 93.0137);
   --sidebar-border: oklch(0.9401 0 0);
   --sidebar-ring: oklch(0.7731 0 0);
-  --font-sans: 'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui;
-  --font-serif: 'Xanh Mono', Lora, ui-serif, serif;
-  --font-mono: 'Google Sans Code', 'Geist Mono', ui-monospace, monospace;
+  --font-sans: Archivo, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: 'Xanh Mono', ui-monospace, monospace;
+  --font-mono: 'Google Sans Code', ui-monospace, monospace;
   --radius: 0.3rem;
   --shadow-x: 0;
   --shadow-y: 0px;
@@ -156,9 +156,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --font-sans: 'Bricolage Grotesque', Geist, ui-sans-serif, sans-serif, system-ui;
-  --font-mono: 'Google Sans Code', 'Geist Mono', ui-monospace, monospace;
-  --font-serif: 'Xanh Mono', Lora, ui-serif, serif;
+  --font-sans: Archivo, ui-sans-serif, sans-serif, system-ui;
+  --font-mono: 'Google Sans Code', ui-monospace, monospace;
+  --font-serif: 'Xanh Mono', ui-monospace, monospace;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

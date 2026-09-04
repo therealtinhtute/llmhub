@@ -605,36 +605,36 @@ export function QuotaMonitoringPage() {
         className="w-full flex-1 flex flex-col space-y-4"
       >
         <div className="flex items-end justify-between border-b border-border">
-          <TabsList className="flex items-center justify-start gap-1 p-0 bg-transparent overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="flex justify-start items-start gap-0 p-0 bg-transparent overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1 min-w-0">
             <TabsTrigger
               value="states"
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-muted-foreground border-b-2 border-transparent transition-colors data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
             >
-              <Activity className="h-3.5 w-3.5" />
-              <span>{t('quota_monitoring.tab_states', { defaultValue: 'Live States' })}</span>
-              <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
-                {states.length}
+              <span className="inline-flex items-center gap-1.5">
+                <Activity className="h-4 w-4 shrink-0" />
+                <span>{t('quota_monitoring.tab_states', { defaultValue: 'Live States' })}</span>
               </span>
+              <span className={styles.tabCountBadge}>{states.length}</span>
             </TabsTrigger>
             <TabsTrigger
               value="settings"
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-muted-foreground border-b-2 border-transparent transition-colors data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
             >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              <span>{t('quota_monitoring.tab_settings', { defaultValue: 'Alerts & Channels' })}</span>
-              {dirty && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+              <span className="inline-flex items-center gap-1.5">
+                <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                <span>{t('quota_monitoring.tab_settings', { defaultValue: 'Alerts & Channels' })}</span>
+              </span>
+              {dirty && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
             </TabsTrigger>
             <TabsTrigger
               value="events"
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-muted-foreground border-b-2 border-transparent transition-colors data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
+              className="px-3 gap-1.5 text-muted-foreground border-b-4 border-transparent transition-colors duration-150 data-[state=active]:border-primary data-[state=active]:text-primary hover:text-foreground"
             >
-              <History className="h-3.5 w-3.5" />
-              <span>{t('quota_monitoring.tab_events', { defaultValue: 'Event History' })}</span>
-              {events.length > 0 && (
-                <span className="ml-1 rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
-                  {events.length}
-                </span>
-              )}
+              <span className="inline-flex items-center gap-1.5">
+                <History className="h-4 w-4 shrink-0" />
+                <span>{t('quota_monitoring.tab_events', { defaultValue: 'Event History' })}</span>
+              </span>
+              {events.length > 0 && <span className={styles.tabCountBadge}>{events.length}</span>}
             </TabsTrigger>
           </TabsList>
         </div>

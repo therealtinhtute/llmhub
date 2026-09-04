@@ -43,7 +43,7 @@ This installs LLMHub cleanly into `/opt/llmhub` (all-in-one directory containing
 curl -fsSL https://raw.githubusercontent.com/therealtinhtute/llmhub/master/install.sh | LLMHUB_DIR=/opt/llmhub sudo -E bash
 ```
 
-Point your AI coding tool at `http://SERVER_IP:8317/v1`. The management panel is at `http://SERVER_IP:8317/management.html` (configure `remote-management.secret-key` and `remote-management.allow-remote` before exposing beyond localhost).
+Point your AI coding tool at `http://SERVER_IP:9090/v1`. The management panel is at `http://SERVER_IP:9090/management.html` (configure `remote-management.secret-key` and `remote-management.allow-remote` before exposing beyond localhost).
 
 ### Local binary VPS install
 

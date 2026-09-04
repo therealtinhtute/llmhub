@@ -249,7 +249,7 @@ main() {
     if [ ! -f "$ENV_FILE" ]; then
         log_info "Creating default environment configuration: ${ENV_FILE}"
 
-        PORT="${LLMHUB_PORT:-8317}"
+        PORT="${LLMHUB_PORT:-9090}"
         HOST="${LLMHUB_HOST:-0.0.0.0}"
         PG_DSN="${PGSTORE_DSN:-}"
         SCHEMA="${PGSTORE_SCHEMA:-llmhub}"
@@ -262,7 +262,7 @@ main() {
 
             # 1. Server Port
             if [ -z "${LLMHUB_PORT:-}" ]; then
-                printf "Server Port [default: 8317]: " >/dev/tty
+                printf "Server Port [default: 9090]: " >/dev/tty
                 read -r PORT_INPUT </dev/tty || PORT_INPUT=""
                 PORT_INPUT="$(printf '%s' "$PORT_INPUT" | tr -d ' \n')"
                 [ -n "$PORT_INPUT" ] && PORT="$PORT_INPUT"
@@ -382,7 +382,7 @@ EOF
     fi
 
     # Read final configuration for summary
-    PORT="$(read_env_value "$ENV_FILE" LLMHUB_PORT || echo "8317")"
+    PORT="$(read_env_value "$ENV_FILE" LLMHUB_PORT || echo "9090")"
     MGMT_PASS="$(read_env_value "$ENV_FILE" MANAGEMENT_PASSWORD || echo "(check ${ENV_FILE})")"
     SERVER_IP="$(get_server_ip)"
 

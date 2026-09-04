@@ -316,6 +316,22 @@ When you need the request/response shape of a specific backend family, use the p
 
 These routes help you select the protocol surface, but they do not by themselves guarantee a unique inference executor when the same client-visible model name is reused across multiple backends. Inference routing is still resolved from the request model/alias. For strict backend pinning, use unique aliases, prefixes, or otherwise avoid overlapping client-visible model names.
 
+## Credits & Acknowledgements
+
+LLMHub did not start from scratch. It builds on ideas and, in parts, on code
+forked from two excellent open-source projects:
+
+- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) — the original
+  CLI proxy architecture this project grew out of. Large parts of the core
+  proxy, provider/auth model, and the embeddable Go SDK (`sdk/cliproxy`)
+  trace back to it.
+- [9router](https://github.com/decolua/9router) — the source of inspiration
+  for cross-provider routing, capability-aware model selection, and free/cheap
+  upstream provider concepts ported into LLMHub.
+
+Both projects are deeply appreciated — please check them out if LLMHub does
+not fit your needs.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

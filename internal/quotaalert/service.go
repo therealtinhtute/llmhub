@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -240,12 +242,18 @@ func (s *Service) run(ctx context.Context, done chan<- struct{}) {
 		case <-ctx.Done():
 			return
 		case <-s.wake:
-			_ = s.RunCollectionOnce(ctx)
+			if err := s.RunCollectionOnce(ctx); err != nil {
+				log.WithError(err).Error("quota alert: collection cycle failed")
+			}
 		case <-pollTimer.C:
-			_ = s.RunCollectionOnce(ctx)
+			if err := s.RunCollectionOnce(ctx); err != nil {
+				log.WithError(err).Error("quota alert: collection cycle failed")
+			}
 			resetTimer(pollTimer, s.pollInterval)
 		case <-deliveryTimer.C:
-			_ = s.DeliverNotificationsOnce(ctx)
+			if err := s.DeliverNotificationsOnce(ctx); err != nil {
+				log.WithError(err).Error("quota alert: notification delivery cycle failed")
+			}
 			resetTimer(deliveryTimer, s.deliveryInterval)
 		}
 	}
@@ -423,12 +431,16 @@ func (s *Service) collectObservations(ctx context.Context, auths []AuthSnapshot,
 func (s *Service) collectAuthObservations(ctx context.Context, auth AuthSnapshot, previous []CurrentState) ([]Observation, bool) {
 	collector, err := s.collectorRegistry.Collector(auth.Provider(), s.collectorDeps)
 	if err != nil {
+		log.WithError(err).WithFields(log.Fields{"provider": auth.Provider(), "auth_id": auth.AuthID()}).
+			Warn("quota alert: no collector for provider")
 		return s.unknownObservations(auth, previous), true
 	}
 	collectionCtx, cancel := context.WithTimeout(ctx, s.collectionTimeout)
 	defer cancel()
 	collected, err := collector.Collect(collectionCtx, auth)
 	if err != nil {
+		log.WithError(err).WithFields(log.Fields{"provider": auth.Provider(), "auth_id": auth.AuthID()}).
+			Warn("quota alert: collector failed")
 		return s.unknownObservations(auth, previous), true
 	}
 	return collected, false

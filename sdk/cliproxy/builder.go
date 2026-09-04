@@ -342,6 +342,7 @@ func (b *Builder) Build() (*Service, error) {
 		coreManager:           coreManager,
 		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
 		managementConfigStore: b.managementConfigStore,
+		runtimeSettingsStore:  b.runtimeSettingsStore,
 		runtimeStoragePolicy:  b.runtimeStoragePolicy,
 		quotaAlertStore:       b.quotaAlertStore,
 		quotaAlertCipher:      b.quotaAlertCipher,

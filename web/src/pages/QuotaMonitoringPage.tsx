@@ -807,7 +807,7 @@ export function QuotaMonitoringPage() {
                   <span>{t('quota_monitoring.telegram_title', { defaultValue: 'Telegram destination' })}</span>
                 </div>
               }
-              className="flex flex-col justify-between"
+              className="flex flex-col"
             >
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
@@ -934,20 +934,36 @@ export function QuotaMonitoringPage() {
                   <span>{t('quota_monitoring.settings_title', { defaultValue: 'Alert settings' })}</span>
                 </div>
               }
-              className="flex flex-col justify-between"
+              className="flex flex-col"
             >
-              <div className="space-y-4">
-                <ToggleSwitch
-                  checked={activeSettings.enabled}
-                  onChange={(enabled) => updateSettings({ enabled })}
-                  label={t('quota_monitoring.enabled', { defaultValue: 'Enable quota monitoring daemon' })}
-                />
-                <ToggleSwitch
-                  checked={activeSettings.notifyRecovery}
-                  onChange={(notifyRecovery) => updateSettings({ notifyRecovery })}
-                  label={t('quota_monitoring.notify_recovery', { defaultValue: 'Notify on quota recovery' })}
-                />
-                <div className="grid gap-4 sm:grid-cols-2 pt-2">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between py-1 border-b border-border/50 pb-3">
+                  <div className="flex flex-col pr-4">
+                    <span className="text-xs font-medium text-foreground">
+                      {t('quota_monitoring.enabled', { defaultValue: 'Enable quota monitoring daemon' })}
+                    </span>
+                  </div>
+                  <ToggleSwitch
+                    checked={activeSettings.enabled}
+                    onChange={(enabled) => updateSettings({ enabled })}
+                    ariaLabel="Enable quota monitoring daemon"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between py-1 border-b border-border/50 pb-3">
+                  <div className="flex flex-col pr-4">
+                    <span className="text-xs font-medium text-foreground">
+                      {t('quota_monitoring.notify_recovery', { defaultValue: 'Notify on quota recovery' })}
+                    </span>
+                  </div>
+                  <ToggleSwitch
+                    checked={activeSettings.notifyRecovery}
+                    onChange={(notifyRecovery) => updateSettings({ notifyRecovery })}
+                    ariaLabel="Notify on quota recovery"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 pt-1">
                   <FormInput
                     id="quota-poll-interval"
                     type="number"
@@ -1085,23 +1101,22 @@ export function QuotaMonitoringPage() {
         </TabsContent>
 
         {/* Tab 3: Event History */}
-        <TabsContent value="events" className="space-y-4 outline-none">
-          <Card
-            title={
-              <div className="flex items-center justify-between">
+        <TabsContent value="events" className="outline-none flex-1 flex flex-col min-h-[calc(100vh-280px)]">
+          <Card className="flex-1 flex flex-col p-5 border border-border min-h-[calc(100vh-280px)]">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3 mb-4">
+              <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" />
                 <span>{t('quota_monitoring.events_title', { defaultValue: 'Recent events' })}</span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {t('quota_monitoring.delivery_note', {
-                    defaultValue: 'Telegram delivery uses the durable outbox; this API exposes in-app acknowledgement state.',
-                  })}
-                </span>
-              </div>
-            }
-            className="p-0 overflow-hidden"
-          >
+              </h3>
+              <span className="text-xs text-muted-foreground">
+                {t('quota_monitoring.delivery_note', {
+                  defaultValue: 'Telegram delivery uses the durable outbox; this API exposes in-app acknowledgement state.',
+                })}
+              </span>
+            </div>
             {events.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <History className="h-8 w-8 text-muted-foreground/60 mb-2" />
+              <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
+                <History className="h-10 w-10 text-muted-foreground/40 mb-3" />
                 <p className="text-sm font-medium text-foreground">
                   {t('quota_monitoring.empty_events', { defaultValue: 'No alert events yet.' })}
                 </p>

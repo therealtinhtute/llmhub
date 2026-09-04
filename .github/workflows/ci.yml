@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build web panel
+        run: |
+          cd web
+          bun install
+          bun run build
+
+      - name: Embed web panel
+        run: |
+          mkdir -p internal/managementasset/static
+          cp web/dist/index.html internal/managementasset/static/management.html
+
+      - name: Build
+        run: go build ./...

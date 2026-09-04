@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/updater"
@@ -45,12 +46,28 @@ func canonicalVersion(v string) string {
 	return v
 }
 
+// stampedWriter prefixes every Write with an RFC 3339 timestamp. It wraps
+// only the update command's output; `version` output must stay byte-exact
+// because the updater probe compares it.
+type stampedWriter struct {
+	w io.Writer
+}
+
+func (s stampedWriter) Write(p []byte) (int, error) {
+	return s.w.Write(append([]byte(time.Now().Format(time.RFC3339)+" "), p...))
+}
+
 // runSelfUpdate implements `llmhub update [--check | rollback]` (R1).
 // Without --check it discovers, verifies, probes, and stages the latest stable
 // release into ${DATA_DIR}/update/; with --check it only reports availability.
 // `update rollback` restores <target>.previous (root only). Staging never
-// touches the installed target. Exit 0 success, 1 failure, 2 usage.
+// touches the installed target. Every update log line is prefixed with a
+// timestamp so operator actions are traceable; `version` stays deterministic
+// because the updater probe compares its exact stdout. Exit 0 success,
+// 1 failure, 2 usage.
 func runSelfUpdate(args []string, stdout, stderr io.Writer, engine *updater.Engine) int {
+	stdout = stampedWriter{w: stdout}
+	stderr = stampedWriter{w: stderr}
 	if len(args) > 0 && args[0] == "rollback" {
 		return updater.RollbackEntry(args[1:], stdout, stderr, newApplyConfig())
 	}

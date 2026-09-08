@@ -551,7 +551,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		if len(payload) == 0 {
 			continue
 		}
-		helps.AppendAPIWebsocketResponse(ctx, e.cfg, payload)
+		helps.AppendCodexAPIWebsocketResponse(ctx, e.cfg, payload)
 
 		if wsErr, ok := parseCodexWebsocketError(payload); ok {
 			if sess != nil {
@@ -836,7 +836,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			if len(payload) == 0 {
 				continue
 			}
-			helps.AppendAPIWebsocketResponse(ctx, e.cfg, payload)
+			helps.AppendCodexAPIWebsocketResponse(ctx, e.cfg, payload)
 
 			if wsErr, ok := parseCodexWebsocketError(payload); ok {
 				terminateReason = "upstream_error"

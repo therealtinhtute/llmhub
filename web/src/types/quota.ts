@@ -47,25 +47,29 @@ export interface GeminiCliCodeAssistPayload {
   paid_tier?: GeminiCliUserTier | null;
 }
 
-export interface AntigravityQuotaInfo {
+export interface AntigravityQuotaSummaryBucketPayload {
+  bucketId?: string;
+  bucket_id?: string;
   displayName?: string;
-  quotaInfo?: {
-    remainingFraction?: number | string;
-    remaining_fraction?: number | string;
-    remaining?: number | string;
-    resetTime?: string;
-    reset_time?: string;
-  };
-  quota_info?: {
-    remainingFraction?: number | string;
-    remaining_fraction?: number | string;
-    remaining?: number | string;
-    resetTime?: string;
-    reset_time?: string;
-  };
+  display_name?: string;
+  window?: string;
+  resetTime?: string;
+  reset_time?: string;
+  remainingFraction?: number | string;
+  remaining_fraction?: number | string;
+  description?: string;
 }
 
-export type AntigravityModelsPayload = Record<string, AntigravityQuotaInfo>;
+export interface AntigravityQuotaSummaryGroupPayload {
+  displayName?: string;
+  display_name?: string;
+  description?: string;
+  buckets?: AntigravityQuotaSummaryBucketPayload[];
+}
+
+export interface AntigravityQuotaSummaryPayload {
+  groups?: AntigravityQuotaSummaryGroupPayload[];
+}
 
 export interface AntigravityQuotaGroupDefinition {
   id: string;
@@ -122,6 +126,8 @@ export interface CodexAdditionalRateLimit {
 export interface CodexRateLimitResetCredits {
   available_count?: number | string;
   availableCount?: number | string;
+  applicable_available_count?: number | string;
+  applicableAvailableCount?: number | string;
 }
 
 export interface CodexRateLimitResetCredit {
@@ -157,6 +163,20 @@ export interface ClaudeExtraUsage {
   utilization: number | null;
 }
 
+export interface ClaudeUsageLimit {
+  kind?: string | null;
+  group?: string | null;
+  percent?: number | null;
+  resets_at?: string | null;
+  is_active?: boolean | null;
+  scope?: {
+    model?: {
+      id?: string | null;
+      display_name?: string | null;
+    } | null;
+  } | null;
+}
+
 export interface ClaudeUsagePayload {
   five_hour?: ClaudeUsageWindow | null;
   seven_day?: ClaudeUsageWindow | null;
@@ -165,6 +185,7 @@ export interface ClaudeUsagePayload {
   seven_day_sonnet?: ClaudeUsageWindow | null;
   seven_day_cowork?: ClaudeUsageWindow | null;
   iguana_necktie?: ClaudeUsageWindow | null;
+  limits?: ClaudeUsageLimit[] | null;
   extra_usage?: ClaudeExtraUsage | null;
 }
 
@@ -196,6 +217,8 @@ export interface ClaudeQuotaWindow {
   labelKey?: string;
   usedPercent: number | null;
   resetLabel: string;
+  resetAtMs?: number | null;
+  periodHours?: number | null;
 }
 
 export interface ClaudeQuotaState {
@@ -208,17 +231,35 @@ export interface ClaudeQuotaState {
 }
 
 // Quota state types
+export interface AntigravityQuotaBucket {
+  id: string;
+  label: string;
+  window?: string;
+  remainingFraction: number;
+  resetTime?: string;
+  description?: string;
+  resetAtMs?: number | null;
+  periodHours?: number | null;
+}
+
 export interface AntigravityQuotaGroup {
   id: string;
   label: string;
-  models: string[];
-  remainingFraction: number;
-  resetTime?: string;
+  description?: string;
+  buckets: AntigravityQuotaBucket[];
+}
+
+export interface AntigravityQuotaSubscription {
+  plan: string | null;
+  tierName: string | null;
+  tierId: string | null;
 }
 
 export interface AntigravityQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   groups: AntigravityQuotaGroup[];
+  subscription?: AntigravityQuotaSubscription | null;
+  serverTimeOffsetMs?: number | null;
   error?: string;
   errorStatus?: number;
 }
@@ -250,13 +291,17 @@ export interface CodexQuotaWindow {
   labelParams?: Record<string, string | number>;
   usedPercent: number | null;
   resetLabel: string;
+  resetAtMs?: number | null;
+  periodHours?: number | null;
 }
 
 export interface CodexQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   windows: CodexQuotaWindow[];
   planType?: string | null;
+  subscriptionActiveUntil?: string | number | null;
   rateLimitResetCreditsAvailableCount?: number | null;
+  rateLimitResetCreditsApplicableAvailableCount?: number | null;
   rateLimitResetCredits?: CodexRateLimitResetCredit[];
   rateLimitResetCreditsError?: string;
   error?: string;
@@ -432,16 +477,43 @@ export interface XaiBillingCent {
   val?: number | string;
 }
 
+export type XaiBillingPeriodType = 'weekly' | 'monthly' | 'unknown';
+
+export interface XaiBillingPeriod {
+  type?: string;
+  start?: string;
+  end?: string;
+}
+
+export interface XaiBillingProductUsage {
+  product?: string;
+  usagePercent?: number | string | null;
+  usage_percent?: number | string | null;
+}
+
 export interface XaiBillingConfig {
+  currentPeriod?: XaiBillingPeriod | null;
+  current_period?: XaiBillingPeriod | null;
+  creditUsagePercent?: number | string | null;
+  credit_usage_percent?: number | string | null;
+  productUsage?: XaiBillingProductUsage[] | null;
+  product_usage?: XaiBillingProductUsage[] | null;
   monthlyLimit?: XaiBillingCent | number | string | null;
   monthly_limit?: XaiBillingCent | number | string | null;
   used?: XaiBillingCent | number | string | null;
   onDemandCap?: XaiBillingCent | number | string | null;
   on_demand_cap?: XaiBillingCent | number | string | null;
+  onDemandUsed?: XaiBillingCent | number | string | null;
+  on_demand_used?: XaiBillingCent | number | string | null;
   billingPeriodStart?: string;
   billing_period_start?: string;
   billingPeriodEnd?: string;
   billing_period_end?: string;
+}
+
+export interface XaiProductUsageSummary {
+  product: string;
+  usagePercent: number | null;
 }
 
 export interface XaiBillingPayload {
@@ -449,14 +521,29 @@ export interface XaiBillingPayload {
 }
 
 export interface XaiBillingSummary {
+  mode: 'billing' | 'paid-health';
+  source?: 'cli-chat-proxy' | 'api.x.ai-fallback';
+  planType?: 'paid';
+  healthStatus?: 'chat-ok';
+  userId?: string;
+  teamId?: string;
+  periodType: XaiBillingPeriodType;
+  usagePercent: number | null;
+  usedPercent?: number | null;
+  periodStart?: string;
+  periodEnd?: string;
+  productUsage?: XaiProductUsageSummary[];
   monthlyLimitCents: number | null;
   usedCents: number | null;
+  includedUsedCents?: number | null;
   onDemandCapCents: number | null;
+  onDemandUsedCents?: number | null;
+  onDemandUsedPercent?: number | null;
   billingPeriodStart?: string;
   billingPeriodEnd?: string;
-  usedPercent: number | null;
+  resetAtMs?: number | null;
+  periodHours?: number | null;
 }
-
 export interface XaiQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   billing: XaiBillingSummary | null;

@@ -14,3 +14,4 @@ export * from './transformers';
 export * from './vertex';
 export * from './quotaAlerts';
 export * from './runtimeControls';
+export * from './antigravitySubscription';

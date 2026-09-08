@@ -95,6 +95,8 @@ export const quotaStyles = {
     'shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-foreground hover:not-disabled:bg-muted disabled:cursor-not-allowed disabled:opacity-55',
   premiumPlanValue:
     'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-warning/12 border border-warning/30 text-warning capitalize',
+  elitePlanValue:
+    'inline-flex items-center font-bold text-[12px] px-2 py-[2px] bg-sky-500/15 border border-sky-500/40 text-sky-400 capitalize',
   kiroInfoRow:
     'flex items-center justify-between gap-2 text-[12px] text-muted-foreground min-w-0',
   kiroInfoValue: 'flex items-center gap-1.5 min-w-0 justify-end',

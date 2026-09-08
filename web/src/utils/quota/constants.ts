@@ -56,10 +56,24 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
 
 // Antigravity API configuration
 export const ANTIGRAVITY_QUOTA_URLS = [
-  'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
-  'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
-  'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+  'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary',
+  'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
 ];
+
+export const ANTIGRAVITY_CODE_ASSIST_URL =
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist';
+
+export const ANTIGRAVITY_GROUP_LABEL_KEYS: Record<string, string> = {
+  'gemini models': 'group_gemini_models',
+  'claude and gpt models': 'group_claude_gpt_models',
+};
+
+export const ANTIGRAVITY_BUCKET_LABEL_KEYS: Record<string, string> = {
+  '5 hour limit': 'five_hour_limit',
+  'daily limit': 'daily_limit',
+  'weekly limit': 'weekly_limit',
+};
 
 export const ANTIGRAVITY_REQUEST_HEADERS = {
   Authorization: 'Bearer $TOKEN$',
@@ -178,7 +192,7 @@ export const CLAUDE_USAGE_WINDOW_KEYS = [
   { key: 'seven_day_opus', id: 'seven-day-opus', labelKey: 'claude_quota.seven_day_opus' },
   { key: 'seven_day_sonnet', id: 'seven-day-sonnet', labelKey: 'claude_quota.seven_day_sonnet' },
   { key: 'seven_day_cowork', id: 'seven-day-cowork', labelKey: 'claude_quota.seven_day_cowork' },
-  { key: 'iguana_necktie', id: 'iguana-necktie', labelKey: 'claude_quota.iguana_necktie' },
+  { key: 'iguana_necktie', id: 'seven-day-fable', labelKey: 'claude_quota.seven_day_fable' },
 ] as const;
 
 // Codex API configuration
@@ -205,7 +219,18 @@ export const KIMI_REQUEST_HEADERS = {
 
 // xAI/Grok API configuration
 export const XAI_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing';
+export const XAI_BILLING_WEEKLY_URL =
+  'https://cli-chat-proxy.grok.com/v1/billing?format=credits';
+export const XAI_BILLING_MONTHLY_URL = 'https://cli-chat-proxy.grok.com/v1/billing';
+export const XAI_API_ME_URL = 'https://api.x.ai/v1/me';
+export const XAI_API_CHAT_URL = 'https://api.x.ai/v1/chat/completions';
+export const XAI_PAID_HEALTH_MODEL = 'grok-4.5';
+export const XAI_API_REQUEST_HEADERS = {
+  Accept: 'application/json',
+  'Content-Type': 'application/json',
+};
 
 export const XAI_REQUEST_HEADERS = {
   Authorization: 'Bearer $TOKEN$',
+  'Content-Type': 'application/json',
 };

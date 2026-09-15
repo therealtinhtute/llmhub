@@ -10,11 +10,11 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/auth/codex"
 	"github.com/therealtinhtute/llmhub/internal/browser"
 	// legacy client removed
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/misc"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 )
 
 // CodexAuthenticator implements the OAuth login flow for Codex accounts.
@@ -31,8 +31,10 @@ func (a *CodexAuthenticator) Provider() string {
 	return "codex"
 }
 
+// RefreshLead returns the duration before access-token expiry when refresh should occur.
+// Upstream 9812b1e76872 reduced the Codex lead from five days to 24 hours.
 func (a *CodexAuthenticator) RefreshLead() *time.Duration {
-	return new(5 * 24 * time.Hour)
+	return new(24 * time.Hour)
 }
 
 func (a *CodexAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *LoginOptions) (*coreauth.Auth, error) {

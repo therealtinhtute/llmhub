@@ -819,6 +819,7 @@ func (p *providerScheduler) ensureModelLocked(modelKey string, now time.Time) *m
 	modelKey = canonicalModelKey(modelKey)
 	if shard, ok := p.modelShards[modelKey]; ok && shard != nil {
 		shard.promoteExpiredLocked(now)
+		shard.demoteExpiredTokensLocked(now)
 		return shard
 	}
 	shard := &modelScheduler{
@@ -936,6 +937,29 @@ func (m *modelScheduler) promoteExpiredLocked(now time.Time) {
 			entry.nextRetryAt = next
 		}
 		changed = true
+	}
+	if changed {
+		m.rebuildIndexesLocked()
+	}
+}
+
+// demoteExpiredTokensLocked moves ready auths whose access token has expired out of the
+// ready views so scheduling no longer returns them until a refresh renews the token.
+// Ported from upstream CLIProxyAPI commit 9812b1e76872 (scheduler demotion).
+func (m *modelScheduler) demoteExpiredTokensLocked(now time.Time) {
+	if m == nil || len(m.entries) == 0 {
+		return
+	}
+	changed := false
+	for _, entry := range m.entries {
+		if entry == nil || entry.auth == nil || entry.state != scheduledStateReady {
+			continue
+		}
+		if exp, ok := entry.auth.AccessTokenExpirationTime(); ok && !exp.IsZero() && !exp.After(now) {
+			entry.state = scheduledStateBlocked
+			entry.nextRetryAt = time.Time{}
+			changed = true
+		}
 	}
 	if changed {
 		m.rebuildIndexesLocked()

@@ -19,6 +19,13 @@ const ErrorCodeConnectionLifecycle = "connection_lifecycle"
 
 const connectionLifecycleErrorCode = ErrorCodeConnectionLifecycle
 
+// ErrorCodeTransientTransport marks pre-HTTP dial/TLS/DNS/reset failures that
+// must skip credential cooldown and remain eligible for request-retry rounds.
+// Ported from upstream CLIProxyAPI commit bef1f65c6c1d.
+const ErrorCodeTransientTransport = "transient_transport"
+
+const transientTransportErrorCode = ErrorCodeTransientTransport
+
 // ErrorCodeForceCooldown marks failures that must enforce credential cooldown
 // even when disable-cooling is configured.
 const ErrorCodeForceCooldown = "force_cooldown"

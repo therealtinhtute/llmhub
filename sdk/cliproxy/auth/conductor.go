@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -310,6 +313,16 @@ type Manager struct {
 	cooldownStateStore CooldownStateStore
 
 	requestPrepareLocks sync.Map
+	// refreshLocks serializes credential refresh per auth ID so concurrent
+	// 401 recoveries and auto-refresh workers do not race the same refresh_token.
+	// Ported from upstream CLIProxyAPI (conductor.go).
+	refreshLocks sync.Map
+	// persistLocks serializes disk persistence per auth ID and guards against out-of-order writes.
+	// Ported from upstream CLIProxyAPI commit 4c1bebe837a6.
+	persistLocks sync.Map
+	// authEpochs tracks the latest registration epoch per auth ID so stale updates
+	// from a previous registration cycle are rejected (upstream 4c1bebe837a6).
+	authEpochs map[string]uint64
 }
 
 // NewManager constructs a manager with optional custom selector and hook.
@@ -331,6 +344,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		homeSessionSelections: make(map[string]map[homeSessionSelectionKey]*HomeDispatchSelection),
 		providerOffsets:       make(map[string]int),
 		modelPoolOffsets:      make(map[string]int),
+		authEpochs:            make(map[string]uint64),
 	}
 	manager.comboResolver = NewComboResolver()
 	// atomic.Value requires non-nil initial value.
@@ -1826,10 +1840,30 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
+	now := time.Now()
+	if auth.Generation == 0 {
+		auth.Generation = 1
+	}
+	if auth.CreatedAt.IsZero() {
+		auth.CreatedAt = now
+	}
+	auth.UpdatedAt = now
 	normalizeModelStates(auth)
 	auth.EnsureIndex()
-	authClone := auth.Clone()
 	m.mu.Lock()
+	if m.authEpochs == nil {
+		m.authEpochs = make(map[string]uint64)
+	}
+	if existing, exists := m.auths[auth.ID]; exists && existing != nil && existing.RegistrationEpoch > m.authEpochs[auth.ID] {
+		m.authEpochs[auth.ID] = existing.RegistrationEpoch
+	}
+	if auth.RegistrationEpoch > m.authEpochs[auth.ID] {
+		m.authEpochs[auth.ID] = auth.RegistrationEpoch
+	}
+	m.authEpochs[auth.ID]++
+	auth.RegistrationEpoch = m.authEpochs[auth.ID]
+	auth.Generation = 1
+	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone
 	m.mu.Unlock()
 	m.rebuildAPIKeyModelAliasFromRuntimeConfig()
@@ -1844,13 +1878,83 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	return auth.Clone(), nil
 }
 
+// updateAuthMode selects how updateInternal reconciles an incoming auth with
+// the currently registered runtime state.
+// Ported from upstream CLIProxyAPI commit 4c1bebe837a6.
+type updateAuthMode int
+
+const (
+	updateModeReplace updateAuthMode = iota
+	updateModeRefresh
+	updateModePrepare
+)
+
+// UpdatePreparedAuth atomically merges request preparation results into the latest runtime auth
+// under the manager lock, preserving concurrent modifications without modifying refresh lifecycle fields.
+// Ported from upstream CLIProxyAPI commit 4c1bebe837a6.
+func (m *Manager) UpdatePreparedAuth(ctx context.Context, base, updated *Auth) (*Auth, error) {
+	return m.updateInternal(ctx, base, updated, updateModePrepare)
+}
+
+// UpdateRefreshedAuth atomically merges refresh results into the latest runtime auth
+// under the manager lock, preserving concurrent modifications (proxy_url, notes, weights, etc.).
+// Ported from upstream CLIProxyAPI commit 4c1bebe837a6.
+func (m *Manager) UpdateRefreshedAuth(ctx context.Context, base, updated *Auth) (*Auth, error) {
+	return m.updateInternal(ctx, base, updated, updateModeRefresh)
+}
+
 // Update replaces an existing auth entry and notifies hooks.
 func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+	return m.updateInternal(ctx, nil, auth, updateModeReplace)
+}
+
+func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode updateAuthMode) (*Auth, error) {
 	if auth == nil || auth.ID == "" {
 		return nil, nil
 	}
+	NormalizeCredentialMetadata(auth.Metadata)
 	m.mu.Lock()
-	if existing, ok := m.auths[auth.ID]; ok && existing != nil {
+	existing, hasExisting := m.auths[auth.ID]
+	if hasExisting && existing == nil {
+		hasExisting = false
+	}
+	// Merge modes reconcile an executor-produced snapshot against the current
+	// runtime state; without a registered auth there is nothing to merge into.
+	if !hasExisting && mode != updateModeReplace {
+		m.mu.Unlock()
+		return nil, nil
+	}
+	if m.authEpochs == nil {
+		m.authEpochs = make(map[string]uint64)
+	}
+	if hasExisting && existing.RegistrationEpoch > m.authEpochs[auth.ID] {
+		m.authEpochs[auth.ID] = existing.RegistrationEpoch
+	}
+	if (mode == updateModeRefresh || mode == updateModePrepare) && base != nil && existing.RegistrationEpoch != base.RegistrationEpoch {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("update auth %s: stale registration epoch %d != %d", auth.ID, base.RegistrationEpoch, existing.RegistrationEpoch)
+	}
+	if hasExisting && mode == updateModeRefresh {
+		if merged := MergeRefreshedAuth(base, existing, auth); merged != nil {
+			auth = merged
+			NormalizeCredentialMetadata(auth.Metadata)
+		}
+	} else if hasExisting && mode == updateModePrepare {
+		if merged := MergePreparedAuth(base, existing, auth); merged != nil {
+			auth = merged
+			NormalizeCredentialMetadata(auth.Metadata)
+		}
+	}
+	if auth.RegistrationEpoch != 0 && auth.RegistrationEpoch < m.authEpochs[auth.ID] {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("update auth %s: stale registration epoch %d < %d", auth.ID, auth.RegistrationEpoch, m.authEpochs[auth.ID])
+	}
+	if auth.RegistrationEpoch >= m.authEpochs[auth.ID] {
+		m.authEpochs[auth.ID] = auth.RegistrationEpoch
+	} else if auth.RegistrationEpoch == 0 {
+		auth.RegistrationEpoch = m.authEpochs[auth.ID]
+	}
+	if hasExisting {
 		if !auth.indexAssigned && auth.Index == "" {
 			auth.Index = existing.Index
 			auth.indexAssigned = existing.indexAssigned
@@ -1858,12 +1962,26 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 		auth.Success = existing.Success
 		auth.Failed = existing.Failed
 		auth.recentRequests = existing.recentRequests
+		if auth.Generation <= existing.Generation {
+			auth.Generation = existing.Generation + 1
+		} else {
+			auth.Generation++
+		}
 		if !existing.Disabled && existing.Status != StatusDisabled && !auth.Disabled && auth.Status != StatusDisabled {
 			if len(auth.ModelStates) == 0 && len(existing.ModelStates) > 0 {
 				auth.ModelStates = existing.ModelStates
 			}
+			if existing.Quota.Exceeded && existing.Quota.Reason == "credential_quota" && existing.Quota.NextRecoverAt.After(time.Now()) {
+				auth.Unavailable = existing.Unavailable
+				auth.NextRetryAfter = existing.NextRetryAfter
+				auth.Quota = existing.Quota
+				if auth.Status == StatusActive {
+					auth.Status = existing.Status
+				}
+			}
 		}
 	}
+	auth.UpdatedAt = time.Now()
 	normalizeModelStates(auth)
 	auth.EnsureIndex()
 	authClone := auth.Clone()
@@ -2608,7 +2726,11 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 		return target, nil
 	}
 
-	updated, errPrepare := preparer.PrepareRequestAuth(ctx, target)
+	// The preparer mutates a clone of the base snapshot; the result is merged
+	// back into the latest runtime state so concurrent user/runtime changes are
+	// preserved (upstream 4c1bebe837a6).
+	base := target.Clone()
+	updated, errPrepare := preparer.PrepareRequestAuth(ctx, base.Clone())
 	if errPrepare != nil {
 		return auth, errPrepare
 	}
@@ -2616,14 +2738,14 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 		return target, nil
 	}
 
-	saved, errUpdate := m.Update(ctx, updated)
+	saved, errUpdate := m.UpdatePreparedAuth(ctx, base, updated)
 	if errUpdate != nil {
-		return updated, errUpdate
+		return nil, errUpdate
 	}
 	if saved != nil {
 		return saved, nil
 	}
-	return updated, nil
+	return target, nil
 }
 
 func contextWithRequestedModelAlias(ctx context.Context, opts cliproxyexecutor.Options, fallback string) context.Context {
@@ -3165,6 +3287,23 @@ func (m *Manager) shouldRetryAfterErrorWithAttempted(err error, attempt int, pro
 		}
 		return wait, true
 	}
+	if isTransientTransportError(err) {
+		// Pre-HTTP transport failures retry without cooling the credential
+		// (upstream bef1f65c6c1d). Honor a provider retry hint when present;
+		// otherwise retry immediately since nothing is cooling.
+		if !m.retryAllowed(attempt, providers) {
+			return 0, false
+		}
+		if retryAfter := retryAfterFromError(err); retryAfter != nil {
+			if *retryAfter < 0 || *retryAfter > maxWait {
+				return 0, false
+			}
+			if *retryAfter > 0 {
+				return *retryAfter, true
+			}
+		}
+		return 0, true
+	}
 	if disp, cooldown, ok := Classify(status, strings.ToLower(err.Error())); ok {
 		switch disp {
 		case DispositionReturn:
@@ -3645,6 +3784,108 @@ func ensureModelState(auth *Auth, model string) *ModelState {
 	return state
 }
 
+// existingModelState returns the state recorded for the canonical model key,
+// or nil when the auth tracks no state for it.
+// Ported from upstream CLIProxyAPI (conductor_cooldown.go).
+func existingModelState(auth *Auth, model string) *ModelState {
+	model = canonicalModelKey(model)
+	if auth == nil || model == "" {
+		return nil
+	}
+	return auth.ModelStates[model]
+}
+
+// clearUnauthorizedModelStates resets per-model states whose last failure was
+// unauthorized after a successful credential refresh, so refreshed credentials
+// regain access to models suspended only by the stale token.
+// Ported from upstream CLIProxyAPI (conductor_refresh.go).
+func clearUnauthorizedModelStates(auth *Auth, now time.Time) []string {
+	if auth == nil || len(auth.ModelStates) == 0 {
+		return nil
+	}
+	var resumed []string
+	for model, state := range auth.ModelStates {
+		if state == nil {
+			continue
+		}
+		isUnauth := false
+		if state.LastError != nil {
+			if state.LastError.StatusCode() == http.StatusUnauthorized || strings.EqualFold(state.LastError.Code, "unauthorized") || isUnauthorizedError(state.LastError) {
+				isUnauth = true
+			}
+		}
+		if !isUnauth && strings.Contains(strings.ToLower(state.StatusMessage), "unauthorized") {
+			isUnauth = true
+		}
+		if !isUnauth {
+			continue
+		}
+		resetModelState(state, now)
+		resumed = append(resumed, model)
+	}
+	if len(resumed) > 0 {
+		updateAggregatedAvailability(auth, now)
+	}
+	return resumed
+}
+
+// clientModelProjectionForAuth computes the registry-side availability projection
+// for one route model from the auth's runtime state.
+// Ported from upstream CLIProxyAPI (conductor_models.go).
+func (m *Manager) clientModelProjectionForAuth(auth *Auth, routeModel string, now time.Time) registry.ClientModelProjection {
+	targetModel := strings.TrimSpace(routeModel)
+	if targetModel == "" {
+		return registry.ClientModelProjection{}
+	}
+	if auth == nil {
+		return registry.ClientModelProjection{ModelID: targetModel}
+	}
+
+	targetKey := ""
+	if m != nil {
+		targetKey = m.selectionModelKeyForAuth(auth, targetModel)
+	}
+	if targetKey == "" {
+		targetKey = canonicalModelKey(targetModel)
+	}
+
+	state := existingModelState(auth, targetKey)
+	isSuspended := auth.Disabled || auth.Status == StatusDisabled
+	if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" && auth.Quota.NextRecoverAt.After(now) {
+		isSuspended = true
+	}
+	isQuotaExceeded := false
+	var suspendReason string
+	if state != nil {
+		if state.Status == StatusDisabled || state.Unavailable || (!state.NextRetryAfter.IsZero() && state.NextRetryAfter.After(now)) {
+			isSuspended = true
+		}
+		if state.Quota.Exceeded && (state.Quota.NextRecoverAt.IsZero() || state.Quota.NextRecoverAt.After(now)) {
+			isQuotaExceeded = true
+		}
+		if isSuspended {
+			suspendReason = cooldownReason(state.StatusMessage, state.Quota, state.LastError)
+		}
+	}
+	if len(auth.ModelStates) == 0 && auth.Unavailable && auth.NextRetryAfter.After(now) {
+		// With no per-model states, scheduling falls back to the credential-wide
+		// cooldown (isAuthBlockedForModel); the projection must agree with it.
+		// When states exist, unmatched models stay schedulable by design, so the
+		// credential-wide fields must not suspend them here either.
+		isSuspended = true
+	}
+	if isSuspended && suspendReason == "" {
+		suspendReason = cooldownReason(auth.StatusMessage, auth.Quota, auth.LastError)
+	}
+
+	return registry.ClientModelProjection{
+		ModelID:       targetModel,
+		Suspended:     isSuspended,
+		SuspendReason: suspendReason,
+		QuotaExceeded: isQuotaExceeded,
+	}
+}
+
 // normalizeModelStates folds any non-canonical (thinking-suffix) model state keys into
 // their canonical form so cooldown and scheduler sharing treat all variant suffixes of
 // the same model as one state. Returns true when the map was rewritten.
@@ -3919,6 +4160,12 @@ func resultErrorFromError(err error) *Error {
 		if resultErr.Code == "" || resultErr.Code == connectionLifecycleErrorCode {
 			resultErr.Code = connectionLifecycleErrorCode
 		}
+	case isTransientTransportError(err):
+		// Pre-HTTP dial/TLS/DNS/reset failures retry under request-retry without
+		// cooling the credential (upstream bef1f65c6c1d).
+		if resultErr.Code == "" || resultErr.Code == transientTransportErrorCode {
+			resultErr.Code = transientTransportErrorCode
+		}
 	}
 	return resultErr
 }
@@ -4159,7 +4406,7 @@ func shouldSkipCredentialCooldown(err *Error) bool {
 	if err != nil && err.Code == ErrorCodeForceCooldown {
 		return false
 	}
-	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
+	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err) || isTransientTransportResultError(err)
 }
 
 // isConnectionLifecycleError reports transport/session lifecycle failures that must
@@ -4222,6 +4469,123 @@ func isConnectionLifecycleMessage(message string) bool {
 		return true
 	}
 	return false
+}
+
+// isTransientTransportError reports pre-HTTP dial/TLS/DNS/reset failures that
+// should retry under request-retry without cooling the selected credential.
+// Ported from upstream CLIProxyAPI commit bef1f65c6c1d.
+func isTransientTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// HTTP-status failures stay on the credential/status retry path.
+	if statusCodeFromError(err) != 0 {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr != nil && (dnsErr.IsTimeout || dnsErr.IsTemporary || dnsErr.Timeout()) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr != nil && netErr.Timeout() {
+		return true
+	}
+	if isTransientSyscallError(err) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr != nil {
+		return true
+	}
+	return isTransientTransportMessage(err.Error())
+}
+
+func isTransientTransportResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	if err.Code == transientTransportErrorCode {
+		return true
+	}
+	if statusCodeFromResult(err) != 0 {
+		return false
+	}
+	return isTransientTransportMessage(err.Message)
+}
+
+func isTransientSyscallError(err error) bool {
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return false
+	}
+	switch errno {
+	case syscall.ECONNREFUSED, syscall.ECONNRESET, syscall.ECONNABORTED,
+		syscall.ETIMEDOUT, syscall.EHOSTUNREACH, syscall.ENETUNREACH, syscall.EPIPE:
+		return true
+	default:
+		return false
+	}
+}
+
+func isTransientTransportMessage(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+	switch {
+	case strings.Contains(lower, "tls: tls handshake"),
+		strings.Contains(lower, "tls handshake timeout"),
+		strings.Contains(lower, "wsarecv"),
+		strings.Contains(lower, "wsasend"),
+		strings.Contains(lower, "a connection attempt failed"),
+		strings.Contains(lower, "connection refused"),
+		strings.Contains(lower, "connection reset"),
+		strings.Contains(lower, "i/o timeout"),
+		strings.Contains(lower, "no such host"),
+		strings.Contains(lower, "server misbehaving"),
+		strings.Contains(lower, "network is unreachable"),
+		strings.Contains(lower, "no route to host"),
+		strings.Contains(lower, "broken pipe"),
+		strings.Contains(lower, "connection aborted"),
+		strings.Contains(lower, "use of closed network connection"),
+		strings.Contains(lower, "unexpected eof"):
+		return true
+	default:
+		return false
+	}
+}
+
+// isRequestRetryRoundError reports whether err participates in request-retry
+// rounds: either a credential retry-round status or a transient transport failure.
+// Ported from upstream CLIProxyAPI commit bef1f65c6c1d.
+func isRequestRetryRoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return isCredentialRetryRoundStatus(statusCodeFromError(err)) || isTransientTransportError(err)
+}
+
+// isCredentialRetryRoundStatus reports statuses that participate in credential
+// retry rounds (upstream conductor_selection.go).
+func isCredentialRetryRoundStatus(status int) bool {
+	switch status {
+	case http.StatusForbidden,
+		http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 func isCountTokensEndpointNotFoundError(err error, _ string) bool {
@@ -5622,11 +5986,17 @@ func (m *Manager) tryAntigravityCreditsExecuteStream(ctx context.Context, req cl
 	return nil, false
 }
 
+// authPersistLock serializes persistence per auth ID and records the newest
+// (epoch, generation) pair already sent to the store so out-of-order writes are
+// dropped. Ported from upstream CLIProxyAPI commit 4c1bebe837a6.
+type authPersistLock struct {
+	mu             sync.Mutex
+	lastEpoch      uint64
+	lastGeneration uint64
+}
+
 func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 	if m.store == nil || auth == nil {
-		return nil
-	}
-	if shouldSkipPersist(ctx) {
 		return nil
 	}
 	if auth.Attributes != nil {
@@ -5636,6 +6006,25 @@ func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 	}
 	// Skip persistence when metadata is absent (e.g., runtime-only auths).
 	if auth.Metadata == nil {
+		return nil
+	}
+	lockVal, _ := m.persistLocks.LoadOrStore(auth.ID, &authPersistLock{})
+	pLock, _ := lockVal.(*authPersistLock)
+	if pLock == nil {
+		pLock = &authPersistLock{}
+		m.persistLocks.Store(auth.ID, pLock)
+	}
+	pLock.mu.Lock()
+	defer pLock.mu.Unlock()
+	if auth.RegistrationEpoch < pLock.lastEpoch ||
+		(auth.RegistrationEpoch == pLock.lastEpoch && auth.Generation < pLock.lastGeneration) {
+		// Stale write from an older registration cycle or an older snapshot of the
+		// same cycle: never overwrite newer persisted state (upstream 4c1bebe837a6).
+		return nil
+	}
+	pLock.lastEpoch = auth.RegistrationEpoch
+	pLock.lastGeneration = auth.Generation
+	if shouldSkipPersist(ctx) {
 		return nil
 	}
 	_, err := m.store.Save(ctx, auth)
@@ -5660,10 +6049,7 @@ func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duratio
 	}
 
 	ctx, cancelCtx := context.WithCancel(parent)
-	workers := refreshMaxConcurrency
-	if cfg, ok := m.runtimeConfig.Load().(*internalconfig.Config); ok && cfg != nil && cfg.AuthAutoRefreshWorkers > 0 {
-		workers = cfg.AuthAutoRefreshWorkers
-	}
+	workers := m.refreshWorkers()
 	loop := newAuthAutoRefreshLoop(m, interval, workers)
 
 	m.mu.Lock()
@@ -5932,28 +6318,66 @@ func (m *Manager) markRefreshPending(id string, now time.Time) bool {
 	return true
 }
 
+// authRefreshLock serializes refresh operations for a single credential.
+// Ported from upstream CLIProxyAPI (conductor_refresh.go).
+type authRefreshLock struct {
+	mu sync.Mutex
+}
+
 func (m *Manager) refreshAuth(ctx context.Context, id string) {
+	_, _ = m.refreshAuthForRequest(ctx, id, "")
+}
+
+// refreshAuthForRequest performs a synchronous credential refresh for the given auth.
+// failedAccessToken lets concurrent callers reuse a refresh that already replaced the
+// access token that produced the unauthorized response.
+// Ported from upstream CLIProxyAPI commits 9812b1e76872 and 4c1bebe837a6.
+func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
+	if m == nil {
+		return nil, errors.New("auth manager is nil")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, errors.New("auth id is empty")
+	}
+
+	lockValue, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
+	lock, _ := lockValue.(*authRefreshLock)
+	if lock == nil {
+		lock = &authRefreshLock{}
+		m.refreshLocks.Store(id, lock)
+	}
+	lock.mu.Lock()
+	defer lock.mu.Unlock()
+
 	m.mu.RLock()
 	auth := m.auths[id]
 	var exec ProviderExecutor
-	var cloned *Auth
 	if auth != nil {
 		// Use the same effective provider key as request execution so OpenAI-compat
 		// auths registered under namespaced keys still resolve for refresh.
 		exec = m.executors[executorKeyFromAuth(auth)]
-		cloned = auth.Clone()
 	}
 	m.mu.RUnlock()
 	if auth == nil || exec == nil {
-		return
+		return nil, errors.New("auth or executor not found")
 	}
-	updated, err := exec.Refresh(ctx, cloned)
+
+	// Another request may already have refreshed this credential.
+	if failedAccessToken != "" {
+		if currentToken := authAccessToken(auth); currentToken != "" && currentToken != failedAccessToken {
+			return auth.Clone(), nil
+		}
+	}
+
+	base := auth.Clone()
+	updated, err := exec.Refresh(ctx, base.Clone())
 	if err != nil && errors.Is(err, context.Canceled) {
 		log.Debugf("refresh canceled for %s, %s", auth.Provider, auth.ID)
-		return
+		return nil, err
 	}
 	log.Debugf("refreshed %s, %s, %v", auth.Provider, auth.ID, err)
 	now := time.Now()
@@ -5962,14 +6386,37 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 		shouldReschedule := false
 		m.mu.Lock()
 		if current := m.auths[id]; current != nil {
+			if base != nil && current.RegistrationEpoch != base.RegistrationEpoch {
+				m.mu.Unlock()
+				return nil, err
+			}
+			current.Generation++
+			current.UpdatedAt = now
 			current.LastError = refreshErrorFromError(err)
-			if unauthorized {
-				current.NextRefreshAfter = time.Time{}
+
+			hasValidAccessToken := current.HasValidAccessToken(now)
+			if !hasValidAccessToken {
 				current.Unavailable = true
 				current.Status = StatusError
-				current.StatusMessage = "unauthorized"
+				if unauthorized {
+					current.NextRefreshAfter = time.Time{}
+					current.StatusMessage = "unauthorized"
+				} else {
+					current.NextRefreshAfter = now.Add(refreshFailureBackoff)
+					current.StatusMessage = "token expired"
+				}
 			} else {
-				current.NextRefreshAfter = now.Add(refreshFailureBackoff)
+				// Access token remains valid. Preserve current in-flight/cooldown
+				// status without overwrite (upstream 9812b1e76872).
+				nextRetry := now.Add(refreshFailureBackoff)
+				if exp, ok := current.AccessTokenExpirationTime(); ok && !exp.IsZero() && nextRetry.After(exp) {
+					nextRetry = exp
+				}
+				current.NextRefreshAfter = nextRetry
+
+				if !current.Unavailable {
+					log.Warnf("credential refresh failed for %s (%s): %s; retaining active credential as access token is unexpired", current.Provider, current.ID, SanitizeUpstreamErrorSummary(err.Error()))
+				}
 			}
 			m.auths[id] = current
 			shouldReschedule = true
@@ -5981,10 +6428,10 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 		if shouldReschedule {
 			m.queueRefreshReschedule(id)
 		}
-		return
+		return nil, err
 	}
 	if updated == nil {
-		updated = cloned
+		updated = base.Clone()
 	}
 	// Preserve runtime created by the executor during Refresh.
 	// If executor didn't set one, fall back to the previous runtime.
@@ -5994,11 +6441,141 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	updated.LastRefreshedAt = now
 	updated.NextRefreshAfter = time.Time{}
 	updated.LastError = nil
+	updated.StatusMessage = ""
+	updated.Unavailable = false
+	if updated.Status == StatusError || updated.Status == "" {
+		updated.Status = StatusActive
+	}
 	updated.UpdatedAt = now
+	_ = clearUnauthorizedModelStates(updated, now)
 	if m.shouldRefresh(updated, now) {
 		updated.NextRefreshAfter = now.Add(refreshIneffectiveBackoff)
 	}
-	_, _ = m.Update(ctx, updated)
+	saved, errUpdate := m.UpdateRefreshedAuth(ctx, base, updated)
+	if errUpdate != nil {
+		log.Debugf("persist refreshed auth %s (%s) failed: %v", auth.Provider, auth.ID, errUpdate)
+		return nil, errUpdate
+	}
+	if saved == nil {
+		return nil, fmt.Errorf("auth %s not found", id)
+	}
+	targetAuth := saved
+	supportedModels, regEpoch := registry.GetGlobalRegistry().GetModelsAndEpochForClient(id)
+	projections := make([]registry.ClientModelProjection, 0, len(supportedModels))
+	for _, sm := range supportedModels {
+		if sm == nil || strings.TrimSpace(sm.ID) == "" {
+			continue
+		}
+		projections = append(projections, m.clientModelProjectionForAuth(targetAuth, sm.ID, now))
+	}
+	if len(projections) > 0 {
+		registry.GetGlobalRegistry().ApplyClientModelProjections(id, regEpoch, targetAuth.Generation, projections)
+	}
+	return saved.Clone(), nil
+}
+
+// ForceRefreshAuth triggers an immediate synchronous refresh for the credential.
+// Ported from upstream CLIProxyAPI (conductor_refresh.go).
+func (m *Manager) ForceRefreshAuth(ctx context.Context, id string) (*Auth, error) {
+	if m == nil {
+		return nil, errors.New("auth manager is nil")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, errors.New("auth id is empty")
+	}
+	return m.refreshAuthForRequest(ctx, id, "")
+}
+
+// refreshWorkers resolves the refresh worker pool size from runtime config,
+// falling back to refreshMaxConcurrency.
+// Ported from upstream CLIProxyAPI commit 6dce78673fbc.
+func (m *Manager) refreshWorkers() int {
+	workers := refreshMaxConcurrency
+	if m != nil {
+		if cfg, ok := m.runtimeConfig.Load().(*internalconfig.Config); ok && cfg != nil && cfg.AuthAutoRefreshWorkers > 0 {
+			workers = cfg.AuthAutoRefreshWorkers
+		}
+	}
+	return workers
+}
+
+// ForceRefreshResult records the outcome of a forced refresh for one credential.
+// Ported from upstream CLIProxyAPI (conductor_refresh.go).
+type ForceRefreshResult struct {
+	ID      string `json:"id"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ForceRefreshAll triggers an immediate refresh for all credentials that have refresh tokens or custom refresh evaluators.
+// Worker-pool bounding and cancellation checks ported from upstream CLIProxyAPI commit 6dce78673fbc.
+func (m *Manager) ForceRefreshAll(ctx context.Context) []ForceRefreshResult {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.RLock()
+	ids := make([]string, 0, len(m.auths))
+	for id, auth := range m.auths {
+		if auth != nil && !auth.Disabled && (authHasRefreshCredential(auth) || auth.Runtime != nil) {
+			ids = append(ids, id)
+		}
+	}
+	m.mu.RUnlock()
+
+	results := make([]ForceRefreshResult, len(ids))
+	if len(ids) == 0 {
+		return results
+	}
+
+	workers := m.refreshWorkers()
+	if workers <= 0 {
+		workers = 1
+	}
+	if workers > len(ids) {
+		workers = len(ids)
+	}
+
+	type refreshJob struct {
+		index  int
+		authID string
+	}
+
+	jobCh := make(chan refreshJob, len(ids))
+	for i, id := range ids {
+		jobCh <- refreshJob{index: i, authID: id}
+	}
+	close(jobCh)
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				if errCtx := ctx.Err(); errCtx != nil {
+					results[job.index] = ForceRefreshResult{
+						ID:      job.authID,
+						Success: false,
+						Error:   errCtx.Error(),
+					}
+					continue
+				}
+
+				_, err := m.ForceRefreshAuth(ctx, job.authID)
+				res := ForceRefreshResult{ID: job.authID, Success: err == nil}
+				if err != nil {
+					res.Error = err.Error()
+				}
+				results[job.index] = res
+			}
+		}()
+	}
+	wg.Wait()
+	return results
 }
 
 func (m *Manager) executorFor(provider string) ProviderExecutor {

@@ -217,6 +217,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-15 | phase=translator-hardening wave=W1 task=phase-start task_status=in-progress | run anchor 2026-09-15; parallel fanout — code by subagent, plan single-writer orchestrator | surfaces: internal/translator/**, internal/util/**
 - 2026-09-15 | phase=model-registry-adds wave=W1 task=phase-start task_status=in-progress | run anchor 2026-09-15; parallel fanout | surfaces: internal/registry/**, internal/api, internal/client
 - 2026-09-15 | phase=auth-cooldown-fairness wave=W1 task=phase-start task_status=in-progress | run anchor 2026-09-15; parallel fanout | surfaces: sdk/cliproxy/**, sdk/auth/**, internal/auth/**
+- 2026-09-15 | phase=translator-hardening wave=W1 task=handoff task_status=NEEDS_CONTEXT | both fanout rounds canceled by user interrupt; partial WIP green (build + translator/registry package tests) but per-task coverage unverified; no phase gated; handoff written to Current State | surfaces: unchanged
 
 ## Decisions
 - none
@@ -225,9 +226,13 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - none
 
 ## Current State and Next Action
-- active_phase: translator-hardening, model-registry-adds, auth-cooldown-fairness (parallel fanout)
+- active_phase: translator-hardening, model-registry-adds, auth-cooldown-fairness — all `in-progress`, none gated
 - lifecycle_status: in-progress
-- latest_anchors: run started 2026-09-15; three dependency-free phases executing in parallel subagents; plan file is single-writer (orchestrator)
-- blockers: none
-- open_items: 210 semantic-review paths need per-commit disposition during execution; devin provider and discovery are new-subsystem work with no local precedent.
-- exact_next_action: collect agent evidence, flush Progress, gate each phase in-session per work-full step 11
+- latest_anchors: run anchor 2026-09-15 (phase-start Progress lines); handoff 2026-09-15 (interrupted parallel fanout); branch `docs/cliproxyapi-v7.3.3-parity`, PR #20, commits 9a925e06+63812d91 pushed
+- blockers: none structural — execution interrupted, not blocked
+- open_items:
+  - model-registry-adds: agent reported T1+T2 DONE — models.json (+397 lines: fable-5.1, gemini-3.8-flash/-high, gemini-3.5-flash-lite, gpt-6-astra, gpt-image-2.5 defs), `codex_client_models.json` gpt-6-astra template, `NativeCapabilities{WebSearch}` tri-state + `cpa_capabilities` exposure, native-capability routes/resolution, server_test.go +128. Scoped checks green (`go test ./internal/registry/... ./internal/api/... ./internal/client/...`). UNGATED. Follow-up owed: sdk/cliproxy-side capability propagation for config-declared models (`4311ae874774` second half — out of that phase's surfaces).
+  - translator-hardening: partial WIP — signature_validation.go +115 (antigravity/claude), claude/openai/responses request +366/response +345, codex/claude +20, openai/claude +59, plus test additions. T1–T6 coverage unverified; no evidence report received.
+  - auth-cooldown-fairness: `sdk/cliproxy/auth/conductor.go` +167 landed; T1–T4 coverage unverified; no evidence report received.
+  - 210 semantic-review paths still need per-commit disposition across remaining phases.
+- exact_next_action: verify WIP — `go build ./... && go test ./internal/translator/... ./internal/registry/... ./internal/api/... ./internal/client/... ./sdk/cliproxy/...` — then resume the three phases (in-session or fresh agents): audit per-task coverage against plan task lists, flush Progress entries, then gate each phase in-session per `work-full.md` step 11

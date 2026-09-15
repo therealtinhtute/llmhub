@@ -144,12 +144,17 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 		}
 
 		systemPartIndex := 0
+		// Leading system/developer messages hoist into systemInstruction;
+		// mid-session ones demote to user turns to keep the prompt-cache
+		// prefix immutable.
+		// Ported from upstream CLIProxyAPI commit 0fe19ede90a4.
+		hasEncounteredConversation := false
 		for i := 0; i < len(arr); i++ {
 			m := arr[i]
 			role := m.Get("role").String()
 			content := m.Get("content")
 
-			if (role == "system" || role == "developer") && len(arr) > 1 {
+			if (role == "system" || role == "developer") && len(arr) > 1 && !hasEncounteredConversation {
 				// system -> systemInstruction as a user message style
 				if content.Type == gjson.String {
 					out, _ = sjson.SetBytes(out, "systemInstruction.role", "user")
@@ -169,11 +174,17 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 						}
 					}
 				}
-			} else if role == "user" || ((role == "system" || role == "developer") && len(arr) == 1) {
+			} else if role == "user" || role == "system" || role == "developer" {
+				hasEncounteredConversation = true
 				// Build single user content node to avoid splitting into multiple contents
 				node := []byte(`{"role":"user","parts":[]}`)
+				hasParts := false
 				if content.Type == gjson.String {
 					node, _ = sjson.SetBytes(node, "parts.0.text", content.String())
+					hasParts = true
+				} else if content.IsObject() && content.Get("type").String() == "text" {
+					node, _ = sjson.SetBytes(node, "parts.0.text", content.Get("text").String())
+					hasParts = true
 				} else if content.IsArray() {
 					items := content.Array()
 					p := 0
@@ -183,6 +194,7 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 							text := item.Get("text").String()
 							if text != "" {
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".text", text)
+								hasParts = true
 							}
 							p++
 						case "image_url":
@@ -191,6 +203,7 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiFunctionThoughtSignature)
+								hasParts = true
 								p++
 							}
 						case "file":
@@ -199,6 +212,7 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 							if mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData(filename, "", fileData); ok {
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
+								hasParts = true
 								p++
 							} else {
 								log.Warn("Invalid file data or unknown file name extension in user message, skip")
@@ -206,8 +220,13 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 						}
 					}
 				}
-				out, _ = sjson.SetRawBytes(out, "contents.-1", node)
+				// Guard against empty parts (e.g. content carried only
+				// unsupported item types). Ported from upstream 0fe19ede90a4.
+				if hasParts {
+					out, _ = sjson.SetRawBytes(out, "contents.-1", node)
+				}
 			} else if role == "assistant" {
+				hasEncounteredConversation = true
 				node := []byte(`{"role":"model","parts":[]}`)
 				p := 0
 				if content.Type == gjson.String {

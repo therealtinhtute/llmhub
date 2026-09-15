@@ -86,18 +86,24 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 				return true
 			}
 			originalRole := roleResult.String()
-			precedingToolUseIDs := pendingToolUseIDs
-			pendingToolUseIDs = nil
+			var precedingToolUseIDs []string
+			// Mid-session system/developer turns must not consume pending
+			// tool_use IDs; they are demoted to user reminder turns below.
+			// Ported from upstream CLIProxyAPI commit 0fe19ede90a4.
+			if originalRole != "system" && originalRole != "developer" {
+				precedingToolUseIDs = pendingToolUseIDs
+				pendingToolUseIDs = nil
+			}
 			role := originalRole
 			if role == "assistant" {
 				role = "model"
-			} else if role == "system" {
+			} else if role == "system" || role == "developer" {
 				role = "user"
 			}
 
 			partItems := make([][]byte, 0, 4)
 			contentsResult := messageResult.Get("content")
-			if roleResult.String() == "system" {
+			if roleResult.String() == "system" || roleResult.String() == "developer" {
 				if reminderText, ok := translatorcommon.ClaudeMessageSystemReminderText(contentsResult); ok {
 					part := []byte(`{"text":""}`)
 					part, _ = sjson.SetBytes(part, "text", reminderText)
@@ -201,6 +207,12 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 					}
 					return true
 				})
+				// Text parts (prompt text, system reminders) precede
+				// functionResponse parts inside merged user turns.
+				// Ported from upstream CLIProxyAPI commit 4fde97f4144a.
+				if role == "user" {
+					partItems = translatorcommon.ReorderGeminiUserParts(partItems)
+				}
 				contentItems = append(contentItems, geminiContentWithParts(role, partItems))
 			} else if contentsResult.Type == gjson.String {
 				part := []byte(`{"text":""}`)
@@ -228,7 +240,11 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 				}
 			}
 		}
-		out = translatorcommon.SetRawArrayItems(out, "contents", contentItems)
+		// Merge adjacent user turns so demoted system/developer reminder turns
+		// fold into neighboring user/tool-result turns, keeping the
+		// prompt-cache prefix stable.
+		// Ported from upstream CLIProxyAPI v7.3.3 (MergeAdjacentGeminiContents).
+		out = translatorcommon.SetRawArrayItems(out, "contents", translatorcommon.MergeAdjacentGeminiContents(contentItems))
 	}
 
 	// tools

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
@@ -54,6 +55,8 @@ func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		rawJSON, _ = sjson.DeleteBytes(rawJSON, "request.system_instruction")
 	}
 
+	rawJSON = normalizeGeminiGenerationConfigResponseSchema(rawJSON)
+
 	// Normalize roles in request.contents: default to valid values if missing/invalid.
 	// Roles are patched in place only when a content actually changes, so large
 	// payloads are not duplicated for already-valid conversations.
@@ -66,7 +69,12 @@ func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 			valid := role == "user" || role == "model"
 			if role == "" || !valid {
 				var newRole string
-				if prevRole == "" {
+				// Turns carrying a functionResponse always normalize to user;
+				// upstream fix ports f2041a2c787b ("use
+				// ContentHasGeminiFunctionResponse instead of gjson projection").
+				if translatorcommon.ContentHasGeminiFunctionResponse([]byte(value.Raw)) {
+					newRole = "user"
+				} else if prevRole == "" {
 					newRole = "user"
 				} else if prevRole == "user" {
 					newRole = "model"
@@ -121,6 +129,29 @@ func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 	}
 
 	return common.AttachDefaultSafetySettings(rawJSON, "request.safetySettings")
+}
+
+// normalizeGeminiGenerationConfigResponseSchema converts generationConfig.responseJsonSchema
+// (and snake_case response_json_schema) to generationConfig.responseSchema for Antigravity compatibility.
+// Ported from upstream CLIProxyAPI commit dc21a4263912 ("normalize gemini
+// responseJsonSchema to responseSchema").
+func normalizeGeminiGenerationConfigResponseSchema(rawJSON []byte) []byte {
+	for _, container := range []string{"request.generationConfig", "request.generation_config"} {
+		if !util.GetGJSONBytesNoCopy(rawJSON, container).Exists() {
+			continue
+		}
+		for _, schemaKey := range []string{"responseJsonSchema", "response_json_schema"} {
+			oldPath := container + "." + schemaKey
+			if schema := util.GetGJSONBytesNoCopy(rawJSON, oldPath); schema.Exists() {
+				targetPath := container + ".responseSchema"
+				if !util.GetGJSONBytesNoCopy(rawJSON, targetPath).Exists() {
+					rawJSON, _ = sjson.SetRawBytes(rawJSON, targetPath, []byte(schema.Raw))
+				}
+				rawJSON, _ = sjson.DeleteBytes(rawJSON, oldPath)
+			}
+		}
+	}
+	return rawJSON
 }
 
 // FunctionCallGroup represents a group of function calls and their responses

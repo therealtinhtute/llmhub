@@ -117,3 +117,78 @@ func TestConvertOpenAIRequestToAntigravityPreservesToolResponseAsString(t *testi
 		t.Fatalf("expected %q, got %q", expected, got)
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit a76da7115486 ("omit tools when
+// tool_choice is none"): request.tools must be dropped and the mode set to NONE
+// for both the string and object tool_choice forms.
+func TestConvertOpenAIRequestToAntigravityToolChoiceNoneOmitsTools(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolChoice string
+	}{
+		{name: "string none", toolChoice: `"none"`},
+		{name: "object none", toolChoice: `{"type":"none"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inputJSON := []byte(`{
+				"model":"gemini-3-flash",
+				"messages":[{"role":"user","content":"hi"}],
+				"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}],
+				"tool_choice":` + tc.toolChoice + `
+			}`)
+			out := ConvertOpenAIRequestToAntigravity("gemini-3-flash", inputJSON, false)
+			if got := gjson.GetBytes(out, "request.toolConfig.functionCallingConfig.mode").String(); got != "NONE" {
+				t.Fatalf("expected mode NONE, got %q", got)
+			}
+			if gjson.GetBytes(out, "request.tools").Exists() {
+				t.Fatalf("expected request.tools to be omitted, got %s", gjson.GetBytes(out, "request.tools").Raw)
+			}
+		})
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 0fe19ede90a4 ("preserve Gemini prompt
+// cache by demoting mid-session developer messages"): a mid-session developer
+// message demotes to a user turn instead of mutating request.systemInstruction.
+func TestConvertOpenAIRequestToAntigravity_MidSessionDeveloperMessageDoesNotMutateSystemInstruction(t *testing.T) {
+	inputJSON := `{
+		"model": "gemini-3-flash",
+		"messages": [
+			{"role": "system", "content": "You are a helpful assistant"},
+			{"role": "user", "content": "Turn 1 user"},
+			{"role": "assistant", "content": "Turn 1 assistant"},
+			{"role": "developer", "content": "<image_resize_notice>Image 1 was resized to 800x600</image_resize_notice>"},
+			{"role": "user", "content": "Turn 2 user"}
+		]
+	}`
+
+	result := ConvertOpenAIRequestToAntigravity("gemini-3-flash", []byte(inputJSON), false)
+	output := gjson.ParseBytes(result)
+
+	// request.systemInstruction must contain only original system prompt
+	sysParts := output.Get("request.systemInstruction.parts").Array()
+	if len(sysParts) != 1 {
+		t.Fatalf("request.systemInstruction parts = %d, want 1. Output: %s", len(sysParts), result)
+	}
+	if got := sysParts[0].Get("text").String(); got != "You are a helpful assistant" {
+		t.Fatalf("systemInstruction text = %q, want %q", got, "You are a helpful assistant")
+	}
+
+	// contents must contain user, model, user (demoted dev message), user
+	contents := output.Get("request.contents").Array()
+	if len(contents) != 4 {
+		t.Fatalf("contents length = %d, want 4. Output: %s", len(contents), result)
+	}
+	if contents[0].Get("role").String() != "user" || contents[0].Get("parts.0.text").String() != "Turn 1 user" {
+		t.Fatalf("turn 0 mismatch: %s", contents[0].Raw)
+	}
+	if contents[1].Get("role").String() != "model" || contents[1].Get("parts.0.text").String() != "Turn 1 assistant" {
+		t.Fatalf("turn 1 mismatch: %s", contents[1].Raw)
+	}
+	if contents[2].Get("role").String() != "user" || contents[2].Get("parts.0.text").String() != "<image_resize_notice>Image 1 was resized to 800x600</image_resize_notice>" {
+		t.Fatalf("turn 2 mismatch: %s", contents[2].Raw)
+	}
+	if contents[3].Get("role").String() != "user" || contents[3].Get("parts.0.text").String() != "Turn 2 user" {
+		t.Fatalf("turn 3 mismatch: %s", contents[3].Raw)
+	}
+}

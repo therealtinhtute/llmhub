@@ -30,14 +30,25 @@ func TestValidateGeminiFunctionCallPairingValidParallelGroup(t *testing.T) {
 	}
 }
 
-func TestValidateGeminiFunctionCallPairingRejectsUserBoundaryBeforeResponse(t *testing.T) {
-	payload := []byte(`{"request":{"contents":[{"role":"model","parts":[{"functionCall":{"id":"call-1","name":"run","args":{}}}]},{"role":"user","parts":[{"text":"boundary"}]},{"role":"function","parts":[{"functionResponse":{"id":"call-1","name":"run","response":{"result":"ok"}}}]}]}}`)
+// Ported from upstream CLIProxyAPI commit 0fe19ede90a4 ("preserve Gemini prompt
+// cache by demoting mid-session developer messages"): intervening user turns
+// before pending functionResponse parts are now accepted; model turns are not.
+func TestValidateGeminiFunctionCallPairingAllowsUserBoundaryBeforeResponse(t *testing.T) {
+	payload := []byte(`{"request":{"contents":[{"role":"model","parts":[{"functionCall":{"id":"call-1","name":"run","args":{}}}]},{"role":"user","parts":[{"text":"boundary"}]},{"role":"user","parts":[{"functionResponse":{"id":"call-1","name":"run","response":{"result":"ok"}}}]}]}}`)
+
+	if err := ValidateGeminiFunctionCallPairing(payload); err != nil {
+		t.Fatalf("user boundary before function response should be accepted: %v", err)
+	}
+}
+
+func TestValidateGeminiFunctionCallPairingRejectsModelBoundaryBeforeResponse(t *testing.T) {
+	payload := []byte(`{"request":{"contents":[{"role":"model","parts":[{"functionCall":{"id":"call-1","name":"run","args":{}}}]},{"role":"model","parts":[{"text":"boundary"}]},{"role":"user","parts":[{"functionResponse":{"id":"call-1","name":"run","response":{"result":"ok"}}}]}]}}`)
 
 	err := ValidateGeminiFunctionCallPairing(payload)
 	if err == nil {
-		t.Fatal("user boundary before function response was accepted")
+		t.Fatal("model boundary before function response should be rejected")
 	}
-	if !strings.Contains(err.Error(), "content appears before") {
+	if !strings.Contains(err.Error(), "model content appears before") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

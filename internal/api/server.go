@@ -28,12 +28,14 @@ import (
 	managementHandlers "github.com/therealtinhtute/llmhub/internal/api/handlers/management"
 	"github.com/therealtinhtute/llmhub/internal/api/middleware"
 	"github.com/therealtinhtute/llmhub/internal/cache"
+	codexmodels "github.com/therealtinhtute/llmhub/internal/client/codex/models"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/home"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/managementasset"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
@@ -968,8 +970,9 @@ func (s *Server) watchKeepAlive() {
 func (s *Server) unifiedModelsHandler(openaiHandler *openai.OpenAIAPIHandler, claudeHandler *claude.ClaudeCodeAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := c.Request.URL.Query()["client_version"]; ok {
+			clientVersion := c.Query("client_version")
 			if s != nil && s.cfg != nil && s.cfg.Home.Enabled {
-				s.handleHomeCodexClientModels(c)
+				s.handleHomeCodexClientModels(c, clientVersion)
 				return
 			}
 			openaiHandler.OpenAIModels(c)
@@ -994,7 +997,9 @@ func (s *Server) unifiedModelsHandler(openaiHandler *openai.OpenAIAPIHandler, cl
 	}
 }
 
-func (s *Server) handleHomeCodexClientModels(c *gin.Context) {
+// handleHomeCodexClientModels builds the Codex client catalog from Home model IDs.
+// Template metadata still comes from the local/remote codex_client_models catalog.
+func (s *Server) handleHomeCodexClientModels(c *gin.Context, clientVersion string) {
 	entries, ok := s.loadHomeModelEntries(c)
 	if !ok {
 		return
@@ -1002,24 +1007,43 @@ func (s *Server) handleHomeCodexClientModels(c *gin.Context) {
 
 	models := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
-		model := map[string]any{
-			"id":     entry.id,
-			"object": "model",
-		}
-		if entry.created > 0 {
-			model["created"] = entry.created
-		}
-		if entry.ownedBy != "" {
-			model["owned_by"] = entry.ownedBy
-		}
-		if entry.displayName != "" {
-			model["display_name"] = entry.displayName
-			model["description"] = entry.displayName
-		}
-		models = append(models, model)
+		models = append(models, formatHomeCodexModel(entry))
 	}
 
-	c.JSON(http.StatusOK, openai.CodexClientModelsResponse(models))
+	var webSearchCapabilityForModel codexmodels.WebSearchCapabilityForModelFunc
+	if clientVersion == "cpa" {
+		webSearchCapabilityForModel = homeWebSearchCapabilityForModel(entries)
+	}
+	optimizeMultiAgentV2 := s != nil && s.cfg != nil && s.cfg.CodexOptimizeMultiAgentV2
+	c.JSON(http.StatusOK, codexmodels.BuildResponseForClientWithCPACapabilities(models, nil, webSearchCapabilityForModel, optimizeMultiAgentV2, clientVersion))
+}
+
+func homeWebSearchCapabilityForModel(entries []homeModelEntry) codexmodels.WebSearchCapabilityForModelFunc {
+	routesByID := make(map[string][]registry.NativeCapabilityRoute, len(entries))
+	for _, entry := range entries {
+		routesByID[entry.id] = append([]registry.NativeCapabilityRoute(nil), entry.nativeCapabilityRoutes...)
+	}
+	return func(id string) *bool {
+		return registry.ResolveResponsesWebSearchCapability(routesByID[strings.TrimSpace(id)])
+	}
+}
+
+func formatHomeCodexModel(entry homeModelEntry) map[string]any {
+	model := map[string]any{
+		"id":     entry.id,
+		"object": "model",
+	}
+	if entry.created > 0 {
+		model["created"] = entry.created
+	}
+	if entry.ownedBy != "" {
+		model["owned_by"] = entry.ownedBy
+	}
+	if entry.displayName != "" {
+		model["display_name"] = entry.displayName
+		model["description"] = entry.displayName
+	}
+	return model
 }
 
 func (s *Server) geminiModelsHandler(geminiHandler *gemini.GeminiAPIHandler) gin.HandlerFunc {
@@ -1045,10 +1069,12 @@ func (s *Server) geminiGetHandler(geminiHandler *gemini.GeminiAPIHandler) gin.Ha
 }
 
 type homeModelEntry struct {
-	id          string
-	created     int64
-	ownedBy     string
-	displayName string
+	id                     string
+	created                int64
+	ownedBy                string
+	displayName            string
+	providers              []string
+	nativeCapabilityRoutes []registry.NativeCapabilityRoute
 }
 
 func (s *Server) handleHomeModels(c *gin.Context) {
@@ -1237,9 +1263,10 @@ func decodeHomeModels(raw []byte) ([]homeModelEntry, error) {
 		return nil, fmt.Errorf("home models payload has no sections")
 	}
 
-	seen := make(map[string]struct{})
+	indexByID := make(map[string]int)
 	out := make([]homeModelEntry, 0, 256)
-	for _, models := range bySection {
+	for section, models := range bySection {
+		provider := strings.ToLower(strings.TrimSpace(section))
 		for _, model := range models {
 			id, _ := model["id"].(string)
 			id = strings.TrimSpace(id)
@@ -1251,10 +1278,15 @@ func decodeHomeModels(raw []byte) ([]homeModelEntry, error) {
 			if id == "" {
 				continue
 			}
-			if _, ok := seen[id]; ok {
+			route := registry.NativeCapabilityRoute{
+				Provider:           provider,
+				NativeCapabilities: homeModelNativeCapabilities(model),
+			}
+			if index, ok := indexByID[id]; ok {
+				out[index].providers = appendUniqueHomeProvider(out[index].providers, provider)
+				out[index].nativeCapabilityRoutes = append(out[index].nativeCapabilityRoutes, route)
 				continue
 			}
-			seen[id] = struct{}{}
 
 			created := int64(0)
 			switch v := model["created"].(type) {
@@ -1279,11 +1311,14 @@ func decodeHomeModels(raw []byte) ([]homeModelEntry, error) {
 				displayName = strings.TrimSpace(displayName)
 			}
 
+			indexByID[id] = len(out)
 			out = append(out, homeModelEntry{
-				id:          id,
-				created:     created,
-				ownedBy:     ownedBy,
-				displayName: displayName,
+				id:                     id,
+				created:                created,
+				ownedBy:                ownedBy,
+				displayName:            displayName,
+				providers:              appendUniqueHomeProvider(nil, provider),
+				nativeCapabilityRoutes: []registry.NativeCapabilityRoute{route},
 			})
 		}
 	}
@@ -1293,6 +1328,30 @@ func decodeHomeModels(raw []byte) ([]homeModelEntry, error) {
 		return nil, fmt.Errorf("home models payload contains no models")
 	}
 	return out, nil
+}
+
+func homeModelNativeCapabilities(model map[string]any) *registry.NativeCapabilities {
+	raw, ok := model["native_capabilities"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	webSearch, ok := raw["web_search"].(bool)
+	if !ok {
+		return &registry.NativeCapabilities{}
+	}
+	return &registry.NativeCapabilities{WebSearch: &webSearch}
+}
+
+func appendUniqueHomeProvider(providers []string, provider string) []string {
+	if provider == "" {
+		return providers
+	}
+	for _, existing := range providers {
+		if existing == provider {
+			return providers
+		}
+	}
+	return append(providers, provider)
 }
 
 // Start begins listening for and serving HTTP or HTTPS requests.

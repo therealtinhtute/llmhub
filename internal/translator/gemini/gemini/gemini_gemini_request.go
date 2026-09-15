@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -57,11 +58,17 @@ func ConvertGeminiRequestToGemini(_ string, inputRawJSON []byte, _ bool) []byte 
 	contents.ForEach(func(_ gjson.Result, value gjson.Result) bool {
 		role := value.Get("role").String()
 
-		// Only user/model are valid for Gemini v1beta requests
+		// Only user/model are valid for Gemini v1beta requests.
+		// Turns carrying a functionResponse always normalize to user so tool
+		// results are never re-labeled as model turns.
+		// Ported from upstream CLIProxyAPI commit f6d19a329c68 ("ensure
+		// functionResponse normalizes to user role in Gemini request normalizer").
 		valid := role == "user" || role == "model"
 		if role == "" || !valid {
 			var newRole string
-			if prevRole == "" {
+			if translatorcommon.ContentHasGeminiFunctionResponse([]byte(value.Raw)) {
+				newRole = "user"
+			} else if prevRole == "" {
 				newRole = "user"
 			} else if prevRole == "user" {
 				newRole = "model"

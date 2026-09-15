@@ -2825,3 +2825,115 @@ func TestConvertClaudeRequestToAntigravity_AlignsPermutedParallelToolResultsWith
 		t.Fatalf("translated parallel tool history is invalid: %v; output=%s", errPairing, output)
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit a76da7115486 ("omit tools when
+// tool_choice is none"): request.tools must be dropped and the mode set to NONE.
+func TestConvertClaudeRequestToAntigravityToolChoiceNoneOmitsTools(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolChoice string
+	}{
+		{name: "string none", toolChoice: `"none"`},
+		{name: "object none", toolChoice: `{"type":"none"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inputJSON := []byte(`{
+				"model":"claude-sonnet-4-5",
+				"messages":[{"role":"user","content":"hi"}],
+				"tools":[{"name":"get_weather","description":"Get weather","input_schema":{"type":"object"}}],
+				"tool_choice":` + tc.toolChoice + `
+			}`)
+			out := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5", inputJSON, false)
+			if got := gjson.GetBytes(out, "request.toolConfig.functionCallingConfig.mode").String(); got != "NONE" {
+				t.Fatalf("expected mode NONE, got %q", got)
+			}
+			if gjson.GetBytes(out, "request.tools").Exists() {
+				t.Fatalf("expected request.tools to be omitted, got %s", gjson.GetBytes(out, "request.tools").Raw)
+			}
+		})
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit a76da7115486: tool_choice none also
+// suppresses the interleaved thinking hint injection.
+func TestConvertClaudeRequestToAntigravityToolChoiceNoneOmitsInterleavedThinkingHint(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolChoice string
+	}{
+		{name: "string none", toolChoice: `"none"`},
+		{name: "object none", toolChoice: `{"type":"none"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inputJSON := []byte(`{
+				"model":"claude-sonnet-4-5-thinking",
+				"messages":[{"role":"user","content":"Answer without calling tools."}],
+				"tools":[{"name":"get_weather","description":"Get weather","input_schema":{"type":"object"}}],
+				"tool_choice":` + tc.toolChoice + `,
+				"thinking":{"type":"enabled","budget_tokens":1024}
+			}`)
+			out := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
+			if got := gjson.GetBytes(out, "request.toolConfig.functionCallingConfig.mode").String(); got != "NONE" {
+				t.Fatalf("expected mode NONE, got %q", got)
+			}
+			if gjson.GetBytes(out, "request.tools").Exists() {
+				t.Fatalf("expected request.tools to be omitted, got %s", gjson.GetBytes(out, "request.tools").Raw)
+			}
+			sysInstr := gjson.GetBytes(out, "request.systemInstruction").Raw
+			if strings.Contains(sysInstr, "Interleaved thinking is enabled") {
+				t.Fatalf("expected interleaved thinking hint to be omitted when tool_choice is none, got systemInstruction: %s", sysInstr)
+			}
+		})
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 0fe19ede90a4 ("preserve Gemini prompt
+// cache by demoting mid-session developer messages"): message-level developer
+// instructions demote to <system-reminder> user turns merged with neighbors.
+func TestConvertClaudeRequestToAntigravity_MessageLevelDeveloperInstructionsBecomeMergedUserReminder(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "gemini-3.5-flash",
+		"system": "Top-level rules",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+			{"role": "developer", "content": "String mid-conversation developer rule"},
+			{"role": "developer", "content": [{"type": "text", "text": "Array mid-conversation developer rule"}]}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToAntigravity("gemini-3.5-flash", inputJSON, false)
+	outputStr := string(output)
+
+	if devContent := gjson.Get(outputStr, `request.contents.#(role=="developer")`); devContent.Exists() {
+		t.Fatalf("developer role should not be emitted in request.contents: %s", devContent.Raw)
+	}
+
+	contents := gjson.Get(outputStr, "request.contents").Array()
+	if len(contents) != 1 {
+		t.Fatalf("Expected consecutive user and developer turns to be merged into a single user turn, got %d: %s", len(contents), gjson.Get(outputStr, "request.contents").Raw)
+	}
+	if got := contents[0].Get("role").String(); got != "user" {
+		t.Fatalf("Expected first content role user, got %q", got)
+	}
+	parts := contents[0].Get("parts").Array()
+	if len(parts) != 3 {
+		t.Fatalf("Expected 3 parts in merged user content, got %d: %s", len(parts), contents[0].Get("parts").Raw)
+	}
+	if got := parts[0].Get("text").String(); got != "Hello" {
+		t.Fatalf("Unexpected initial user prompt text: %q", got)
+	}
+	if got := parts[1].Get("text").String(); got != "<system-reminder>\nString mid-conversation developer rule\n</system-reminder>" {
+		t.Fatalf("Unexpected string developer content text: %q", got)
+	}
+	if got := parts[2].Get("text").String(); got != "<system-reminder>\nArray mid-conversation developer rule\n</system-reminder>" {
+		t.Fatalf("Unexpected array developer content text: %q", got)
+	}
+
+	systemInstructionParts := gjson.Get(outputStr, "request.systemInstruction.parts").Array()
+	if len(systemInstructionParts) != 1 {
+		t.Fatalf("Expected only top-level system parts, got %d: %s", len(systemInstructionParts), gjson.Get(outputStr, "request.systemInstruction.parts").Raw)
+	}
+	if got := systemInstructionParts[0].Get("text").String(); got != "Top-level rules" {
+		t.Fatalf("Unexpected first system part: %q", got)
+	}
+}

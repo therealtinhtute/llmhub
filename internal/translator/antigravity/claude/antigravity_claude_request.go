@@ -172,15 +172,33 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 				continue
 			}
 			originalRole := roleResult.String()
-			precedingToolUseIDs := pendingToolUseIDs
-			pendingToolUseIDs = nil
+			var precedingToolUseIDs []string
+			// Mid-session system/developer turns must not consume pending
+			// tool_use IDs; they are demoted to user reminder turns below.
+			// Ported from upstream CLIProxyAPI commit 0fe19ede90a4.
+			if originalRole != "system" && originalRole != "developer" {
+				precedingToolUseIDs = pendingToolUseIDs
+				pendingToolUseIDs = nil
+			}
 			role := originalRole
 			if role == "assistant" {
 				role = "model"
+			} else if role == "system" || role == "developer" {
+				role = "user"
 			}
 			clientContentJSON := []byte(`{"role":"","parts":[]}`)
 			clientContentJSON, _ = sjson.SetBytes(clientContentJSON, "role", role)
 			contentsResult := messageResult.Get("content")
+			if originalRole == "system" || originalRole == "developer" {
+				if reminderText, ok := translatorcommon.ClaudeMessageSystemReminderText(contentsResult); ok {
+					partJSON := []byte(`{}`)
+					partJSON, _ = sjson.SetBytes(partJSON, "text", reminderText)
+					clientContentJSON, _ = sjson.SetRawBytes(clientContentJSON, "parts.-1", partJSON)
+					contentsJSON, _ = sjson.SetRawBytes(contentsJSON, "-1", clientContentJSON)
+					hasContents = true
+				}
+				continue
+			}
 			if contentsResult.IsArray() {
 				if originalRole == "user" {
 					contentsResult = translatorcommon.AlignClaudeToolResults(contentsResult, precedingToolUseIDs)
@@ -514,8 +532,25 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 	out := []byte(`{"model":"","request":{"contents":[]}}`)
 	out, _ = sjson.SetBytes(out, "model", modelName)
 
+	// tool_choice metadata (parsed up-front so "none" can suppress tools and
+	// the interleaved thinking hint).
+	// Ported from upstream CLIProxyAPI commit a76da7115486 ("omit tools when
+	// tool_choice is none").
+	toolChoiceResult := gjson.GetBytes(rawJSON, "tool_choice")
+	toolChoiceType := ""
+	toolChoiceName := ""
+	if toolChoiceResult.Exists() {
+		if toolChoiceResult.IsObject() {
+			toolChoiceType = toolChoiceResult.Get("type").String()
+			toolChoiceName = toolChoiceResult.Get("name").String()
+		} else if toolChoiceResult.Type == gjson.String {
+			toolChoiceType = toolChoiceResult.String()
+		}
+	}
+	isToolChoiceNone := strings.EqualFold(strings.TrimSpace(toolChoiceType), "none")
+
 	// Inject interleaved thinking hint when both tools and thinking are active
-	hasTools := toolDeclCount > 0
+	hasTools := toolDeclCount > 0 && !isToolChoiceNone
 	thinkingResult := gjson.GetBytes(rawJSON, "thinking")
 	thinkingType := thinkingResult.Get("type").String()
 	hasThinking := thinkingResult.Exists() && thinkingResult.IsObject() && (thinkingType == "enabled" || thinkingType == "adaptive" || thinkingType == "auto")
@@ -543,29 +578,30 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		out, _ = sjson.SetRawBytes(out, "request.systemInstruction", systemInstructionJSON)
 	}
 	if hasContents {
-		out, _ = sjson.SetRawBytes(out, "request.contents", contentsJSON)
+		// Merge adjacent user turns so demoted system/developer reminder turns
+		// fold into neighboring user/tool-result turns, keeping the
+		// prompt-cache prefix stable.
+		// Ported from upstream CLIProxyAPI commit 0fe19ede90a4
+		// (MergeAdjacentGeminiContents).
+		var contentItems [][]byte
+		gjson.ParseBytes(contentsJSON).ForEach(func(_, content gjson.Result) bool {
+			contentItems = append(contentItems, []byte(content.Raw))
+			return true
+		})
+		out, _ = sjson.SetRawBytes(out, "request.contents", translatorcommon.JoinRawArray(translatorcommon.MergeAdjacentGeminiContents(contentItems)))
 	}
-	if toolDeclCount > 0 {
+	if toolDeclCount > 0 && !isToolChoiceNone {
 		out, _ = sjson.SetRawBytes(out, "request.tools", toolsJSON)
 	}
 
 	// tool_choice
-	toolChoiceResult := gjson.GetBytes(rawJSON, "tool_choice")
 	if toolChoiceResult.Exists() {
-		toolChoiceType := ""
-		toolChoiceName := ""
-		if toolChoiceResult.IsObject() {
-			toolChoiceType = toolChoiceResult.Get("type").String()
-			toolChoiceName = toolChoiceResult.Get("name").String()
-		} else if toolChoiceResult.Type == gjson.String {
-			toolChoiceType = toolChoiceResult.String()
-		}
-
-		switch toolChoiceType {
+		switch strings.ToLower(strings.TrimSpace(toolChoiceType)) {
 		case "auto":
 			out, _ = sjson.SetBytes(out, "request.toolConfig.functionCallingConfig.mode", "AUTO")
 		case "none":
 			out, _ = sjson.SetBytes(out, "request.toolConfig.functionCallingConfig.mode", "NONE")
+			out, _ = sjson.DeleteBytes(out, "request.tools")
 		case "any":
 			out, _ = sjson.SetBytes(out, "request.toolConfig.functionCallingConfig.mode", "ANY")
 		case "tool":

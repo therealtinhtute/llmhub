@@ -145,12 +145,17 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		}
 
 		systemPartIndex := 0
+		// Leading system/developer messages hoist into request.systemInstruction;
+		// mid-session ones demote to user turns to keep the prompt-cache
+		// prefix immutable.
+		// Ported from upstream CLIProxyAPI commit 0fe19ede90a4.
+		hasEncounteredConversation := false
 		for i := 0; i < len(arr); i++ {
 			m := arr[i]
 			role := m.Get("role").String()
 			content := m.Get("content")
 
-			if (role == "system" || role == "developer") && len(arr) > 1 {
+			if (role == "system" || role == "developer") && len(arr) > 1 && !hasEncounteredConversation {
 				// system -> request.systemInstruction as a user message style
 				if content.Type == gjson.String {
 					out, _ = sjson.SetBytes(out, "request.systemInstruction.role", "user")
@@ -170,11 +175,17 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						}
 					}
 				}
-			} else if role == "user" || ((role == "system" || role == "developer") && len(arr) == 1) {
+			} else if role == "user" || role == "system" || role == "developer" {
+				hasEncounteredConversation = true
 				// Build single user content node to avoid splitting into multiple contents
 				node := []byte(`{"role":"user","parts":[]}`)
+				hasParts := false
 				if content.Type == gjson.String {
 					node, _ = sjson.SetBytes(node, "parts.0.text", content.String())
+					hasParts = true
+				} else if content.IsObject() && content.Get("type").String() == "text" {
+					node, _ = sjson.SetBytes(node, "parts.0.text", content.Get("text").String())
+					hasParts = true
 				} else if content.IsArray() {
 					items := content.Array()
 					p := 0
@@ -184,6 +195,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 							text := item.Get("text").String()
 							if text != "" {
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".text", text)
+								hasParts = true
 							}
 							p++
 						case "image_url":
@@ -196,6 +208,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mimeType", mime)
 									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", data)
 									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiCLIFunctionThoughtSignature)
+									hasParts = true
 									p++
 								}
 							}
@@ -206,6 +219,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 								if len(pieces) == 2 && len(pieces[1]) > 7 {
 									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mimeType", pieces[0])
 									node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", pieces[1][7:])
+									hasParts = true
 									p++
 								}
 							}
@@ -219,6 +233,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 							if mimeType, ok := misc.MimeTypes[ext]; ok {
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mimeType", mimeType)
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", fileData)
+								hasParts = true
 								p++
 							} else {
 								log.Warnf("Unknown file name extension '%s' in user message, skip", ext)
@@ -248,13 +263,19 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 								}
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.mime_type", mimeType)
 								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".inlineData.data", audioData)
+								hasParts = true
 								p++
 							}
 						}
 					}
 				}
-				out, _ = sjson.SetRawBytes(out, "request.contents.-1", node)
+				// Guard against empty parts (e.g. content carried only
+				// unsupported item types). Ported from upstream 0fe19ede90a4.
+				if hasParts {
+					out, _ = sjson.SetRawBytes(out, "request.contents.-1", node)
+				}
 			} else if role == "assistant" {
+				hasEncounteredConversation = true
 				node := []byte(`{"role":"model","parts":[]}`)
 				p := 0
 				if content.Type == gjson.String && content.String() != "" {
@@ -453,7 +474,54 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		}
 	}
 
+	out = applyOpenAIToolChoiceToAntigravity(out, rawJSON)
+
 	return common.AttachDefaultSafetySettings(out, "request.safetySettings")
+}
+
+// applyOpenAIToolChoiceToAntigravity maps OpenAI tool_choice onto Gemini
+// toolConfig.functionCallingConfig. When tool_choice resolves to "none" the
+// emitted request.tools are removed entirely.
+// Ported from upstream CLIProxyAPI commit a76da7115486 ("omit tools when
+// tool_choice is none").
+func applyOpenAIToolChoiceToAntigravity(out, rawJSON []byte) []byte {
+	toolChoice := gjson.GetBytes(rawJSON, "tool_choice")
+	if !toolChoice.Exists() {
+		return out
+	}
+
+	mode := ""
+	allowedName := ""
+	if toolChoice.Type == gjson.String {
+		switch strings.ToLower(strings.TrimSpace(toolChoice.String())) {
+		case "none":
+			mode = "NONE"
+		case "auto":
+			mode = "AUTO"
+		case "required", "any":
+			mode = "ANY"
+		}
+	} else if toolChoice.IsObject() {
+		switch strings.ToLower(strings.TrimSpace(toolChoice.Get("type").String())) {
+		case "none":
+			mode = "NONE"
+		case "function":
+			mode = "ANY"
+			allowedName = toolChoice.Get("function.name").String()
+		}
+	}
+	if mode == "" {
+		return out
+	}
+
+	out, _ = sjson.SetBytes(out, "request.toolConfig.functionCallingConfig.mode", mode)
+	if mode == "NONE" {
+		out, _ = sjson.DeleteBytes(out, "request.tools")
+	}
+	if strings.TrimSpace(allowedName) != "" {
+		out, _ = sjson.SetBytes(out, "request.toolConfig.functionCallingConfig.allowedFunctionNames", []string{util.SanitizeFunctionName(allowedName)})
+	}
+	return out
 }
 
 // itoa converts int to string without strconv import for few usages.

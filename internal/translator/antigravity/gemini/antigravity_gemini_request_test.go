@@ -589,3 +589,138 @@ func TestFixCLIToolResponse_AttachesNonAdjacentSiblingImagesToNearestResponse(t 
 		}
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit f2041a2c787b ("use
+// ContentHasGeminiFunctionResponse instead of gjson projection"): text-only
+// invalid roles still alternate via the previous role.
+func TestNormalizeRoles_InvalidRoleWithoutFunctionResponseAlternates(t *testing.T) {
+	inputJSON := []byte(`{
+		"contents": [
+			{"role": "user", "parts": [{"text": "first"}]},
+			{"role": "invalid", "parts": [{"text": "second"}]}
+		]
+	}`)
+	out := ConvertGeminiRequestToAntigravity("gemini-3-flash", inputJSON, false)
+	contents := gjson.GetBytes(out, "request.contents").Array()
+	if len(contents) != 2 {
+		t.Fatalf("expected 2 contents, got %d", len(contents))
+	}
+	if got := contents[1].Get("role").String(); got != "model" {
+		t.Fatalf("text-only invalid role following user should normalize to model, got %q", got)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit f2041a2c787b: a functionResponse turn
+// must never normalize to model, even after an intervening user turn.
+func TestNormalizeRoles_InvalidRoleWithFunctionResponseNormalizesToUser(t *testing.T) {
+	inputJSON := []byte(`{
+		"contents": [
+			{"role": "model", "parts": [{"functionCall": {"name": "test", "args": {}}}]},
+			{"role": "user", "parts": [{"text": "intervening user message"}]},
+			{"role": "invalid", "parts": [{"functionResponse": {"name": "test", "response": {}}}]}
+		]
+	}`)
+	out := ConvertGeminiRequestToAntigravity("gemini-3-flash", inputJSON, false)
+	// Role functionResponse should NEVER be normalized to model
+	for _, content := range gjson.GetBytes(out, "request.contents").Array() {
+		if content.Get("parts.0.functionResponse").Exists() {
+			if got := content.Get("role").String(); got != "user" && got != "function" {
+				t.Fatalf("functionResponse role should be user or function, got %q", got)
+			}
+		}
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit dc21a4263912 ("normalize gemini
+// responseJsonSchema to responseSchema"): generationConfig.responseJsonSchema
+// and response_json_schema translate to request.generationConfig.responseSchema.
+func TestConvertGeminiRequestToAntigravity_TranslatesResponseJsonSchemaToResponseSchema(t *testing.T) {
+	tests := []struct {
+		name      string
+		inputJSON string
+	}{
+		{
+			name: "camelCase responseJsonSchema",
+			inputJSON: `{
+				"contents": [{"role": "user", "parts": [{"text": "hello"}]}],
+				"generationConfig": {
+					"responseMimeType": "application/json",
+					"responseJsonSchema": {
+						"type": "OBJECT",
+						"properties": {"message": {"type": "STRING"}},
+						"required": ["message"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "snake_case response_json_schema",
+			inputJSON: `{
+				"contents": [{"role": "user", "parts": [{"text": "hello"}]}],
+				"generationConfig": {
+					"responseMimeType": "application/json",
+					"response_json_schema": {
+						"type": "OBJECT",
+						"properties": {"message": {"type": "STRING"}},
+						"required": ["message"]
+					}
+				}
+			}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := ConvertGeminiRequestToAntigravity("gemini-3-flash", []byte(tt.inputJSON), false)
+
+			schema := gjson.GetBytes(out, "request.generationConfig.responseSchema")
+			if !schema.Exists() {
+				t.Fatalf("request.generationConfig.responseSchema missing. Output: %s", out)
+			}
+			if got := schema.Get("properties.message.type").String(); got != "STRING" {
+				t.Fatalf("responseSchema.properties.message.type = %q, want STRING. Output: %s", got, out)
+			}
+			if gjson.GetBytes(out, "request.generationConfig.responseJsonSchema").Exists() {
+				t.Fatalf("request.generationConfig.responseJsonSchema should have been removed. Output: %s", out)
+			}
+			if gjson.GetBytes(out, "request.generationConfig.response_json_schema").Exists() {
+				t.Fatalf("request.generationConfig.response_json_schema should have been removed. Output: %s", out)
+			}
+		})
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit dc21a4263912: an existing
+// responseSchema wins over the deprecated keys.
+func TestConvertGeminiRequestToAntigravity_PreservesExistingResponseSchema(t *testing.T) {
+	inputJSON := []byte(`{
+		"contents": [{"role": "user", "parts": [{"text": "hello"}]}],
+		"generationConfig": {
+			"responseMimeType": "application/json",
+			"responseSchema": {
+				"type": "OBJECT",
+				"properties": {"name": {"type": "STRING"}},
+				"required": ["name"]
+			},
+			"responseJsonSchema": {
+				"type": "OBJECT",
+				"properties": {"stale": {"type": "STRING"}}
+			}
+		}
+	}`)
+	out := ConvertGeminiRequestToAntigravity("gemini-3-flash", inputJSON, false)
+
+	schema := gjson.GetBytes(out, "request.generationConfig.responseSchema")
+	if !schema.Exists() {
+		t.Fatalf("request.generationConfig.responseSchema missing. Output: %s", out)
+	}
+	if got := schema.Get("properties.name.type").String(); got != "STRING" {
+		t.Fatalf("responseSchema.properties.name.type = %q, want STRING. Output: %s", got, out)
+	}
+	if schema.Get("properties.stale").Exists() {
+		t.Fatalf("stale properties survived. Output: %s", out)
+	}
+	if gjson.GetBytes(out, "request.generationConfig.responseJsonSchema").Exists() {
+		t.Fatalf("request.generationConfig.responseJsonSchema should have been removed. Output: %s", out)
+	}
+}

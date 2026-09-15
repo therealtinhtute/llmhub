@@ -145,23 +145,26 @@ func TestConvertClaudeRequestToGemini_ConvertsMessageSystemRoleToUserContent(t *
 		t.Fatalf("system role should not be emitted in contents: %s", systemContent.Raw)
 	}
 
+	// Ported from upstream CLIProxyAPI commit 0fe19ede90a4: consecutive user and
+	// message-level system turns merge into a single user turn.
 	contents := gjson.GetBytes(output, "contents").Array()
-	if len(contents) != 3 {
-		t.Fatalf("Expected the user and message-level system turns in contents, got %d: %s", len(contents), gjson.GetBytes(output, "contents").Raw)
+	if len(contents) != 1 {
+		t.Fatalf("Expected consecutive user and message-level system turns to be merged into a single user turn, got %d: %s", len(contents), gjson.GetBytes(output, "contents").Raw)
 	}
 	if got := contents[0].Get("role").String(); got != "user" {
 		t.Fatalf("Expected first content role user, got %q", got)
 	}
-	if got := contents[1].Get("role").String(); got != "user" {
-		t.Fatalf("Expected message-level string system content to be downgraded to user role, got %q", got)
+	mergedParts := contents[0].Get("parts").Array()
+	if len(mergedParts) != 3 {
+		t.Fatalf("Expected 3 parts in merged user content, got %d: %s", len(mergedParts), contents[0].Get("parts").Raw)
 	}
-	if got := contents[1].Get("parts.0.text").String(); got != "<system-reminder>\nString mid-conversation rule\n</system-reminder>" {
+	if got := mergedParts[0].Get("text").String(); got != "Hello" {
+		t.Fatalf("Unexpected initial user prompt text: %q", got)
+	}
+	if got := mergedParts[1].Get("text").String(); got != "<system-reminder>\nString mid-conversation rule\n</system-reminder>" {
 		t.Fatalf("Unexpected string message-level system content text: %q", got)
 	}
-	if got := contents[2].Get("role").String(); got != "user" {
-		t.Fatalf("Expected message-level array system content to be downgraded to user role, got %q", got)
-	}
-	if got := contents[2].Get("parts.0.text").String(); got != "<system-reminder>\nArray mid-conversation rule\n</system-reminder>" {
+	if got := mergedParts[2].Get("text").String(); got != "<system-reminder>\nArray mid-conversation rule\n</system-reminder>" {
 		t.Fatalf("Unexpected array message-level system content text: %q", got)
 	}
 
@@ -273,18 +276,23 @@ func TestConvertClaudeRequestToGemini_AlignsPermutedParallelToolResultsWithMixed
 		if gotID := callParts[index].Get("functionCall.id").String(); gotID != wantID {
 			t.Fatalf("functionCall[%d].id = %q, want %q; output=%s", index, gotID, wantID, output)
 		}
-		if gotID := responseParts[index].Get("functionResponse.id").String(); gotID != wantID {
+	}
+	// Ported from upstream CLIProxyAPI commit 4fde97f4144a: text parts reorder
+	// before functionResponse parts inside the user turn.
+	if got := responseParts[0].Get("text").String(); got != "Results arrived." {
+		t.Fatalf("leading text = %q; output=%s", got, output)
+	}
+	if got := responseParts[1].Get("text").String(); got != "Continue." {
+		t.Fatalf("trailing text reordered before functionResponse = %q; output=%s", got, output)
+	}
+	for index, wantID := range []string{"call_1", "call_2", "call_3"} {
+		responsePart := responseParts[index+2]
+		if gotID := responsePart.Get("functionResponse.id").String(); gotID != wantID {
 			t.Fatalf("functionResponse[%d].id = %q, want %q; output=%s", index, gotID, wantID, output)
 		}
-		if gotName := responseParts[index].Get("functionResponse.name").String(); gotName != "Read" {
+		if gotName := responsePart.Get("functionResponse.name").String(); gotName != "Read" {
 			t.Fatalf("functionResponse[%d].name = %q, want Read; output=%s", index, gotName, output)
 		}
-	}
-	if got := responseParts[3].Get("text").String(); got != "Results arrived." {
-		t.Fatalf("first trailing text = %q; output=%s", got, output)
-	}
-	if got := responseParts[4].Get("text").String(); got != "Continue." {
-		t.Fatalf("second trailing text = %q; output=%s", got, output)
 	}
 	if errPairing := signature.ValidateGeminiFunctionCallPairing(output); errPairing != nil {
 		t.Fatalf("translated parallel tool history is invalid: %v; output=%s", errPairing, output)
@@ -358,5 +366,55 @@ func TestConvertClaudeRequestToGemini_SignatureCompatibility(t *testing.T) {
 				t.Fatalf("thoughtSignature = %q, want %q; output: %s", got, tt.wantSignature, out)
 			}
 		})
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 0fe19ede90a4 ("preserve Gemini prompt
+// cache by demoting mid-session developer messages"): message-level developer
+// instructions demote to <system-reminder> user turns merged with neighbors.
+func TestConvertClaudeRequestToGemini_MessageLevelDeveloperInstructionsBecomeMergedUserReminder(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "gemini-3-flash-preview",
+		"system": "Top-level rules",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+			{"role": "developer", "content": "String mid-conversation developer rule"},
+			{"role": "developer", "content": [{"type": "text", "text": "Array mid-conversation developer rule"}]}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToGemini("gemini-3-flash-preview", inputJSON, false)
+
+	if devContent := gjson.GetBytes(output, `contents.#(role=="developer")`); devContent.Exists() {
+		t.Fatalf("developer role should not be emitted in contents: %s", devContent.Raw)
+	}
+
+	contents := gjson.GetBytes(output, "contents").Array()
+	if len(contents) != 1 {
+		t.Fatalf("Expected consecutive user and developer turns to be merged into a single user turn, got %d: %s", len(contents), gjson.GetBytes(output, "contents").Raw)
+	}
+	if got := contents[0].Get("role").String(); got != "user" {
+		t.Fatalf("Expected first content role user, got %q", got)
+	}
+	parts := contents[0].Get("parts").Array()
+	if len(parts) != 3 {
+		t.Fatalf("Expected 3 parts in merged user content, got %d: %s", len(parts), contents[0].Get("parts").Raw)
+	}
+	if got := parts[0].Get("text").String(); got != "Hello" {
+		t.Fatalf("Unexpected initial user prompt text: %q", got)
+	}
+	if got := parts[1].Get("text").String(); got != "<system-reminder>\nString mid-conversation developer rule\n</system-reminder>" {
+		t.Fatalf("Unexpected string developer content text: %q", got)
+	}
+	if got := parts[2].Get("text").String(); got != "<system-reminder>\nArray mid-conversation developer rule\n</system-reminder>" {
+		t.Fatalf("Unexpected array developer content text: %q", got)
+	}
+
+	systemInstructionParts := gjson.GetBytes(output, "systemInstruction.parts").Array()
+	if len(systemInstructionParts) != 1 {
+		t.Fatalf("Expected only top-level system parts, got %d: %s", len(systemInstructionParts), gjson.GetBytes(output, "systemInstruction.parts").Raw)
+	}
+	if got := systemInstructionParts[0].Get("text").String(); got != "Top-level rules" {
+		t.Fatalf("Unexpected first system part: %q", got)
 	}
 }

@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/cache"
 	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -42,9 +42,8 @@ func decodeSignature(signature string) string {
 }
 
 func formatClaudeSignatureValue(modelName, signature string) string {
-	if cache.SignatureCacheEnabled() {
-		return fmt.Sprintf("%s#%s", cache.GetModelGroup(modelName), signature)
-	}
+	// Provider signatures are emitted as provider-native opaque values without
+	// model group prefixes (such as claude#, gemini#, or gpt#).
 	if cache.GetModelGroup(modelName) == "claude" {
 		return decodeSignature(signature)
 	}

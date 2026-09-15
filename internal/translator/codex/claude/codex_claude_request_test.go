@@ -504,3 +504,155 @@ func TestConvertClaudeRequestToCodex_PreservesBase64PDFDocumentContent(t *testin
 		t.Fatalf("content[1].filename = %q, want %q", got, "document.pdf")
 	}
 }
+
+func TestConvertClaudeRequestToCodex_OutputConfigFormatStrictDowngrade(t *testing.T) {
+	t.Run("json_schema with optional property downgrades strict", func(t *testing.T) {
+		payload := []byte(`{
+			"model": "gpt-5.4",
+			"messages": [
+				{"role": "user", "content": "hello"}
+			],
+			"output_config": {
+				"format": {
+					"type": "json_schema",
+					"name": "cli_proxy_structured_output",
+					"strict": true,
+					"schema": {
+						"type": "object",
+						"properties": {
+							"answer": {"type": "string"},
+							"impossible": {"type": "string"}
+						},
+						"required": ["answer"],
+						"additionalProperties": false
+					}
+				}
+			}
+		}`)
+
+		translated := ConvertClaudeRequestToCodex("gpt-5.4", payload, false)
+		root := gjson.ParseBytes(translated)
+		if got := root.Get("text.format.strict").Bool(); got != false {
+			t.Errorf("expected text.format.strict to be false for non-strict-compatible schema, got %v (%s)", got, translated)
+		}
+		if got := root.Get("text.format.name").String(); got != "cli_proxy_structured_output" {
+			t.Errorf("expected text.format.name to be preserved, got %q", got)
+		}
+	})
+
+	t.Run("json_schema fully required keeps strict", func(t *testing.T) {
+		payload := []byte(`{
+			"model": "gpt-5.4",
+			"messages": [
+				{"role": "user", "content": "hello"}
+			],
+			"output_config": {
+				"format": {
+					"type": "json_schema",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"answer": {"type": "string"}
+						},
+						"required": ["answer"],
+						"additionalProperties": false
+					}
+				}
+			}
+		}`)
+
+		translated := ConvertClaudeRequestToCodex("gpt-5.4", payload, false)
+		root := gjson.ParseBytes(translated)
+		if got := root.Get("text.format.strict").Bool(); !got {
+			t.Errorf("expected text.format.strict to stay true for strict-compatible schema, got %v (%s)", got, translated)
+		}
+	})
+
+	t.Run("json_schema nested optional property downgrades strict", func(t *testing.T) {
+		payload := []byte(`{
+			"model": "gpt-5.4",
+			"messages": [
+				{"role": "user", "content": "hello"}
+			],
+			"output_config": {
+				"format": {
+					"type": "json_schema",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"answer": {
+								"type": "object",
+								"properties": {
+									"text": {"type": "string"},
+									"note": {"type": "string"}
+								},
+								"required": ["text"]
+							}
+						},
+						"required": ["answer"]
+					}
+				}
+			}
+		}`)
+
+		translated := ConvertClaudeRequestToCodex("gpt-5.4", payload, false)
+		root := gjson.ParseBytes(translated)
+		if got := root.Get("text.format.strict").Bool(); got != false {
+			t.Errorf("expected text.format.strict to be false for nested optional property, got %v (%s)", got, translated)
+		}
+	})
+
+	t.Run("json_schema missing required entirely downgrades strict", func(t *testing.T) {
+		payload := []byte(`{
+			"model": "gpt-5.4",
+			"messages": [
+				{"role": "user", "content": "hello"}
+			],
+			"output_config": {
+				"format": {
+					"type": "json_schema",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"answer": {"type": "string"}
+						}
+					}
+				}
+			}
+		}`)
+
+		translated := ConvertClaudeRequestToCodex("gpt-5.4", payload, false)
+		root := gjson.ParseBytes(translated)
+		if got := root.Get("text.format.strict").Bool(); got != false {
+			t.Errorf("expected text.format.strict to be false when required is missing, got %v (%s)", got, translated)
+		}
+	})
+
+	t.Run("explicit strict false stays false", func(t *testing.T) {
+		payload := []byte(`{
+			"model": "gpt-5.4",
+			"messages": [
+				{"role": "user", "content": "hello"}
+			],
+			"output_config": {
+				"format": {
+					"type": "json_schema",
+					"strict": false,
+					"schema": {
+						"type": "object",
+						"properties": {
+							"answer": {"type": "string"}
+						},
+						"required": ["answer"]
+					}
+				}
+			}
+		}`)
+
+		translated := ConvertClaudeRequestToCodex("gpt-5.4", payload, false)
+		root := gjson.ParseBytes(translated)
+		if got := root.Get("text.format.strict").Bool(); got != false {
+			t.Errorf("expected text.format.strict to stay false, got %v (%s)", got, translated)
+		}
+	})
+}

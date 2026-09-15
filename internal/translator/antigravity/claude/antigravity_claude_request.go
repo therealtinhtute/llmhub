@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/cache"
+	sigcompat "github.com/therealtinhtute/llmhub/internal/signature"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
 	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
@@ -22,29 +23,35 @@ func resolveThinkingSignature(modelName, thinkingText, rawSignature string) stri
 	if cache.SignatureCacheEnabled() {
 		return resolveCacheModeSignature(modelName, thinkingText, rawSignature)
 	}
+	targetProvider := sigcompat.SignatureProviderFromModelName(modelName)
+	if signature := resolveProviderCompatibleSignature(targetProvider, rawSignature, sigcompat.SignatureBlockKindUnknown); signature != "" {
+		return signature
+	}
 	return resolveBypassModeSignature(rawSignature)
 }
 
 func resolveCacheModeSignature(modelName, thinkingText, rawSignature string) string {
+	targetProvider := sigcompat.SignatureProviderFromModelName(modelName)
+
+	// Check client-carried provider-native (or legacy prefixed) signature first.
+	// If the client provided a signature that is incompatible or invalid, do not
+	// fall back to recovery cache.
+	if rawSignature != "" {
+		return resolveProviderCompatibleSignature(targetProvider, rawSignature, sigcompat.SignatureBlockKindUnknown)
+	}
+
+	// Recovery cache only when the client omitted the signature (rawSignature == "").
 	if thinkingText != "" {
 		if cachedSig := cache.GetCachedSignature(modelName, thinkingText); cachedSig != "" {
+			if targetProvider == sigcompat.SignatureProviderClaude {
+				signature, ok := sigcompat.CompatibleAntigravityClaudeThinkingSignature(cachedSig)
+				if !ok {
+					return ""
+				}
+				return signature
+			}
 			return cachedSig
 		}
-	}
-
-	if rawSignature == "" {
-		return ""
-	}
-
-	clientSignature := ""
-	arrayClientSignatures := strings.SplitN(rawSignature, "#", 2)
-	if len(arrayClientSignatures) == 2 {
-		if cache.GetModelGroup(modelName) == arrayClientSignatures[0] {
-			clientSignature = arrayClientSignatures[1]
-		}
-	}
-	if cache.HasValidSignature(modelName, clientSignature) {
-		return clientSignature
 	}
 
 	return ""
@@ -62,10 +69,36 @@ func resolveBypassModeSignature(rawSignature string) string {
 }
 
 func hasResolvedThinkingSignature(modelName, signature string) bool {
+	targetProvider := sigcompat.SignatureProviderFromModelName(modelName)
+	if targetProvider == sigcompat.SignatureProviderClaude {
+		_, ok := sigcompat.CompatibleAntigravityClaudeThinkingSignature(signature)
+		return ok
+	}
+	if _, ok := sigcompat.CompatibleSignatureForProvider(targetProvider, signature); ok {
+		return true
+	}
 	if cache.SignatureCacheEnabled() {
 		return cache.HasValidSignature(modelName, signature)
 	}
 	return signature != ""
+}
+
+func resolveProviderCompatibleSignature(targetProvider sigcompat.SignatureProvider, rawSignature string, blockKind sigcompat.SignatureBlockKind) string {
+	if rawSignature == "" {
+		return ""
+	}
+	if targetProvider == sigcompat.SignatureProviderClaude {
+		signature, ok := sigcompat.CompatibleAntigravityClaudeThinkingSignature(rawSignature)
+		if !ok {
+			return ""
+		}
+		return signature
+	}
+	signature, ok := sigcompat.CompatibleSignatureForProviderBlock(targetProvider, rawSignature, blockKind)
+	if !ok {
+		return ""
+	}
+	return signature
 }
 
 // ConvertClaudeRequestToAntigravity parses and transforms a Claude Code API request into Gemini CLI API format.
@@ -168,13 +201,15 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 							currentMessageThinkingSignature = signature
 						}
 
-						// Skip unsigned thinking blocks instead of converting them to text.
+						isGeminiSignature := sigcompat.SignatureProviderFromModelName(modelName) == sigcompat.SignatureProviderGemini
+
+						// Skip unsigned thinking blocks instead of converting them to text for non-Gemini providers.
 						isUnsigned := !hasResolvedThinkingSignature(modelName, signature)
 
 						// If unsigned, skip entirely (don't convert to text)
 						// Claude requires assistant messages to start with thinking blocks when thinking is enabled
 						// Converting to text would break this requirement
-						if isUnsigned {
+						if isUnsigned && !isGeminiSignature {
 							// log.Debugf("Dropping unsigned thinking block (no valid signature)")
 							enableThoughtTranslate = false
 							continue

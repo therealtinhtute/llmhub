@@ -847,6 +847,12 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 	if auth.Disabled || auth.Status == StatusDisabled {
 		return true, blockReasonDisabled, time.Time{}
 	}
+	if hasUnauthorizedAuthFailure(auth) {
+		return true, blockReasonOther, time.Time{}
+	}
+	if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" && auth.Quota.NextRecoverAt.After(now) {
+		return true, blockReasonCooldown, auth.Quota.NextRecoverAt
+	}
 	if blocked, next := kiroProviderQuotaBlocked(auth, now); blocked {
 		if !next.IsZero() {
 			return true, blockReasonCooldown, next

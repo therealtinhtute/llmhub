@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gin "github.com/gin-gonic/gin"
+	codexmodels "github.com/therealtinhtute/llmhub/internal/client/codex/models"
 	proxyconfig "github.com/therealtinhtute/llmhub/internal/config"
 	internallogging "github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
@@ -411,6 +412,72 @@ func assertCodexSupportedReasoningLevels(t *testing.T, model map[string]any, wan
 		if got, _ := levelEntry["effort"].(string); got != want[index] {
 			t.Fatalf("supported_reasoning_levels[%d].effort = %q, want %q", index, got, want[index])
 		}
+	}
+}
+
+// TestHomeModelsRequirePerEntryWebSearchCapabilityAndConservativeRoutes is ported
+// from upstream CLIProxyAPI 4311ae874774 (replacing the provider-heuristic
+// approach introduced by 294b7f5b191b). Local symbols under test:
+// decodeHomeModels, homeModelEntry.nativeCapabilityRoutes, formatHomeCodexModel,
+// homeWebSearchCapabilityForModel, codexmodels.BuildResponseForClientWithCPACapabilities.
+func TestHomeModelsRequirePerEntryWebSearchCapabilityAndConservativeRoutes(t *testing.T) {
+	entries, errDecode := decodeHomeModels([]byte(`{
+		"codex":[
+			{"id":"home-codex","native_capabilities":{"web_search":true}},
+			{"id":"home-unknown"},
+			{"id":"home-duplicate","native_capabilities":{"web_search":true}},
+			{"id":"home-duplicate","native_capabilities":{"web_search":false}}
+		],
+		"xai":[{"id":"home-xai","native_capabilities":{"web_search":true}}],
+		"claude":[{"id":"gpt-5.5","native_capabilities":{"web_search":true}}],
+		"gemini":[{"id":"home-gemini","native_capabilities":{"web_search":true}}],
+		"custom":[{"id":"home-custom","native_capabilities":{"web_search":true}}]
+	}`))
+	if errDecode != nil {
+		t.Fatalf("decode Home models: %v", errDecode)
+	}
+
+	models := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		models = append(models, formatHomeCodexModel(entry))
+	}
+	response := codexmodels.BuildResponseForClientWithCPACapabilities(models, nil, homeWebSearchCapabilityForModel(entries), false, "cpa")
+	catalog, ok := response["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models = %#v, want []map[string]any", response["models"])
+	}
+	bySlug := make(map[string]map[string]any, len(catalog))
+	for _, model := range catalog {
+		slug, _ := model["slug"].(string)
+		bySlug[slug] = model
+	}
+	for _, modelID := range []string{"home-codex", "home-xai", "gpt-5.5"} {
+		assertSerializedCPAWebSearch(t, bySlug[modelID], true)
+	}
+	if supportsSearchTool, _ := bySlug["gpt-5.5"]["supports_search_tool"].(bool); !supportsSearchTool {
+		t.Fatal("CPA capability metadata changed legacy Home supports_search_tool")
+	}
+	for _, modelID := range []string{"home-gemini", "home-duplicate"} {
+		assertSerializedCPAWebSearch(t, bySlug[modelID], false)
+	}
+	for _, modelID := range []string{"home-unknown", "home-custom"} {
+		if _, exists := bySlug[modelID]["cpa_capabilities"]; exists {
+			t.Fatalf("%s cpa_capabilities = %#v, want omitted", modelID, bySlug[modelID]["cpa_capabilities"])
+		}
+	}
+}
+
+func assertSerializedCPAWebSearch(t *testing.T, entry map[string]any, want bool) {
+	t.Helper()
+	if entry == nil {
+		t.Fatal("missing model entry")
+	}
+	capabilities, ok := entry["cpa_capabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("cpa_capabilities = %#v, want object", entry["cpa_capabilities"])
+	}
+	if got, ok := capabilities["web_search"].(bool); !ok || got != want {
+		t.Fatalf("web_search = %#v, want %v", capabilities["web_search"], want)
 	}
 }
 

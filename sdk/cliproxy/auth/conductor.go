@@ -85,6 +85,12 @@ const (
 	refreshIneffectiveBackoff = 30 * time.Second
 	quotaBackoffBase          = time.Second
 	quotaBackoffMax           = 30 * time.Minute
+	// minQuotaCooldownFloor bounds quota-error cooldowns derived from provider
+	// Retry-After hints so sub-second values cannot trigger zero-wait retry storms.
+	minQuotaCooldownFloor = 10 * time.Second
+	// transientErrorCooldown is the default cooldown for recoverable upstream
+	// failures (408/500/502/503/504 and Cloudflare 520-526 origin errors).
+	transientErrorCooldown = time.Minute
 )
 
 var quotaCooldownDisabled atomic.Bool
@@ -94,8 +100,50 @@ func SetQuotaCooldownDisabled(disable bool) {
 	quotaCooldownDisabled.Store(disable)
 }
 
+var transientErrorCooldownSeconds atomic.Int64
+
+// SetTransientErrorCooldownSeconds configures cooldowns for transient upstream
+// errors (408/500/502/503/504/520-526). 0 keeps the legacy transientErrorCooldown
+// default; negative values disable these cooldowns.
+func SetTransientErrorCooldownSeconds(seconds int) {
+	transientErrorCooldownSeconds.Store(int64(seconds))
+}
+
 func quotaCooldownDisabledForAuth(auth *Auth) bool {
 	return quotaCooldownDisabledForAuthWithConfig(auth, nil)
+}
+
+// cooldownDisabledForAuth resolves the cooling policy for auth against the
+// manager's latest runtime config, so provider-level disable_cooling overrides
+// (e.g. openai-compatibility entries) are honored during request-time decisions.
+func (m *Manager) cooldownDisabledForAuth(auth *Auth) bool {
+	if m == nil {
+		return quotaCooldownDisabledForAuth(auth)
+	}
+	return quotaCooldownDisabledForAuthWithConfig(auth, m.runtimeConfigSnapshot())
+}
+
+// recoverableFailureRetryAfterWithHint computes the retry deadline for
+// recoverable upstream failures (408/500/502/503/504 and Cloudflare 520-526
+// origin errors). A positive provider RetryAfter hint takes precedence over the
+// configured transientErrorCooldownSeconds override and the default
+// transientErrorCooldown. Negative transientErrorCooldownSeconds or
+// disableCooling return a zero time (no cooldown).
+func recoverableFailureRetryAfterWithHint(now time.Time, retryAfter *time.Duration, disableCooling bool) time.Time {
+	if disableCooling {
+		return time.Time{}
+	}
+	seconds := transientErrorCooldownSeconds.Load()
+	if seconds < 0 {
+		return time.Time{}
+	}
+	if retryAfter != nil && *retryAfter > 0 {
+		return now.Add(*retryAfter)
+	}
+	if seconds == 0 {
+		return now.Add(transientErrorCooldown)
+	}
+	return now.Add(time.Duration(seconds) * time.Second)
 }
 
 func quotaCooldownDisabledForAuthWithConfig(auth *Auth, cfg *internalconfig.Config) bool {
@@ -210,13 +258,13 @@ func (NoopHook) OnResult(context.Context, Result) {}
 
 // Manager orchestrates auth lifecycle, selection, execution, and persistence.
 type Manager struct {
-	store      Store
-	executors  map[string]ProviderExecutor
-	selector   Selector
-	hook       Hook
-	mu         sync.RWMutex
-	auths      map[string]*Auth
-	scheduler  *authScheduler
+	store     Store
+	executors map[string]ProviderExecutor
+	selector  Selector
+	hook      Hook
+	mu        sync.RWMutex
+	auths     map[string]*Auth
+	scheduler *authScheduler
 	// homeRuntimeAuths caches auths returned by Home so websocket sessions can
 	// reuse an established upstream credential without dispatching every turn.
 	homeRuntimeAuths      map[string]map[string]*Auth
@@ -1085,6 +1133,7 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 
 	availableByPriority := make(map[int][]*Auth)
 	cooldownCount := 0
+	unauthorizedCount := 0
 	var earliest time.Time
 	for _, candidate := range auths {
 		checkModel := m.selectionModelForAuth(candidate, routeModel)
@@ -1099,6 +1148,10 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 			if !next.IsZero() && (earliest.IsZero() || next.Before(earliest)) {
 				earliest = next
 			}
+			continue
+		}
+		if hasUnauthorizedAuthFailure(candidate) {
+			unauthorizedCount++
 		}
 	}
 
@@ -1116,6 +1169,18 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 				resetIn = 0
 			}
 			return nil, newModelCooldownErrorWithCause(routeModel, providerForError, resetIn, lastCandidateErr)
+		}
+		if unauthorizedCount == len(auths) && len(auths) > 0 {
+			terminalCause := latestUnauthorizedCandidateError(auths)
+			if terminalCause == nil {
+				terminalCause = lastCandidateErr
+			}
+			return nil, NewTerminalAuthError(&Error{
+				Code:       "auth_unavailable",
+				Message:    "no auth available",
+				Retryable:  false,
+				HTTPStatus: http.StatusServiceUnavailable,
+			}, terminalCause)
 		}
 		return nil, WithCause(&Error{Code: "auth_unavailable", Message: "no auth available"}, lastCandidateErr)
 	}
@@ -1177,25 +1242,25 @@ func latestCandidateErrorForModel(auths []*Auth, selectionModelFunc func(*Auth) 
 				latestModelAuthID = candidate.ID
 				latestModelErr = curModelErr
 			}
-		} else {
-			var curAuthErr error
-			var curAuthTime time.Time
-			if candidate.LastError != nil {
-				curAuthErr = candidate.LastError
-				curAuthTime = candidate.UpdatedAt
-			} else if strings.TrimSpace(candidate.StatusMessage) != "" {
-				curAuthErr = errors.New(candidate.StatusMessage)
+		}
+
+		var curAuthErr error
+		var curAuthTime time.Time
+		if candidate.LastError != nil {
+			curAuthErr = candidate.LastError
+			curAuthTime = candidate.UpdatedAt
+		} else if strings.TrimSpace(candidate.StatusMessage) != "" {
+			curAuthErr = errors.New(candidate.StatusMessage)
+			curAuthTime = candidate.UpdatedAt
+		}
+		if curAuthErr != nil {
+			if curAuthTime.IsZero() {
 				curAuthTime = candidate.UpdatedAt
 			}
-			if curAuthErr != nil {
-				if curAuthTime.IsZero() {
-					curAuthTime = candidate.UpdatedAt
-				}
-				if latestAuthErr == nil || curAuthTime.After(latestAuthTime) || (curAuthTime.Equal(latestAuthTime) && candidate.ID > latestAuthID) {
-					latestAuthTime = curAuthTime
-					latestAuthID = candidate.ID
-					latestAuthErr = curAuthErr
-				}
+			if latestAuthErr == nil || curAuthTime.After(latestAuthTime) || (curAuthTime.Equal(latestAuthTime) && candidate.ID > latestAuthID) {
+				latestAuthTime = curAuthTime
+				latestAuthID = candidate.ID
+				latestAuthErr = curAuthErr
 			}
 		}
 	}
@@ -1204,6 +1269,29 @@ func latestCandidateErrorForModel(auths []*Auth, selectionModelFunc func(*Auth) 
 		return latestModelErr
 	}
 	return latestAuthErr
+}
+
+// latestUnauthorizedCandidateError returns the most recent auth-level error among
+// candidates carrying an unauthorized (terminal) upstream authentication failure.
+func latestUnauthorizedCandidateError(auths []*Auth) error {
+	var latestTime time.Time
+	var latestAuthID string
+	var latestErr error
+
+	for _, candidate := range auths {
+		if candidate == nil || !hasUnauthorizedAuthFailure(candidate) {
+			continue
+		}
+		curTime := candidate.UpdatedAt
+		if candidate.LastError != nil {
+			if latestErr == nil || curTime.After(latestTime) || (curTime.Equal(latestTime) && candidate.ID > latestAuthID) {
+				latestTime = curTime
+				latestAuthID = candidate.ID
+				latestErr = candidate.LastError
+			}
+		}
+	}
+	return latestErr
 }
 
 func restoreModelCooldownErrorModel(err error, requestedModel string) error {
@@ -1868,7 +1956,9 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 	var lastErr error
 	roundExcluded := make(map[string]struct{})
 	for attempt := 0; ; attempt++ {
-		resp, errExec, progressed := m.executeMixedOnce(ctx, normalized, req, opts, maxRetryCredentials, roundExcluded)
+		roundAttempted := make(map[string]struct{})
+		roundOpts := withAttemptedAuthTracker(opts, roundAttempted)
+		resp, errExec, progressed := m.executeMixedOnce(ctx, normalized, req, roundOpts, maxRetryCredentials, roundExcluded)
 		if errExec == nil {
 			return resp, nil
 		}
@@ -1881,7 +1971,7 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 			return cliproxyexecutor.Response{}, unwrapRequestStopError(errExec)
 		}
 		lastErr = errExec
-		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, normalized, req.Model, maxWait)
+		wait, shouldRetry := m.shouldRetryAfterErrorWithAttempted(errExec, attempt, normalized, req.Model, maxWait, roundAttempted)
 		if !shouldRetry {
 			break
 		}
@@ -1917,7 +2007,9 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 	var lastErr error
 	roundExcluded := make(map[string]struct{})
 	for attempt := 0; ; attempt++ {
-		resp, errExec, progressed := m.executeCountMixedOnce(ctx, normalized, req, opts, maxRetryCredentials, roundExcluded)
+		roundAttempted := make(map[string]struct{})
+		roundOpts := withAttemptedAuthTracker(opts, roundAttempted)
+		resp, errExec, progressed := m.executeCountMixedOnce(ctx, normalized, req, roundOpts, maxRetryCredentials, roundExcluded)
 		if errExec == nil {
 			return resp, nil
 		}
@@ -1928,7 +2020,7 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 			return cliproxyexecutor.Response{}, unwrapRequestStopError(errExec)
 		}
 		lastErr = errExec
-		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, normalized, req.Model, maxWait)
+		wait, shouldRetry := m.shouldRetryAfterErrorWithAttempted(errExec, attempt, normalized, req.Model, maxWait, roundAttempted)
 		if !shouldRetry {
 			break
 		}
@@ -1958,7 +2050,9 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 	var lastErr error
 	roundExcluded := make(map[string]struct{})
 	for attempt := 0; ; attempt++ {
-		result, errStream, progressed := m.executeStreamMixedOnce(ctx, normalized, req, opts, maxRetryCredentials, roundExcluded)
+		roundAttempted := make(map[string]struct{})
+		roundOpts := withAttemptedAuthTracker(opts, roundAttempted)
+		result, errStream, progressed := m.executeStreamMixedOnce(ctx, normalized, req, roundOpts, maxRetryCredentials, roundExcluded)
 		if errStream == nil {
 			return result, nil
 		}
@@ -1969,7 +2063,7 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 			return nil, unwrapRequestStopError(errStream)
 		}
 		lastErr = errStream
-		wait, shouldRetry := m.shouldRetryAfterError(errStream, attempt, normalized, req.Model, maxWait)
+		wait, shouldRetry := m.shouldRetryAfterErrorWithAttempted(errStream, attempt, normalized, req.Model, maxWait, roundAttempted)
 		if !shouldRetry {
 			break
 		}
@@ -2378,6 +2472,26 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		}
 		return streamResult, nil, true
 	}
+}
+
+// withAttemptedAuthTracker records every credential ID selected during a retry
+// round into attempted, chaining any previously installed selection callback.
+func withAttemptedAuthTracker(opts cliproxyexecutor.Options, attempted map[string]struct{}) cliproxyexecutor.Options {
+	if attempted == nil {
+		return opts
+	}
+	meta := cloneRequestMetadata(opts.Metadata)
+	prevCallback, _ := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string))
+	meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey] = func(authID string) {
+		if strings.TrimSpace(authID) != "" {
+			attempted[authID] = struct{}{}
+		}
+		if prevCallback != nil {
+			prevCallback(authID)
+		}
+	}
+	opts.Metadata = meta
+	return opts
 }
 
 func cloneRequestMetadata(src map[string]any) map[string]any {
@@ -2886,6 +3000,15 @@ func (m *Manager) retrySettings() (int, int, time.Duration) {
 }
 
 func (m *Manager) closestCooldownWait(providers []string, model string, attempt int) (time.Duration, bool) {
+	return m.closestCooldownWaitWithAttempted(providers, model, attempt, 0, nil)
+}
+
+// closestCooldownWaitWithAttempted returns the smallest positive cooldown wait
+// among retry-eligible credentials. Credentials already attempted during a round
+// that failed with 429 must not drive an immediate zero-wait retry round: while
+// cooling is enabled they contribute at least minQuotaCooldownFloor even when
+// their recorded cooldown has already expired or was never set.
+func (m *Manager) closestCooldownWaitWithAttempted(providers []string, model string, attempt int, status int, attempted map[string]struct{}) (time.Duration, bool) {
 	if m == nil || len(providers) == 0 {
 		return 0, false
 	}
@@ -2931,6 +3054,29 @@ func (m *Manager) closestCooldownWait(providers []string, model string, attempt 
 			checkModel = m.selectionModelForAuth(auth, model)
 		}
 		blocked, reason, next := isAuthBlockedForModel(auth, checkModel, now)
+
+		wasAttempted := false
+		if len(attempted) > 0 {
+			_, wasAttempted = attempted[auth.ID]
+		}
+		if wasAttempted && status == http.StatusTooManyRequests && !m.cooldownDisabledForAuth(auth) {
+			// Skip only hard blocks without a retry deadline (disabled or
+			// terminal); every other attempted credential enforces the floor.
+			if blocked && (reason == blockReasonDisabled || next.IsZero()) {
+				continue
+			}
+			wait := minQuotaCooldownFloor
+			if blocked {
+				if remaining := next.Sub(now); remaining > wait {
+					wait = remaining
+				}
+			}
+			if !found || wait < minWait {
+				minWait = wait
+				found = true
+			}
+			continue
+		}
 		if !blocked || next.IsZero() || reason == blockReasonDisabled {
 			continue
 		}
@@ -2991,6 +3137,14 @@ func (m *Manager) retryAllowed(attempt int, providers []string) bool {
 }
 
 func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []string, model string, maxWait time.Duration) (time.Duration, bool) {
+	return m.shouldRetryAfterErrorWithAttempted(err, attempt, providers, model, maxWait, nil)
+}
+
+// shouldRetryAfterErrorWithAttempted decides whether another retry round should
+// run after err, and how long to wait first. attempted carries the credential
+// IDs selected during the round that just failed so a 429 cannot bounce straight
+// back onto them with a zero-wait retry.
+func (m *Manager) shouldRetryAfterErrorWithAttempted(err error, attempt int, providers []string, model string, maxWait time.Duration, attempted map[string]struct{}) (time.Duration, bool) {
 	if err == nil {
 		return 0, false
 	}
@@ -3004,7 +3158,7 @@ func (m *Manager) shouldRetryAfterError(err error, attempt int, providers []stri
 	if isRequestInvalidError(err) || isRequestStopError(err) {
 		return 0, false
 	}
-	wait, found := m.closestCooldownWait(providers, model, attempt)
+	wait, found := m.closestCooldownWaitWithAttempted(providers, model, attempt, status, attempted)
 	if found {
 		if wait > maxWait {
 			return 0, false
@@ -3167,7 +3321,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		} else {
 			if modelKey != "" {
 				if !result.RequestScoped && !shouldSkipCredentialCooldown(result.Error) {
-					disableCooling := quotaCooldownDisabledForAuth(auth)
+					disableCooling := m.cooldownDisabledForAuth(auth)
 					if result.Error != nil && result.Error.Code == ErrorCodeForceCooldown {
 						disableCooling = false
 					}
@@ -3230,7 +3384,11 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 							backoffLevel := state.Quota.BackoffLevel
 							if !disableCooling {
 								if result.RetryAfter != nil {
-									next = now.Add(*result.RetryAfter)
+									cooldown := *result.RetryAfter
+									if cooldown < minQuotaCooldownFloor {
+										cooldown = minQuotaCooldownFloor
+									}
+									next = now.Add(cooldown)
 								} else {
 									next, backoffLevel = quotaCooldownAfterFailure(state.Quota, disableCooling, now)
 								}
@@ -3247,13 +3405,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								shouldSuspendModel = true
 								setModelQuota = true
 							}
-						case 408, 500, 502, 503, 504:
-							if disableCooling {
-								state.NextRetryAfter = time.Time{}
-							} else {
-								next := now.Add(1 * time.Minute)
-								state.NextRetryAfter = next
-							}
+						case 408, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526:
+							state.NextRetryAfter = recoverableFailureRetryAfterWithHint(now, result.RetryAfter, disableCooling)
 						default:
 							state.NextRetryAfter = time.Time{}
 						}
@@ -3268,7 +3421,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 					updateAggregatedAvailability(auth, now)
 				}
 			} else {
-				applyAuthFailureState(auth, result.Error, result.RetryAfter, now)
+				applyAuthFailureState(auth, result.Error, result.RetryAfter, now, m.cooldownDisabledForAuth(auth))
 			}
 		}
 
@@ -3796,7 +3949,11 @@ func hasUnauthorizedAuthFailure(auth *Auth) bool {
 	if auth == nil || auth.LastError == nil {
 		return false
 	}
-	return auth.LastError.StatusCode() == http.StatusUnauthorized || strings.EqualFold(auth.LastError.Code, "unauthorized")
+	if auth.Unavailable && auth.Status == StatusError && auth.NextRefreshAfter.IsZero() &&
+		(auth.LastError.StatusCode() == http.StatusUnauthorized || strings.EqualFold(auth.LastError.Code, "unauthorized")) {
+		return true
+	}
+	return false
 }
 
 func refreshErrorFromError(err error) *Error {
@@ -4176,14 +4333,13 @@ func isRequestInvalidError(err error) bool {
 	return false
 }
 
-func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Duration, now time.Time) {
+func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Duration, now time.Time, disableCooling bool) {
 	if auth == nil {
 		return
 	}
 	if shouldSkipCredentialCooldown(resultErr) {
 		return
 	}
-	disableCooling := quotaCooldownDisabledForAuth(auth)
 	if resultErr != nil && resultErr.Code == ErrorCodeForceCooldown {
 		disableCooling = false
 	}
@@ -4226,20 +4382,21 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		var next time.Time
 		if !disableCooling {
 			if retryAfter != nil {
-				next = now.Add(*retryAfter)
+				cooldown := *retryAfter
+				if cooldown < minQuotaCooldownFloor {
+					cooldown = minQuotaCooldownFloor
+				}
+				next = now.Add(cooldown)
 			} else {
 				next, auth.Quota.BackoffLevel = quotaCooldownAfterFailure(auth.Quota, disableCooling, now)
 			}
 		}
 		auth.Quota.NextRecoverAt = next
 		auth.NextRetryAfter = next
-	case 408, 500, 502, 503, 504:
+	case 408, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526:
 		auth.StatusMessage = "transient upstream error"
-		if disableCooling {
-			auth.NextRetryAfter = time.Time{}
-		} else {
-			auth.NextRetryAfter = now.Add(1 * time.Minute)
-		}
+		auth.NextRetryAfter = recoverableFailureRetryAfterWithHint(now, retryAfter, disableCooling)
+		auth.Unavailable = !auth.NextRetryAfter.IsZero()
 	default:
 		if auth.StatusMessage == "" {
 			auth.StatusMessage = "request failed"

@@ -503,6 +503,29 @@ func TestHomeBusyErrorMaps429AndRetryAfter(t *testing.T) {
 	}
 }
 
+// TestHomeUserBillingAndPeriodLimitErrors covers upstream CLIProxyAPI commit
+// f416175fcd29 ("fix(home): map user_credits_insufficient to 402 and
+// user_period_limit_exceeded to 429"). Local symbol under test:
+// decodeHomeDispatchError.
+func TestHomeUserBillingAndPeriodLimitErrors(t *testing.T) {
+	tests := []struct {
+		code       string
+		wantStatus int
+	}{
+		{code: "user_credits_insufficient", wantStatus: http.StatusPaymentRequired},
+		{code: "user_period_limit_exceeded", wantStatus: http.StatusTooManyRequests},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			errDispatch := decodeHomeDispatchError([]byte(fmt.Sprintf(`{"error":{"type":%q,"message":"limit hit"}}`, tt.code)))
+			var authErr *Error
+			if !errors.As(errDispatch, &authErr) || authErr.Code != tt.code || authErr.HTTPStatus != tt.wantStatus {
+				t.Fatalf("decodeHomeDispatchError(%s) = %#v, want %d", tt.code, errDispatch, tt.wantStatus)
+			}
+		})
+	}
+}
+
 func TestHomeConcurrencyTupleAuthMismatchEndsScope(t *testing.T) {
 	dispatcher := &fixtureHomeDispatcher{payload: []byte(`{"concurrency":{"accounted":true,"credential_id":"cred-1","model":"gpt"},"auth_index":"other","auth":{"id":"cred-1","provider":"codex"}}`)}
 	manager := newHomeSelectionTestManager(t, dispatcher)

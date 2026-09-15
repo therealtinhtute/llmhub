@@ -80,7 +80,7 @@ updated: 2026-09-15
 
 Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## Progress` is the sole task execution-status source. Gate for every phase: `go test` on touched packages + `make build` + `git diff --check` + `gofmt -l .` (must print nothing).
 
-### Phase `translator-hardening` (story-20260915-translator-hardening) — status: in-progress
+### Phase `translator-hardening` (story-20260915-translator-hardening) — status: checked
 - goal: R1, R2 — claude and gemini/antigravity/openai translator correctness fixes land as semantic ports.
 - dependencies: none.
 - allowed surfaces: `internal/translator/**`, `internal/util/**` (schema sanitize helpers), `internal/signature/**` if present locally.
@@ -95,7 +95,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     - T5 response normalization: responseJsonSchema → responseSchema, empty/null finish reasons, tool_choice none omits tools (`f6d19a329c68` range rows). check: `go test ./internal/translator/...`
     - T6 schema sanitization + cache preservation: unicode property-escape strip, patternProperties key inspection, prompt-cache-preserving developer-message demotion, intrinsic tool-name collision avoidance (`e56fae88c0ac`, `0fe19ede90a4`, `6a26a92a8c7e`). check: `go test ./internal/translator/... ./internal/util/...`
 
-### Phase `model-registry-adds` (story-20260915-model-registry-adds) — status: in-progress
+### Phase `model-registry-adds` (story-20260915-model-registry-adds) — status: checked
 - goal: R9 — new model definitions and explicit per-model native-search capability metadata.
 - dependencies: none.
 - allowed surfaces: `internal/registry/**` incl. `models/models.json`, `internal/api`/`internal/client` only where capability metadata is read.
@@ -105,7 +105,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     - T1 add claude-fable-5.1, gemini-3.8-flash, gpt-6-astra, gemini-3.5-flash-lite definitions (`dacae5822842`, `c77b13694318`, `d48590a47d78`). check: `go test ./internal/registry/...`
     - T2 explicit per-model native search capability + web-search exposure (`4311ae874774`, `294b7f5b191b`, `678da56193fb`). check: `go test ./internal/registry/... ./internal/api/... ./internal/client/...`
 
-### Phase `auth-cooldown-fairness` (story-20260915-auth-cooldown-fairness) — status: in-progress
+### Phase `auth-cooldown-fairness` (story-20260915-auth-cooldown-fairness) — status: checked
 - goal: R4 — cooldown, rotation, and refresh fairness in sdk/cliproxy auth core.
 - dependencies: none.
 - allowed surfaces: `sdk/cliproxy/**` (auth scheduler, cooldowns, selector), `sdk/auth/**`, `internal/auth/**` where provider refresh is invoked.
@@ -218,21 +218,124 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-15 | phase=model-registry-adds wave=W1 task=phase-start task_status=in-progress | run anchor 2026-09-15; parallel fanout | surfaces: internal/registry/**, internal/api, internal/client
 - 2026-09-15 | phase=auth-cooldown-fairness wave=W1 task=phase-start task_status=in-progress | run anchor 2026-09-15; parallel fanout | surfaces: sdk/cliproxy/**, sdk/auth/**, internal/auth/**
 - 2026-09-15 | phase=translator-hardening wave=W1 task=handoff task_status=NEEDS_CONTEXT | both fanout rounds canceled by user interrupt; partial WIP green (build + translator/registry package tests) but per-task coverage unverified; no phase gated; handoff written to Current State | surfaces: unchanged
+- 2026-09-15 | phase=orchestrator wave=- task=session-recovery task_status=DONE | fresh checkout of docs/cliproxyapi-v7.3.3-parity showed prior session's code WIP was never pushed (branch diff vs master was docs-only); recreated local-only refs via `git fetch https://github.com/router-for-me/CLIProxyAPI '+refs/tags/v7.3.3:refs/upstream-checkpoints/cliproxyapi/v7.3.3' '+refs/tags/v7.2.147:refs/upstream-checkpoints/cliproxyapi/v7.2.147'` and verified commits match cliproxyapi-checkpoint.json (7bbfeaf8a7ac, 17a65ee5470f); installed Go 1.26.0 toolchain (absent from PATH); all three in-progress phases re-executed from scratch | surfaces: none (git objects + toolchain only)
+- 2026-09-15 | phase=model-registry-adds wave=W1 task=T1 task_status=DONE | ported `dacae5822842` (claude-fable-5-1, gemini-3.8-flash, gemini-3.8-flash-high defs), `c77b13694318` (gpt-6-astra defs, codex client catalog template byte-exact, max_context_window 921000->872000 fixes, fetch_codex_models client 0.133.0->0.153.3), `d48590a47d78` (gemini-3.5-flash-lite antigravity section); check `go test ./internal/registry/...` -> ok 0.047s | surfaces: internal/registry/models/{models,codex_client_models}.json, cmd/fetch_codex_models/main.go; tests: internal/registry/model_definitions_parity_test.go
+- 2026-09-15 | phase=model-registry-adds wave=W1 task=T2 task_status=DONE | ported net of `4311ae874774`+`294b7f5b191b`+`678da56193fb`: NativeCapabilities tri-state + ModelInfo.UnmarshalJSON, native_capabilities.web_search synced on 25 verified models, NativeCapabilityRoute + ResolveResponsesWebSearchCapability, cpa_capabilities client exposure gated on client_version==cpa, home models per-entry capability routes; check `go test ./internal/registry/... ./internal/api/... ./internal/client/...` -> all ok (registry 0.047s, api 0.210s, client pkgs ok) | surfaces: internal/registry/{model_registry,model_definitions,model_updater}.go, internal/api/server{,_test}.go, internal/client/codex/models/*; tests: web_search_capability_test.go (registry + client/codex/models), server_test.go +67
+- 2026-09-15 | phase=model-registry-adds wave=W1 task=wave-summary task_status=DONE | W1 complete: T1+T2 DONE, scoped checks green, `go build ./...` clean; committed as 2cb10f4e; remainders: sdk/cliproxy propagation half of `4311ae874774` (see Decisions), codex catalog instruction-text/plan reshuffle, grok-4.6 metadata (model absent locally) | surfaces: commit 2cb10f4e (12 files, +1302/-61)
+- 2026-09-15 | phase=auth-cooldown-fairness wave=W1 task=T1 task_status=DONE | ported `18e01a76ac72` (minQuotaCooldownFloor=10s clamp on 429 RetryAfter in per-model MarkResult + credential-level applyAuthFailureState; withAttemptedAuthTracker/closestCooldownWaitWithAttempted per-round attempted maps; cooldownDisabledForAuth honoring DisableCooling overrides) + `09471dd9daba` (credential_quota early check in isAuthBlockedForModel; per-model aggregation already present via updateAggregatedAvailability); check `go test ./sdk/cliproxy/...` -> all ok | surfaces: sdk/cliproxy/auth/{conductor,selector}.go; tests: conductor_subsecond_cooldown_test.go (8), conductor_alias_cooldown_test.go (4)
+- 2026-09-15 | phase=auth-cooldown-fairness wave=W1 task=T2 task_status=DONE | ported `9fad50550517` (520-526 transient in both classification lists; transientErrorCooldownSeconds atomic + setter; Unavailable gated on NextRetryAfter), `f416175fcd29` (decodeHomeDispatchError user_credits_insufficient->402, user_period_limit_exceeded->429), `aedc9e6a3987` (IsTerminalAuthError/terminalAuthError; hasUnauthorizedAuthFailure upstream gating; all-unauthorized candidate sets -> terminal 503 non-retryable in selector + scheduler summary + mixedUnavailableErrorLocked); check `go test ./sdk/cliproxy/... ./sdk/api/...` -> all ok | surfaces: sdk/cliproxy/auth/{conductor,errors,home_concurrency,scheduler,selector}.go; tests: conductor_cloudflare_520_test.go (8), home_concurrency_test.go, conductor_scheduler_refresh_test.go +3
+- 2026-09-15 | phase=auth-cooldown-fairness wave=W1 task=wave-summary task_status=DONE | W1 complete: T1+T2 DONE, `go build ./...` clean; committed as 59975d54; remainders: sdk/api/handlers terminal-error propagation (`aedc9e6a` second half), internal/config TransientErrorCooldownSeconds plumbing — both outside phase surfaces (see Decisions) | surfaces: commit 59975d54 (10 files, +1492/-78)
+- 2026-09-15 | phase=translator-hardening wave=W1 task=T1 task_status=DONE | ported `8deeb4ac3159` (unsigned gemini thinking blocks preserved with trailing carriers — carrier-context validation in antigravity claude request) + `15231e9fdc93` (non-prefixed native thinking signatures via resolveProviderCompatibleSignature -> sigcompat internal/signature API: CompatibleAntigravityClaudeThinkingSignature, CompatibleSignatureForProviderBlock; client-provided signature precedence + recovery cache only when signature omitted); check `go test ./internal/translator/... ./internal/signature/...` -> all ok | surfaces: internal/translator/antigravity/claude/*, internal/translator/claude/openai/responses/*; tests: antigravity_claude_request_test.go +229
+- 2026-09-15 | phase=translator-hardening wave=W1 task=T2 task_status=DONE | ported `893abbabc2a5` (usage.cache_creation_input_tokens emitted from input_tokens_details.cache_write_tokens, zero suppressed), `f804fb5f3077` (deferred message_delta via MessageDeltaSent gate + trailing usage-only chunk detection, emitAnthropicMessageDelta), `ba2cdea3b919` (claudeResponsesIncompleteDetails/claudeResponsesTerminalState: max_tokens -> response.incomplete + incomplete_details + per-item status); check `go test ./internal/translator/claude/...` -> ok | surfaces: internal/translator/claude/openai/responses/*response*.go, openai/claude/openai_claude_response.go; tests: response_test +426, openai_claude_response_test +300
+- 2026-09-15 | phase=translator-hardening wave=W1 task=T3 task_status=DONE | ported `2bcebaa89c98` (raw-ID tool-call pairing across interrupted streams, repairClaudeToolPairing + claudeMessageInvariantProblems diagnostics, standalone outputs -> user text), `aa3652775225` (codexSchemaMissesRequired strict-mode downgrade incl. nested), `8c984672a66a` (orphan function outputs -> user text in openai + gemini responses paths; antigravity inherits via delegation); check `go test ./internal/translator/claude/... ./internal/translator/openai/...` -> ok; `go test ./internal/translator/...` all ok | surfaces: internal/translator/{claude,codex,openai,gemini,antigravity}/**; tests: 9 ported pairing cases + strict-downgrade table + orphan-output cases; orchestrator added missing SHA citations on T3 symbols
+- 2026-09-15 | phase=translator-hardening wave=W1 task=wave-summary task_status=DONE | W1 complete: T1-T3 DONE, `go build ./...` clean; committed as 1c5d8533; remainders: upstream `2bcebaa89c98` lastToolResult output-fallback (depends on absent common.NormalizeResponsesToolCallOutputs) + additional_tools exemption (unused locally); `8c984672a66a` custom_tool_call handling + image-part machinery (absent locally) | surfaces: commit 1c5d8533 (19 files, +2971/-176)
+- 2026-09-15 | phase=auth-cooldown-fairness wave=W2 task=T3 task_status=DONE | ported `9812b1e76872` (parseJWTExp; JWT exp precedence in Auth.ExpirationTime/AccessTokenExpirationTime/HasValidAccessToken; refreshAuthForRequest retains still-valid credential on refresh failure with refreshFailureBackoff retry capped at token expiry; expired/absent tokens demoted Unavailable+StatusError, unauthorized stops auto-retry via hasUnauthorizedAuthFailure; isAuthBlockedForModel + modelScheduler.demoteExpiredTokensLocked block expired access tokens; codex RefreshLead 5d->24h) + `4c1bebe837a6` (MergePreparedAuth/MergeRefreshedAuth three-way base/current/updated merges preserving concurrent metadata, attributes, proxy_url, prefix, LastError, status, cooldown/quota, ModelStates; UpdatePreparedAuth/UpdateRefreshedAuth under manager lock; per-auth authRefreshLock + persistLocks (RegistrationEpoch,Generation) ordering; stale-epoch rejection in updateInternal; refresh operates on clones then merges) | check `go test ./sdk/cliproxy/... ./sdk/auth/` -> all ok | surfaces: sdk/cliproxy/auth/{types,conductor,metadata_merge,scheduler,selector}.go, sdk/auth/codex.go; tests: conductor_refresh_merge_test.go, codex_test.go
+- 2026-09-15 | phase=auth-cooldown-fairness wave=W2 task=T4 task_status=DONE | ported `48e5e9e03d21` (maxRefreshTimerWait=30s; authAutoRefreshLoop.nextWait factored from resetTimer), `6dce78673fbc` (refreshWorkers centralized resolver w/ refreshMaxConcurrency=16 fallback + runtime AuthAutoRefreshWorkers; ForceRefreshAll bounded worker pool capped at job count, ctx.Err() checked before each queued job, results ordered by original index), `bef1f65c6c1d` (ErrorCodeTransientTransport; isTransientTransportError family — syscall errno, DNSError, net.Error timeout, net.OpError, EOF, message patterns — wired into resultErrorFromError, shouldSkipCredentialCooldown, shouldRetryAfterErrorWithAttempted for retry-round participation without credential cooldown) | check `go test ./sdk/cliproxy/...` -> all ok; `go build ./...` clean | surfaces: sdk/cliproxy/auth/{auto_refresh_loop,conductor,errors}.go; tests: refresh_timer_cap_test.go, force_refresh_test.go, conductor_transport_retry_test.go
+- 2026-09-15 | phase=auth-cooldown-fairness wave=W2 task=wave-summary task_status=DONE | W2 complete: T3+T4 DONE, `go test -race` on new tests ok; committed as 450bf629; remainder: isRequestRetryRoundError parity-surface present but uncalled in production paths (deliberate — substituting would misroute 5xx into no-wait transport path) | surfaces: commit 450bf629 (13 files, +2204/-33)
+- 2026-09-15 | phase=translator-hardening wave=W2 task=T4 task_status=DONE | ported `728ea8b8557c` (image parts nested inside functionResponse.parts as inlineData), `f6d19a329c68` (functionResponse turns normalize to user role in gemini request normalizer), `f2041a2c787b` (ContentHasGeminiFunctionResponse replaces gjson projection in antigravity); check `go test ./internal/translator/gemini/... ./internal/translator/antigravity/...` -> all ok | surfaces: internal/translator/{gemini,antigravity}/**; tests: gemini_openai-responses_request_test +177, antigravity_gemini_request_test +36
+- 2026-09-15 | phase=translator-hardening wave=W2 task=T5 task_status=DONE | ported responseJsonSchema->responseSchema (`dc21a426`), null/empty finish_reason ignored (`4dce5f3a`), tool_choice none/{type:none} omits tools + mode NONE + suppresses thinking hint (`a76da711`) — actual upstream SHAs resolved from range rows (see Decisions) | check `go test ./internal/translator/...` -> all ok | surfaces: antigravity_gemini_request.go, openai_gemini_response.go, antigravity_{claude,openai}_request.go; tests: +135/+76 + tool-choice cases
+- 2026-09-15 | phase=translator-hardening wave=W2 task=T6 task_status=DONE_WITH_CONCERNS | ported `e56fae88c0ac` (pendingDeveloperParts flush before intervening non-assistant turn; pendingFunctionCallIDs kept when matching output exists later), `0fe19ede90a4`+`4fde97f4` (MergeAdjacentGeminiContents/ReorderGeminiUserParts/MergeAdjacentGeminiUserContents in common/gemini.go; leading-vs-mid-session developer-message distinction; pairing validation tolerates intervening user turns; functionResponse->user in antigravity), `6a26e92a8c7e` (common/antigravity_tools.go external_ prefix helpers) | concern accepted: 6a26e92a mapping has no call site — upstream applies only inside interactions API which is absent locally; helpers in place for future application site | check `go test ./internal/translator/... ./internal/util/... ./internal/signature/...` -> all ok | surfaces: internal/translator/{common,gemini,antigravity,openai}/**, internal/signature/gemini_validation.go
+- 2026-09-15 | phase=translator-hardening wave=W2 task=wave-summary task_status=DONE | W2 complete: T4+T5 DONE, T6 DONE_WITH_CONCERNS (accepted — see Decisions); committed as a628dbf9; remainders: upstream `b8e6ec0a` synthesized placeholder functionResponses on interruption (not in task scope), larger responses apparatus (custom_tool_call, NormalizeResponsesToolCallOutputs) absent locally | surfaces: commit a628dbf9 (23 files, +2068/-130)
 
 ## Decisions
-- none
+- 2026-09-15 | phase=model-registry-adds task=T1 | decision: extend phase surfaces to include `cmd/fetch_codex_models/main.go` (defaultClientVersion/defaultCodexUserAgent 0.133.0->0.153.3) | rationale: upstream `c77b13694318` couples the gpt-6-astra catalog entry with the codex client version bump; the local equivalent of upstream's codex client configuration is that fetch tool's constants — omitting it would leave the fetcher requesting a catalog shape that predates the new model.
+- 2026-09-15 | phase=model-registry-adds task=T2 | decision: defer sdk/cliproxy-side capability propagation for config-declared models as explicit `follow-up: sdk-cliproxy-capability-propagation` | rationale: second half of upstream `4311ae874774` (`cloneModelInfoForCatalogRoute`, `buildConfigModels` metadataChannel param, NativeCapabilities copy through applyModelPrefixes/applyOAuthModelAliasEntries onto vertex/gemini/claude/xai/codex config-declared models) lives in `sdk/cliproxy/**`, outside this phase's surfaces; in-surface dependency `LookupStaticModelInfoByChannel` is already landed so the follow-up is unblocked.
+- 2026-09-15 | phase=translator-hardening task=T6 | decision: read plan SHA `6a26a92a8c7e` as `6a26e92a8c7e` | rationale: the cited SHA does not exist upstream; ledger row `6a26e92a8c7e` (v7.2.150, "fix(translator/interactions): avoid tool name collisions with Antigravity intrinsic tools") matches the task description exactly — single-character transcription typo in the plan.
+- 2026-09-15 | phase=orchestrator | decision: treat prior session's reported code WIP as lost and re-execute all three phases from scratch | rationale: `git diff master..HEAD` on the pushed branch showed docs-only changes; claimed WIP (models.json +397, conductor.go +167, signature_validation.go +115) absent from tree — Current State's "commits 9a925e06+63812d91 pushed" referred to docs commits only.
+- 2026-09-15 | phase=auth-cooldown-fairness task=T2 | decision: port `aedc9e6a3987` for the "terminal auth failures non-retryable" row the plan cited as "`e3cbe437d00b`-adjacent" | rationale: `e3cbe437d00b` itself is test-only (async non-blocking); `aedc9e6a3987` is the actual terminal-auth classification change in the fetched range and matches the task description.
+- 2026-09-15 | phase=auth-cooldown-fairness task=T1/T2 | decision: do NOT import upstream's `availabilityBlock` indefinite-block semantics; keep local `isAuthBlockedForModel` returning unblocked when `model!=""` with empty ModelStates and `Unavailable` without future NextRetryAfter | rationale: local deliberate divergence — upstream's block semantics would regress `DisableCooling` because local `applyAuthFailureState` lacks upstream's clear-on-disabled defer; locked by existing TestIsAuthBlockedForModel_UnavailableWithoutNextRetryIsNotBlocked.
+- 2026-09-15 | phase=auth-cooldown-fairness task=T2 | decision: record `follow-up: auth-error-propagation-wiring` — sdk/api/handlers `BuildErrorResponseBodyWithError` `upstream_authentication_required` formatting + `retryable` field (second half of `aedc9e6a3987`), and `follow-up: transient-cooldown-config-plumbing` — internal/config field + server wiring for `SetTransientErrorCooldownSeconds` (`9fad50550517` config half) | rationale: both remainders live outside phase surfaces (sdk/api handlers, internal/config); the sdk-side classification and setter are landed and tested so the follow-ups are pure wiring.
+- 2026-09-15 | phase=auth-cooldown-fairness task=T4 | decision: record `follow-up: refresh-workers-config-plumbing` — upstream `6dce78673fbc` also touched config declaration/docs (auth-auto-refresh-workers YAML surface); local `internal/config.Config.AuthAutoRefreshWorkers` field already exists and is read via `Manager.runtimeConfig`, so the only remainder is config.example.yaml documentation, intentionally outside this phase's surfaces | rationale: phase constraints forbid editing internal/config/config.go and config.example.yaml in W2; `refreshWorkers()` already honors the runtime value so behavior is complete once config plumbing lands.
+- 2026-09-15 | phase=translator-hardening task=T5 | decision: resolved plan's "`f6d19a329c68` range rows" to upstream `dc21a426` (responseJsonSchema->responseSchema), `4dce5f3a` (null/empty finish_reason), `a76da711` (tool_choice none omits tools) | rationale: the plan cited behaviors not SHAs for T5; these are the actual commits in the fetched range carrying each behavior.
+- 2026-09-15 | phase=translator-hardening task=T6 | decision: accept T6 DONE_WITH_CONCERNS — `6a26e92a8c7e` external_-prefix helpers landed in internal/translator/common/antigravity_tools.go without a call site | rationale: upstream applies the mapping only inside internal/translator/interactions/** (Interactions API surface), which does not exist in llmhub; the local antigravity executor targets cloudcode-pa :v1internal:generateContent — the surface upstream itself left unmapped. Helpers + tests are staged for a future application site.
+- 2026-09-15 | phase=orchestrator | decision: adopted the auth-W2 agent's self-written Progress/Decision entries after review (lines were accurate and format-conforming) | rationale: single-writer rule intends one coherent writer and consistent format — the agent's append-only entries were verified against its report and retained rather than rewritten identically; agents remain instructed not to touch docs/** going forward.
 
 ## Validation
-- none
+- `2026-09-15T18:18:34Z` — phase: `model-registry-adds` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (allowed surfaces + recorded deviation: `cmd/fetch_codex_models` version bump — see Decisions)
+  - proof_gaps: no integration-level exercise of management API responses beyond package tests; web panel rebuilt but not functionally exercised
+  - commands:
+    - `go test -count=1 ./internal/registry/... ./internal/api/... ./internal/client/...` — pass (registry 0.051s, api 0.309s, client pkgs ok)
+    - `make build` — pass (llmhub binary, embed via bun/vite ok)
+    - `git diff --check master..HEAD` — pass, zero whitespace errors
+    - `git diff master..HEAD --name-only | xargs gofmt -l` — pass, no output (repo-wide `gofmt -l .` lists ~60 pre-existing baseline files, none in this diff)
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 2d2a1af1
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: exhaustive upstream byte-parity of JSON model defs beyond ported test corpus and spot checks
+- `2026-09-15T18:18:34Z` — phase: `translator-hardening` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (internal/translator/**, internal/signature/**, internal/util/** only)
+  - proof_gaps: `6a26e92a8c7e` external_-prefix helpers verified by unit tests only — no call site exists locally (upstream applies it solely inside the absent interactions API); semantic equivalence on unported edge shapes relies on ported test corpus, not exhaustive diff review
+  - commands:
+    - `go test -count=1 ./internal/translator/... ./internal/signature/... ./internal/util/...` — pass (all translator packages ok, signature 0.058s, util 0.662s)
+    - `make build` — pass
+    - `git diff --check master..HEAD` — pass
+    - `git diff master..HEAD --name-only | xargs gofmt -l` — pass, no output
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 2d2a1af1
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: upstream test expectations ported rather than re-derived; two pre-existing tests flipped to upstream post-change expectations (merged-turn, text-first reorder)
+- `2026-09-15T18:18:34Z` — phase: `auth-cooldown-fairness` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (sdk/cliproxy/**, sdk/auth/** only; no internal/api, internal/config, or executor paths touched)
+  - proof_gaps: `isRequestRetryRoundError` parity surface present but uncalled in production paths (deliberate — see Decisions); internal/config + sdk/api wiring halves deferred as follow-ups
+  - commands:
+    - `go test -count=1 ./sdk/cliproxy/... ./sdk/auth/... ./sdk/api/...` — pass (sdk/cliproxy/auth 30.615s incl. capped-timer test, all others ok)
+    - `go test -race -count=1 ./sdk/cliproxy/auth/ ./sdk/auth/` — pass (32.031s / 1.231s, no data races)
+    - `make build` — pass
+    - `git diff --check master..HEAD` — pass
+    - `git diff master..HEAD --name-only | xargs gofmt -l` — pass, no output
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 2d2a1af1
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: refresh/merge three-way correctness under live multi-client concurrency exercised only via ported unit tests, not a running server
 
 ## Current State and Next Action
-- active_phase: translator-hardening, model-registry-adds, auth-cooldown-fairness — all `in-progress`, none gated
-- lifecycle_status: in-progress
-- latest_anchors: run anchor 2026-09-15 (phase-start Progress lines); handoff 2026-09-15 (interrupted parallel fanout); branch `docs/cliproxyapi-v7.3.3-parity`, PR #20, commits 9a925e06+63812d91 pushed
-- blockers: none structural — execution interrupted, not blocked
+- active_phase: none in-flight — translator-hardening, model-registry-adds, auth-cooldown-fairness all `checked` (same-session gates, Validation 2026-09-15T18:18:34Z)
+- lifecycle_status: checked
+- latest_anchors: session-recovery 2026-09-15 (lost WIP confirmed, upstream refs + Go toolchain recreated); wave-summaries for all three phases (commits 2cb10f4e, 59975d54+450bf629, 1c5d8533+a628dbf9); gate verdicts APPROVED x3 (same-session, judge_model devin/swe-2-max)
+- blockers: none — all three ungated phases executed, committed, and gated clean
 - open_items:
-  - model-registry-adds: agent reported T1+T2 DONE — models.json (+397 lines: fable-5.1, gemini-3.8-flash/-high, gemini-3.5-flash-lite, gpt-6-astra, gpt-image-2.5 defs), `codex_client_models.json` gpt-6-astra template, `NativeCapabilities{WebSearch}` tri-state + `cpa_capabilities` exposure, native-capability routes/resolution, server_test.go +128. Scoped checks green (`go test ./internal/registry/... ./internal/api/... ./internal/client/...`). UNGATED. Follow-up owed: sdk/cliproxy-side capability propagation for config-declared models (`4311ae874774` second half — out of that phase's surfaces).
-  - translator-hardening: partial WIP — signature_validation.go +115 (antigravity/claude), claude/openai/responses request +366/response +345, codex/claude +20, openai/claude +59, plus test additions. T1–T6 coverage unverified; no evidence report received.
-  - auth-cooldown-fairness: `sdk/cliproxy/auth/conductor.go` +167 landed; T1–T4 coverage unverified; no evidence report received.
+  - follow-ups recorded in Decisions: `sdk-cliproxy-capability-propagation`, `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing` (all out-of-surface wiring remainders)
+  - translator-hardening T6 accepted DONE_WITH_CONCERNS: `6a26e92a8c7e` helpers have no local call site (interactions API absent upstream-and-local parity preserved)
+  - session-usage-hierarchy (planned) unblocked now — depends on auth-cooldown-fairness which is `checked`
   - 210 semantic-review paths still need per-commit disposition across remaining phases.
-- exact_next_action: verify WIP — `go build ./... && go test ./internal/translator/... ./internal/registry/... ./internal/api/... ./internal/client/... ./sdk/cliproxy/...` — then resume the three phases (in-session or fresh agents): audit per-task coverage against plan task lists, flush Progress entries, then gate each phase in-session per `work-full.md` step 11
+- exact_next_action: start `session-usage-hierarchy` phase (`work full` continuation) — its dependency auth-cooldown-fairness is now checked; W1 T1 = canonical UUIDv8 normalization for empty prefixes/context roots + harness hierarchy recognition (`1119ef142466`, `e899f0e53985` partial); push branch commits to origin when convenient

@@ -94,6 +94,16 @@ func TestConvertClaudeRequestToAntigravity_StripsClaudeCodeAttribution(t *testin
 	}
 }
 
+// testAntigravityClaudeSignature returns a provider-native Claude signature and
+// the normalized form emitted upstream (base64 of the native value).
+// Helper added for the upstream 15231e9fdc93 port.
+func testAntigravityClaudeSignature(t *testing.T) (string, string) {
+	t.Helper()
+
+	native := testAnthropicNativeSignature(t)
+	return native, base64.StdEncoding.EncodeToString([]byte(native))
+}
+
 func testNonAnthropicRawSignature(t *testing.T) string {
 	t.Helper()
 
@@ -212,8 +222,9 @@ func TestConvertClaudeRequestToAntigravity_RoleMapping(t *testing.T) {
 func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 	cache.ClearSignatureCache("")
 
-	// Valid signature must be at least 50 characters
-	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	// Updated for the upstream 15231e9fdc93 port: client-provided signatures are
+	// validated directly, so the request must carry a provider-native signature.
+	nativeSignature, antigravitySignature := testAntigravityClaudeSignature(t)
 	thinkingText := "Let me think..."
 
 	// Pre-cache the signature (simulating a previous response for the same thinking text)
@@ -227,14 +238,14 @@ func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 			{
 				"role": "assistant",
 				"content": [
-					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"},
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + nativeSignature + `"},
 					{"type": "text", "text": "Answer"}
 				]
 			}
 		]
 	}`)
 
-	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, nativeSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
@@ -247,8 +258,8 @@ func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 	if firstPart.Get("text").String() != thinkingText {
 		t.Error("thinking text mismatch")
 	}
-	if firstPart.Get("thoughtSignature").String() != validSignature {
-		t.Errorf("Expected thoughtSignature '%s', got '%s'", validSignature, firstPart.Get("thoughtSignature").String())
+	if firstPart.Get("thoughtSignature").String() != antigravitySignature {
+		t.Errorf("Expected thoughtSignature '%s', got '%s'", antigravitySignature, firstPart.Get("thoughtSignature").String())
 	}
 }
 
@@ -730,7 +741,11 @@ func TestInspectDoubleLayerSignature_TracksEncodingLayers(t *testing.T) {
 	}
 }
 
-func TestConvertClaudeRequestToAntigravity_CacheModeDropsRawSignature(t *testing.T) {
+// Ported from upstream CLIProxyAPI commit 15231e9fdc93 ("support native thinking
+// signatures without prefixes in claude translator"): client-provided
+// provider-native signatures are validated directly by
+// resolveCacheModeSignature instead of requiring a "<group>#" prefix.
+func TestConvertClaudeRequestToAntigravity_CacheModeAcceptsNativeSignature(t *testing.T) {
 	cache.ClearSignatureCache("")
 	previous := cache.SignatureCacheEnabled()
 	cache.SetSignatureCacheEnabled(true)
@@ -740,6 +755,7 @@ func TestConvertClaudeRequestToAntigravity_CacheModeDropsRawSignature(t *testing
 	})
 
 	rawSignature := testAnthropicNativeSignature(t)
+	expectedAntigravitySig := base64.StdEncoding.EncodeToString([]byte(rawSignature))
 	inputJSON := []byte(`{
 		"model": "claude-sonnet-4-5-thinking",
 		"messages": [
@@ -755,11 +771,98 @@ func TestConvertClaudeRequestToAntigravity_CacheModeDropsRawSignature(t *testing
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
+	if len(parts) != 2 {
+		t.Fatalf("Expected native signature thinking block to be preserved in cache mode, got %d parts; output=%s", len(parts), output)
+	}
+	if !parts[0].Get("thought").Bool() || parts[0].Get("thoughtSignature").String() != expectedAntigravitySig {
+		t.Fatalf("Expected normalized thinking part with signature %s, got %s", expectedAntigravitySig, parts[0].Raw)
+	}
+	if parts[1].Get("text").String() != "Answer" {
+		t.Fatalf("Expected remaining text part, got %s", parts[1].Raw)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 15231e9fdc93: an invalid
+// client-provided signature must not be replaced by the recovery cache in
+// resolveCacheModeSignature.
+func TestConvertClaudeRequestToAntigravity_CacheModeDropsInvalidSignature(t *testing.T) {
+	cache.ClearSignatureCache("")
+	previous := cache.SignatureCacheEnabled()
+	cache.SetSignatureCacheEnabled(true)
+	t.Cleanup(func() {
+		cache.SetSignatureCacheEnabled(previous)
+		cache.ClearSignatureCache("")
+	})
+
+	// Seed cache with a valid signature for the same thinking text.
+	validNativeSig := testAnthropicNativeSignature(t)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", "Let me think...", validNativeSig)
+
+	// Client explicitly sends an invalid signature. Cache MUST NOT be used to replace it.
+	invalidRawSignature := testNonAnthropicRawSignature(t)
+	inputJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
+		"messages": [
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "Let me think...", "signature": "` + invalidRawSignature + `"},
+					{"type": "text", "text": "Answer"}
+				]
+			}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
+	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
 	if len(parts) != 1 {
-		t.Fatalf("Expected raw signature thinking block to be dropped in cache mode, got %d parts", len(parts))
+		t.Fatalf("Expected invalid signature thinking block to be dropped in cache mode even if cache exists, got %d parts", len(parts))
 	}
 	if parts[0].Get("text").String() != "Answer" {
 		t.Fatalf("Expected remaining text part, got %s", parts[0].Raw)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 15231e9fdc93: the recovery cache is
+// consulted by resolveCacheModeSignature only when the client omitted the
+// signature entirely.
+func TestConvertClaudeRequestToAntigravity_CacheModeRecoversSignatureWhenClientOmitsSignature(t *testing.T) {
+	cache.ClearSignatureCache("")
+	previous := cache.SignatureCacheEnabled()
+	cache.SetSignatureCacheEnabled(true)
+	t.Cleanup(func() {
+		cache.SetSignatureCacheEnabled(previous)
+		cache.ClearSignatureCache("")
+	})
+
+	validNativeSig := testAnthropicNativeSignature(t)
+	expectedAntigravitySig := base64.StdEncoding.EncodeToString([]byte(validNativeSig))
+	cache.CacheSignature("claude-sonnet-4-5-thinking", "Let me think...", validNativeSig)
+
+	// Client omitted signature (signature is empty or absent).
+	inputJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
+		"messages": [
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "Let me think...", "signature": ""},
+					{"type": "text", "text": "Answer"}
+				]
+			}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
+	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
+	if len(parts) != 2 {
+		t.Fatalf("Expected omitted signature thinking block to be recovered from cache, got %d parts; output=%s", len(parts), output)
+	}
+	if !parts[0].Get("thought").Bool() || parts[0].Get("thoughtSignature").String() != expectedAntigravitySig {
+		t.Fatalf("Expected recovered thinking part with signature %s, got %s", expectedAntigravitySig, parts[0].Raw)
+	}
+	if parts[1].Get("text").String() != "Answer" {
+		t.Fatalf("Expected remaining text part, got %s", parts[1].Raw)
 	}
 }
 
@@ -861,6 +964,84 @@ func TestConvertClaudeRequestToAntigravity_BypassModeDropsCAISSignature(t *testi
 	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
 	if len(parts) != 1 {
 		t.Fatalf("expected CAIS-signed thinking block to be dropped, got %d parts", len(parts))
+	}
+	if parts[0].Get("text").String() != "Answer" {
+		t.Fatalf("expected remaining text part, got %s", parts[0].Raw)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 8deeb4ac3159 ("preserve unsigned
+// gemini thinking blocks with trailing carriers"): unsigned thinking blocks are
+// preserved for Gemini-provider models in ConvertClaudeRequestToAntigravity
+// instead of being dropped. The upstream carrier-context validation added in
+// signature_validation.go has no local counterpart (no geminiClaudeCarrier*
+// machinery), so only the request-side preservation is ported here.
+func TestConvertClaudeRequestToAntigravity_PreservesUnsignedGeminiThinkingBlock(t *testing.T) {
+	cache.ClearSignatureCache("")
+	previous := cache.SignatureCacheEnabled()
+	cache.SetSignatureCacheEnabled(false)
+	t.Cleanup(func() {
+		cache.SetSignatureCacheEnabled(previous)
+		cache.ClearSignatureCache("")
+	})
+
+	inputJSON := []byte(`{
+		"model": "gemini-3-pro-preview",
+		"messages": [
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "unsigned reasoning"},
+					{"type": "text", "text": "Answer"}
+				]
+			}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToAntigravity("gemini-3-pro-preview", inputJSON, false)
+	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
+	if len(parts) != 2 {
+		t.Fatalf("expected unsigned Gemini thinking block to be preserved, got %d parts; output=%s", len(parts), output)
+	}
+	if !parts[0].Get("thought").Bool() || parts[0].Get("text").String() != "unsigned reasoning" {
+		t.Fatalf("expected preserved thought part, got %s", parts[0].Raw)
+	}
+	if sig := parts[0].Get("thoughtSignature").String(); sig != "" {
+		t.Fatalf("expected no thoughtSignature on unsigned Gemini thinking block, got %q", sig)
+	}
+	if parts[1].Get("text").String() != "Answer" {
+		t.Fatalf("expected remaining text part, got %s", parts[1].Raw)
+	}
+}
+
+// Companion to the 8deeb4ac3159 port above: an unsigned thinking block on a
+// non-Gemini model is still dropped entirely.
+func TestConvertClaudeRequestToAntigravity_UnsignedClaudeThinkingBlockStillDropped(t *testing.T) {
+	cache.ClearSignatureCache("")
+	previous := cache.SignatureCacheEnabled()
+	cache.SetSignatureCacheEnabled(false)
+	t.Cleanup(func() {
+		cache.SetSignatureCacheEnabled(previous)
+		cache.ClearSignatureCache("")
+	})
+
+	inputJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
+		"messages": [
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "unsigned reasoning"},
+					{"type": "text", "text": "Answer"}
+				]
+			}
+		]
+	}`)
+
+	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
+	parts := gjson.GetBytes(output, "request.contents.0.parts").Array()
+	if len(parts) != 1 {
+		t.Fatalf("expected unsigned Claude thinking block to be dropped, got %d parts; output=%s", len(parts), output)
 	}
 	if parts[0].Get("text").String() != "Answer" {
 		t.Fatalf("expected remaining text part, got %s", parts[0].Raw)
@@ -1081,7 +1262,8 @@ func TestConvertClaudeRequestToAntigravity_ToolUsePreservesPresentNonObjectInput
 func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 	cache.ClearSignatureCache("")
 
-	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	// Updated for the upstream 15231e9fdc93 port: real provider-native signature.
+	nativeSignature, antigravitySignature := testAntigravityClaudeSignature(t)
 	thinkingText := "Let me think..."
 
 	inputJSON := []byte(`{
@@ -1094,7 +1276,7 @@ func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 			{
 				"role": "assistant",
 				"content": [
-					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"},
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + nativeSignature + `"},
 					{
 						"type": "tool_use",
 						"id": "call_123",
@@ -1106,7 +1288,7 @@ func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 		]
 	}`)
 
-	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, nativeSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
@@ -1116,8 +1298,8 @@ func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 	if part.Get("functionCall.name").String() != "get_weather" {
 		t.Errorf("Expected functionCall, got %s", part.Raw)
 	}
-	if part.Get("thoughtSignature").String() != validSignature {
-		t.Errorf("Expected thoughtSignature '%s' on tool_use, got '%s'", validSignature, part.Get("thoughtSignature").String())
+	if part.Get("thoughtSignature").String() != antigravitySignature {
+		t.Errorf("Expected thoughtSignature '%s' on tool_use, got '%s'", antigravitySignature, part.Get("thoughtSignature").String())
 	}
 }
 
@@ -1125,7 +1307,8 @@ func TestConvertClaudeRequestToAntigravity_ReorderThinking(t *testing.T) {
 	cache.ClearSignatureCache("")
 
 	// Case: text block followed by thinking block -> should be reordered to thinking first
-	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	// Updated for the upstream 15231e9fdc93 port: real provider-native signature.
+	nativeSignature, _ := testAntigravityClaudeSignature(t)
 	thinkingText := "Planning..."
 
 	inputJSON := []byte(`{
@@ -1139,13 +1322,13 @@ func TestConvertClaudeRequestToAntigravity_ReorderThinking(t *testing.T) {
 				"role": "assistant",
 				"content": [
 					{"type": "text", "text": "Here is the plan."},
-					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"}
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + nativeSignature + `"}
 				]
 			}
 		]
 	}`)
 
-	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, nativeSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
@@ -1272,7 +1455,8 @@ func TestConvertClaudeRequestToAntigravity_ReorderParallelFunctionCalls(t *testi
 func TestConvertClaudeRequestToAntigravity_ReorderThinkingAndTextBeforeFunctionCall(t *testing.T) {
 	cache.ClearSignatureCache("")
 
-	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	// Updated for the upstream 15231e9fdc93 port: real provider-native signature.
+	nativeSignature, _ := testAntigravityClaudeSignature(t)
 	thinkingText := "Let me think about this..."
 
 	inputJSON := []byte(`{
@@ -1286,7 +1470,7 @@ func TestConvertClaudeRequestToAntigravity_ReorderThinkingAndTextBeforeFunctionC
 				"role": "assistant",
 				"content": [
 					{"type": "text", "text": "Before thinking"},
-					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"},
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + nativeSignature + `"},
 					{
 						"type": "tool_use",
 						"id": "call_xyz",
@@ -1299,7 +1483,7 @@ func TestConvertClaudeRequestToAntigravity_ReorderThinkingAndTextBeforeFunctionC
 		]
 	}`)
 
-	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, nativeSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
@@ -1671,7 +1855,8 @@ func TestConvertClaudeRequestToAntigravity_TrailingSignedThinking_Kept(t *testin
 	cache.ClearSignatureCache("")
 
 	// Last assistant message ends with signed thinking block - should be kept
-	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	// Updated for the upstream 15231e9fdc93 port: real provider-native signature.
+	nativeSignature, _ := testAntigravityClaudeSignature(t)
 	thinkingText := "Valid thinking..."
 
 	inputJSON := []byte(`{
@@ -1685,13 +1870,13 @@ func TestConvertClaudeRequestToAntigravity_TrailingSignedThinking_Kept(t *testin
 				"role": "assistant",
 				"content": [
 					{"type": "text", "text": "Here is my answer"},
-					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"}
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + nativeSignature + `"}
 				]
 			}
 		]
 	}`)
 
-	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, nativeSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)

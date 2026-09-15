@@ -312,28 +312,45 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 			case "function_call_output":
 				// Handle function call outputs - convert to function message with functionResponse
 				callID := item.Get("call_id").String()
+
+				// Find the corresponding function call by matching call_id.
+				// Orphan outputs (empty call_id or no matching function_call,
+				// e.g. Codex send_message_to_thread cards) must not become
+				// unpaired functionResponse parts; surface them as user text.
+				functionName := ""
+				matchedCall := false
+				if callID != "" {
+					if inputArray := root.Get("input"); inputArray.Exists() && inputArray.IsArray() {
+						inputArray.ForEach(func(_, prevItem gjson.Result) bool {
+							if prevItem.Get("type").String() == "function_call" && prevItem.Get("call_id").String() == callID {
+								functionName = prevItem.Get("name").String()
+								matchedCall = true
+								return false // Stop iteration
+							}
+							return true
+						})
+					}
+				}
+				if !matchedCall {
+					if parts := buildOpenAIResponsesStandaloneToolOutputTextParts(item); len(parts) > 0 {
+						userContent := []byte(`{"role":"user","parts":[]}`)
+						for _, part := range parts {
+							userContent, _ = sjson.SetRawBytes(userContent, "parts.-1", part)
+						}
+						out, _ = sjson.SetRawBytes(out, "contents.-1", userContent)
+					}
+					continue
+				}
+				if functionName == "" {
+					functionName = "unknown"
+				}
+				functionName = util.SanitizeFunctionName(functionName)
+
 				// Use .Raw to preserve the JSON encoding (includes quotes for strings)
 				outputRaw := item.Get("output").Str
 
 				functionContent := []byte(`{"role":"function","parts":[]}`)
 				functionResponse := []byte(`{"functionResponse":{"name":"","response":{}}}`)
-
-				// We need to extract the function name from the previous function_call
-				// For now, we'll use a placeholder or extract from context if available
-				functionName := "unknown" // This should ideally be matched with the corresponding function_call
-
-				// Find the corresponding function call name by matching call_id
-				// We need to look back through the input array to find the matching call
-				if inputArray := root.Get("input"); inputArray.Exists() && inputArray.IsArray() {
-					inputArray.ForEach(func(_, prevItem gjson.Result) bool {
-						if prevItem.Get("type").String() == "function_call" && prevItem.Get("call_id").String() == callID {
-							functionName = prevItem.Get("name").String()
-							return false // Stop iteration
-						}
-						return true
-					})
-				}
-				functionName = util.SanitizeFunctionName(functionName)
 
 				functionResponse, _ = sjson.SetBytes(functionResponse, "functionResponse.name", functionName)
 				functionResponse, _ = sjson.SetBytes(functionResponse, "functionResponse.id", callID)
@@ -448,4 +465,37 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 	result := out
 	result = common.AttachDefaultSafetySettings(result, "safetySettings")
 	return result
+}
+
+// buildOpenAIResponsesStandaloneToolOutputTextParts renders a tool output that
+// has no matching function_call as plain Gemini user text parts. Empty outputs
+// produce no parts.
+// Ported from upstream CLIProxyAPI commit 8c984672a66a ("handle orphan function
+// outputs as user text").
+func buildOpenAIResponsesStandaloneToolOutputTextParts(item gjson.Result) [][]byte {
+	output := item.Get("output")
+	if !output.Exists() {
+		return nil
+	}
+	if output.IsArray() {
+		var parts [][]byte
+		output.ForEach(func(_, part gjson.Result) bool {
+			text := part.Get("text").String()
+			if strings.TrimSpace(text) == "" {
+				return true
+			}
+			textPart := []byte(`{"text":""}`)
+			textPart, _ = sjson.SetBytes(textPart, "text", text)
+			parts = append(parts, textPart)
+			return true
+		})
+		return parts
+	}
+	text := output.String()
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	textPart := []byte(`{"text":""}`)
+	textPart, _ = sjson.SetBytes(textPart, "text", text)
+	return [][]byte{textPart}
 }

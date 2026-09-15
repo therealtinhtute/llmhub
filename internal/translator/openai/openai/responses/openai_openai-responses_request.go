@@ -189,22 +189,23 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 				}
 
 			case "function_call_output":
-				// Handle function call output conversion to tool message
-				toolMessage := []byte(`{"role":"tool","tool_call_id":"","content":""}`)
 				callID := ""
-
 				if callId := item.Get("call_id"); callId.Exists() {
 					callID = strings.TrimSpace(callId.String())
+				}
+				if _, awaiting := awaitingToolOutputs[callID]; !awaiting {
+					// Orphan outputs (empty call_id or no matching assistant
+					// tool_calls, e.g. Codex send_message_to_thread cards) must
+					// not become tool messages. Emit as user text instead.
+					appendStandaloneResponsesToolOutputAsUser(item.Get("output"), appendRegularMessage)
+				} else {
+					toolMessage := []byte(`{"role":"tool","tool_call_id":"","content":""}`)
 					toolMessage, _ = sjson.SetBytes(toolMessage, "tool_call_id", callID)
-				}
-
-				if output := item.Get("output"); output.Exists() {
-					toolMessage, _ = sjson.SetBytes(toolMessage, "content", output.String())
-				}
-
-				out, _ = sjson.SetRawBytes(out, "messages.-1", toolMessage)
-				if callID != "" {
 					delete(awaitingToolOutputs, callID)
+					if output := item.Get("output"); output.Exists() {
+						toolMessage, _ = sjson.SetBytes(toolMessage, "content", output.String())
+					}
+					out, _ = sjson.SetRawBytes(out, "messages.-1", toolMessage)
 				}
 				if len(awaitingToolOutputs) == 0 && len(deferredMessages) > 0 {
 					flushDeferredMessages()
@@ -262,4 +263,27 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 	}
 
 	return out
+}
+
+// appendStandaloneResponsesToolOutputAsUser surfaces a tool output that has no
+// matching assistant tool_call as plain user text instead of an invalid tool
+// message. Empty outputs produce no message.
+// Ported from upstream CLIProxyAPI commit 8c984672a66a ("handle orphan function
+// outputs as user text").
+func appendStandaloneResponsesToolOutputAsUser(output gjson.Result, appendMessage func([]byte)) {
+	userMessage := []byte(`{"role":"user","content":""}`)
+	if output.Exists() {
+		userMessage, _ = sjson.SetBytes(userMessage, "content", output.String())
+	}
+	content := gjson.GetBytes(userMessage, "content")
+	if !content.Exists() {
+		return
+	}
+	if content.Type == gjson.String && strings.TrimSpace(content.String()) == "" {
+		return
+	}
+	if content.IsArray() && !content.Get("0").Exists() {
+		return
+	}
+	appendMessage(userMessage)
 }

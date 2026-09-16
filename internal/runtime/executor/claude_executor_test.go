@@ -2184,7 +2184,10 @@ func TestApplyCloaking_PreservesConfiguredStrictModeAndSensitiveWordsWhenModeOmi
 	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-123"}}
 	payload := []byte(`{"system":"proxy rules","messages":[{"role":"user","content":[{"type":"text","text":"proxy access"}]}]}`)
 
-	out := applyCloaking(context.Background(), cfg, auth, payload, "claude-3-5-sonnet-20241022", "key-123", "")
+	out, cloaked := applyCloaking(context.Background(), cfg, auth, payload, "claude-3-5-sonnet-20241022", "key-123", "")
+	if !cloaked {
+		t.Fatal("expected applyCloaking to report cloaked for a strict-mode cloak config")
+	}
 
 	blocks := gjson.GetBytes(out, "system").Array()
 	if len(blocks) != 3 {
@@ -2439,7 +2442,10 @@ func TestRemapOAuthToolNames_ThirdPartyToolsAliased(t *testing.T) {
 
 func TestApplyClaudeHeaders_BetaAssemblyPerRequest(t *testing.T) {
 	apiKeyAuth := &cliproxyauth.Auth{ID: "auth-1", Attributes: map[string]string{"api_key": "key-1"}}
-	body := []byte(`{"model":"claude-opus-5","tools":[{"name":"search_web","input_schema":{"type":"object"}}]}`)
+	// advanced-tool-use-2025-11-20 requires a real advanced tool-use feature
+	// (tool search, defer_loading, input_examples, allowed_callers) in
+	// 2.1.258 — a plain tools array alone does not emit it (upstream d7052c96af78).
+	body := []byte(`{"model":"claude-opus-5","tools":[{"name":"search_web","input_schema":{"type":"object"},"defer_loading":true}]}`)
 
 	// API-key mode with tools: conditional betas present, OAuth betas absent,
 	// and the old unconditional token-efficient-tools beta is gone (2.1.220

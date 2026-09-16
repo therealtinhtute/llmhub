@@ -123,3 +123,51 @@ func TestApplyCustomHeadersFromAttrs_MagicVariable(t *testing.T) {
 		}
 	})
 }
+
+// TestApplyCustomHeadersFromAttrs_CPASessionID covers the $CPA-SESSION-ID magic
+// variable ported from upstream CLIProxyAPI (v7.3.3 range): it expands to the
+// internal session-affinity ID carried in the request context, supports embedded
+// occurrences, and is omitted when no session ID is resolvable.
+func TestApplyCustomHeadersFromAttrs_CPASessionID(t *testing.T) {
+	t.Run("exact value resolves from request context", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://api.example.com", nil)
+		req = req.WithContext(WithSessionID(req.Context(), "sess-ctx-001"))
+
+		ApplyCustomHeadersFromAttrs(req, map[string]string{
+			"header:X-Session": "$CPA-SESSION-ID",
+		})
+
+		if got := req.Header.Get("X-Session"); got != "sess-ctx-001" {
+			t.Errorf("X-Session = %q, want %q", got, "sess-ctx-001")
+		}
+	})
+
+	t.Run("embedded occurrences are replaced", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://api.example.com", nil)
+		req = req.WithContext(WithSessionID(req.Context(), "sess-ctx-002"))
+
+		ApplyCustomHeadersFromAttrs(req, map[string]string{
+			"header:X-Trace": "req-$CPA-SESSION-ID-end",
+		})
+
+		if got := req.Header.Get("X-Trace"); got != "req-sess-ctx-002-end" {
+			t.Errorf("X-Trace = %q, want %q", got, "req-sess-ctx-002-end")
+		}
+	})
+
+	t.Run("omitted when no session id resolvable", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://api.example.com", nil)
+
+		ApplyCustomHeadersFromAttrs(req, map[string]string{
+			"header:X-Session":     "$CPA-SESSION-ID",
+			"header:Static-Header": "static-123",
+		})
+
+		if _, exists := req.Header["X-Session"]; exists {
+			t.Errorf("expected X-Session to be omitted, got %q", req.Header.Get("X-Session"))
+		}
+		if got := req.Header.Get("Static-Header"); got != "static-123" {
+			t.Errorf("Static-Header = %q, want %q", got, "static-123")
+		}
+	})
+}

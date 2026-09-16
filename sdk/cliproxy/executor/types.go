@@ -41,6 +41,13 @@ const (
 	LCPAffinitySessionIDMetadataKey = "lcp_affinity_session_id"
 	// CanonicalSessionIDMetadataKey stores the single unified session identity reconciled.
 	CanonicalSessionIDMetadataKey = "canonical_session_id"
+	// ParentSessionIDMetadataKey stores the parent session identity for hierarchical sessions and forks.
+	// For top-level Merkle LCP forks, it represents the deterministic Merkle prefix hash at the divergence point.
+	ParentSessionIDMetadataKey = "parent_session_id"
+	// IsForkMetadataKey indicates whether the request represents a conversational branch or fork.
+	IsForkMetadataKey = "is_fork"
+	// LCPAccessGenerationMetadataKey stores the monotonic access generation when an LCP entry was touched or bound.
+	LCPAccessGenerationMetadataKey = "lcp_access_generation"
 	// LCPFingerprintMetadataKey stores bounded request-scoped turn fingerprints.
 	LCPFingerprintMetadataKey = "lcp_fingerprints"
 	// LCPMinPrefixLengthMetadataKey stores the minimum eligible prefix boundary.

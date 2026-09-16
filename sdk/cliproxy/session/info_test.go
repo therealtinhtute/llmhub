@@ -462,6 +462,94 @@ func TestExtractSessionInfoClaudeMetadataUserIDWithAgentHeader(t *testing.T) {
 	}
 }
 
+// Ported from upstream CLIProxyAPI commit e899f0e53985 ("derive distinct branch
+// session ID, parent lineage on Merkle LCP forks, and enhance Codex fork/subagent
+// affinity") against the local ExtractSessionInfo symbol: X-Codex-Turn-Metadata
+// fork and Multi-Agent v2 subagent recognition.
+func TestExtractSessionInfoCodexForkAndSubagent(t *testing.T) {
+	t.Parallel()
+
+	// Codex CLI fork with X-Codex-Turn-Metadata
+	codexForkHeaders := http.Header{
+		"Session-Id": []string{"codex-fork-666"},
+		"X-Codex-Turn-Metadata": []string{
+			`{"session_id":"codex-fork-666","forked_from_thread_id":"codex-parent-111","request_kind":"turn"}`,
+		},
+	}
+	info, ok := ExtractSessionInfo(codexForkHeaders, nil, nil)
+	if !ok || info.ClientType != "codex" {
+		t.Fatalf("ExtractSessionInfo failed for Codex fork")
+	}
+	if info.SessionID != "codex:codex-fork-666" || info.ParentSessionID != "codex:codex-parent-111" {
+		t.Errorf("Codex fork session ids mismatch: %+v", info)
+	}
+	if !info.IsFork {
+		t.Errorf("expected IsFork=true for Codex fork: %+v", info)
+	}
+
+	// Codex CLI Multi-Agent v2 (collab_spawn)
+	codexSubagentHeaders := http.Header{
+		"Session-Id":        []string{"codex-root-001"},
+		"Thread-Id":         []string{"codex-sub-thread-002"},
+		"X-Openai-Subagent": []string{"collab_spawn"},
+		"X-Codex-Turn-Metadata": []string{
+			`{"session_id":"codex-root-001","thread_id":"codex-sub-thread-002","agent_name":"/root/check_readme","parent_thread_id":"codex-root-001","subagent_kind":"thread_spawn"}`,
+		},
+	}
+	info, ok = ExtractSessionInfo(codexSubagentHeaders, nil, nil)
+	if !ok || info.ClientType != "codex" {
+		t.Fatalf("ExtractSessionInfo failed for Codex Multi-Agent v2")
+	}
+	if info.SessionID != "codex:codex-root-001:agent:check_readme" || info.ParentSessionID != "codex:codex-root-001" {
+		t.Errorf("Codex Multi-Agent session ids mismatch: %+v", info)
+	}
+	if info.AgentName != "check_readme" || !info.IsSubagent {
+		t.Errorf("Codex Multi-Agent metadata mismatch: AgentName=%q, IsSubagent=%v", info.AgentName, info.IsSubagent)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit e899f0e53985 against the local
+// ExtractSessionInfo and isBodyForkCandidate symbols: forked_from_* markers in
+// request bodies mark payload-derived sessions as forks rather than subagents.
+func TestExtractSessionInfoBodyForkCandidates(t *testing.T) {
+	t.Parallel()
+
+	// Body-only fork in thread_id
+	bodyForkPayload := []byte(`{"thread_id":"child-thread-01","forked_from_thread_id":"parent-thread-00"}`)
+	info, ok := ExtractSessionInfo(nil, bodyForkPayload, nil)
+	if !ok || info.SessionID != "thread:child-thread-01" || info.ParentSessionID != "thread:parent-thread-00" || !info.IsFork || info.IsSubagent {
+		t.Errorf("body-only fork mismatch: %+v", info)
+	}
+
+	// Codex fork with both Session-Id and Thread-Id
+	codexForkBothHeaders := http.Header{
+		"Session-Id": []string{"parent-thread-00"},
+		"Thread-Id":  []string{"child-thread-01"},
+		"X-Codex-Turn-Metadata": []string{
+			`{"session_id":"parent-thread-00","thread_id":"child-thread-01","forked_from_thread_id":"parent-thread-00"}`,
+		},
+	}
+	info, ok = ExtractSessionInfo(codexForkBothHeaders, nil, nil)
+	if !ok || info.SessionID != "codex:child-thread-01" || info.ParentSessionID != "codex:parent-thread-00" || !info.IsFork {
+		t.Errorf("Codex fork with both sid and tid mismatch: %+v", info)
+	}
+
+	// Nested metadata forked_from_thread_id in body
+	nestedForkPayload := []byte(`{"thread_id":"child-t-99","metadata":{"forked_from_thread_id":"parent-t-88"}}`)
+	info, ok = ExtractSessionInfo(nil, nestedForkPayload, nil)
+	if !ok || info.SessionID != "thread:child-t-99" || info.ParentSessionID != "thread:parent-t-88" || !info.IsFork {
+		t.Errorf("nested body-only fork mismatch: %+v", info)
+	}
+
+	// Codex fork with Session-Id in header and thread_id + metadata.forked_from_thread_id in body
+	codexHeaderBodyForkHeaders := http.Header{"Session-Id": []string{"parent-sess-uuid"}}
+	codexHeaderBodyForkPayload := []byte(`{"thread_id":"child-thread-uuid","metadata":{"forked_from_thread_id":"parent-sess-uuid"}}`)
+	info, ok = ExtractSessionInfo(codexHeaderBodyForkHeaders, codexHeaderBodyForkPayload, nil)
+	if !ok || info.SessionID != "codex:child-thread-uuid" || info.ParentSessionID != "codex:parent-sess-uuid" || !info.IsFork {
+		t.Errorf("Codex fork with Session-Id header and body thread_id mismatch: %+v", info)
+	}
+}
+
 func TestExtractSessionInfoNestedSubagentIDAndUserID(t *testing.T) {
 	t.Parallel()
 

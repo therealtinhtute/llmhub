@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -187,14 +189,163 @@ func NewAntigravityExecutor(cfg *config.Config) *AntigravityExecutor {
 // Each Antigravity credential gets its own HTTP/1.1 connection pool. Sessions routed
 // to the same auth reuse that pool, while different OAuth identities never share a
 // TCP/TLS connection, matching the native client's one-credential process model.
+// The cache is bounded so pools cannot accumulate when keys churn.
 var (
 	antigravityBaseTransport = defaultAntigravityBaseTransport()
-	antigravityTransports    sync.Map // antigravityTransportKey -> *http.Transport
+	antigravityTransports    = helps.NewTransportCache[antigravityTransportKey](antigravityTransportCacheCapacity)
 )
 
+const (
+	// antigravityTransportCacheCapacity caps how many Antigravity connection pools stay
+	// alive. The bound exists only to stop entries from accumulating when keys churn, for
+	// example when a credential's proxy is rotated through the management API or when an
+	// SDK embedder supplies a freshly built base transport per request.
+	//
+	// It is sized for large deployments on purpose. An unused cache entry costs under 1 KB
+	// and no goroutines, so capacity is close to free, whereas evicting a pool that is
+	// still in active use forces the next request on that credential to redo the TCP + TLS
+	// handshake and defeats the point of caching. Credential counts in the low thousands
+	// are expected once Home-managed pools are included.
+	//
+	// Capacity is therefore NOT the lever for bounding memory: an idle pooled connection
+	// costs roughly 38 KB plus three goroutines, and that total is driven by live traffic
+	// and reclaimed by IdleConnTimeout. Shrinking this number does not save that memory,
+	// it only causes pool thrashing.
+	antigravityTransportCacheCapacity = 8192
+
+	// antigravityDefaultMaxIdleConnsPerHost sets the default number of idle connections
+	// to retain per host per credential when connection pooling is enabled.
+	// Matches Go's DefaultMaxIdleConnsPerHost (2) and the native Antigravity binary.
+	antigravityDefaultMaxIdleConnsPerHost = 2
+
+	// antigravityMaxAllowedMaxIdleConnsPerHost is the hard upper bound on MaxIdleConnsPerHost (100).
+	// Prevents unbounded connection pool expansion in multi-credential environments.
+	antigravityMaxAllowedMaxIdleConnsPerHost = 100
+
+	// antigravityDefaultIdleConnTimeout is the default idle connection timeout (30 seconds).
+	// Kept strictly far below Google Frontend (GFE / ESF) 240-second cutoff to prevent
+	// client-side reuse of half-closed connections that cause connection resets.
+	antigravityDefaultIdleConnTimeout = 30 * time.Second
+
+	// antigravityMaxAllowedIdleConnTimeout is the hard upper bound on IdleConnTimeout (210 seconds).
+	// Kept strictly below Google Frontend (GFE / ESF) 240.0-second HTTP/1.1 idle keep-alive cutoff
+	// with a 30-second safety margin to eliminate timer race conditions.
+	antigravityMaxAllowedIdleConnTimeout = 210 * time.Second
+
+	// antigravityAnonymousTransportScope is the pool scope for auth objects that carry
+	// no identity at all. Reaching it means the auth has no ID, no source path and no
+	// token of any kind, so there is no credential to keep isolated and a single shared
+	// pool is safe. Allocating a private pool per request instead would leak a
+	// connection pool, and the goroutines managing it, on every call.
+	antigravityAnonymousTransportScope = "anonymous"
+)
+
+// antigravityPoolSettings resolves the effective upstream connection pooling
+// behavior. Ported from upstream commits d5397905f09e and 68dd99d56f68.
+type antigravityPoolSettings struct {
+	shortMode           bool
+	idleConnTimeout     time.Duration
+	maxIdleConnsPerHost int
+}
+
+func resolveAntigravityPoolSettings(cfg *config.Config) antigravityPoolSettings {
+	// By default, upstream connection pooling is disabled (shortMode = true, maxIdleConnsPerHost = -1)
+	// to prevent socket buildup and stale connection errors across rotating credentials.
+	settings := antigravityPoolSettings{
+		shortMode:           true,
+		maxIdleConnsPerHost: -1,
+		idleConnTimeout:     0,
+	}
+	if cfg == nil {
+		return settings
+	}
+
+	// Pooling is active ONLY when explicitly enabled: true
+	poolCfg := cfg.AntigravityConnectionPool
+	if poolCfg.Enabled == nil || !*poolCfg.Enabled {
+		return settings
+	}
+
+	// Enabled is true: initialize default pool settings
+	settings.shortMode = false
+	settings.idleConnTimeout = antigravityDefaultIdleConnTimeout
+	settings.maxIdleConnsPerHost = antigravityDefaultMaxIdleConnsPerHost
+
+	rawTimeout := strings.TrimSpace(poolCfg.IdleConnTimeout)
+	if rawTimeout != "" {
+		d, err := time.ParseDuration(rawTimeout)
+		if err != nil {
+			log.Warnf("antigravity executor: invalid idle-conn-timeout %q: %v, using default %v", rawTimeout, err, antigravityDefaultIdleConnTimeout)
+		} else {
+			if d <= 0 {
+				settings.shortMode = true
+				settings.maxIdleConnsPerHost = -1
+				return settings
+			}
+			if d > antigravityMaxAllowedIdleConnTimeout {
+				d = antigravityMaxAllowedIdleConnTimeout
+			}
+			settings.idleConnTimeout = d
+		}
+	}
+
+	if poolCfg.MaxIdleConnsPerHost != nil {
+		val := *poolCfg.MaxIdleConnsPerHost
+		if val < 0 {
+			settings.shortMode = true
+			settings.maxIdleConnsPerHost = -1
+			return settings
+		}
+		if val > antigravityMaxAllowedMaxIdleConnsPerHost {
+			val = antigravityMaxAllowedMaxIdleConnsPerHost
+		}
+		settings.maxIdleConnsPerHost = val
+	}
+
+	if settings.maxIdleConnsPerHost < 0 {
+		settings.shortMode = true
+	}
+
+	return settings
+}
+
+// ResetAntigravityTransports purges all cached Antigravity connection pools and closes their idle connections.
+// Used during configuration hot-reloads to ensure updated pool parameters apply immediately.
+func ResetAntigravityTransports() {
+	antigravityTransports.Purge()
+}
+
+// AntigravityTransportsLen reports the current number of cached Antigravity transports.
+func AntigravityTransportsLen() int {
+	return antigravityTransports.Len()
+}
+
+// closeAntigravityAuthIdleTransports closes and removes all idle connections for the given auth.
+func closeAntigravityAuthIdleTransports(auth *cliproxyauth.Auth) {
+	if auth == nil {
+		return
+	}
+	scope := antigravityTransportScope(auth)
+	if scope == "" || scope == antigravityAnonymousTransportScope {
+		return
+	}
+	antigravityTransports.CloseMatching(func(key antigravityTransportKey) bool {
+		return key.credential == scope
+	})
+}
+
+// antigravityTransportKey identifies one connection pool. At most one of proxy and
+// base is set: proxy for a credential-scoped proxy pool, base for a transport handed
+// in through the request context, and neither for a direct pool.
+// Resolved pool settings (shortMode, idleConnTimeout, maxIdleConnsPerHost) are included
+// in the key to prevent stale transport reuse across configuration hot-reloads under load.
 type antigravityTransportKey struct {
-	credential string
-	base       *http.Transport
+	credential          string
+	proxy               string
+	base                *http.Transport
+	shortMode           bool
+	idleConnTimeout     time.Duration
+	maxIdleConnsPerHost int
 }
 
 func defaultAntigravityBaseTransport() *http.Transport {
@@ -204,7 +355,7 @@ func defaultAntigravityBaseTransport() *http.Transport {
 	return &http.Transport{}
 }
 
-func cloneTransportWithHTTP11(base *http.Transport) *http.Transport {
+func cloneTransportWithHTTP11(base *http.Transport, cfgs ...*config.Config) *http.Transport {
 	if base == nil {
 		return nil
 	}
@@ -221,54 +372,180 @@ func cloneTransportWithHTTP11(base *http.Transport) *http.Transport {
 	// Native Antigravity sends no ALPN extension. With HTTP/2 disabled above,
 	// an empty NextProtos keeps the wire shape aligned while using HTTP/1.1.
 	clone.TLSClientConfig.NextProtos = nil
+	applyAntigravityPoolLimits(clone, cfgs...)
 	return clone
 }
 
-// antigravityHTTP11Transport returns the HTTP/1.1 pool for one credential and
-// base transport. The base is either the process default, a credential-scoped
-// proxy transport, or a context-provided transport.
-func antigravityHTTP11Transport(auth *cliproxyauth.Auth, base *http.Transport) *http.Transport {
+// applyAntigravityPoolLimits configures connection pool parameters for Antigravity.
+// Default: IdleConnTimeout=30s, MaxIdleConnsPerHost=2.
+// IdleConnTimeout is strictly capped at 210s (antigravityMaxAllowedIdleConnTimeout)
+// matching the Google Frontend (GFE / ESF) HTTP/1.1 idle cutoff.
+// If short-lived connection mode is configured, MaxIdleConnsPerHost is set to -1
+// so idle connections are closed immediately upon request completion.
+func applyAntigravityPoolLimits(transport *http.Transport, cfgs ...*config.Config) {
+	if transport == nil {
+		return
+	}
+	var cfg *config.Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+	}
+	settings := resolveAntigravityPoolSettings(cfg)
+	if settings.shortMode {
+		transport.MaxIdleConnsPerHost = -1
+		transport.DisableKeepAlives = false
+		transport.IdleConnTimeout = 0
+		return
+	}
+
+	// If the operator base transport already disabled pooling (< 0), honor it.
+	if transport.MaxIdleConnsPerHost < 0 {
+		return
+	}
+
+	// Go treats 0 as DefaultMaxIdleConnsPerHost (2). Ensure at least configured/default limit.
+	if transport.MaxIdleConnsPerHost < settings.maxIdleConnsPerHost {
+		transport.MaxIdleConnsPerHost = settings.maxIdleConnsPerHost
+	}
+
+	// MaxIdleConns caps the pool across all hosts.
+	if transport.MaxIdleConns > 0 && transport.MaxIdleConns < transport.MaxIdleConnsPerHost {
+		transport.MaxIdleConns = transport.MaxIdleConnsPerHost
+	}
+
+	// Apply IdleConnTimeout:
+	// If the config explicitly specified a timeout, apply settings.idleConnTimeout.
+	// If config did not specify a timeout:
+	// - if base transport already has a timeout > 0, preserve it (capped at 210s).
+	// - otherwise, apply default 30s.
+	rawTimeout := ""
+	if cfg != nil {
+		rawTimeout = strings.TrimSpace(cfg.AntigravityConnectionPool.IdleConnTimeout)
+	}
+	if rawTimeout != "" {
+		transport.IdleConnTimeout = settings.idleConnTimeout
+	} else if transport.IdleConnTimeout == 0 || transport.IdleConnTimeout == 90*time.Second {
+		transport.IdleConnTimeout = settings.idleConnTimeout
+	} else if transport.IdleConnTimeout > antigravityMaxAllowedIdleConnTimeout {
+		transport.IdleConnTimeout = antigravityMaxAllowedIdleConnTimeout
+	}
+}
+
+// antigravityHTTP11Transport returns the HTTP/1.1 pool shared by every request that
+// uses the same credential and the same base transport. The base is either the
+// process default or a transport provided through the request context.
+func antigravityHTTP11Transport(auth *cliproxyauth.Auth, base *http.Transport, cfgs ...*config.Config) *http.Transport {
 	if base == nil {
 		return nil
 	}
-	credential, shareable := antigravityTransportScope(auth)
-	if !shareable {
-		// Without a stable credential identity there is no safe cache key: pointer
-		// identity is reused once the old auth is collected, which would silently
-		// merge two unrelated OAuth identities onto the same TCP/TLS connections.
-		// Fall back to a private pool instead of risking cross-credential sharing.
-		return cloneTransportWithHTTP11(base)
+	var cfg *config.Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
 	}
+	settings := resolveAntigravityPoolSettings(cfg)
 	key := antigravityTransportKey{
-		credential: credential,
-		base:       base,
+		credential:          antigravityTransportScope(auth),
+		base:                base,
+		shortMode:           settings.shortMode,
+		idleConnTimeout:     settings.idleConnTimeout,
+		maxIdleConnsPerHost: settings.maxIdleConnsPerHost,
 	}
-	if cached, ok := antigravityTransports.Load(key); ok {
-		return cached.(*http.Transport)
+	transport, errGet := antigravityTransports.Get(key, func() (*http.Transport, error) {
+		return cloneTransportWithHTTP11(base, cfgs...), nil
+	})
+	if errGet != nil {
+		// Defensive only: the builder above cannot fail. Never return nil here, because a
+		// nil Transport makes http.Client fall back to http.DefaultTransport, which
+		// advertises h2 over ALPN and would break the Antigravity wire fingerprint.
+		log.Debugf("antigravity executor: cache HTTP/1.1 transport failed: %v", errGet)
+		return cloneTransportWithHTTP11(base, cfgs...)
 	}
-	clone := cloneTransportWithHTTP11(base)
-	actual, _ := antigravityTransports.LoadOrStore(key, clone)
-	stored := actual.(*http.Transport)
-	if stored != clone {
-		// Another goroutine won the race; drop the redundant pool.
-		clone.CloseIdleConnections()
-	}
-	return stored
+	return transport
 }
 
-// antigravityTransportScope returns the connection-pool scope for one credential
-// and reports whether that scope is stable enough to share a pool across requests.
-// Runtime auths always carry an ID; incomplete test or plugin auth objects do not
-// and must never be grouped together.
-func antigravityTransportScope(auth *cliproxyauth.Auth) (string, bool) {
+// antigravityProxiedHTTP11Transport returns the credential-scoped HTTP/1.1 pool for
+// one proxy setting, or nil when the proxy setting cannot be turned into a
+// transport. Keying on the normalized proxy string rather than on a prebuilt
+// transport keeps one pool per credential and proxy instead of one per request.
+func antigravityProxiedHTTP11Transport(auth *cliproxyauth.Auth, proxyURL string, cfgs ...*config.Config) *http.Transport {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		return nil
+	}
+	var cfg *config.Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+	}
+	settings := resolveAntigravityPoolSettings(cfg)
+	key := antigravityTransportKey{
+		credential:          antigravityTransportScope(auth),
+		proxy:               proxyURL,
+		shortMode:           settings.shortMode,
+		idleConnTimeout:     settings.idleConnTimeout,
+		maxIdleConnsPerHost: settings.maxIdleConnsPerHost,
+	}
+	transport, errGet := antigravityTransports.Get(key, func() (*http.Transport, error) {
+		base, _, errBuild := proxyutil.BuildHTTPTransport(proxyURL)
+		if errBuild != nil {
+			return nil, errBuild
+		}
+		if base == nil {
+			return nil, fmt.Errorf("antigravity executor: proxy setting produced no transport")
+		}
+		return cloneTransportWithHTTP11(base, cfgs...), nil
+	})
+	if errGet != nil {
+		// The caller falls back to NewProxyAwareHTTPClient, which reports the failure
+		// and applies the context transport fallback.
+		return nil
+	}
+	return transport
+}
+
+// antigravityTransportScope returns the connection-pool scope for one credential.
+// Runtime auths always carry an ID. Incomplete auth objects, such as those built by
+// tests, plugins or SDK embedders, fall back to another stable credential marker so
+// they neither share a pool with an unrelated OAuth identity nor allocate a fresh
+// pool, and with it a fresh set of pool goroutines, on every single request.
+func antigravityTransportScope(auth *cliproxyauth.Auth) string {
 	if auth == nil {
-		return "", false
+		return antigravityAnonymousTransportScope
 	}
-	id := strings.TrimSpace(auth.ID)
-	if id == "" {
-		return "", false
+	if id := strings.TrimSpace(auth.ID); id != "" {
+		return "id:" + id
 	}
-	return "id:" + id, true
+	if auth.Attributes != nil {
+		if path := strings.TrimSpace(auth.Attributes["path"]); path != "" {
+			return "path:" + path
+		}
+		if source := strings.TrimSpace(auth.Attributes["source"]); source != "" {
+			return "source:" + source
+		}
+	}
+	// Fall back to the credential material itself. Auth.Label is deliberately not used:
+	// it is documented as an optional human readable label for logging and carries no
+	// uniqueness guarantee, so two different OAuth identities sharing one label would
+	// wrongly share a TCP/TLS pool.
+	//
+	// The refresh token is preferred over the access token because it stays stable
+	// across token rotation. Keying on the access token would move a credential to a new
+	// pool on every refresh, and would also strand refresh requests themselves, which
+	// run before any access token exists.
+	if refresh := strings.TrimSpace(metaStringValue(auth.Metadata, "refresh_token")); refresh != "" {
+		return antigravityCredentialScope("refresh:", refresh)
+	}
+	if access := strings.TrimSpace(metaStringValue(auth.Metadata, "access_token")); access != "" {
+		return antigravityCredentialScope("token:", access)
+	}
+	return antigravityAnonymousTransportScope
+}
+
+// antigravityCredentialScope derives a pool scope from secret credential material.
+// Only a short digest is retained, and it is never logged, so a pool key cannot be
+// used to recover the credential it came from.
+func antigravityCredentialScope(prefix, secret string) string {
+	digest := sha256.Sum256([]byte(secret))
+	return prefix + hex.EncodeToString(digest[:8])
 }
 
 // newAntigravityHTTPClient creates an HTTP client specifically for Antigravity,
@@ -277,29 +554,39 @@ func antigravityTransportScope(auth *cliproxyauth.Auth) (string, bool) {
 // The underlying Transport is always shared so keep-alive connections survive across
 // requests instead of forcing a fresh TCP + TLS handshake every time.
 func newAntigravityHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth, timeout time.Duration) *http.Client {
-	credential, _ := antigravityTransportScope(auth)
-
 	// Native Antigravity reuses one transport across requests. Opt into a
 	// credential-scoped proxy transport only here so other providers keep their
 	// existing lifecycle and different OAuth identities remain isolated.
 	if proxyURL := antigravityProxyURL(cfg, auth); proxyURL != "" {
-		if transport, _, errProxy := helps.SharedProxyTransport(credential, proxyURL); errProxy == nil && transport != nil {
-			return &http.Client{Transport: antigravityHTTP11Transport(auth, transport), Timeout: timeout}
+		if transport := antigravityProxiedHTTP11Transport(auth, proxyURL, cfg); transport != nil {
+			return &http.Client{Transport: transport, Timeout: timeout}
 		}
+		// Fall through so NewProxyAwareHTTPClient reports the failure and applies the
+		// context transport fallback, preserving the previous behavior.
 	}
 
 	client := helps.NewProxyAwareHTTPClient(ctx, cfg, auth, timeout)
 	// Direct requests share an HTTP/1.1 pool only within the selected credential.
 	if client.Transport == nil {
-		client.Transport = antigravityHTTP11Transport(auth, antigravityBaseTransport)
+		client.Transport = antigravityHTTP11Transport(auth, antigravityBaseTransport, cfg)
 		return client
 	}
 
 	// Preserve a context-provided transport while forcing HTTP/1.1. The cache key
 	// includes credential identity, so sharing the base does not share TLS pools.
-	if transport, ok := client.Transport.(*http.Transport); ok {
-		client.Transport = antigravityHTTP11Transport(auth, transport)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		// A RoundTripper that is not an *http.Transport owns its own protocol behavior.
+		return client
 	}
+	if transport == nil {
+		// A typed-nil *http.Transport still satisfies the interface nil check in
+		// NewProxyAwareHTTPClient. Leaving it in place would make http.Client fall back
+		// to http.DefaultTransport, which advertises h2 over ALPN and breaks the
+		// Antigravity fingerprint, so substitute the process base transport.
+		transport = antigravityBaseTransport
+	}
+	client.Transport = antigravityHTTP11Transport(auth, transport, cfg)
 	return client
 }
 
@@ -340,6 +627,25 @@ func ensureAntigravityGeminiLeadingUserContent(modelName string, payload []byte)
 		return payload
 	}
 	return helps.EnsureGeminiLeadingUserContent(payload, "request.contents")
+}
+
+// ensureAntigravityGeminiTrailingUserContent appends a synthetic empty user turn
+// if the final turn is a model turn. Claude targets are left unchanged because
+// the adapter rejects empty text parts. Ported from upstream 5dc428f39270.
+func ensureAntigravityGeminiTrailingUserContent(modelName string, payload []byte) []byte {
+	if strings.Contains(strings.ToLower(modelName), "claude") {
+		return payload
+	}
+	return helps.EnsureGeminiTrailingUserContent(payload, "request.contents")
+}
+
+// ensureAntigravityGeminiBoundaryUserContent normalizes both leading and trailing
+// turns for Gemini targets. Claude targets are left unchanged.
+func ensureAntigravityGeminiBoundaryUserContent(modelName string, payload []byte) []byte {
+	if strings.Contains(strings.ToLower(modelName), "claude") {
+		return payload
+	}
+	return helps.EnsureGeminiBoundaryUserContent(payload, "request.contents")
 }
 
 // Identifier returns the executor identifier.
@@ -498,7 +804,7 @@ func clearAntigravityCreditsFailureState(auth *cliproxyauth.Auth) {
 	antigravityCreditsFailureByAuth.Delete(strings.TrimSpace(auth.ID))
 }
 func markAntigravityCreditsPermanentlyDisabled(auth *cliproxyauth.Auth) {
-	if auth == nil || strings.TrimSpace(auth.ID) == "" {
+	if auth == nil || strings.TrimSpace(auth.ID) == "" || antigravityCoolingDisabled(auth, nil) {
 		return
 	}
 	authID := strings.TrimSpace(auth.ID)
@@ -560,14 +866,31 @@ func newAntigravityStatusErr(statusCode int, body []byte) statusErr {
 
 // Execute performs a non-streaming request to the Antigravity API.
 func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
-	if opts.Alt == "responses/compact" {
-		return resp, statusErr{code: http.StatusNotImplemented, msg: "/responses/compact not supported"}
+	if helps.HasResponsesCompactionItem(req.Payload) {
+		expanded, errExpand := helps.ExpandAntigravityCompactionCapsules(req.Payload)
+		if errExpand != nil {
+			return resp, statusErr{code: http.StatusBadRequest, msg: errExpand.Error()}
+		}
+		req.Payload = expanded
+		if len(opts.OriginalRequest) > 0 {
+			expandedOrig, errOrig := helps.ExpandAntigravityCompactionCapsules(opts.OriginalRequest)
+			if errOrig == nil {
+				opts.OriginalRequest = expandedOrig
+			} else {
+				opts.OriginalRequest = expanded
+			}
+		}
+	}
+	if opts.Alt == "responses/compact" || helps.HasResponsesCompactionTrigger(req.Payload) || helps.HasResponsesCompactionTrigger(opts.OriginalRequest) {
+		return e.executeCompaction(ctx, auth, req, opts)
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	if inCooldown, remaining := antigravityIsInShortCooldown(auth, baseModel, time.Now()); inCooldown && !antigravityShouldBypassShortCooldown(ctx, e.cfg) {
-		log.Debugf("antigravity executor: auth %s in short cooldown for model %s (%s remaining), returning 429 to switch auth", auth.ID, baseModel, remaining)
-		d := remaining
-		return resp, statusErr{code: http.StatusTooManyRequests, msg: fmt.Sprintf("auth in short cooldown, %s remaining", remaining), retryAfter: &d}
+	if !antigravityCoolingDisabled(auth, e.cfg) {
+		if inCooldown, remaining := antigravityIsInShortCooldown(auth, baseModel, time.Now()); inCooldown && !antigravityShouldBypassShortCooldown(ctx, e.cfg) {
+			log.Debugf("antigravity executor: auth %s in short cooldown for model %s (%s remaining), returning 429 to switch auth", auth.ID, baseModel, remaining)
+			d := remaining
+			return resp, statusErr{code: http.StatusTooManyRequests, msg: fmt.Sprintf("auth in short cooldown, %s remaining", remaining), retryAfter: &d}
+		}
 	}
 
 	isClaude := strings.Contains(strings.ToLower(baseModel), "claude")
@@ -635,7 +958,7 @@ attemptLoop:
 				}
 			}
 
-			requestPayload = ensureAntigravityGeminiLeadingUserContent(baseModel, requestPayload)
+			requestPayload = ensureAntigravityGeminiBoundaryUserContent(baseModel, requestPayload)
 			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, false, opts.Alt, baseURL)
 			if errReq != nil {
 				err = errReq
@@ -686,12 +1009,14 @@ attemptLoop:
 						continue attemptLoop
 					}
 				case antigravity429DecisionShortCooldownSwitchAuth:
-					if decision.retryAfter != nil && *decision.retryAfter > 0 {
+					closeAntigravityAuthIdleTransports(auth)
+					if decision.retryAfter != nil && *decision.retryAfter > 0 && !antigravityCoolingDisabled(auth, e.cfg) {
 						markAntigravityShortCooldown(auth, baseModel, time.Now(), *decision.retryAfter)
 						log.Debugf("antigravity executor: short quota cooldown (%s) for model %s, recorded cooldown", *decision.retryAfter, baseModel)
 					}
 				case antigravity429DecisionFullQuotaExhausted:
-					if useCredits && antigravityHasExplicitCreditsBalanceExhaustedReason(bodyBytes) {
+					closeAntigravityAuthIdleTransports(auth)
+					if useCredits && antigravityHasExplicitCreditsBalanceExhaustedReason(bodyBytes) && !antigravityCoolingDisabled(auth, e.cfg) {
 						markAntigravityCreditsPermanentlyDisabled(auth)
 					}
 					// No credits logic - just fall through to error return below
@@ -773,13 +1098,67 @@ attemptLoop:
 	return resp, err
 }
 
+// executeCompaction runs a non-stream summary generation upstream and wraps the
+// resulting summary in an encrypted compaction capsule response.
+func (e *AntigravityExecutor) executeCompaction(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+	payload := req.Payload
+	if len(payload) == 0 && len(opts.OriginalRequest) > 0 {
+		payload = opts.OriginalRequest
+	}
+	summaryPayload := helps.PrepareAntigravityCompactionSummaryPayload(payload, baseModel)
+
+	summaryReq := cliproxyexecutor.Request{
+		Model:    req.Model,
+		Payload:  summaryPayload,
+		Metadata: req.Metadata,
+	}
+	summaryOpts := opts
+	summaryOpts.Alt = ""
+	summaryOpts.Stream = false
+	summaryOpts.OriginalRequest = nil
+	summaryOpts.SourceFormat = sdktranslator.FormatOpenAIResponse
+
+	summaryResp, errSummary := e.Execute(ctx, auth, summaryReq, summaryOpts)
+	if errSummary != nil {
+		return resp, errSummary
+	}
+
+	summaryText, errExtract := helps.ExtractAntigravitySummaryText(summaryResp.Payload)
+	if errExtract != nil {
+		return resp, fmt.Errorf("extract summary: %w", errExtract)
+	}
+	capsule, errSeal := helps.SealAntigravityCompaction(summaryText, baseModel)
+	if errSeal != nil {
+		return resp, fmt.Errorf("seal compaction capsule: %w", errSeal)
+	}
+
+	inputTokens := int(gjson.GetBytes(summaryResp.Payload, "usage.input_tokens").Int())
+	outputTokens := int(gjson.GetBytes(summaryResp.Payload, "usage.output_tokens").Int())
+	totalTokens := int(gjson.GetBytes(summaryResp.Payload, "usage.total_tokens").Int())
+	if totalTokens == 0 && inputTokens == 0 {
+		usage := helps.ParseOpenAIUsage(summaryResp.Payload)
+		inputTokens = int(usage.InputTokens)
+		outputTokens = int(usage.OutputTokens)
+		totalTokens = int(usage.TotalTokens)
+	}
+
+	respBytes := helps.BuildAntigravityCompactionResponse(baseModel, capsule, inputTokens, outputTokens, totalTokens)
+	return cliproxyexecutor.Response{
+		Payload: respBytes,
+		Headers: summaryResp.Headers,
+	}, nil
+}
+
 // executeClaudeNonStream performs a claude non-streaming request to the Antigravity API.
 func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	if inCooldown, remaining := antigravityIsInShortCooldown(auth, baseModel, time.Now()); inCooldown && !antigravityShouldBypassShortCooldown(ctx, e.cfg) {
-		log.Debugf("antigravity executor: auth %s in short cooldown for model %s (%s remaining), returning 429 to switch auth", auth.ID, baseModel, remaining)
-		d := remaining
-		return resp, statusErr{code: http.StatusTooManyRequests, msg: fmt.Sprintf("auth in short cooldown, %s remaining", remaining), retryAfter: &d}
+	if !antigravityCoolingDisabled(auth, e.cfg) {
+		if inCooldown, remaining := antigravityIsInShortCooldown(auth, baseModel, time.Now()); inCooldown && !antigravityShouldBypassShortCooldown(ctx, e.cfg) {
+			log.Debugf("antigravity executor: auth %s in short cooldown for model %s (%s remaining), returning 429 to switch auth", auth.ID, baseModel, remaining)
+			d := remaining
+			return resp, statusErr{code: http.StatusTooManyRequests, msg: fmt.Sprintf("auth in short cooldown, %s remaining", remaining), retryAfter: &d}
+		}
 	}
 
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), baseModel, auth)
@@ -838,7 +1217,7 @@ attemptLoop:
 					helps.MarkCreditsUsed(ctx)
 				}
 			}
-			requestPayload = ensureAntigravityGeminiLeadingUserContent(baseModel, requestPayload)
+			requestPayload = ensureAntigravityGeminiBoundaryUserContent(baseModel, requestPayload)
 			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL)
 			if errReq != nil {
 				err = errReq
@@ -904,12 +1283,14 @@ attemptLoop:
 							continue attemptLoop
 						}
 					case antigravity429DecisionShortCooldownSwitchAuth:
-						if decision.retryAfter != nil && *decision.retryAfter > 0 {
+						closeAntigravityAuthIdleTransports(auth)
+						if decision.retryAfter != nil && *decision.retryAfter > 0 && !antigravityCoolingDisabled(auth, e.cfg) {
 							markAntigravityShortCooldown(auth, baseModel, time.Now(), *decision.retryAfter)
 							log.Debugf("antigravity executor: short quota cooldown (%s) for model %s, recorded cooldown", *decision.retryAfter, baseModel)
 						}
 					case antigravity429DecisionFullQuotaExhausted:
-						if useCredits && antigravityHasExplicitCreditsBalanceExhaustedReason(bodyBytes) {
+						closeAntigravityAuthIdleTransports(auth)
+						if useCredits && antigravityHasExplicitCreditsBalanceExhaustedReason(bodyBytes) && !antigravityCoolingDisabled(auth, e.cfg) {
 							markAntigravityCreditsPermanentlyDisabled(auth)
 						}
 						// No credits logic - just fall through to error return below
@@ -1235,15 +1616,35 @@ func (e *AntigravityExecutor) convertStreamToNonStream(stream []byte) []byte {
 // ExecuteStream performs a streaming request to the Antigravity API.
 func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
 	if opts.Alt == "responses/compact" {
-		return nil, statusErr{code: http.StatusNotImplemented, msg: "/responses/compact not supported"}
+		return nil, statusErr{code: http.StatusBadRequest, msg: "streaming not supported for /responses/compact"}
+	}
+	if helps.HasResponsesCompactionItem(req.Payload) {
+		expanded, errExpand := helps.ExpandAntigravityCompactionCapsules(req.Payload)
+		if errExpand != nil {
+			return nil, statusErr{code: http.StatusBadRequest, msg: errExpand.Error()}
+		}
+		req.Payload = expanded
+		if len(opts.OriginalRequest) > 0 {
+			expandedOrig, errOrig := helps.ExpandAntigravityCompactionCapsules(opts.OriginalRequest)
+			if errOrig == nil {
+				opts.OriginalRequest = expandedOrig
+			} else {
+				opts.OriginalRequest = expanded
+			}
+		}
+	}
+	if helps.HasResponsesCompactionTrigger(req.Payload) || helps.HasResponsesCompactionTrigger(opts.OriginalRequest) {
+		return e.executeCompactionStream(ctx, auth, req, opts)
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
 	ctx = context.WithValue(ctx, "alt", "")
-	if inCooldown, remaining := antigravityIsInShortCooldown(auth, baseModel, time.Now()); inCooldown && !antigravityShouldBypassShortCooldown(ctx, e.cfg) {
-		log.Debugf("antigravity executor: auth %s in short cooldown for model %s (%s remaining), returning 429 to switch auth", auth.ID, baseModel, remaining)
-		d := remaining
-		return nil, statusErr{code: http.StatusTooManyRequests, msg: fmt.Sprintf("auth in short cooldown, %s remaining", remaining), retryAfter: &d}
+	if !antigravityCoolingDisabled(auth, e.cfg) {
+		if inCooldown, remaining := antigravityIsInShortCooldown(auth, baseModel, time.Now()); inCooldown && !antigravityShouldBypassShortCooldown(ctx, e.cfg) {
+			log.Debugf("antigravity executor: auth %s in short cooldown for model %s (%s remaining), returning 429 to switch auth", auth.ID, baseModel, remaining)
+			d := remaining
+			return nil, statusErr{code: http.StatusTooManyRequests, msg: fmt.Sprintf("auth in short cooldown, %s remaining", remaining), retryAfter: &d}
+		}
 	}
 
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), baseModel, auth)
@@ -1307,7 +1708,7 @@ attemptLoop:
 					helps.MarkCreditsUsed(ctx)
 				}
 			}
-			requestPayload = ensureAntigravityGeminiLeadingUserContent(baseModel, requestPayload)
+			requestPayload = ensureAntigravityGeminiBoundaryUserContent(baseModel, requestPayload)
 			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL)
 			if errReq != nil {
 				err = errReq
@@ -1372,12 +1773,14 @@ attemptLoop:
 							continue attemptLoop
 						}
 					case antigravity429DecisionShortCooldownSwitchAuth:
-						if decision.retryAfter != nil && *decision.retryAfter > 0 {
+						closeAntigravityAuthIdleTransports(auth)
+						if decision.retryAfter != nil && *decision.retryAfter > 0 && !antigravityCoolingDisabled(auth, e.cfg) {
 							markAntigravityShortCooldown(auth, baseModel, time.Now(), *decision.retryAfter)
 							log.Debugf("antigravity executor: short quota cooldown (%s) for model %s recorded", *decision.retryAfter, baseModel)
 						}
 					case antigravity429DecisionFullQuotaExhausted:
-						if useCredits && antigravityHasExplicitCreditsBalanceExhaustedReason(bodyBytes) {
+						closeAntigravityAuthIdleTransports(auth)
+						if useCredits && antigravityHasExplicitCreditsBalanceExhaustedReason(bodyBytes) && !antigravityCoolingDisabled(auth, e.cfg) {
 							markAntigravityCreditsPermanentlyDisabled(auth)
 						}
 						// No credits logic - just fall through to error return below
@@ -1508,6 +1911,70 @@ attemptLoop:
 	return nil, err
 }
 
+// executeCompactionStream runs a non-stream summary generation upstream and
+// replays the sealed compaction capsule as a Responses SSE stream.
+func (e *AntigravityExecutor) executeCompactionStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+	payload := req.Payload
+	if len(payload) == 0 && len(opts.OriginalRequest) > 0 {
+		payload = opts.OriginalRequest
+	}
+	summaryPayload := helps.PrepareAntigravityCompactionSummaryPayload(payload, baseModel)
+
+	summaryReq := cliproxyexecutor.Request{
+		Model:    req.Model,
+		Payload:  summaryPayload,
+		Metadata: req.Metadata,
+	}
+	summaryOpts := opts
+	summaryOpts.Alt = ""
+	summaryOpts.Stream = false
+	summaryOpts.OriginalRequest = nil
+	summaryOpts.SourceFormat = sdktranslator.FormatOpenAIResponse
+
+	summaryResp, errSummary := e.Execute(ctx, auth, summaryReq, summaryOpts)
+	if errSummary != nil {
+		return nil, errSummary
+	}
+
+	summaryText, errExtract := helps.ExtractAntigravitySummaryText(summaryResp.Payload)
+	if errExtract != nil {
+		return nil, fmt.Errorf("extract summary: %w", errExtract)
+	}
+	capsule, errSeal := helps.SealAntigravityCompaction(summaryText, baseModel)
+	if errSeal != nil {
+		return nil, fmt.Errorf("seal compaction capsule: %w", errSeal)
+	}
+
+	inputTokens := int(gjson.GetBytes(summaryResp.Payload, "usage.input_tokens").Int())
+	outputTokens := int(gjson.GetBytes(summaryResp.Payload, "usage.output_tokens").Int())
+	totalTokens := int(gjson.GetBytes(summaryResp.Payload, "usage.total_tokens").Int())
+	if totalTokens == 0 && inputTokens == 0 {
+		usage := helps.ParseOpenAIUsage(summaryResp.Payload)
+		inputTokens = int(usage.InputTokens)
+		outputTokens = int(usage.OutputTokens)
+		totalTokens = int(usage.TotalTokens)
+	}
+
+	chunks := helps.BuildAntigravityCompactionStreamChunks(baseModel, capsule, inputTokens, outputTokens, totalTokens)
+	out := make(chan cliproxyexecutor.StreamChunk, len(chunks))
+	for _, chunk := range chunks {
+		out <- cliproxyexecutor.StreamChunk{Payload: chunk}
+	}
+	close(out)
+
+	headers := summaryResp.Headers.Clone()
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	headers.Set("Content-Type", "text/event-stream")
+
+	return &cliproxyexecutor.StreamResult{
+		Headers: headers,
+		Chunks:  out,
+	}, nil
+}
+
 // Refresh refreshes the authentication credentials using the refresh token.
 func (e *AntigravityExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	if refreshed, handled, err := helps.RefreshAuthViaHome(ctx, e.cfg, auth); handled {
@@ -1596,6 +2063,11 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 	payload = deleteJSONField(payload, "project")
 	payload = deleteJSONField(payload, "model")
 	payload = deleteJSONField(payload, "request.safetySettings")
+	// Strip stateful session fields before dispatching countTokens (upstream
+	// d0fb44ca95e8): the endpoint rejects toolConfig/labels/sessionId payloads.
+	payload = deleteJSONField(payload, "request.toolConfig")
+	payload = deleteJSONField(payload, "request.labels")
+	payload = deleteJSONField(payload, "request.sessionId")
 	payload = ensureAntigravityGeminiLeadingUserContent(baseModel, payload)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
@@ -1697,6 +2169,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 		}
 		sErr := statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
 		if httpResp.StatusCode == http.StatusTooManyRequests {
+			closeAntigravityAuthIdleTransports(auth)
 			if retryAfter, parseErr := parseRetryDelay(bodyBytes); parseErr == nil && retryAfter != nil {
 				sErr.retryAfter = retryAfter
 			}
@@ -1756,7 +2229,7 @@ func (e *AntigravityExecutor) ensureAccessToken(ctx context.Context, auth *clipr
 }
 
 func (e *AntigravityExecutor) maybeRefreshAntigravityCreditsHint(ctx context.Context, auth *cliproxyauth.Auth, accessToken string) {
-	if e == nil || auth == nil || !antigravityCreditsRetryEnabled(e.cfg) {
+	if e == nil || auth == nil || !antigravityCreditsRetryEnabled(e.cfg) || antigravityCoolingDisabled(auth, e.cfg) {
 		return
 	}
 	if ctx != nil && ctx.Err() != nil {
@@ -2506,7 +2979,16 @@ func antigravityShortCooldownKey(auth *cliproxyauth.Auth, modelName string) stri
 	return authID + "|" + modelName + "|sc"
 }
 
+// antigravityCoolingDisabled reports whether quota cooling is disabled for the
+// auth, honoring per-credential/provider overrides and the global disable-cooling flag.
+func antigravityCoolingDisabled(auth *cliproxyauth.Auth, cfg *config.Config) bool {
+	return cliproxyauth.QuotaCooldownDisabledForAuthWithConfig(auth, cfg)
+}
+
 func antigravityIsInShortCooldown(auth *cliproxyauth.Auth, modelName string, now time.Time) (bool, time.Duration) {
+	if antigravityCoolingDisabled(auth, nil) {
+		return false, 0
+	}
 	key := antigravityShortCooldownKey(auth, modelName)
 	if key == "" {
 		return false, 0
@@ -2529,6 +3011,9 @@ func antigravityIsInShortCooldown(auth *cliproxyauth.Auth, modelName string, now
 }
 
 func markAntigravityShortCooldown(auth *cliproxyauth.Auth, modelName string, now time.Time, duration time.Duration) {
+	if antigravityCoolingDisabled(auth, nil) {
+		return
+	}
 	key := antigravityShortCooldownKey(auth, modelName)
 	if key == "" {
 		return

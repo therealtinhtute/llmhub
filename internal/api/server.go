@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
 	"github.com/therealtinhtute/llmhub/internal/redisqueue"
 	"github.com/therealtinhtute/llmhub/internal/registry"
+	antigravityexecutor "github.com/therealtinhtute/llmhub/internal/runtime/executor"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	"github.com/therealtinhtute/llmhub/internal/runtimepolicy"
 	"github.com/therealtinhtute/llmhub/internal/util"
@@ -1588,6 +1590,12 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	}
 
 	applySignatureCacheConfig(oldCfg, cfg)
+
+	// Upstream commit d5397905f09e: purge cached Antigravity connection pools
+	// when pool settings change so hot-reloads take effect immediately.
+	if oldCfg != nil && !reflect.DeepEqual(oldCfg.AntigravityConnectionPool, cfg.AntigravityConnectionPool) {
+		antigravityexecutor.ResetAntigravityTransports()
+	}
 
 	if s.handlers != nil && s.handlers.AuthManager != nil {
 		s.handlers.AuthManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second, cfg.MaxRetryCredentials)

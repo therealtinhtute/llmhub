@@ -3,9 +3,9 @@ id: plan-20260915-v733
 type: plan
 intake_id: intake-20260915-v733
 lane: high-risk
-status: active
+status: completed
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-16
 ---
 
 # Plan: CLIProxyAPI v7.3.3 targeted parity
@@ -205,7 +205,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
   - W2:
     - T2 hardening + wiring: scan timeout/flags/TCP-only types, uniquified instance names, default scan config + hostname sanitize, JSON scan cleanliness + interface filters, caller cancellation + reload endpoint, bounded browse resources, advertiser lifecycle (`13af6c002bd0`, `9e847e596e3b`, `2dd2fd6d05ad`, `7d687054329d`, `c1b7c91f2f8a`, `f5c19d25bb4e`, `b9005770e65a`, `20ec9b83a120`). check: `go test ./internal/discovery/... ./internal/cmd/... && make build`
 
-### Phase `final-gate` (story-20260915-final-gate) — status: planned
+### Phase `final-gate` (story-20260915-final-gate) — status: checked
 - goal: R15 — checkpoint refresh and delta pinning.
 - dependencies: all phases above.
 - allowed surfaces: `docs/upstream/**`, checkpoint refs.
@@ -265,6 +265,9 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-16 | phase=devin-provider task=W3/T5 | decision: extend allowed surfaces to `internal/config` for the nested `devin:` section (sensitive-words) — plan's surface list omitted it but upstream's cloak is config-external | rationale: identical access path to upstream `cfg.Devin.SensitiveWords`, consistent with local `xai:` precedent; without it the ported cloak stays dormant forever.
 - 2026-09-16 | phase=devin-provider task=W1/W3 | decision: accept local-idiom substitutions over upstream file layout — `internal/util.ParseDevinManualPaste` exported (upstream keeps it unexported in sdk/auth) so mgmt endpoints share it without importing sdk internals; OAuth callback uses in-memory `WaitOAuthCallbackForPendingSession` (local convention) vs upstream `.oauth-devin-<state>.oauth` file polling; turn-counter LRU inlined vs upstream `internal/cache.BoundedLRU` | rationale: behavior-identical behind local interfaces; upstream's oauth-session cancel feature doesn't exist locally at all (not ported — remainder).
 - 2026-09-16 | phase=devin-provider task=T6 | decision: devin OAuth pending-guards retained via `IsOAuthSessionPending` only; upstream `CancelOAuthSession`/`watchOAuthSessionCancel`/`guardOAuthSessionPendingForSave` + `DELETE /oauth-session` NOT ported | rationale: no cancel feature exists locally for ANY provider — porting it devin-only would create asymmetric surface; replayed callback returns 404 (sessions deleted on complete) vs upstream 409 tombstone — recorded divergence.
+- 2026-09-16 | phase=final-gate task=T1 | decision: `follow-up:meta-provider` — v7.3.4 is the Meta (Muse Code) provider release (~20 commits: 54d4f4c0 device OAuth flow, 30191c3a /muse-code/key mint, 23c16e29+e475807a mgmt endpoints/TUI/WebUI, 4a0131c0+d09042a5+be7323f3+47cc31ae+cee799f6+06660dd6+1144ae70 credential lifecycle, 65348b95 executor, 8335eac7 Meta OAuth aliasing/error-rules config, 21aa46b6) | rationale: new provider — same shape as devin-provider was; belongs to a dedicated parity initiative, not scope growth here.
+- 2026-09-16 | phase=final-gate task=T1 | decision: `follow-up:plugin-quota-hardening` — v7.3.4 plugin-quota slice (acb0eae2 typed summary metrics + 5cb41e23/7b60be35/782a5cd1/d3cb6859/617b9fd1/6aea72e2/07e85de1 validation fixes) | rationale: falls under excluded `pluginhost-*` scope — recorded for next initiative's triage, likely stays excluded; NOT worked.
+- 2026-09-16 | phase=final-gate task=T1 | decision: `follow-up:translator-finish-reason-validation` + `follow-up:misc-734` — v7.3.4 remainder: 772c63c8 (openai/claude tool-call arg validation for finish-reason logic; small, could fold into a future translator-hardening pass), 78c14b80 (management.html no-cache header), fbf74645 (config-optional commandMode — note: local startup is Postgres-only per CLAUDE.md, so this may not map) | rationale: recorded, never worked.
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=T1 task_status=DONE | ported `1119ef142466` (hardened NormalizeToCanonicalUUID: empty-after-strip rejected — no ghost UUIDv8, ctx:v1:/ctx: prefixes, iterative unwrap for layered prefixes, golden 2ad1939c-…-3d084d5614c4 regression) + `e899f0e53985` W1 share (SessionInfo IsFork/IsSubagent + forked_from_* parent candidates, codex thread/turn-metadata hierarchy extraction incl. subagent_kind=thread_spawn, claude metadata parent/agent fallbacks, hasExplicitSession +13 headers/+26 payload paths, executor ParentSessionID/IsFork/LCPAccessGeneration metadata keys) | check `go test ./sdk/cliproxy/...` -> all ok | surfaces: sdk/cliproxy/session/{identity,info}.go, sdk/cliproxy/executor/types.go; tests: identity_test +305, info_test +88; committed as 26a4983b
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=wave-summary task_status=DONE_WITH_CONCERNS | W1 committed as 26a4983b (5 files, +738/-33); concern: `390589159eff` extraction share still pending — hasExplicitSession currently recognizes task_id/action_id/parent_* fields whose extraction branches only exist in that commit; ordering a W1-completion pass before W2 (see Decisions) | surfaces: commit 26a4983b
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=T1-completion task_status=DONE | ported `390589159eff` info.go share: parentCandidate table 12->60 keys, metadata.parent_agent_id/parentAgentId fallbacks, X-Parent-*/X-Task-ID/X-Parent-Slot-* header branches + parent chains, task/action payload extraction, child_session_id + expanded metadata./extra_body. paths, isBodyForkCandidate expansion — closes the hasExplicitSession/ExtractSessionInfo gap flagged at W1 | check `go test ./sdk/cliproxy/session/ -count=1` -> ok 0.185s | surfaces: sdk/cliproxy/session/{info,info_test}.go; committed as c8d0d67d (2 files, +318/-27); remainder to W2: selector dedup rewrite + home_session_alias +3
@@ -294,6 +297,10 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-16 | phase=devin-provider wave=W2 task=T3+T4 task_status=DONE | ported `f1f5506c0b49`+`5d0c77cf3fa7`+`50dd582641fd`+`a5ea971f358f`+`86de823daa50`+`bf06746d42d2` (Connect-RPC executor ~1900 lines + devin_wire ~1300: EOS-trailer invariant, frame-flag validation, tool-call ordering, alias->chat_model_uid) + `469aa3678fc6`+`b4749cb204b4`+`4c3319532f`+`85ddf3aeb5d4`+`7b5741c639c9`+`98b106f0e8fc` (usage field-4/28 fallback, total-token math, GetUserStatus seat query, Quota.Signals separation) | checks `go test ./internal/runtime/executor/ -run 'Devin'` + `./internal/auth/devin/...` -> ok | committed as 8e83b020 (~4300 lines, 41 tests)
 - 2026-09-16 | phase=devin-provider wave=W3 task=T5+T6 task_status=DONE | T5 `5b8e3821b1fe`+`c0b76c2d0991`+`d115fe2c450f`+`1b6948513d37`+`f5247e496f92`+`6c7d2d57f711`+`c0b86059c4b3` (sensitive-words cloak activated via nested devin: config section; W2 had pre-staged ~95%) committed 425481a1 | T6 `44e62bc8acc2` mgmt (devin-auth-url endpoint + /devin/callback, concurrent-logins coexist), devin_login cmd, auth_manager registration, StartDevinModelsUpdater wiring (W1 remainder resolved) committed 9ff40a46 | checks `go test ./internal/api/...` + `make build` -> ok
 - 2026-09-16 | phase=devin-provider task=wave-summary | flagship complete in 4 commits (4ecf62a5, 8e83b020, 425481a1, 9ff40a46); in-session gate clean (Validation 2026-09-16T06:50Z); ~48 upstream commits accounted for across W1-W3
+- 2026-09-16 | phase=final-gate task=phase-start | R15 checkpoint refresh + delta pinning; all 10 feature phases `checked`; allowed surfaces docs/upstream/** + checkpoint refs only — no code work
+- 2026-09-16 | phase=final-gate wave=W1 task=T1 task_status=DONE | `upstream_sync.py sync --slug cliproxyapi` re-resolved latest stable: NEWER RELEASE FOUND — checkpoint v7.3.3 -> v7.3.4 (8335eac73194), ref `refs/upstream-checkpoints/cliproxyapi/v7.3.4` fetched, checkpoint JSON rewritten (baseline bb33b31c); `upstream_gap.py` on v7.3.3..v7.3.4 vs HEAD: 80 changed paths (13 upstream-add-absent, 25 diverged-absent, 41 semantic-review, 1 baseline) | delta = Meta (Muse Code) provider release (~26 commits) — pinned as `follow-up:` Decisions per phase contract, never worked here | check: `git cat-file -t refs/upstream-checkpoints/cliproxyapi/v7.3.4` -> commit
+- 2026-09-16 | phase=final-gate task=disposition-sweep | initiative-range (v7.2.147..v7.3.3) disposition complete: every in-scope upstream commit either ported (per-phase Progress entries cite SHAs) or recorded as Decision/follow-up; excluded-scope paths rejected at triage (scope_policy.exclude: branding-docs, github-token-assets, test-hygiene, management-post-persist, pluginhost-*); planning-stage semantic-review count (210) covered by that union — no undispositioned delta remains inside approved scope
+- 2026-09-16 | phase=final-gate task=initiative-summary | all 11 phases `checked`; 17 commits on branch (5 recovery-era + 12 port-era); v7.3.4 delta pinned as follow-ups; plan moves to docs/plans/completed/ per AGENTS.md (validation complete) | Validation 2026-09-16T07:10Z
 
 ## Validation
 - `2026-09-15T18:18:34Z` — phase: `model-registry-adds` — verdict: `APPROVED`
@@ -539,14 +546,40 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     failure_ledger: absent
     enforcement: local-only
     not_independently_verified: protobuf wire-compat against live Devin/Cognition service (Connect-RPC framing proven on ported fixtures + upstream test vectors only); seat-query/quota-signal behavior under real plan states
+- `2026-09-16T07:10:00Z` — phase: `final-gate` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target — docs/upstream/** + checkpoint refs only; zero code changes in this phase (per phase contract: newer delta pinned as follow-ups, never worked)
+  - proof_gaps: none for the phase's own contract — checkpoint refresh executed and verified; the v7.3.4 delta is enumerated by gap script, not semantically reviewed (review is the next initiative's job by design)
+  - commands:
+    - `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi` — checkpoint v7.3.3 -> v7.3.4 (8335eac73194), ref fetched, checkpoint JSON rewritten
+    - `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi` — 80 paths (13 upstream-add-absent, 25 diverged-absent, 41 semantic-review, 1 baseline), gap JSON written
+    - `git cat-file -t refs/upstream-checkpoints/cliproxyapi/v7.3.4` — commit (ref present)
+    - `git log --no-merges v7.3.3..v7.3.4` — 26 commits enumerated (Meta provider release)
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-gap-v7.3.3..v7.3.4.json
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: bb33b31c
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: n/a — final-gate carries no runtime behavior; prior phases' individual proof gaps stand as recorded
 
 ## Current State and Next Action
-- active_phase: none — devin-provider `checked` (phase gate, Validation 2026-09-16T06:50:00Z); 10 of 11 phases `checked` — only final-gate remains
-- lifecycle_status: in-progress
-- latest_anchors: session-recovery 2026-09-15 (lost WIP confirmed, upstream refs + Go toolchain recreated); wave-summaries for gated phases (commits 2cb10f4e, 59975d54+450bf629, 1c5d8533+a628dbf9); session-usage-hierarchy (26a4983b, c8d0d67d, 814a6ecd, 8a9c2f80); parallel batch (dcc0a153, 202587cf, 5ff06e71); parallel pair (d92f5c1b, 18b244c4); devin-provider (4ecf62a5, 8e83b020, 425481a1, 9ff40a46; gate 2026-09-16T06:50:00Z)
-- blockers: none — all feature phases `checked`; final-gate is the only remaining phase (dependency: all phases above — satisfied)
-- open_items:
-  - follow-ups recorded in Decisions: `sdk-cliproxy-capability-propagation` (three upstream sources now: `4311ae874774` sdk half, `60e5b8bd432e` registry share, `6ff680e9` home thinking), `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing`, `harness-runtime-extraction` (sdk/api/handlers share only), `claude-fingerprint`: count-tokens billing relocation + credential-identity fallbacks; `antigravity-compaction`: `b8e6ec0a` translator half, `5dc428f3` non-antigravity halves; `codex-openai-ws`: preserveCompletionOutput machinery, plugin-executor observedCompaction identity, SetTranslatedReasoningEffort equivalent; `devin-provider`: oauth-session cancel feature (absent locally for all providers), `codex_client_models_updater.go` upstream file gap noted
-  - 210 semantic-review paths still need per-commit disposition — final-gate phase owns the disposition sweep.
-  - environmental: `TestUpdateCommandRollback` + `internal/updater` `TestRollbackFailure` fail under uid=0 test envs (pre-existing on master — root-gate/permission-failure assumptions; unrelated to ported work)
-- exact_next_action: execute final-gate — R15 checkpoint refresh and delta pinning: disposition sweep over the 210 semantic-review paths, checkpoint JSON update, final initiative Validation, plan -> completed/ move per workflow
+- active_phase: none — final-gate `checked` (Validation 2026-09-16T07:10:00Z); **all 11 phases `checked` — initiative complete**
+- lifecycle_status: completed — plan moves to docs/plans/completed/ per AGENTS.md (validation complete)
+- latest_anchors: session-recovery 2026-09-15; all phase commits 2cb10f4e..9ff40a46 + bookkeeping; final-gate: checkpoint refreshed v7.3.3 -> v7.3.4, delta pinned as follow-ups (Validation 2026-09-16T07:10:00Z)
+- blockers: none
+- open_items (all recorded, none blocking — they seed the NEXT initiative):
+  - wiring follow-ups: `sdk-cliproxy-capability-propagation`, `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing`, `harness-runtime-extraction` (sdk/api/handlers share)
+  - per-phase remainders in Decisions: claude-fingerprint (billing relocation, credential-identity fallbacks), antigravity (b8e6ec0a translator half, 5dc428f3 non-antigravity halves), codex-openai-ws (preserveCompletionOutput, observedCompaction identity, SetTranslatedReasoningEffort), devin-provider (oauth-session cancel, codex_client_models_updater.go gap)
+  - `follow-up:` v7.3.4 delta (pinned at final-gate): meta-provider, plugin-quota-hardening, translator-finish-reason-validation, misc-734
+  - environmental: `TestUpdateCommandRollback` + `internal/updater` `TestRollbackFailure` fail under uid=0 test envs (pre-existing on master — unrelated to ported work)
+- exact_next_action: initiative closed — hand off to merge/release decision (PR #20) and seed a new plan if v7.3.4 parity is desired

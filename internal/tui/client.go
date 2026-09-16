@@ -375,6 +375,26 @@ func (c *Client) GetAuthStatus(state string) (string, string, error) {
 	return status, errMsg, nil
 }
 
+// CancelAuthSession cancels a pending OAuth session on the management server.
+// Ported from upstream CLIProxyAPI internal/tui/client.go (6e819ab62257).
+func (c *Client) CancelAuthSession(state string) error {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		return nil
+	}
+	query := url.Values{}
+	query.Set("state", state)
+	path := "/v0/management/oauth-session?" + query.Encode()
+	_, code, err := c.doRequest("DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+	if code >= 400 {
+		return fmt.Errorf("HTTP %d", code)
+	}
+	return nil
+}
+
 // ----- Config field update methods -----
 
 // PutBoolField updates a boolean config field.

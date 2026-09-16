@@ -73,9 +73,15 @@ func (h *Handler) PostOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	sessionProvider, sessionStatus, ok := GetOAuthSession(state)
+	sessionProvider, sessionStatus, completed, ok := GetOAuthSessionDetails(state)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "unknown or expired state"})
+		return
+	}
+	// Completed sessions keep a short-lived tombstone: a replayed callback is a
+	// conflict, not unknown state (upstream v7.3.4 handleOAuthCallback).
+	if completed {
+		c.JSON(http.StatusConflict, gin.H{"status": "error", "error": "oauth flow is already completed"})
 		return
 	}
 	if sessionStatus != "" {

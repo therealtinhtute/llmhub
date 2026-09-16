@@ -66,6 +66,15 @@ func (h *Handler) RequestDevinToken(c *gin.Context) {
 }
 
 func (h *Handler) completeDevinOAuth(ctx context.Context, state, codeVerifier string, authSvc devinOAuthService) {
+	// The watcher cancels ctx once the session stops being pending (cancelled
+	// via DELETE /oauth-session, completed, or errored), so an in-flight token
+	// exchange or record fetch aborts instead of persisting a cancelled flow.
+	// Ported from upstream CLIProxyAPI auth_files_devin_oauth.go (44e62bc8acc2,
+	// cancel watch introduced by 6e819ab62257).
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	go watchOAuthSessionCancel(ctx, cancel, state, "devin")
+
 	payload, errWait := WaitOAuthCallbackForPendingSession("devin", state, 5*time.Minute)
 	if errWait != nil {
 		if errors.Is(errWait, errOAuthSessionNotPending) {
@@ -111,7 +120,7 @@ func (h *Handler) completeDevinOAuth(ctx context.Context, state, codeVerifier st
 		}
 		return
 	}
-	if !IsOAuthSessionPending(state, "devin") {
+	if errGuard := guardOAuthSessionPendingForSave(state, "devin"); errGuard != nil {
 		return
 	}
 	savedPath, errSave := h.saveTokenRecord(ctx, record)

@@ -45,6 +45,10 @@ type oauthTabModel struct {
 	providerName  string // current provider name
 	callbackInput textinput.Model
 	inputActive   bool // true when user is typing callback URL
+
+	// pollGeneration invalidates in-flight start/poll commands after cancel or
+	// restart (upstream CLIProxyAPI 6e819ab62257 cancelable-session share).
+	pollGeneration int
 }
 
 type oauthState int
@@ -62,13 +66,16 @@ type oauthStartMsg struct {
 	url          string
 	state        string
 	providerName string
+	generation   int
 	err          error
 }
 
 type oauthPollMsg struct {
-	done    bool
-	message string
-	err     error
+	state      string
+	generation int
+	done       bool
+	message    string
+	err        error
 }
 
 type oauthCallbackSubmitMsg struct {
@@ -96,6 +103,14 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 		m.viewport.SetContent(m.renderContent())
 		return m, nil
 	case oauthStartMsg:
+		if !shouldAcceptOAuthStart(msg, m.pollGeneration) {
+			// Stale start after Esc/restart: cancel the server session so
+			// credentials are not saved for an abandoned flow.
+			if msg.err == nil && strings.TrimSpace(msg.state) != "" {
+				return m, m.cancelOAuthSession(msg.state)
+			}
+			return m, nil
+		}
 		if msg.err != nil {
 			m.state = oauthError
 			m.err = msg.err
@@ -113,9 +128,12 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 		m.message = ""
 		m.viewport.SetContent(m.renderContent())
 		// Also start polling in the background
-		return m, tea.Batch(textinput.Blink, m.pollOAuthStatus(msg.state))
+		return m, tea.Batch(textinput.Blink, m.pollOAuthStatus(msg.state, msg.generation))
 
 	case oauthPollMsg:
+		if !shouldAcceptOAuthPoll(msg, m.authState, m.pollGeneration, m.state) {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.state = oauthError
 			m.err = msg.err
@@ -157,10 +175,8 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 				m.viewport.SetContent(m.renderContent())
 				return m, m.submitCallback(callbackURL)
 			case "esc":
-				m.inputActive = false
-				m.callbackInput.Blur()
-				m.viewport.SetContent(m.renderContent())
-				return m, nil
+				// Cancel the remote OAuth session even while the callback input is focused.
+				return m, m.cancelRemoteOAuth()
 			default:
 				var cmd tea.Cmd
 				m.callbackInput, cmd = m.callbackInput.Update(msg)
@@ -179,12 +195,7 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 				m.viewport.SetContent(m.renderContent())
 				return m, textinput.Blink
 			case "esc":
-				m.state = oauthIdle
-				m.message = ""
-				m.authURL = ""
-				m.authState = ""
-				m.viewport.SetContent(m.renderContent())
-				return m, nil
+				return m, m.cancelRemoteOAuth()
 			}
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -194,6 +205,7 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 		// ---- Pending (auto polling) ----
 		if m.state == oauthPending {
 			if msg.String() == "esc" {
+				m.pollGeneration++
 				m.state = oauthIdle
 				m.message = ""
 				m.viewport.SetContent(m.renderContent())
@@ -218,10 +230,11 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 		case "enter":
 			if m.cursor >= 0 && m.cursor < len(oauthProviders) {
 				provider := oauthProviders[m.cursor]
+				m.pollGeneration++
 				m.state = oauthPending
 				m.message = warningStyle.Render(fmt.Sprintf(T("oauth_initiating"), provider.name))
 				m.viewport.SetContent(m.renderContent())
-				return m, m.startOAuth(provider)
+				return m, m.startOAuth(provider, m.pollGeneration)
 			}
 			return m, nil
 		case "esc":
@@ -242,24 +255,52 @@ func (m oauthTabModel) Update(msg tea.Msg) (oauthTabModel, tea.Cmd) {
 	return m, cmd
 }
 
-func (m oauthTabModel) startOAuth(provider oauthProvider) tea.Cmd {
+func (m oauthTabModel) startOAuth(provider oauthProvider, generation int) tea.Cmd {
 	return func() tea.Msg {
 		// Call the auth URL endpoint with is_webui=true
 		data, err := m.client.getJSON("/v0/management/" + provider.apiPath + "?is_webui=true")
 		if err != nil {
-			return oauthStartMsg{err: fmt.Errorf("failed to start %s login: %w", provider.name, err)}
+			return oauthStartMsg{generation: generation, err: fmt.Errorf("failed to start %s login: %w", provider.name, err)}
 		}
 
 		authURL := getString(data, "url")
 		state := getString(data, "state")
 		if authURL == "" {
-			return oauthStartMsg{err: fmt.Errorf("no auth URL returned for %s", provider.name)}
+			return oauthStartMsg{generation: generation, err: fmt.Errorf("no auth URL returned for %s", provider.name)}
 		}
 
 		// Try to open browser (best effort)
 		_ = openBrowser(authURL)
 
-		return oauthStartMsg{url: authURL, state: state, providerName: provider.name}
+		return oauthStartMsg{url: authURL, state: state, providerName: provider.name, generation: generation}
+	}
+}
+
+// cancelRemoteOAuth clears local remote-mode UI state and cancels the server
+// session so an abandoned flow cannot persist credentials (upstream
+// 6e819ab62257).
+func (m *oauthTabModel) cancelRemoteOAuth() tea.Cmd {
+	state := m.authState
+	m.pollGeneration++
+	m.state = oauthIdle
+	m.message = ""
+	m.authURL = ""
+	m.authState = ""
+	m.inputActive = false
+	m.callbackInput.Blur()
+	m.callbackInput.SetValue("")
+	m.viewport.SetContent(m.renderContent())
+	return m.cancelOAuthSession(state)
+}
+
+func (m oauthTabModel) cancelOAuthSession(state string) tea.Cmd {
+	state = strings.TrimSpace(state)
+	if state == "" || m.client == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		_ = m.client.CancelAuthSession(state)
+		return nil
 	}
 }
 
@@ -301,13 +342,13 @@ func (m oauthTabModel) submitCallback(callbackURL string) tea.Cmd {
 	}
 }
 
-func (m oauthTabModel) pollOAuthStatus(state string) tea.Cmd {
+func (m oauthTabModel) pollOAuthStatus(state string, generation int) tea.Cmd {
 	return func() tea.Msg {
 		// Poll session status for up to 5 minutes
 		deadline := time.Now().Add(5 * time.Minute)
 		for {
 			if time.Now().After(deadline) {
-				return oauthPollMsg{done: false, err: fmt.Errorf("%s", T("oauth_timeout"))}
+				return oauthPollMsg{state: state, generation: generation, done: false, err: fmt.Errorf("%s", T("oauth_timeout"))}
 			}
 
 			time.Sleep(2 * time.Second)
@@ -320,24 +361,48 @@ func (m oauthTabModel) pollOAuthStatus(state string) tea.Cmd {
 			switch status {
 			case "ok":
 				return oauthPollMsg{
-					done:    true,
-					message: T("oauth_success"),
+					state:      state,
+					generation: generation,
+					done:       true,
+					message:    T("oauth_success"),
 				}
 			case "error":
 				return oauthPollMsg{
-					done: false,
-					err:  fmt.Errorf("%s: %s", T("oauth_failed"), errMsg),
+					state:      state,
+					generation: generation,
+					done:       false,
+					err:        fmt.Errorf("%s: %s", T("oauth_failed"), errMsg),
 				}
 			case "wait":
 				continue
 			default:
 				return oauthPollMsg{
-					done:    true,
-					message: T("oauth_completed"),
+					state:      state,
+					generation: generation,
+					done:       true,
+					message:    T("oauth_completed"),
 				}
 			}
 		}
 	}
+}
+
+// shouldAcceptOAuthStart reports whether a start result belongs to the current
+// flow (upstream 6e819ab62257 generation tracking).
+func shouldAcceptOAuthStart(msg oauthStartMsg, generation int) bool {
+	return msg.generation == generation
+}
+
+// shouldAcceptOAuthPoll reports whether a poll result belongs to the active
+// remote flow; results from a cancelled or superseded generation are dropped.
+func shouldAcceptOAuthPoll(msg oauthPollMsg, authState string, generation int, state oauthState) bool {
+	if msg.generation != generation {
+		return false
+	}
+	if msg.state == "" || msg.state != authState {
+		return false
+	}
+	return state == oauthRemote
 }
 
 func (m *oauthTabModel) SetSize(w, h int) {

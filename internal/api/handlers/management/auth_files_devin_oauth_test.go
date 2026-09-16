@@ -27,8 +27,7 @@ import (
 // Handler.completeDevinOAuth, newDevinOAuthService. Upstream's callback-file
 // polling is replaced by the in-memory oauth session store
 // (SubmitOAuthCallbackForPendingSession / WaitOAuthCallbackForPendingSession /
-// oauthSessions.SetCallback), and upstream's CancelOAuthSession is replaced by
-// CompleteOAuthSession because the local store has no cancel verb.
+// oauthSessions.SetCallback).
 
 type fakeDevinOAuthService struct {
 	exchange func(context.Context, string, string) (string, error)
@@ -173,11 +172,11 @@ func TestDevinRemoteOAuthFlow(t *testing.T) {
 		t.Fatalf("unexpected credential: %v", record)
 	}
 
-	// Local sessions are deleted on completion, so a replayed callback reports
-	// unknown state (upstream returned 409 from its completed-session tombstone).
+	// Completed sessions keep a short-lived tombstone, so a replayed callback
+	// reports 409 (upstream v7.3.4 handleOAuthCallback).
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/oauth-callback", strings.NewReader(string(body))))
-	if w.Code != http.StatusNotFound {
+	if w.Code != http.StatusConflict {
 		t.Fatalf("replay: %d", w.Code)
 	}
 }
@@ -222,7 +221,7 @@ func TestCompleteDevinOAuthFailures(t *testing.T) {
 			}
 			if test.cancelDuringCreate {
 				service.create = func(context.Context, string) (*coreauth.Auth, error) {
-					CompleteOAuthSession(state)
+					CancelOAuthSession(state)
 					return &coreauth.Auth{}, nil
 				}
 			}
@@ -265,5 +264,43 @@ func TestCompleteDevinOAuthUnregisteredState(t *testing.T) {
 	}
 	if _, _, ok := GetOAuthSession("no-such-state"); ok {
 		t.Fatal("unregistered state created a session")
+	}
+}
+
+// TestCancelOAuthSessionPreventsDevinSave verifies the cancel verb (ported from
+// upstream 44e62bc8acc2-adjacent) aborts the flow at the save guard so no
+// credentials are persisted for a cancelled session.
+func TestCancelOAuthSessionPreventsDevinSave(t *testing.T) {
+	const state = "cancel-save-state"
+	authDir := t.TempDir()
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, nil)
+	RegisterOAuthSession(state, "devin")
+	defer CompleteOAuthSession(state)
+	if errSubmit := oauthSessions.SetCallback(state, "devin", oauthCallbackFilePayload{Code: "code", State: state}); errSubmit != nil {
+		t.Fatal(errSubmit)
+	}
+	cancelled := false
+	service := &fakeDevinOAuthService{
+		create: func(context.Context, string) (*coreauth.Auth, error) {
+			if !cancelled {
+				cancelled = true
+				CancelOAuthSession(state)
+			}
+			return &coreauth.Auth{ID: "devin-cancel.json", FileName: "devin-cancel.json", Provider: "devin"}, nil
+		},
+	}
+	h.completeDevinOAuth(context.Background(), state, "verifier", service)
+	if !cancelled {
+		t.Fatal("create hook never ran; flow exited before reaching the save guard")
+	}
+	if IsOAuthSessionPending(state, "devin") {
+		t.Fatal("session still pending after cancel")
+	}
+	entries, errRead := os.ReadDir(authDir)
+	if errRead != nil {
+		t.Fatal(errRead)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("credentials saved for cancelled flow: %v", entries)
 	}
 }

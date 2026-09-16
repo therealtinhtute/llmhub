@@ -260,9 +260,15 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		return
 	}
 	auths := h.authManager.List()
+	observedAt := time.Now().UTC()
+	cooldownsKnown := !h.authManager.HomeEnabled()
 	files := make([]gin.H, 0, len(auths))
 	for _, auth := range auths {
 		if entry := h.buildAuthFileEntry(auth); entry != nil {
+			entry["cooldowns"] = nil
+			if cooldownsKnown {
+				entry["cooldowns"] = coreauth.CooldownSnapshotForAuth(auth, observedAt)
+			}
 			files = append(files, entry)
 		}
 	}
@@ -271,7 +277,7 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		nameJ, _ := files[j]["name"].(string)
 		return strings.ToLower(nameI) < strings.ToLower(nameJ)
 	})
-	c.JSON(200, gin.H{"files": files})
+	c.JSON(200, gin.H{"observed_at": observedAt, "files": files})
 }
 
 // GetAuthFileModels returns the models supported by a specific auth file
@@ -489,6 +495,7 @@ func statusCodeFromManagementError(err error) int {
 
 // List auth files from disk when the auth manager is unavailable.
 func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
+	observedAt := time.Now().UTC()
 	entries, err := os.ReadDir(h.cfg.AuthDir)
 	if err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth dir: %v", err)})
@@ -504,7 +511,7 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 			continue
 		}
 		if info, errInfo := e.Info(); errInfo == nil {
-			fileData := gin.H{"name": name, "size": info.Size(), "modtime": info.ModTime()}
+			fileData := gin.H{"name": name, "size": info.Size(), "modtime": info.ModTime(), "cooldowns": nil}
 
 			// Read file to get type field
 			full := filepath.Join(h.cfg.AuthDir, name)
@@ -548,7 +555,7 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 			files = append(files, fileData)
 		}
 	}
-	c.JSON(200, gin.H{"files": files})
+	c.JSON(200, gin.H{"observed_at": observedAt, "files": files})
 }
 
 func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {

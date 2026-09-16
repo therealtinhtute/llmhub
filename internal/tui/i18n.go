@@ -104,13 +104,15 @@ var enStrings = map[string]string{
 
 	// ── Auth Files ──
 	"auth_title":      "🔑 Auth Files",
-	"auth_help1":      " [↑↓/jk] Navigate • [Enter] Expand • [e] Enable/Disable • [d] Delete • [r] Refresh",
+	"auth_help1":      " [↑↓/jk] Navigate • [Enter] Expand • [e] Enable/Disable • [d] Delete • [r] Refresh • [R] Refresh Token",
 	"auth_help2":      " [1] Edit prefix • [2] Edit proxy_url • [3] Edit priority",
 	"no_auth_files":   "  No auth files found",
 	"confirm_delete":  "⚠ Delete %s? [y/n]",
 	"deleted":         "Deleted %s",
 	"enabled":         "Enabled",
 	"disabled":        "Disabled",
+	"refreshed_auth":  "Refreshed credential %s",
+	"refreshed_all":   "Refreshed all credentials",
 	"updated_field":   "Updated %s on %s",
 	"status_active":   "active",
 	"status_disabled": "disabled",

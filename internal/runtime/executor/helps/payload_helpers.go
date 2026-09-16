@@ -26,10 +26,28 @@ func ApplyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 
 // ApplyPayloadConfigWithRequest applies payload config using source protocol and request header gates.
 func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProtocol, root string, payload, original []byte, requestedModel string, requestPath string, headers http.Header) []byte {
+	out, _ := ApplyPayloadConfigWithTrackedPaths(cfg, model, protocol, fromProtocol, root, payload, original, requestedModel, requestPath, headers)
+	return out
+}
+
+// ApplyPayloadConfigWithTrackedPaths applies payload config and reports which
+// tracked paths (or their descendants/ancestors) were targeted by an applied
+// rule. Ported from upstream CLIProxyAPI (parity: de4aa600280e).
+func ApplyPayloadConfigWithTrackedPaths(cfg *config.Config, model, protocol, fromProtocol, root string, payload, original []byte, requestedModel string, requestPath string, headers http.Header, trackedPaths ...string) ([]byte, map[string]bool) {
+	touched := make(map[string]bool)
 	if cfg == nil || len(payload) == 0 {
-		return payload
+		return payload, touched
 	}
 	out := payload
+
+	markTouched := func(resolvedPath string) {
+		for _, tp := range trackedPaths {
+			tp = strings.TrimSpace(tp)
+			if tp != "" && payloadRuleTargetsPath(resolvedPath, tp) {
+				touched[tp] = true
+			}
+		}
+	}
 
 	// Apply disable-image-generation filtering before payload rules so config payload
 	// overrides can explicitly re-enable image_generation when desired.
@@ -76,6 +94,7 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 						}
 						out = updated
 						appliedDefaults[resolvedPath] = struct{}{}
+						markTouched(resolvedPath)
 					}
 				}
 			}
@@ -107,6 +126,7 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 						}
 						out = updated
 						appliedDefaults[resolvedPath] = struct{}{}
+						markTouched(resolvedPath)
 					}
 				}
 			}
@@ -127,6 +147,7 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 							continue
 						}
 						out = updated
+						markTouched(resolvedPath)
 					}
 				}
 			}
@@ -151,6 +172,7 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 							continue
 						}
 						out = updated
+						markTouched(resolvedPath)
 					}
 				}
 			}
@@ -173,12 +195,13 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 							continue
 						}
 						out = updated
+						markTouched(resolvedPath)
 					}
 				}
 			}
 		}
 	}
-	return out
+	return out, touched
 }
 
 func isImagesEndpointRequestPath(path string) bool {
@@ -482,6 +505,17 @@ func buildPayloadPath(root, path string) string {
 		p = p[1:]
 	}
 	return r + "." + p
+}
+
+// payloadRuleTargetsPath reports whether an applied rule path targets the
+// tracked path, one of its descendants, or one of its ancestors (upstream
+// de4aa600280e: ancestor matching lets a rule that rewrites a parent object,
+// e.g. "thinking", count as touching "thinking.display").
+func payloadRuleTargetsPath(path, trackedPath string) bool {
+	if trackedPath == "" || path == "" {
+		return false
+	}
+	return path == trackedPath || strings.HasPrefix(path, trackedPath+".") || strings.HasPrefix(trackedPath, path+".")
 }
 
 func resolvePayloadRulePaths(payload []byte, path string) []string {

@@ -91,6 +91,9 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 		resultModel := m.stateModelForExecution(preparedAuth, routeModel, upstreamModel, pooled)
 		execReq := req
 		execReq.Model = upstreamModel
+		// Attach Home's authoritative model capabilities so thinking handling
+		// uses the dispatched definition (upstream 6ff680e90ab5).
+		execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo)
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
 		if selection.CanonicalSessionID != "" {
@@ -229,6 +232,9 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 		}
 		execReq := req
 		execReq.Model = models[0]
+		// Attach Home's authoritative model capabilities so thinking handling
+		// uses the dispatched definition (upstream 6ff680e90ab5).
+		execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo)
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
 		if selection.CanonicalSessionID != "" {
@@ -591,6 +597,9 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 		endScope()
 		return nil, &Error{Code: "home_unavailable", Message: "home execution registry unavailable", Retryable: true, HTTPStatus: http.StatusServiceUnavailable}
 	}
+	// Bind the authoritative capability metadata Home resolved for the dispatched
+	// model (upstream 6ff680e90ab5); executors consume it via ResolvedModelInfo.
+	selection.modelInfo = dispatch.ModelInfo.registryModelInfo()
 	if envelope.Present {
 		selection.accountedModel = envelope.Tuple.Model
 	}

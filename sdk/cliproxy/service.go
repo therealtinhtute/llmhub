@@ -1706,6 +1706,23 @@ func applyExcludedModels(models []*ModelInfo, excluded []string) []*ModelInfo {
 	return filtered
 }
 
+// cloneModelInfoForCatalogRoute copies model into a catalog-route entry while
+// deep-copying NativeCapabilities so prefixed/aliased catalog entries cannot
+// mutate the source model's capability metadata. Ported from upstream
+// CLIProxyAPI sdk/cliproxy/service_models.go (4311ae874774).
+func cloneModelInfoForCatalogRoute(model *ModelInfo) ModelInfo {
+	clone := *model
+	if model.NativeCapabilities != nil {
+		capabilities := *model.NativeCapabilities
+		if model.NativeCapabilities.WebSearch != nil {
+			webSearch := *model.NativeCapabilities.WebSearch
+			capabilities.WebSearch = &webSearch
+		}
+		clone.NativeCapabilities = &capabilities
+	}
+	return clone
+}
+
 func applyModelPrefixes(models []*ModelInfo, prefix string, forceModelPrefix bool) []*ModelInfo {
 	trimmedPrefix := strings.TrimSpace(prefix)
 	if trimmedPrefix == "" || len(models) == 0 {
@@ -1741,7 +1758,7 @@ func applyModelPrefixes(models []*ModelInfo, prefix string, forceModelPrefix boo
 		if !forceModelPrefix || trimmedPrefix == baseID {
 			addModel(model)
 		}
-		clone := *model
+		clone := cloneModelInfoForCatalogRoute(model)
 		clone.ID = trimmedPrefix + "/" + baseID
 		addModel(&clone)
 	}
@@ -1862,7 +1879,7 @@ func buildOpenAICompatibilityConfigModels(compat *config.OpenAICompatibility) []
 	return models
 }
 
-func buildConfigModels[T modelEntry](models []T, ownedBy, modelType string) []*ModelInfo {
+func buildConfigModels[T modelEntry](models []T, ownedBy, modelType, metadataChannel string) []*ModelInfo {
 	if len(models) == 0 {
 		return nil
 	}
@@ -1885,6 +1902,9 @@ func buildConfigModels[T modelEntry](models []T, ownedBy, modelType string) []*M
 			if upstream := registry.LookupStaticModelInfo(name); upstream != nil && upstream.Thinking != nil {
 				info.Thinking = upstream.Thinking
 			}
+			if staticInfo := registry.LookupStaticModelInfoByChannel(name, metadataChannel); staticInfo != nil && staticInfo.NativeCapabilities != nil {
+				info.NativeCapabilities = cloneModelInfoForCatalogRoute(staticInfo).NativeCapabilities
+			}
 		}
 		out = append(out, info)
 	}
@@ -1895,28 +1915,28 @@ func buildVertexCompatConfigModels(entry *config.VertexCompatKey) []*ModelInfo {
 	if entry == nil {
 		return nil
 	}
-	return buildConfigModels(entry.Models, "google", "vertex")
+	return buildConfigModels(entry.Models, "google", "vertex", "vertex")
 }
 
 func buildGeminiConfigModels(entry *config.GeminiKey) []*ModelInfo {
 	if entry == nil {
 		return nil
 	}
-	return buildConfigModels(entry.Models, "google", "gemini")
+	return buildConfigModels(entry.Models, "google", "gemini", "gemini")
 }
 
 func buildClaudeConfigModels(entry *config.ClaudeKey) []*ModelInfo {
 	if entry == nil {
 		return nil
 	}
-	return buildConfigModels(entry.Models, "anthropic", "claude")
+	return buildConfigModels(entry.Models, "anthropic", "claude", "claude")
 }
 
 func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {
 	if entry == nil {
 		return nil
 	}
-	models := registry.WithCodexBuiltins(buildConfigModels(entry.Models, "openai", "openai"))
+	models := registry.WithCodexBuiltins(buildConfigModels(entry.Models, "openai", "openai", "codex"))
 	configuredDisplayNames := make(map[string]string, len(entry.Models))
 	seenConfiguredModels := make(map[string]struct{}, len(entry.Models))
 	for i := range entry.Models {
@@ -2063,7 +2083,7 @@ func applyOAuthModelAlias(cfg *config.Config, provider, authKind string, models 
 				continue
 			}
 			seen[aliasKey] = struct{}{}
-			clone := *model
+			clone := cloneModelInfoForCatalogRoute(model)
 			clone.ID = mappedID
 			if entry.displayName != "" {
 				clone.DisplayName = entry.displayName

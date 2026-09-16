@@ -1834,10 +1834,23 @@ func (m *Manager) RegisterExecutor(executor ProviderExecutor) {
 	}
 
 	var replaced ProviderExecutor
+	var toReschedule []string
 	m.mu.Lock()
 	replaced = m.executors[provider]
 	m.executors[provider] = executor
+	// Auths whose effective executor key matches the newly registered provider
+	// get a pending refresh reschedule so they can run through the new executor
+	// (upstream 60e5b8bd432e).
+	for id, auth := range m.auths {
+		if auth != nil && strings.EqualFold(executorKeyFromAuth(auth), provider) {
+			toReschedule = append(toReschedule, id)
+		}
+	}
 	m.mu.Unlock()
+
+	for _, id := range toReschedule {
+		m.queueRefreshReschedule(id)
+	}
 
 	if replaced == nil || replaced == executor {
 		return
@@ -5648,13 +5661,47 @@ func shouldReturnLastErrorOnPickFailure(homeMode bool, lastErr error, errPick er
 }
 
 type homeAuthDispatchResponse struct {
-	Model         string `json:"model"`
-	Provider      string `json:"provider"`
-	AuthIndex     string `json:"auth_index"`
-	UserAPIKey    string `json:"user_api_key"`
-	ForceMapping  bool   `json:"force_mapping"`
-	OriginalAlias string `json:"original_alias"`
-	Auth          Auth   `json:"auth"`
+	Model         string                 `json:"model"`
+	Provider      string                 `json:"provider"`
+	AuthIndex     string                 `json:"auth_index"`
+	UserAPIKey    string                 `json:"user_api_key"`
+	ForceMapping  bool                   `json:"force_mapping"`
+	OriginalAlias string                 `json:"original_alias"`
+	ModelInfo     *homeDispatchModelInfo `json:"model_info,omitempty"`
+	Auth          Auth                   `json:"auth"`
+}
+
+// homeDispatchModelInfo carries the capability metadata Home resolved for the
+// dispatched model so thinking/reasoning handling can use the authoritative
+// definition instead of the local registry fallback.
+//
+// Ported from upstream CLIProxyAPI commit 6ff680e90ab5
+// (sdk/cliproxy/auth/conductor_home.go).
+type homeDispatchModelInfo struct {
+	ID                  string                    `json:"id"`
+	Type                string                    `json:"type,omitempty"`
+	InputTokenLimit     int                       `json:"inputTokenLimit,omitempty"`
+	OutputTokenLimit    int                       `json:"outputTokenLimit,omitempty"`
+	ContextLength       int                       `json:"context_length,omitempty"`
+	MaxCompletionTokens int                       `json:"max_completion_tokens,omitempty"`
+	Thinking            *registry.ThinkingSupport `json:"thinking,omitempty"`
+	UserDefined         bool                      `json:"user_defined"`
+}
+
+func (m *homeDispatchModelInfo) registryModelInfo() *registry.ModelInfo {
+	if m == nil || strings.TrimSpace(m.ID) == "" {
+		return nil
+	}
+	return &registry.ModelInfo{
+		ID:                  strings.TrimSpace(m.ID),
+		Type:                strings.TrimSpace(m.Type),
+		InputTokenLimit:     m.InputTokenLimit,
+		OutputTokenLimit:    m.OutputTokenLimit,
+		ContextLength:       m.ContextLength,
+		MaxCompletionTokens: m.MaxCompletionTokens,
+		Thinking:            m.Thinking,
+		UserDefined:         m.UserDefined,
+	}
 }
 
 type homeAuthDispatcher interface {

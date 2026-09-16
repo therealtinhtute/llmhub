@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 )
 
 func TestConfiguredModelsUseDisplayNameWithoutChangingID(t *testing.T) {
@@ -126,4 +127,120 @@ func findModelInfoByID(models []*ModelInfo, id string) *ModelInfo {
 		}
 	}
 	return nil
+}
+
+// TestConfiguredModelsInheritNativeCapabilities verifies that config-declared
+// models pick up per-model NativeCapabilities from the static catalog via the
+// metadata channel (ported from upstream 4311ae874774).
+func TestConfiguredModelsInheritNativeCapabilities(t *testing.T) {
+	tests := []struct {
+		name    string
+		channel string
+		models  []*ModelInfo
+	}{
+		{
+			name:    "claude",
+			channel: "claude",
+			models: buildClaudeConfigModels(&config.ClaudeKey{Models: []config.ClaudeModel{{
+				Name: "claude-opus-5", Alias: "claude-opus-5",
+			}}}),
+		},
+		{
+			name:    "codex",
+			channel: "codex",
+			models: buildCodexConfigModels(&config.CodexKey{Models: []config.CodexModel{{
+				Name: "gpt-5.6-terra", Alias: "gpt-5.6-terra",
+			}}}),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := findModelInfoByID(tt.models, tt.models[0].ID)
+			if model == nil {
+				t.Fatalf("configured model not found")
+			}
+			static := registry.LookupStaticModelInfoByChannel(model.ID, tt.channel)
+			if static == nil || static.NativeCapabilities == nil {
+				t.Fatalf("static catalog has no NativeCapabilities for %s", model.ID)
+			}
+			if model.NativeCapabilities == nil {
+				t.Fatalf("configured model %s did not inherit NativeCapabilities", model.ID)
+			}
+			if static.NativeCapabilities.WebSearch != nil {
+				if model.NativeCapabilities.WebSearch == nil {
+					t.Fatalf("configured model %s lost WebSearch capability", model.ID)
+				}
+				if *model.NativeCapabilities.WebSearch != *static.NativeCapabilities.WebSearch {
+					t.Fatalf("configured model %s WebSearch = %v, want %v", model.ID, *model.NativeCapabilities.WebSearch, *static.NativeCapabilities.WebSearch)
+				}
+			}
+		})
+	}
+}
+
+// TestConfiguredModelsDoNotInheritCrossChannelCapabilities verifies the channel
+// lookup is provenance-preserving: a claude-aliased model must not pick up a
+// codex-only capability and vice versa.
+func TestConfiguredModelsDoNotInheritCrossChannelCapabilities(t *testing.T) {
+	// claude-opus-5 has native web_search in the claude channel only.
+	models := buildCodexConfigModels(&config.CodexKey{Models: []config.CodexModel{{
+		Name: "claude-opus-5", Alias: "claude-opus-5",
+	}}})
+	model := findModelInfoByID(models, "claude-opus-5")
+	if model == nil {
+		t.Fatal("configured codex model not found")
+	}
+	if model.NativeCapabilities != nil {
+		t.Fatalf("codex-declared claude-opus-5 inherited cross-channel capabilities: %+v", model.NativeCapabilities)
+	}
+}
+
+// TestApplyModelPrefixesDeepCopiesNativeCapabilities verifies prefixed catalog
+// entries do not alias the source model's NativeCapabilities (ported from
+// upstream 4311ae874774).
+func TestApplyModelPrefixesDeepCopiesNativeCapabilities(t *testing.T) {
+	webSearch := true
+	models := []*ModelInfo{{
+		ID: "claude-opus-5", NativeCapabilities: &registry.NativeCapabilities{WebSearch: &webSearch},
+	}}
+	prefixed := applyModelPrefixes(models, "team", false)
+	clone := findModelInfoByID(prefixed, "team/claude-opus-5")
+	if clone == nil {
+		t.Fatal("missing team/claude-opus-5")
+	}
+	if clone.NativeCapabilities == nil || clone.NativeCapabilities.WebSearch == nil || !*clone.NativeCapabilities.WebSearch {
+		t.Fatalf("prefixed model did not inherit native capabilities: %+v", clone)
+	}
+	*clone.NativeCapabilities.WebSearch = false
+	original := findModelInfoByID(prefixed, "claude-opus-5")
+	if original == nil || original.NativeCapabilities == nil || original.NativeCapabilities.WebSearch == nil || !*original.NativeCapabilities.WebSearch {
+		t.Fatal("prefixed capability metadata aliases the source model")
+	}
+}
+
+// TestApplyOAuthModelAliasDeepCopiesNativeCapabilities verifies aliased catalog
+// entries do not alias the source model's NativeCapabilities.
+func TestApplyOAuthModelAliasDeepCopiesNativeCapabilities(t *testing.T) {
+	cfg := &config.Config{
+		OAuthModelAlias: map[string][]config.OAuthModelAlias{
+			"codex": {{Name: "gpt-5.6-terra", Alias: "gpt-alias", Fork: true}},
+		},
+	}
+	webSearch := true
+	models := []*ModelInfo{{
+		ID: "gpt-5.6-terra", OwnedBy: "openai", NativeCapabilities: &registry.NativeCapabilities{WebSearch: &webSearch},
+	}}
+	out := applyOAuthModelAlias(cfg, "codex", "oauth", models)
+	alias := findModelInfoByID(out, "gpt-alias")
+	if alias == nil {
+		t.Fatal("missing aliased model")
+	}
+	if alias.NativeCapabilities == nil || alias.NativeCapabilities.WebSearch == nil || !*alias.NativeCapabilities.WebSearch {
+		t.Fatalf("aliased model did not inherit native capabilities: %+v", alias)
+	}
+	*alias.NativeCapabilities.WebSearch = false
+	original := findModelInfoByID(out, "gpt-5.6-terra")
+	if original == nil || original.NativeCapabilities == nil || original.NativeCapabilities.WebSearch == nil || !*original.NativeCapabilities.WebSearch {
+		t.Fatal("aliased capability metadata aliases the source model")
+	}
 }

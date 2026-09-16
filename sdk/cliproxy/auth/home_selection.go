@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/executionregistry"
 )
 
@@ -142,6 +143,11 @@ type HomeDispatchSelection struct {
 	Provider           string
 	CanonicalSessionID string
 	ParentSessionID    string
+
+	// modelInfo carries the authoritative capability metadata Home resolved for
+	// the dispatched model (upstream 6ff680e90ab5); it is bound to executor
+	// requests via attachResolvedHomeModelInfo.
+	modelInfo *registry.ModelInfo
 
 	scope            *executionregistry.Scope
 	accountedModel   string

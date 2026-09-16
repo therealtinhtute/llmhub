@@ -19,6 +19,10 @@ type ModelRegistry interface {
 	ClearModelQuotaExceeded(clientID, modelID string)
 	ClientSupportsModel(clientID, modelID string) bool
 	ApplyClientModelProjections(clientID string, epoch uint64, generation uint64, projections []ClientModelProjection) bool
+	// ApplyClientModelCapabilities applies capability mutations to a client's
+	// registered model infos when the registration epoch still matches.
+	// Ported from upstream CLIProxyAPI commit 60e5b8bd432e.
+	ApplyClientModelCapabilities(clientID string, expectedEpoch uint64, mutate func(modelID string, info *ModelInfo)) bool
 	GetModelsForClient(clientID string) []*ModelInfo
 	GetModelsAndEpochForClient(clientID string) ([]*ModelInfo, uint64)
 	ClientRegistrationEpoch(clientID string) uint64

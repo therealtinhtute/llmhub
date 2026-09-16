@@ -57,6 +57,7 @@ func startServiceWithBuilder(builder *cliproxy.Builder, localPassword string) {
 		}))
 	}
 
+	builder.WithDiscoveryAdvertiser()
 	service, err := builder.Build()
 	if err != nil {
 		log.Errorf("failed to build proxy service: %v", err)
@@ -66,6 +67,9 @@ func startServiceWithBuilder(builder *cliproxy.Builder, localPassword string) {
 	err = service.Run(runCtx)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("proxy service exited with error: %v", err)
+	}
+	if errShutdown := service.ShutdownDiscovery(); errShutdown != nil {
+		log.Errorf("failed to stop discovery advertiser: %v", errShutdown)
 	}
 }
 
@@ -94,6 +98,7 @@ func startServiceBackgroundWithBuilder(builder *cliproxy.Builder) (cancel func()
 	ctx, cancelFn := context.WithCancel(context.Background())
 	doneCh := make(chan struct{})
 
+	builder.WithDiscoveryAdvertiser()
 	service, err := builder.Build()
 	if err != nil {
 		log.Errorf("failed to build proxy service: %v", err)
@@ -105,6 +110,9 @@ func startServiceBackgroundWithBuilder(builder *cliproxy.Builder) (cancel func()
 		defer close(doneCh)
 		if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Errorf("proxy service exited with error: %v", err)
+		}
+		if errShutdown := service.ShutdownDiscovery(); errShutdown != nil {
+			log.Errorf("failed to stop discovery advertiser: %v", errShutdown)
 		}
 	}()
 

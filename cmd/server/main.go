@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	configaccess "github.com/therealtinhtute/llmhub/internal/access/config_access"
+	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/cmd"
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -26,7 +27,6 @@ import (
 	_ "github.com/therealtinhtute/llmhub/internal/translator"
 	"github.com/therealtinhtute/llmhub/internal/tui"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	"github.com/therealtinhtute/llmhub/internal/api"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy"
 )
@@ -63,8 +63,18 @@ func main() {
 	if code, handled := dispatchEarlyCommand(os.Args[1:]); handled {
 		os.Exit(code)
 	}
+	// Legacy -discover/-discover-json modes keep stdout machine-readable:
+	// move logrus (which defaults to stdout) to stderr and skip the banner
+	// for JSON requests (upstream 7d687054329d parity).
+	isJSONDiscover := argvEnablesBoolFlag(os.Args[1:], "discover-json")
+	isDiscoverMode := isJSONDiscover || argvEnablesBoolFlag(os.Args[1:], "discover")
+	if isDiscoverMode {
+		log.SetOutput(os.Stderr)
+	}
 	autoLoadDotEnv()
-	fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
+	if !isJSONDiscover {
+		fmt.Printf("LLMHub Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
+	}
 
 	// Command-line flags to control the application's behavior.
 	var login bool
@@ -83,6 +93,13 @@ func main() {
 	var tuiMode bool
 	var standalone bool
 	var localModel bool
+	var discoverGateways bool
+	var discoverTimeout int
+	var discoverJSON bool
+	var discoverServiceType string
+	var discoverConfigPath string
+	var discoverInclude []string
+	var discoverExclude []string
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
@@ -101,6 +118,13 @@ func main() {
 	flag.BoolVar(&tuiMode, "tui", false, "Start with terminal management UI")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.BoolVar(&localModel, "local-model", false, "Use embedded model catalog only, skip remote model fetching")
+	flag.BoolVar(&discoverGateways, "discover", false, "Discover local AI gateways and LLMHub instances on the LAN")
+	flag.IntVar(&discoverTimeout, "discover-timeout", 3, "Timeout in seconds for LAN discovery (default 3s)")
+	flag.BoolVar(&discoverJSON, "discover-json", false, "Output discovered gateways in JSON format")
+	flag.StringVar(&discoverServiceType, "discover-service-type", "", "DNS-SD service type for LAN discovery (default _ai-gateway._tcp)")
+	flag.StringVar(&discoverConfigPath, "discover-config", DefaultConfigPath, "Config file path used to read discovery.interfaces scan filters")
+	flag.Func("discover-include", "Comma-separated interface names to scan during LAN discovery", appendCSV(&discoverInclude))
+	flag.Func("discover-exclude", "Comma-separated interface names to skip during LAN discovery", appendCSV(&discoverExclude))
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -131,6 +155,12 @@ func main() {
 
 	// Parse the command-line flags.
 	flag.Parse()
+
+	// LAN discovery runs before Postgres loading; the scan only needs
+	// interface filters, not runtime configuration (upstream parity).
+	if discoverGateways || discoverJSON {
+		os.Exit(runDiscoverFlags(discoverTimeout, discoverJSON, discoverServiceType, discoverConfigPath, discoverInclude, discoverExclude))
+	}
 
 	// Core application variables.
 	var err error

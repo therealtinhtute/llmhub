@@ -26,7 +26,8 @@ import (
 
 // Ported from upstream CLIProxyAPI internal/runtime/executor/devin_executor_test.go
 // (f94752762bb9, 5d0c77cf3fa7, 50dd582641fd, a5ea971f358f, 7b5741c639c9,
-// 98b106f0e8fc at v7.3.3).
+// 98b106f0e8fc, 1b6948513d37, d115fe2c450f, c0b76c2d0991, 6c7d2d57f711
+// at v7.3.3).
 
 func TestDevinExecutorIdentifierAndFormat(t *testing.T) {
 	exec := NewDevinExecutor(&config.Config{})
@@ -124,13 +125,24 @@ func TestDevinAuthCredentials(t *testing.T) {
 }
 
 func TestDevinExecutor_GetSensitiveWords(t *testing.T) {
-	// Upstream reads cfg.Devin.SensitiveWords; the local config surface has no
-	// provider-wide Devin section yet, so the knob is intentionally unwired
-	// (see getSensitiveWords). The matcher plumbing itself is exercised in
-	// helps/devin_wire_test.go via BuildDevinGetChatMessageRequest.
+	// Upstream d115fe2c450f + c0b76c2d0991: words come strictly from
+	// cfg.Devin.SensitiveWords (local DevinConfig.SensitiveWords) with no
+	// auth-metadata fallback and no hardcoded defaults.
 	eEmpty := &DevinExecutor{}
 	if words := eEmpty.getSensitiveWords(); len(words) != 0 {
 		t.Errorf("words = %v, want empty", words)
+	}
+
+	eWithWords := &DevinExecutor{
+		cfg: &config.Config{
+			Devin: config.DevinConfig{
+				SensitiveWords: []string{"sample-word-1", "sample-word-2"},
+			},
+		},
+	}
+	words := eWithWords.getSensitiveWords()
+	if len(words) != 2 || words[0] != "sample-word-1" || words[1] != "sample-word-2" {
+		t.Errorf("words = %v, want [sample-word-1 sample-word-2]", words)
 	}
 
 	eConfigured := &DevinExecutor{cfg: &config.Config{}}
@@ -139,6 +151,39 @@ func TestDevinExecutor_GetSensitiveWords(t *testing.T) {
 	}
 	if m := eConfigured.getSensitiveWordMatcher(); m != nil {
 		t.Errorf("matcher = %v, want nil when no sensitive words configured", m)
+	}
+}
+
+func TestDevinExecutor_GetSensitiveWordMatcherCaching(t *testing.T) {
+	// Upstream 6c7d2d57f711: the compiled regex matcher is cached per executor
+	// and only rebuilt when the configured word list changes.
+	e := &DevinExecutor{
+		cfg: &config.Config{
+			Devin: config.DevinConfig{
+				SensitiveWords: []string{"alpha-word", "beta-word"},
+			},
+		},
+	}
+
+	m1 := e.getSensitiveWordMatcher()
+	if m1 == nil {
+		t.Fatal("matcher = nil, want compiled matcher for configured words")
+	}
+	if !m1.Matches("contains alpha-word here") {
+		t.Error("matcher did not match configured word alpha-word")
+	}
+	m2 := e.getSensitiveWordMatcher()
+	if m2 != m1 {
+		t.Error("matcher was rebuilt for an unchanged word list, want cached instance")
+	}
+
+	e.cfg.Devin.SensitiveWords = []string{"gamma-word"}
+	m3 := e.getSensitiveWordMatcher()
+	if m3 == nil || m3 == m1 {
+		t.Error("matcher was not rebuilt after the word list changed")
+	}
+	if m3 != nil && !m3.Matches("contains gamma-word") {
+		t.Error("rebuilt matcher did not match gamma-word")
 	}
 }
 

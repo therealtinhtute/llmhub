@@ -17,7 +17,12 @@ type Session struct {
 	Resources      *SessionResources
 	OwnerPrincipal string
 	OwnerProvider  string
-	token          uint64
+	// SessionID and ParentSessionID preserve the canonical session hierarchy
+	// observed when the call was created so resumed joins and hangups can
+	// re-attribute usage to the same lineage (upstream 580df36423e4).
+	SessionID       string
+	ParentSessionID string
+	token           uint64
 }
 
 type SessionResources struct {

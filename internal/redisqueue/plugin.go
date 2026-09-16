@@ -8,6 +8,7 @@ import (
 	"time"
 
 	internallogging "github.com/therealtinhtute/llmhub/internal/logging"
+	coresession "github.com/therealtinhtute/llmhub/sdk/cliproxy/session"
 	coreusage "github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 )
 
@@ -52,6 +53,20 @@ func (p *usageQueuePlugin) HandleUsage(ctx context.Context, record coreusage.Rec
 	if reasoningEffort == "" {
 		reasoningEffort = coreusage.ReasoningEffortFromContext(ctx)
 	}
+	clientRequestMetadata := internallogging.GetClientRequestMetadata(ctx)
+	sessionID := strings.TrimSpace(record.SessionID)
+	parentSessionID := strings.TrimSpace(record.ParentSessionID)
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(clientRequestMetadata.SessionID)
+		parentSessionID = strings.TrimSpace(clientRequestMetadata.ParentSessionID)
+	} else if parentSessionID == "" && sessionID == strings.TrimSpace(clientRequestMetadata.SessionID) {
+		parentSessionID = strings.TrimSpace(clientRequestMetadata.ParentSessionID)
+	}
+	sessionID = coresession.NormalizeToCanonicalUUID(sessionID)
+	parentSessionID = coresession.NormalizeToCanonicalUUID(parentSessionID)
+	if sessionID == "" || sessionID == parentSessionID {
+		parentSessionID = ""
+	}
 
 	tokens := tokenStats{
 		InputTokens:         record.Detail.InputTokens,
@@ -95,6 +110,8 @@ func (p *usageQueuePlugin) HandleUsage(ctx context.Context, record coreusage.Rec
 		AuthType:        authType,
 		APIKey:          apiKey,
 		RequestID:       requestID,
+		SessionID:       sessionID,
+		ParentSessionID: parentSessionID,
 		ReasoningEffort: reasoningEffort,
 	})
 	if err != nil {
@@ -113,6 +130,8 @@ type queuedUsageDetail struct {
 	AuthType        string `json:"auth_type"`
 	APIKey          string `json:"api_key"`
 	RequestID       string `json:"request_id"`
+	SessionID       string `json:"session_id,omitempty"`
+	ParentSessionID string `json:"parent_session_id,omitempty"`
 	ReasoningEffort string `json:"reasoning_effort"`
 }
 

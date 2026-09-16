@@ -2,7 +2,9 @@ package session
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 )
@@ -376,11 +378,18 @@ func TestExtractSessionInfoClaudePayloadOutranksGenericHeader(t *testing.T) {
 func TestExtractSessionInfoPromptCacheKeyAndClientReqAndMetadata(t *testing.T) {
 	t.Parallel()
 
-	// 1. prompt_cache_key
+	// 1. prompt_cache_key with conversation alias (not a parent-child edge)
 	payloadPCK := []byte(`{"prompt_cache_key":"prompt-key-123","conversation":{"id":"conv-456"}}`)
 	info, ok := ExtractSessionInfo(nil, payloadPCK, nil)
-	if !ok || info.SessionID != "pck:prompt-key-123" || info.ParentSessionID != "conv:conv-456" {
-		t.Fatalf("pck extraction failed: %+v", info)
+	if !ok || info.SessionID != "pck:prompt-key-123" || info.ParentSessionID != "" {
+		t.Fatalf("pck extraction failed (should not treat conv alias as parent): %+v", info)
+	}
+
+	// 1b. prompt_cache_key with explicit parentCandidate
+	payloadPCKWithParent := []byte(`{"prompt_cache_key":"prompt-key-123","conversation":{"id":"conv-456"},"parent_session_id":"pck-parent-789"}`)
+	infoWithParent, okWithParent := ExtractSessionInfo(nil, payloadPCKWithParent, nil)
+	if !okWithParent || infoWithParent.SessionID != "pck:prompt-key-123" || infoWithParent.ParentSessionID != "pck:pck-parent-789" {
+		t.Fatalf("pck with parent candidate extraction failed: %+v", infoWithParent)
 	}
 
 	// 2. plain metadata.user_id
@@ -740,5 +749,71 @@ func TestExtractSessionInfoEnhancedHarnesses(t *testing.T) {
 	info, ok = ExtractSessionInfo(threadHeaders, nil, nil)
 	if !ok || info.SessionID != "thread:thread-child-001" || info.ParentSessionID != "thread:thread-parent-001" {
 		t.Fatalf("Thread X-Parent-Thread-Id extraction failed: %+v", info)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 580df36423e4: BoundSessionIdentity
+// bounds identifiers to 256 bytes without splitting multibyte runes and keeps
+// colliding tails distinct via the SHA-256 suffix.
+func TestBoundSessionIdentitySafetyAndUniqueness(t *testing.T) {
+	t.Parallel()
+
+	// Short ID remains unchanged
+	shortID := "session:normal-length-session"
+	if got := BoundSessionIdentity(shortID); got != shortID {
+		t.Fatalf("shortID = %q, want %q", got, shortID)
+	}
+
+	// Long ID with Chinese UTF-8 characters exceeding 256 bytes
+	longChinese := strings.Repeat("会话测试超长标识符", 20) // ~18 bytes * 20 = 360 bytes
+	bounded1 := BoundSessionIdentity(longChinese)
+	if len(bounded1) > 256 {
+		t.Fatalf("bounded length = %d, want <= 256", len(bounded1))
+	}
+	if !utf8.ValidString(bounded1) {
+		t.Fatalf("bounded string is not valid UTF-8: %q", bounded1)
+	}
+
+	// Uniqueness: two long strings differing only at the end must produce distinct bounded IDs
+	longA := strings.Repeat("a", 250) + "-worker-1"
+	longB := strings.Repeat("a", 250) + "-worker-2"
+	boundedA := BoundSessionIdentity(longA)
+	boundedB := BoundSessionIdentity(longB)
+	if boundedA == boundedB {
+		t.Fatalf("collision detected between boundedA and boundedB: %q", boundedA)
+	}
+	if len(boundedA) > 256 || len(boundedB) > 256 {
+		t.Fatalf("bounded lengths = (%d, %d), want <= 256", len(boundedA), len(boundedB))
+	}
+}
+
+// LCP affinity metadata produces an lcp-namespaced session with fork lineage
+// when a distinct parent is present (upstream 580df36423e4 step 8).
+func TestExtractSessionInfoLCPMetadataForkLineage(t *testing.T) {
+	t.Parallel()
+
+	meta := map[string]any{
+		cliproxyexecutor.LCPAffinitySessionIDMetadataKey: "lcp:v1:child-branch",
+		cliproxyexecutor.ParentSessionIDMetadataKey:      "lcp:v1:parent-trunk",
+	}
+	info, ok := ExtractSessionInfo(nil, nil, meta)
+	if !ok {
+		t.Fatalf("LCP metadata extraction failed")
+	}
+	if info.SessionID != "lcp:v1:child-branch" || info.ClientType != "lcp" {
+		t.Fatalf("LCP session extraction failed: %+v", info)
+	}
+	if info.ParentSessionID != "lcp:v1:parent-trunk" || !info.IsFork || info.AgentName != "subagent" {
+		t.Fatalf("LCP fork lineage failed: %+v", info)
+	}
+
+	// Self-referential parent collapses to a root session.
+	metaLoop := map[string]any{
+		cliproxyexecutor.LCPAffinitySessionIDMetadataKey: "lcp:v1:self-loop",
+		cliproxyexecutor.ParentSessionIDMetadataKey:      "lcp:v1:self-loop",
+	}
+	infoLoop, okLoop := ExtractSessionInfo(nil, nil, metaLoop)
+	if !okLoop || infoLoop.SessionID != "lcp:v1:self-loop" || infoLoop.ParentSessionID != "" || infoLoop.IsFork {
+		t.Fatalf("LCP self-loop elimination failed: %+v", infoLoop)
 	}
 }

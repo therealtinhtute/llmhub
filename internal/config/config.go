@@ -186,6 +186,9 @@ type Config struct {
 	// XAI holds xAI provider configuration settings.
 	XAI XAIConfig `yaml:"xai" json:"xai"`
 
+	// Devin holds Devin provider configuration settings.
+	Devin DevinConfig `yaml:"devin" json:"devin"`
+
 	// OpenAICompatibility defines OpenAI API compatibility configurations for external providers.
 	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
 
@@ -247,6 +250,17 @@ type CodexHeaderDefaults struct {
 type XAIConfig struct {
 	// InjectXSearch injects xAI's native x_search tool when the request does not declare it.
 	InjectXSearch bool `yaml:"inject-x-search" json:"inject-x-search"`
+}
+
+// DevinConfig configures provider-wide Devin request behavior.
+// Mirrors upstream CLIProxyAPI devin.sensitive-words (5b8e3821b1fe, d115fe2c450f).
+type DevinConfig struct {
+	// SensitiveWords is a list of words stripped from (or obfuscated with
+	// zero-width characters in) Devin system prompts before dispatch.
+	// Words are kept strictly external in config.yaml with no hardcoded
+	// defaults (upstream c0b76c2d0991); matching lines are dropped and any
+	// residual matches are zero-width obfuscated.
+	SensitiveWords []string `yaml:"sensitive-words,omitempty" json:"sensitive-words,omitempty"`
 }
 
 // TLSConfig holds HTTPS server settings.

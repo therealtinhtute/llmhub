@@ -27,7 +27,8 @@ import (
 
 // Ported from upstream CLIProxyAPI internal/runtime/executor/helps/devin_wire.go
 // (f94752762bb9, f1f5506c0b49, 5d0c77cf3fa7, a5ea971f358f, 469aa3678fc6,
-// b4749cb204b4, 4c331bb9532f at v7.3.3). The session turn counter uses a local
+// b4749cb204b4, 4c331bb9532f, c0b86059c4b3, f5247e496f92, 5b8e3821b1fe,
+// 6c7d2d57f711, c0b76c2d0991 at v7.3.3). The session turn counter uses a local
 // bounded LRU because internal/cache.BoundedLRU has no local equivalent.
 
 const (

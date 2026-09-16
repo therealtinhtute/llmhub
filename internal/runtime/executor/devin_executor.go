@@ -42,7 +42,12 @@ import (
 // 469aa3678fc6 protobuf timestamp; b4749cb204b4 field 8 headers + field 4/28
 // usage fallback; 4c331bb9532f field-28 unwrap + partial field-7 merge;
 // 85ddf3aeb5d4 total token math; 7b5741c639c9 GetUserStatus seat query;
-// 98b106f0e8fc Quota.Signals vs Metadata separation; bf06746d42d2 model aliases).
+// 98b106f0e8fc Quota.Signals vs Metadata separation; bf06746d42d2 model aliases;
+// 1b6948513d37 + d115fe2c450f + c0b76c2d0991 sensitive words net: config.yaml
+// only (cfg.Devin.SensitiveWords); 5b8e3821b1fe matching-line strip;
+// f5247e496f92 system-prompt-only cloak; 6c7d2d57f711 cached regex matcher;
+// c0b86059c4b3 subagent identity/emoji sanitize, later externalized by
+// c0b76c2d0991).
 //
 // Note on upstream token baseline and cloud-side system instructions:
 // Live probes across Devin models (swe-2, gemini-3-8-flash, grok-4-6, glm-5-2, deepseek-v4-flash)
@@ -1753,12 +1758,13 @@ func supplementSignaturesFromOriginal(original []byte, prompts []helps.DevinProm
 }
 
 // getSensitiveWords returns the configured sensitive-word list for Devin system-prompt
-// obfuscation. Upstream reads cfg.Devin.SensitiveWords; the local config has no
-// provider-wide Devin section (internal/config is outside this work item's surface,
-// and the existing local cloak.sensitive-words knob is scoped to ClaudeKey
-// credentials rather than being a provider/global list), so the knob is unwired
-// and this returns nil until the config surface lands.
+// obfuscation. Words are sourced strictly from config.yaml (cfg.Devin.SensitiveWords)
+// with no hardcoded defaults, matching the upstream config-external posture
+// (d115fe2c450f, c0b76c2d0991).
 func (e *DevinExecutor) getSensitiveWords() []string {
+	if e != nil && e.cfg != nil && len(e.cfg.Devin.SensitiveWords) > 0 {
+		return e.cfg.Devin.SensitiveWords
+	}
 	return nil
 }
 

@@ -11,7 +11,8 @@ import (
 )
 
 // Ported from upstream CLIProxyAPI internal/runtime/executor/helps/devin_wire_test.go
-// (f94752762bb9, f1f5506c0b49, b4749cb204b4, 4c331bb9532f at v7.3.3).
+// (f94752762bb9, f1f5506c0b49, b4749cb204b4, 4c331bb9532f, f5247e496f92,
+// c0b76c2d0991 at v7.3.3).
 
 func TestConnectEnvelopeFraming(t *testing.T) {
 	payload := []byte("hello devin connect-rpc")
@@ -173,6 +174,33 @@ func TestSanitizeDevinSystemPrompt_AndSensitiveWords(t *testing.T) {
 	}
 	if strings.Contains(sanitized, "API") && !strings.Contains(sanitized, zeroWidthSpace) {
 		t.Errorf("API was not obfuscated with zero-width space")
+	}
+}
+
+func TestSanitizeDevinSystemPrompt_SubagentIdentityViaConfig(t *testing.T) {
+	// Upstream c0b86059c4b3 added hardcoded Claude subagent identity/emoji
+	// stripping, then c0b76c2d0991 externalized it: at v7.3.3 only the
+	// "You are Claude Code" prefix is built in, while Claude Agent SDK and
+	// emoji-directive lines drop via operator-configured sensitive words
+	// (5b8e3821b1fe matching-line strip via SensitiveWordMatcher.Matches).
+	matcher := BuildSensitiveWordMatcher([]string{"Claude Agent SDK", "avoid using emojis"})
+	rawPrompt := "You are Claude Code, Anthropic's official CLI for Claude.\nYou are a Claude agent, built on Anthropic's Claude Agent SDK.\n- For clear communication with the user the assistant MUST avoid using emojis.\nKeep this harmless line."
+	sanitized := SanitizeDevinSystemPrompt(rawPrompt, matcher)
+
+	for _, blocked := range []string{"You are Claude Code", "You are a Claude agent", "Claude Agent SDK", "avoid using emojis"} {
+		if strings.Contains(sanitized, blocked) {
+			t.Errorf("sanitized prompt still contains %q: %s", blocked, sanitized)
+		}
+	}
+	if !strings.Contains(sanitized, "Keep this harmless line.") {
+		t.Errorf("sanitized prompt lost benign content: %s", sanitized)
+	}
+
+	// With no configured words the subagent identity line survives: stripping
+	// it is strictly config-external at v7.3.3 (c0b76c2d0991).
+	sanitizedNoMatcher := SanitizeDevinSystemPrompt("You are a Claude agent, built on Anthropic's Claude Agent SDK.\nKeep this.", nil)
+	if !strings.Contains(sanitizedNoMatcher, "Claude Agent SDK") {
+		t.Error("unconfigured Claude Agent SDK line should be kept (words strictly external)")
 	}
 }
 

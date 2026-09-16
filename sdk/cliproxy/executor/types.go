@@ -82,10 +82,22 @@ type Options struct {
 	OriginalRequest []byte
 	// SourceFormat identifies the inbound schema.
 	SourceFormat sdktranslator.Format
+	// ResponseFormat identifies the downstream response schema.
+	// When empty, SourceFormat is used as the response target.
+	ResponseFormat sdktranslator.Format
 	// Metadata carries extra execution hints shared across selection and executors.
 	Metadata map[string]any
 	// ExecutionLifecycle owns Home-dispatched execution resources. Executors must not add it to request metadata.
 	ExecutionLifecycle ExecutionLifecycle
+}
+
+// ResponseFormatOrSource returns the response target format for an execution.
+// Ported from upstream CLIProxyAPI sdk/cliproxy/executor/types.go.
+func ResponseFormatOrSource(opts Options) sdktranslator.Format {
+	if opts.ResponseFormat != "" {
+		return opts.ResponseFormat
+	}
+	return opts.SourceFormat
 }
 
 // EnsureMetadata initializes and returns Metadata, ensuring it is non-nil.

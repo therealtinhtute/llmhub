@@ -22,6 +22,14 @@ func RewriteCodexMultiAgentV2Input(ctx context.Context, headers http.Header, pay
 	return multiagentv2.RewriteCodexMultiAgentV2Input(ctx, headers, payload, cfg)
 }
 
+// RewriteCodexOrphanDelegationInput converts orphan Codex delegation outputs into
+// standard user messages when orphan delegation compatibility is enabled and the
+// request carries the X-Openai-Subagent: collab_spawn header.
+// Ported from upstream CLIProxyAPI (291cfb87efac).
+func RewriteCodexOrphanDelegationInput(ctx context.Context, headers http.Header, payload []byte, cfg *config.Config) []byte {
+	return multiagentv2.RewriteCodexOrphanDelegationInputForConfig(ctx, headers, payload, cfg)
+}
+
 // TranslateRequestWithCodexMultiAgentV2 normalizes official Codex multi-agent
 // input before translating it to a non-Codex target protocol.
 func TranslateRequestWithCodexMultiAgentV2(ctx context.Context, headers http.Header, cfg *config.Config, from, to sdktranslator.Format, model string, payload []byte, stream bool) []byte {

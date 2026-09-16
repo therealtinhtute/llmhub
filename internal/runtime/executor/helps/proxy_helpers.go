@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
-	log "github.com/sirupsen/logrus"
 )
 
 // NewProxyAwareHTTPClient creates an HTTP client with proper proxy configuration priority:

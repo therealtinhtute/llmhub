@@ -55,6 +55,12 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
+
+	// CodexOrphanDelegationCompatibility enables opt-in compatibility for orphan Codex
+	// delegation outputs. When enabled, requests carrying `X-Openai-Subagent: collab_spawn`
+	// have unpaired codex_app create_thread/send_message_to_thread function_call_output
+	// items rewritten into standard user messages (upstream 291cfb87efac).
+	CodexOrphanDelegationCompatibility bool `yaml:"codex-orphan-delegation-compatibility,omitempty" json:"codex-orphan-delegation-compatibility,omitempty"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.

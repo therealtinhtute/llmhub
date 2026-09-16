@@ -296,7 +296,13 @@ func repairResponsesToolCallsArray(outputCache, callCache *websocketToolOutputCa
 		if isResponsesToolCallOutputType(itemType) {
 			callID := strings.TrimSpace(gjson.GetBytes(item, "call_id").String())
 			if callID == "" {
-				// Upstream rejects tool outputs without a call_id; drop it.
+				// Codex sends standalone named results for heartbeat and
+				// delegation cards; keep named function_call_output items
+				// instead of dropping them (upstream repair parity).
+				name := gjson.GetBytes(item, "name")
+				if itemType == "function_call_output" && name.Type == gjson.String && strings.TrimSpace(name.String()) != "" {
+					filtered = append(filtered, item)
+				}
 				continue
 			}
 

@@ -9,10 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -127,6 +130,11 @@ type Config struct {
 
 	AntigravitySignatureBypassStrict *bool `yaml:"antigravity-signature-bypass-strict,omitempty" json:"antigravity-signature-bypass-strict,omitempty"`
 
+	// AntigravityConnectionPool configures upstream HTTP/1.1 connection pooling for Antigravity.
+	// Upstream CLIProxyAPI nests this under antigravity.connection-pool; this repository's flat
+	// antigravity-* schema keeps it as a top-level key.
+	AntigravityConnectionPool AntigravityConnectionPoolConfig `yaml:"antigravity-connection-pool,omitempty" json:"antigravity-connection-pool,omitempty"`
+
 	// GeminiKey defines Gemini API key configurations with optional routing overrides.
 	GeminiKey []GeminiKey `yaml:"gemini-api-key" json:"gemini-api-key"`
 
@@ -152,6 +160,21 @@ type Config struct {
 	// retry on another credential. Trade-off: response headers are delayed until the upstream
 	// starts generating, which can trip client or reverse-proxy read timeouts. Default false.
 	CodexStreamBootstrapBuffering bool `yaml:"codex-stream-bootstrap-buffering,omitempty" json:"codex-stream-bootstrap-buffering,omitempty"`
+
+	// CodexStreamBootstrapTimeout specifies an optional maximum duration to hold back
+	// uncommitted response headers during bootstrap buffering before releasing the stream
+	// to the client. Defaults to "0" (unlimited time, relying purely on the frame and byte
+	// bounds). When set (e.g. "20s"), the stream is released once the time ceiling is
+	// reached, avoiding reverse-proxy timeouts (e.g. Nginx 60s proxy_read_timeout).
+	// Accepts Go durations ("20s", "500ms") or bare seconds ("15"); "0", "none",
+	// "unlimited", "disabled", "off" and "never" disable the ceiling (upstream 6e307553f43f).
+	CodexStreamBootstrapTimeout string `yaml:"codex-stream-bootstrap-timeout,omitempty" json:"codex-stream-bootstrap-timeout,omitempty"`
+
+	// CodexModelLevelCooling scopes Codex usage_limit_reached quota cooldowns to the
+	// requested model rather than cooling down the entire credential across all
+	// sibling models. Default false keeps the credential-wide behavior
+	// (upstream b064b832e242).
+	CodexModelLevelCooling bool `yaml:"codex-model-level-cooling,omitempty" json:"codex-model-level-cooling,omitempty"`
 
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
@@ -285,6 +308,23 @@ type RemoteManagement struct {
 	// DisableAutoUpdatePanel disables automatic periodic background updates of the management panel asset from GitHub.
 	// When false (the default), the background updater remains enabled; when true, the panel is only downloaded on first access if missing.
 	DisableAutoUpdatePanel bool `yaml:"disable-auto-update-panel"`
+}
+
+// AntigravityConnectionPoolConfig controls upstream HTTP/1.1 connection pooling
+// behavior for Antigravity. Mirrors upstream CLIProxyAPI antigravity.connection-pool
+// (commits d5397905f09e, 68dd99d56f68).
+type AntigravityConnectionPoolConfig struct {
+	// Enabled controls whether upstream connection pooling is enabled.
+	// Defaults to false (short-lived connection mode). Set to true to enable connection pooling.
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// IdleConnTimeout specifies how long an idle connection stays in the pool before expiring.
+	// Defaults to "30s". Capped at 210s to prevent exceeding Google Frontend (GFE) 240s cutoff.
+	IdleConnTimeout string `yaml:"idle-conn-timeout,omitempty" json:"idle-conn-timeout,omitempty"`
+
+	// MaxIdleConnsPerHost specifies the maximum number of idle connections to retain per host per credential.
+	// Defaults to 2.
+	MaxIdleConnsPerHost *int `yaml:"max-idle-conns-per-host,omitempty" json:"max-idle-conns-per-host,omitempty"`
 }
 
 // QuotaExceeded defines the behavior when API quota limits are exceeded.
@@ -2099,6 +2139,37 @@ func mergeLegacyOpenAICompatAPIKeys(entry *OpenAICompatibility, keys []string) b
 		changed = true
 	}
 	return changed
+}
+
+// DefaultCodexStreamBootstrapTimeout is the default maximum duration to buffer bootstrap events.
+// By default, it is 0 (unlimited time, relying purely on the frame and byte bounds).
+// Ported from upstream CLIProxyAPI internal/config/config_types.go (6e307553f43f).
+const DefaultCodexStreamBootstrapTimeout = 0
+
+const maxCodexBootstrapTimeoutSeconds = int64(math.MaxInt64 / time.Second)
+
+// CodexStreamBootstrapTimeoutDuration returns the maximum duration to buffer bootstrap events.
+// Defaults to 0 (unlimited time, relying purely on the frame and byte bounds).
+// If explicitly set to a positive duration (e.g. "10s", "500ms", "15"), returns that duration.
+// If set to "0", "0s", "none", "unlimited", "disabled", "off", "never", or invalid strings, returns 0.
+func (cfg *Config) CodexStreamBootstrapTimeoutDuration() time.Duration {
+	if cfg == nil {
+		return DefaultCodexStreamBootstrapTimeout
+	}
+	raw := strings.TrimSpace(cfg.CodexStreamBootstrapTimeout)
+	if raw == "" || raw == "0" || strings.EqualFold(raw, "none") || strings.EqualFold(raw, "unlimited") || strings.EqualFold(raw, "disabled") || strings.EqualFold(raw, "off") || strings.EqualFold(raw, "never") {
+		return 0
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d >= 0 {
+		return d
+	}
+	if secs, err := strconv.Atoi(raw); err == nil && secs >= 0 && int64(secs) <= maxCodexBootstrapTimeoutSeconds {
+		d := time.Duration(secs) * time.Second
+		if d >= 0 {
+			return d
+		}
+	}
+	return DefaultCodexStreamBootstrapTimeout
 }
 
 func findOpenAICompatTarget(entries []OpenAICompatibility, legacyName, legacyBase string) *OpenAICompatibility {

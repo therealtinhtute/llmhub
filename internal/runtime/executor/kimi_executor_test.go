@@ -1,10 +1,24 @@
 package executor
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/therealtinhtute/llmhub/internal/config"
+	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/tidwall/gjson"
 )
+
+type kimiRoundTripperFunc func(req *http.Request) (*http.Response, error)
+
+func (f kimiRoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestNormalizeKimiToolMessageLinks_UsesCallIDFallback(t *testing.T) {
 	body := []byte(`{
@@ -268,5 +282,164 @@ func TestNormalizeKimiToolMessageLinks_PreservesAssistantWithToolLinkOrReasoning
 	}
 	if got := messages[3].Get("content.0.text").String(); got != " visible " {
 		t.Fatalf("messages.3.content.0.text = %q, want %q", got, " visible ")
+	}
+}
+
+func TestKimiExecutorResponsesPassthrough(t *testing.T) {
+	var upstreamURL string
+	var upstreamBody []byte
+	var authHeader string
+
+	ctx := context.WithValue(context.Background(), "cliproxy.roundtripper", kimiRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		upstreamURL = req.URL.String()
+		authHeader = req.Header.Get("Authorization")
+		var errRead error
+		upstreamBody, errRead = io.ReadAll(req.Body)
+		if errRead != nil {
+			return nil, errRead
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"resp_123","object":"response","status":"completed","model":"k3","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello world"}]}],"usage":{"total_tokens":10,"input_tokens":6,"output_tokens":4}}`,
+			)),
+		}, nil
+	}))
+
+	executor := NewKimiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{},
+		Metadata:   map[string]any{"access_token": "test-kimi-key"},
+	}
+
+	payload := []byte(`{
+		"model":"kimi-k3",
+		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]
+	}`)
+
+	resp, err := executor.Execute(ctx, auth, cliproxyexecutor.Request{
+		Model:   "kimi-k3",
+		Payload: payload,
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if upstreamURL != "https://api.kimi.com/coding/v1/responses" {
+		t.Fatalf("upstreamURL = %q, want %q", upstreamURL, "https://api.kimi.com/coding/v1/responses")
+	}
+	if authHeader != "Bearer test-kimi-key" {
+		t.Fatalf("Authorization = %q, want Bearer test-kimi-key", authHeader)
+	}
+	if gotModel := gjson.GetBytes(upstreamBody, "model").String(); gotModel != "k3" {
+		t.Fatalf("upstreamBody model = %q, want k3", gotModel)
+	}
+	if gotText := gjson.GetBytes(resp.Payload, "output.0.content.0.text").String(); gotText != "hello world" {
+		t.Fatalf("response output text = %q, want hello world", gotText)
+	}
+}
+
+func TestKimiExecutorResponsesStreamPassthrough(t *testing.T) {
+	var upstreamURL string
+	var upstreamBody []byte
+	var streamHeader string
+
+	ctx := context.WithValue(context.Background(), "cliproxy.roundtripper", kimiRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		upstreamURL = req.URL.String()
+		streamHeader = req.Header.Get("Accept")
+		var errRead error
+		upstreamBody, errRead = io.ReadAll(req.Body)
+		if errRead != nil {
+			return nil, errRead
+		}
+		sseData := "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream\",\"status\":\"in_progress\",\"service_tier\":\"default\",\"model\":\"k3\"}}\n\n" +
+			"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n" +
+			"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"hello stream\"}\n\n" +
+			"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"status\":\"completed\",\"usage\":{\"total_tokens\":12,\"input_tokens\":5,\"output_tokens\":7}}}\n\n"
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(sseData)),
+		}, nil
+	}))
+
+	executor := NewKimiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{},
+		Metadata:   map[string]any{"access_token": "test-kimi-key"},
+	}
+
+	payload := []byte(`{
+		"model":"kimi-k3",
+		"stream":true,
+		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]
+	}`)
+
+	result, err := executor.ExecuteStream(ctx, auth, cliproxyexecutor.Request{
+		Model:   "kimi-k3",
+		Payload: payload,
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:       true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+
+	if upstreamURL != "https://api.kimi.com/coding/v1/responses" {
+		t.Fatalf("upstreamURL = %q, want %q", upstreamURL, "https://api.kimi.com/coding/v1/responses")
+	}
+	if streamHeader != "text/event-stream" {
+		t.Fatalf("Accept header = %q, want text/event-stream", streamHeader)
+	}
+	if gotModel := gjson.GetBytes(upstreamBody, "model").String(); gotModel != "k3" {
+		t.Fatalf("upstreamBody model = %q, want k3", gotModel)
+	}
+
+	var chunks []string
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream chunk error = %v", chunk.Err)
+		}
+		chunks = append(chunks, string(chunk.Payload))
+	}
+	combined := strings.Join(chunks, "")
+	if !strings.Contains(combined, "event: response.created") {
+		t.Fatalf("stream chunks missing response.created: %s", combined)
+	}
+	if !strings.Contains(combined, "event: response.completed") {
+		t.Fatalf("stream chunks missing response.completed: %s", combined)
+	}
+	if !strings.Contains(combined, "hello stream") {
+		t.Fatalf("stream chunks missing expected text: %s", combined)
+	}
+}
+
+func TestKimiExecutorResponsesCompactReturnsNotImplemented(t *testing.T) {
+	executor := NewKimiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{},
+		Metadata:   map[string]any{"access_token": "test-kimi-key"},
+	}
+
+	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "kimi-k3",
+		Payload: []byte(`{"model":"kimi-k3","input":[]}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+		Alt:          "responses/compact",
+	})
+	if err == nil {
+		t.Fatal("expected error for responses/compact")
+	}
+	statusErr, ok := err.(interface{ StatusCode() int })
+	if !ok {
+		t.Fatalf("error type = %T, want status error", err)
+	}
+	if statusErr.StatusCode() != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d", statusErr.StatusCode(), http.StatusNotImplemented)
 	}
 }

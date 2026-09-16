@@ -375,6 +375,9 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 
 	var lastRequest []byte
 	lastResponseOutput := []byte("[]")
+	var observedCompaction responsesWebsocketObservedCompactionState
+	// Remains pending until a generating request commits successfully.
+	pendingPrewarmID := ""
 	pinnedAuthID := ""
 	sessionAuthByID := func(authID string) (*coreauth.Auth, bool) {
 		if h == nil || h.AuthManager == nil {
@@ -427,29 +430,62 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			allowIncrementalInputWithPreviousResponseID = false
 		}
 
-		allowCompactionReplayBypass := false
+		// A completed compaction response is direct evidence that the auth that
+		// produced it supports compaction replay (upstream observed-compaction
+		// state; plugin-executor/provider routes do not exist in this tree).
+		requestModelName := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
+		if requestModelName == "" {
+			requestModelName = strings.TrimSpace(gjson.GetBytes(lastRequest, "model").String())
+		}
+		observedCompactionReplayAuthID := ""
+		if observedCompaction.modelName != "" && observedCompaction.authID != "" &&
+			observedCompaction.modelName == requestModelName &&
+			(pinnedAuthID == "" || pinnedAuthID == observedCompaction.authID) {
+			if compactionAuth, ok := sessionAuthByID(observedCompaction.authID); ok && compactionAuth != nil && compactionAuth.Status == coreauth.StatusActive {
+				observedCompactionReplayAuthID = observedCompaction.authID
+			}
+		}
+		allowCompactionReplayBypass := observedCompactionReplayAuthID != ""
 		if pinnedAuthID != "" {
 			if pinnedAuth, ok := sessionAuthByID(pinnedAuthID); ok && pinnedAuth != nil {
-				allowCompactionReplayBypass = responsesWebsocketAuthSupportsCompactionReplay(pinnedAuth)
+				allowCompactionReplayBypass = allowCompactionReplayBypass || responsesWebsocketAuthSupportsCompactionReplay(pinnedAuth)
 			}
 		} else {
-			requestModelName := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
-			if requestModelName == "" {
-				requestModelName = strings.TrimSpace(gjson.GetBytes(lastRequest, "model").String())
-			}
-			allowCompactionReplayBypass = h.websocketUpstreamSupportsCompactionReplayForModel(requestModelName)
+			allowCompactionReplayBypass = allowCompactionReplayBypass || h.websocketUpstreamSupportsCompactionReplayForModel(requestModelName)
 		}
 
 		var requestJSON []byte
 		var updatedLastRequest []byte
 		var errMsg *interfaces.ErrorMessage
-		requestJSON, updatedLastRequest, errMsg = normalizeResponsesWebsocketRequestWithMode(
-			payload,
-			lastRequest,
-			lastResponseOutput,
-			allowIncrementalInputWithPreviousResponseID,
-			allowCompactionReplayBypass,
-		)
+		previousResponseID := strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String())
+		if pendingPrewarmID != "" && previousResponseID != "" {
+			if previousResponseID != pendingPrewarmID {
+				errMsg = responsesWebsocketPreviousResponseNotFoundError()
+			} else {
+				// The synthetic warm-up acknowledged input that never reached
+				// upstream; materialize it before merging the client's delta.
+				requestJSON, updatedLastRequest, errMsg = normalizeResponsesWebsocketPrewarmFollowup(payload, lastRequest)
+			}
+		} else if pendingPrewarmID != "" && gjson.GetBytes(payload, "type").String() == wsRequestTypeCreate {
+			input := gjson.GetBytes(payload, "input")
+			if input.Exists() && !input.IsArray() {
+				errMsg = &interfaces.ErrorMessage{
+					StatusCode: http.StatusBadRequest,
+					Error:      fmt.Errorf("websocket request requires array field: input"),
+				}
+			} else {
+				// No parent reference means a self-contained replacement, not a delta.
+				requestJSON, updatedLastRequest, errMsg = normalizeResponseCreateRequest(normalizeResponseTranscriptReplacement(payload, lastRequest))
+			}
+		} else {
+			requestJSON, updatedLastRequest, errMsg = normalizeResponsesWebsocketRequestWithMode(
+				payload,
+				lastRequest,
+				lastResponseOutput,
+				allowIncrementalInputWithPreviousResponseID,
+				allowCompactionReplayBypass,
+			)
+		}
 		if errMsg != nil {
 			h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
 			markAPIResponseTimestamp(c)
@@ -472,6 +508,8 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			}
 			continue
 		}
+		requestJSON = h.prepareCodexOrphanDelegation(c, requestJSON)
+
 		if shouldHandleResponsesWebsocketPrewarmLocally(payload, lastRequest, allowIncrementalInputWithPreviousResponseID) {
 			if updated, errDelete := sjson.DeleteBytes(requestJSON, "generate"); errDelete == nil {
 				requestJSON = updated
@@ -481,10 +519,13 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			}
 			lastRequest = updatedLastRequest
 			lastResponseOutput = []byte("[]")
-			if errWrite := writeResponsesWebsocketSyntheticPrewarm(c, conn, requestJSON, wsTimelineLog, passthroughSessionID); errWrite != nil {
+			observedCompaction.clear()
+			prewarmID, errWrite := writeResponsesWebsocketSyntheticPrewarm(c, conn, requestJSON, wsTimelineLog, passthroughSessionID)
+			if errWrite != nil {
 				wsTerminateErr = errWrite
 				return
 			}
+			pendingPrewarmID = prewarmID
 			continue
 		}
 
@@ -504,26 +545,31 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		}
 
 		modelName := gjson.GetBytes(requestJSON, "model").String()
+		lastAttemptedAuthID := pinnedAuthID
 		cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 		cliCtx = cliproxyexecutor.WithDownstreamWebsocket(cliCtx)
 		cliCtx = handlers.WithExecutionSessionID(cliCtx, passthroughSessionID)
-		if pinnedAuthID != "" {
-			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
-		} else {
-			cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
-				authID = strings.TrimSpace(authID)
-				if authID == "" || h == nil || h.AuthManager == nil {
-					return
-				}
-				selectedAuth, ok := sessionAuthByID(authID)
-				if !ok || selectedAuth == nil {
-					return
-				}
-				if websocketUpstreamSupportsIncrementalInput(selectedAuth.Attributes, selectedAuth.Metadata) {
-					pinnedAuthID = authID
-				}
-			})
+		executionAuthID := pinnedAuthID
+		if executionAuthID == "" {
+			executionAuthID = observedCompactionReplayAuthID
 		}
+		if executionAuthID != "" {
+			cliCtx = handlers.WithPinnedAuthID(cliCtx, executionAuthID)
+		}
+		cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
+			authID = strings.TrimSpace(authID)
+			if authID == "" || h == nil || h.AuthManager == nil {
+				return
+			}
+			lastAttemptedAuthID = authID
+			selectedAuth, ok := sessionAuthByID(authID)
+			if !ok || selectedAuth == nil {
+				return
+			}
+			if websocketUpstreamSupportsIncrementalInput(selectedAuth.Attributes, selectedAuth.Metadata) {
+				pinnedAuthID = authID
+			}
+		})
 		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
 
 		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID, toolCacheTransaction)
@@ -537,6 +583,9 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		if releasePinnedAuth {
 			pinnedAuthID = ""
 			forceTranscriptReplayNextRequest = true
+			if observedCompaction.authID != "" && observedCompaction.authID == lastAttemptedAuthID {
+				observedCompaction.clear()
+			}
 		} else if rollbackRequest {
 			forceTranscriptReplayNextRequest = previousForceTranscriptReplay
 		}
@@ -549,8 +598,30 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			continue
 		}
 		toolCacheTransaction.commit()
+		pendingPrewarmID = ""
 		lastResponseOutput = completedOutput
+		if inputContainsFullTranscript(gjson.ParseBytes(completedOutput)) {
+			// Compaction markers in the completed output prove this auth handled
+			// a compaction replay; remember it for the next turn.
+			observedCompaction = responsesWebsocketObservedCompactionState{
+				modelName: strings.TrimSpace(modelName),
+				authID:    lastAttemptedAuthID,
+			}
+		} else if observedCompaction.modelName != "" &&
+			(observedCompaction.modelName != strings.TrimSpace(modelName) ||
+				(observedCompaction.authID != "" && lastAttemptedAuthID != "" && observedCompaction.authID != lastAttemptedAuthID)) {
+			observedCompaction.clear()
+		}
 	}
+}
+
+type responsesWebsocketObservedCompactionState struct {
+	modelName string
+	authID    string
+}
+
+func (s *responsesWebsocketObservedCompactionState) clear() {
+	*s = responsesWebsocketObservedCompactionState{}
 }
 
 func websocketClientAddress(c *gin.Context) string {
@@ -610,6 +681,14 @@ func normalizeResponsesWebsocketRequestWithMode(rawJSON []byte, lastRequest []by
 }
 
 func normalizeResponseCreateRequest(rawJSON []byte) ([]byte, []byte, *interfaces.ErrorMessage) {
+	input := gjson.GetBytes(rawJSON, "input")
+	if input.Exists() && !input.IsArray() {
+		return nil, nil, &interfaces.ErrorMessage{
+			StatusCode: http.StatusBadRequest,
+			Error:      fmt.Errorf("websocket request requires array field: input"),
+		}
+	}
+
 	normalized, errDelete := sjson.DeleteBytes(rawJSON, "type")
 	if errDelete != nil {
 		normalized = bytes.Clone(rawJSON)
@@ -1053,10 +1132,10 @@ func writeResponsesWebsocketSyntheticPrewarm(
 	requestJSON []byte,
 	wsTimelineLog websocketTimelineAppender,
 	sessionID string,
-) error {
+) (string, error) {
 	payloads, errPayloads := syntheticResponsesWebsocketPrewarmPayloads(requestJSON)
 	if errPayloads != nil {
-		return errPayloads
+		return "", errPayloads
 	}
 	for i := 0; i < len(payloads); i++ {
 		markAPIResponseTimestamp(c)
@@ -1074,10 +1153,57 @@ func writeResponsesWebsocketSyntheticPrewarm(
 				websocketPayloadEventType(payloads[i]),
 				errWrite,
 			)
-			return errWrite
+			return "", errWrite
 		}
 	}
-	return nil
+	return gjson.GetBytes(payloads[0], "response.id").String(), nil
+}
+
+// normalizeResponsesWebsocketPrewarmFollowup materializes input that was
+// acknowledged by a synthetic warm-up but never reached upstream, then merges
+// the client's next delta against it (upstream
+// normalizeResponsesWebsocketPrewarmFollowup, adapted to the local merge
+// helpers).
+func normalizeResponsesWebsocketPrewarmFollowup(rawJSON, warmupRequest []byte) ([]byte, []byte, *interfaces.ErrorMessage) {
+	requestType := strings.TrimSpace(gjson.GetBytes(rawJSON, "type").String())
+	if requestType != wsRequestTypeCreate && requestType != wsRequestTypeAppend {
+		return nil, warmupRequest, &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("unsupported websocket request type: %s", requestType)}
+	}
+	input := gjson.GetBytes(rawJSON, "input")
+	if !input.IsArray() {
+		return nil, warmupRequest, &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("websocket request requires array field: input")}
+	}
+	warmupInput, warmupExists, warmupInvalid := responsesWebsocketInputField(warmupRequest)
+	if warmupInvalid {
+		return nil, warmupRequest, &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("invalid previous request input: duplicate input field is not an array")}
+	}
+	warmupInputRaw := "[]"
+	if warmupExists && warmupInput.Type != gjson.Null {
+		warmupInputRaw = warmupInput.Raw
+	}
+	merged, errMerge := mergeJSONArrayRaw(warmupInputRaw, input.Raw)
+	if errMerge != nil {
+		return nil, warmupRequest, &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: errMerge}
+	}
+	if deduped, errDedupe := dedupeFunctionCallsByCallID(merged); errDedupe == nil {
+		merged = deduped
+	}
+	normalized := normalizeResponseTranscriptReplacement(rawJSON, warmupRequest)
+	var errSet error
+	normalized, errSet = sjson.SetRawBytes(normalized, "input", []byte(merged))
+	if errSet != nil {
+		return nil, warmupRequest, &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: errSet}
+	}
+	return normalized, normalized, nil
+}
+
+func responsesWebsocketPreviousResponseNotFoundError() *interfaces.ErrorMessage {
+	return &interfaces.ErrorMessage{
+		StatusCode: http.StatusConflict,
+		Error: errors.New(
+			`{"error":{"message":"Previous response is not available on this websocket; resend the full conversation input without previous_response_id","type":"invalid_request_error","code":"previous_response_not_found","param":"previous_response_id"}}`,
+		),
+	}
 }
 
 func syntheticResponsesWebsocketPrewarmPayloads(requestJSON []byte) ([][]byte, error) {
@@ -1102,7 +1228,7 @@ func syntheticResponsesWebsocketPrewarmPayloads(requestJSON []byte) ([][]byte, e
 		}
 	}
 
-	completedPayload := []byte(`{"type":"response.completed","sequence_number":1,"response":{"id":"","object":"response","created_at":0,"status":"completed","background":false,"error":null,"output":[],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}`)
+	completedPayload := []byte(`{"type":"response.completed","sequence_number":1,"response":{"id":"","object":"response","created_at":0,"status":"completed","background":false,"error":null,"output":[],"usage":{"input_tokens":0,"input_tokens_details":{"cached_tokens":0},"output_tokens":0,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":0}}}`)
 	completedPayload, errSet = sjson.SetBytes(completedPayload, "response.id", responseID)
 	if errSet != nil {
 		return nil, errSet
@@ -1212,6 +1338,21 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	if c != nil && c.Request != nil {
 		downstreamSessionKey = websocketDownstreamSessionKey(c.Request)
 	}
+
+	// Downstream ping control frames keep intermediaries alive during long
+	// upstream stalls; all writes happen on this goroutine so no extra mutex is
+	// needed (upstream responsesWebsocketWriter.writePing + keepAlive ticker).
+	keepAliveInterval := time.Duration(0)
+	if h != nil {
+		keepAliveInterval = handlers.StreamingKeepAliveInterval(h.Cfg)
+	}
+	var keepAliveTicker *time.Ticker
+	var keepAliveC <-chan time.Time
+	if keepAliveInterval > 0 {
+		keepAliveTicker = time.NewTicker(keepAliveInterval)
+		defer keepAliveTicker.Stop()
+		keepAliveC = keepAliveTicker.C
+	}
 	forwardError := func(errMsg *interfaces.ErrorMessage) error {
 		if errMsg != nil {
 			h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
@@ -1240,6 +1381,11 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 		case <-c.Request.Context().Done():
 			cancel(c.Request.Context().Err())
 			return completedOutput, nil, c.Request.Context().Err()
+		case <-keepAliveC:
+			if errPing := conn.WriteControl(websocket.PingMessage, nil, time.Time{}); errPing != nil {
+				cancel(errPing)
+				return completedOutput, nil, errPing
+			}
 		case errMsg, ok := <-errs:
 			if !ok {
 				errs = nil
@@ -1270,6 +1416,9 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				}
 				cancel(nil)
 				return completedOutput, nil, nil
+			}
+			if keepAliveTicker != nil && keepAliveInterval > 0 {
+				keepAliveTicker.Reset(keepAliveInterval)
 			}
 
 			payloads := websocketJSONPayloadsFromChunk(chunk)
@@ -1388,7 +1537,11 @@ func writeResponsesWebsocketError(conn *websocket.Conn, wsTimelineLog websocketT
 		}
 	}
 
-	body := handlers.BuildErrorResponseBody(status, errText)
+	var errCause error
+	if errMsg != nil {
+		errCause = errMsg.Error
+	}
+	body := handlers.BuildErrorResponseBodyWithError(status, errText, errCause)
 	payload := []byte(`{}`)
 	var errSet error
 	payload, errSet = sjson.SetBytes(payload, "type", wsEventTypeError)

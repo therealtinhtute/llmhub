@@ -113,6 +113,16 @@ func SetTransientErrorCooldownSeconds(seconds int) {
 	transientErrorCooldownSeconds.Store(int64(seconds))
 }
 
+// QuotaCooldownDisabledForAuth returns whether cooling is disabled for the auth under global settings.
+func QuotaCooldownDisabledForAuth(auth *Auth) bool {
+	return quotaCooldownDisabledForAuth(auth)
+}
+
+// QuotaCooldownDisabledForAuthWithConfig returns whether cooling is disabled for the auth with the given config.
+func QuotaCooldownDisabledForAuthWithConfig(auth *Auth, cfg *internalconfig.Config) bool {
+	return quotaCooldownDisabledForAuthWithConfig(auth, cfg)
+}
+
 func quotaCooldownDisabledForAuth(auth *Auth) bool {
 	return quotaCooldownDisabledForAuthWithConfig(auth, nil)
 }
@@ -210,6 +220,10 @@ type Result struct {
 	Success bool
 	// RetryAfter carries a provider supplied retry hint (e.g. 429 retryDelay).
 	RetryAfter *time.Duration
+	// CredentialScope indicates that the failure affects the whole credential
+	// across models (e.g. Codex usage_limit_reached quota exhaustion when
+	// model-level cooling is disabled, upstream b064b832e242).
+	CredentialScope bool
 	// Error describes the failure when Success is false.
 	Error *Error
 	// RequestScoped marks failures caused by the request rather than the credential.
@@ -1488,7 +1502,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](chunk.Err); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(chunk.Err), Options: opts}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(chunk.Err), CredentialScope: isCredentialScopedError(chunk.Err), Options: opts}
 				action, okAction := matchRequestScopedErrorAction(auth, chunk.Err, m.runtimeConfigSnapshot())
 				applyRequestScopedActionToResult(action, okAction, &result)
 				m.MarkResult(ctx, result)
@@ -1557,7 +1571,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errStream); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(errStream), Options: opts}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(errStream), CredentialScope: isCredentialScopedError(errStream), Options: opts}
 			result.RetryAfter = retryAfterFromError(errStream)
 			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
 			applyRequestScopedActionToResult(action, okAction, &result)
@@ -1566,10 +1580,16 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				if isRequestScopedStop(action, okAction) {
 					return nil, wrapRequestStopError(errStream)
 				}
+				if result.CredentialScope {
+					return nil, errStream
+				}
 				lastErr = errStream
 				continue
 			}
 			if isRequestInvalidError(errStream) {
+				return nil, errStream
+			}
+			if result.CredentialScope {
 				return nil, errStream
 			}
 			lastErr = errStream
@@ -1582,19 +1602,23 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				discardStreamChunks(streamResult.Chunks)
 				return nil, errCtx
 			}
+			credentialScope := isCredentialScopedError(bootstrapErr)
 			action, okAction := matchRequestScopedErrorAction(auth, bootstrapErr, m.runtimeConfigSnapshot())
 			if okAction {
 				rerr := &Error{Message: bootstrapErr.Error()}
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), Options: opts}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), CredentialScope: credentialScope, Options: opts}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				applyRequestScopedActionToResult(action, okAction, &result)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
 				if isRequestScopedStop(action, okAction) {
 					return nil, wrapRequestStopError(bootstrapErr)
+				}
+				if credentialScope {
+					return nil, bootstrapErr
 				}
 				lastErr = bootstrapErr
 				continue
@@ -1604,18 +1628,18 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), Options: opts}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), CredentialScope: credentialScope, Options: opts}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
 				return nil, bootstrapErr
 			}
-			if idx < len(execModels)-1 {
+			if idx < len(execModels)-1 && !credentialScope {
 				rerr := &Error{Message: bootstrapErr.Error()}
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), Options: opts}
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), CredentialScope: credentialScope, Options: opts}
 				result.RetryAfter = retryAfterFromError(bootstrapErr)
 				m.MarkResult(ctx, result)
 				discardStreamChunks(streamResult.Chunks)
@@ -1626,7 +1650,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr)}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr, RequestScoped: isRequestScopedError(bootstrapErr), CredentialScope: credentialScope}
 			result.RetryAfter = retryAfterFromError(bootstrapErr)
 			m.MarkResult(ctx, result)
 			discardStreamChunks(streamResult.Chunks)
@@ -2317,6 +2341,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				}
 				result.Error = resultErrorFromError(errExec)
 				result.RequestScoped = isRequestScopedError(errExec)
+				result.CredentialScope = isCredentialScopedError(errExec)
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](errExec); ok && se != nil {
 					result.Error.HTTPStatus = se.StatusCode()
 				}
@@ -2330,10 +2355,16 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 					if isRequestScopedStop(action, okAction) {
 						return cliproxyexecutor.Response{}, wrapRequestStopError(errExec), progressed
 					}
+					if result.CredentialScope {
+						return cliproxyexecutor.Response{}, errExec, progressed
+					}
 					authErr = errExec
 					continue
 				}
 				if isRequestInvalidError(errExec) {
+					return cliproxyexecutor.Response{}, errExec, progressed
+				}
+				if result.CredentialScope {
 					return cliproxyexecutor.Response{}, errExec, progressed
 				}
 				authErr = errExec
@@ -3524,6 +3555,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 					state.Unavailable = true
 					state.Status = StatusError
 					state.UpdatedAt = now
+					prevModelRetryAfter := state.NextRetryAfter
 					if result.Error != nil {
 						state.LastError = cloneError(result.Error)
 						state.StatusMessage = result.Error.Message
@@ -3587,6 +3619,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								} else {
 									next, backoffLevel = quotaCooldownAfterFailure(state.Quota, disableCooling, now)
 								}
+								if state.Quota.Exceeded && state.Quota.NextRecoverAt.After(next) {
+									next = state.Quota.NextRecoverAt
+								}
 							}
 							state.NextRetryAfter = next
 							applyCooldownFields(&state.Quota, QuotaState{
@@ -3595,6 +3630,47 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								NextRecoverAt: next,
 								BackoffLevel:  backoffLevel,
 							})
+							if result.CredentialScope && !disableCooling {
+								// A credential-scoped quota failure (e.g. Codex
+								// usage_limit_reached with model-level cooling off)
+								// propagates a credential_quota cooldown to every
+								// sibling model state and the auth aggregate
+								// (upstream b064b832e242 + 1c22598d0b5a).
+								for _, otherState := range auth.ModelStates {
+									if otherState != nil && otherState != state {
+										otherState.Unavailable = true
+										otherState.Status = StatusError
+										otherQuotaNext := next
+										if otherState.Quota.Exceeded && otherState.Quota.NextRecoverAt.After(otherQuotaNext) {
+											otherQuotaNext = otherState.Quota.NextRecoverAt
+										}
+										otherRetryAfter := otherQuotaNext
+										// Propagation only extends a sibling's still-live
+										// per-model deadline; it never shortens one, and a
+										// longer non-quota deadline is not promoted into a
+										// quota recovery time.
+										if !otherState.NextRetryAfter.IsZero() && otherState.NextRetryAfter.After(otherRetryAfter) {
+											otherRetryAfter = otherState.NextRetryAfter
+										}
+										otherState.NextRetryAfter = otherRetryAfter
+										applyCooldownFields(&otherState.Quota, QuotaState{
+											Exceeded:      true,
+											Reason:        "credential_quota",
+											NextRecoverAt: otherQuotaNext,
+											BackoffLevel:  backoffLevel,
+										})
+									}
+								}
+								auth.Unavailable = true
+								auth.Quota.Exceeded = true
+								auth.Quota.Reason = "credential_quota"
+								authNext := next
+								if auth.Quota.NextRecoverAt.After(authNext) {
+									authNext = auth.Quota.NextRecoverAt
+								}
+								auth.Quota.NextRecoverAt = authNext
+								auth.NextRetryAfter = authNext
+							}
 							if !disableCooling {
 								suspendReason = "quota"
 								shouldSuspendModel = true
@@ -3611,6 +3687,12 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 						state.NextRetryAfter = now.Add(time.Minute)
 					}
 
+					// A later failure only extends a still-live model cooldown; it
+					// never shortens one. A deliberate zero write (disableCooling)
+					// still clears the deadline (upstream 1c22598d0b5a).
+					if !state.NextRetryAfter.IsZero() && prevModelRetryAfter.After(state.NextRetryAfter) && prevModelRetryAfter.After(now) {
+						state.NextRetryAfter = prevModelRetryAfter
+					}
 					auth.Status = StatusError
 					auth.UpdatedAt = now
 					updateAggregatedAvailability(auth, now)
@@ -3635,6 +3717,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 	m.mu.Unlock()
 	if m.scheduler != nil && authSnapshot != nil {
+		// upsertAuth re-evaluates the whole auth into every provider shard,
+		// which already satisfies upstream upsertAuthResult's credential-scope
+		// re-evaluation (the targetModels arg there is only an optimization).
 		m.scheduler.upsertAuth(authSnapshot)
 	}
 
@@ -4046,6 +4131,12 @@ func updateAggregatedAvailability(auth *Auth, now time.Time) {
 	if auth == nil {
 		return
 	}
+	// A live credential-scoped quota cooldown keeps the whole credential
+	// unavailable regardless of per-model aggregates (upstream b064b832e242).
+	if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" && auth.Quota.NextRecoverAt.After(now) {
+		auth.Unavailable = true
+		return
+	}
 	if len(auth.ModelStates) == 0 {
 		clearAggregatedAvailability(auth)
 		return
@@ -4103,8 +4194,16 @@ func updateAggregatedAvailability(auth *Auth, now time.Time) {
 	if quotaExceeded {
 		auth.Quota.Exceeded = true
 		auth.Quota.Reason = "quota"
+		// Aggregation never shortens a still-live auth-level recovery deadline
+		// (upstream 1c22598d0b5a).
+		if auth.Quota.NextRecoverAt.After(quotaRecover) {
+			quotaRecover = auth.Quota.NextRecoverAt
+		}
 		auth.Quota.NextRecoverAt = quotaRecover
 		auth.Quota.BackoffLevel = maxBackoffLevel
+	} else if auth.Quota.Exceeded && auth.Quota.NextRecoverAt.After(now) {
+		// Retain a still-live auth-level quota cooldown even when no model
+		// state currently reports quota (upstream 1c22598d0b5a).
 	} else {
 		auth.Quota.Exceeded = false
 		auth.Quota.Reason = ""
@@ -4235,6 +4334,20 @@ func isRequestScopedError(err error) bool {
 	}
 	var requestErr requestScopedError
 	return errors.As(err, &requestErr) && requestErr != nil && requestErr.IsRequestScoped()
+}
+
+// isCredentialScopedError reports whether an executor error applies to the
+// whole credential across models rather than only the requested model
+// (upstream conductor_cooldown.go).
+func isCredentialScopedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	type credentialScopedProvider interface {
+		IsCredentialScoped() bool
+	}
+	var csp credentialScopedProvider
+	return errors.As(err, &csp) && csp != nil && csp.IsCredentialScoped()
 }
 
 func isUnauthorizedError(err error) bool {
@@ -4757,6 +4870,7 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 	if auth == nil {
 		return
 	}
+	prevAuthRetryAfter := auth.NextRetryAfter
 	if shouldSkipCredentialCooldown(resultErr) {
 		return
 	}
@@ -4810,6 +4924,9 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 			} else {
 				next, auth.Quota.BackoffLevel = quotaCooldownAfterFailure(auth.Quota, disableCooling, now)
 			}
+			if auth.Quota.Exceeded && auth.Quota.NextRecoverAt.After(next) {
+				next = auth.Quota.NextRecoverAt
+			}
 		}
 		auth.Quota.NextRecoverAt = next
 		auth.NextRetryAfter = next
@@ -4821,6 +4938,12 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		if auth.StatusMessage == "" {
 			auth.StatusMessage = "request failed"
 		}
+	}
+	// A later failure only extends a still-live credential cooldown; a
+	// deliberate zero write (disableCooling) still clears it
+	// (upstream 1c22598d0b5a).
+	if !auth.NextRetryAfter.IsZero() && prevAuthRetryAfter.After(auth.NextRetryAfter) && prevAuthRetryAfter.After(now) {
+		auth.NextRetryAfter = prevAuthRetryAfter
 	}
 	if resultErr != nil && resultErr.Code == ErrorCodeForceCooldown && auth.NextRetryAfter.IsZero() {
 		auth.NextRetryAfter = now.Add(time.Minute)
@@ -4918,6 +5041,10 @@ func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []strin
 		models = append(models, registeredModels...)
 	}
 	models = dedupeStrings(models)
+
+	// ResetQuota is an explicit administrative clear: drop the auth-level
+	// cooldown so aggregation cannot retain a still-live quota deadline.
+	applyCooldownFields(&auth.Quota, QuotaState{})
 
 	updateAggregatedAvailability(auth, now)
 	if len(auth.ModelStates) == 0 {

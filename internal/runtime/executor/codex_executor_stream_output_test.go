@@ -369,13 +369,22 @@ func TestCodexExecutorExecuteStreamWithoutBufferingKeepsInStreamError(t *testing
 	if err != nil {
 		t.Fatalf("unbuffered rejection must stay committed: %v", err)
 	}
-	// Local unbuffered semantics: the in-stream error event is translated downstream as
-	// data (no Err chunk), so assert the committed stream carries the rejection payload.
+	// In-stream terminal failures surface as an Err chunk carrying the mapped
+	// wire status (upstream codex_executor_stream.go): buffered and unbuffered
+	// deliveries classify identically, and the conductor learns of the failure.
 	var combined strings.Builder
+	var streamErr error
 	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			streamErr = chunk.Err
+			continue
+		}
 		combined.Write(chunk.Payload)
 	}
-	if !strings.Contains(combined.String(), "server_is_overloaded") {
-		t.Fatalf("expected in-stream rejection payload when buffering disabled, got: %s", combined.String())
+	if streamErr == nil {
+		t.Fatalf("expected in-stream rejection error chunk, got payloads only: %s", combined.String())
+	}
+	if !strings.Contains(streamErr.Error(), "server_is_overloaded") {
+		t.Fatalf("stream error = %v, want server_is_overloaded detail", streamErr)
 	}
 }

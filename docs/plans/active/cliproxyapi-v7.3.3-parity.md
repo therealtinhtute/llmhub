@@ -140,7 +140,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     - T2 billing header fingerprint chain + upstream request continuity + probe/helper classification and diagnostics isolation (`086ad91bd970`, `4a5ab534f827`). check: `go test ./internal/runtime/executor/ -run 'Claude|Cloak'`
     - T3 Fable 5.1 reporting outcomes block + post-payload reconciliation (`de4aa600280e`; model def from `model-registry-adds`). check: `go test ./internal/runtime/executor/ -run 'Claude|Fable'`
 
-### Phase `antigravity-compaction` (story-20260915-antigravity-compaction) — status: planned
+### Phase `antigravity-compaction` (story-20260915-antigravity-compaction) — status: checked
 - goal: R5 — conversation compaction + capsule encryption, cooling-disabled quota bypass, perf batching.
 - dependencies: `translator-hardening`.
 - allowed surfaces: `internal/runtime/**` antigravity paths, `internal/api`, `internal/config`, `config.example.yaml`, `sdk/cliproxy` wiring.
@@ -153,7 +153,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     - T3 perf batching: replay degradation rewrites, reasoning replay mutations, functionResponse name repairs (`e44432ab85fd`, `acf919ce50fb`, `d8f2dceef789`). check: `go test ./internal/runtime/executor/ -run 'Antigravity'`
     - T4 token-counting tool-config strip + replacement offset guard + short-connection default/pool lifecycle + transport cache key (`d0fb44ca95e8` + pool rows). check: `go test ./internal/runtime/... ./internal/config/...`
 
-### Phase `codex-openai-ws` (story-20260915-codex-openai-ws) — status: planned
+### Phase `codex-openai-ws` (story-20260915-codex-openai-ws) — status: checked
 - goal: R6, R7, R12 — codex executor+translator fixes, openai responses websocket, kimi responses API.
 - dependencies: `auth-cooldown-fairness`.
 - allowed surfaces: `internal/runtime/executor/**` codex/kimi paths, `internal/translator/codex/**`, `internal/translator/openai/**`, `sdk/api/**` websocket, `internal/client`, `internal/config`, `internal/util`, `config.example.yaml`.
@@ -259,6 +259,9 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-16 | phase=management-auth-ops task=T2 | decision: port `availabilityBlock` inside the cooldown view only (read-only projection) | rationale: upstream tests require it for view shape, but gating selection on it would regress local DisableCooling (per auth-cooldown-fairness Decision); a view that cannot influence selection preserves both.
 - 2026-09-16 | phase=lan-discovery task=T1/T2 | decision: adapt advertiser wiring to a `sync.Map` manager keyed by *Service + `Builder.WithDiscoveryAdvertiser()`/`Service.ShutdownDiscovery()` in new sdk files; skip `config.example.yaml` (deleted in local 383222ee — Postgres runtime), skip `sdk/config` type aliases, use `-discover-config` flag (no local `-config` flag); add cfgSource poll for Home-mode config swaps beyond upstream | rationale: surfaces forbade editing existing sdk/cliproxy files, and upstream's Service-field wiring has no local equivalent — the package-level manager preserves start-after-up/reload-apply/shutdown-stop semantics.
 - 2026-09-16 | phase=claude-fingerprint task=T2 | decision: accept `claudeDiagnosticsCredentialIdentity` divergence (auth.ID/auth.Index only — upstream's device-pool/account-UUID identities don't exist locally) and defer count-tokens billing relocation (different upstream commit) | rationale: equivalent behavior wherever a stable auth ID exists; remainders recorded for completeness.
+- 2026-09-16 | phase=antigravity-compaction+codex-openai-ws task=orchestration | decision: co-locate shared-file hunks (conductor.go, config.go, config_diff.go, executor/types.go) in the codex-openai-ws commit `18b244c4` — antigravity's T2 QuotaCooldownDisabledForAuth* + T4 AntigravityConnectionPool/diff-log entries ride there | rationale: both agents edited the same files; non-interactive hunk-splitting is infeasible, and Progress records the per-phase attribution authoritatively.
+- 2026-09-16 | phase=antigravity-compaction task=T2/T4 | decision: accept two surface extensions — `internal/watcher/diff/config_diff.go` (+3 pool diff-log parity observability) and `internal/api/server.go` (+8 hot-reload transport purge) | rationale: both are required for the ported pool config to behave correctly under llmhub's hot-reload (upstream's equivalent wiring lives in these paths); `b8e6ec0a` translator half + `5dc428f3` non-antigravity halves remain deferred (out of surface); `6ff680e9` (home model capabilities for thinking) not ported — belongs to the capability-propagation follow-up.
+- 2026-09-16 | phase=codex-openai-ws task=T4/T5 | decision: accept bounded remainders — `preserveCompletionOutput` unported (no local output-restoration machinery — no-op), observedCompaction keyed on model+auth only (upstream's plugin-executor/provider-route identity absent), `reporter.SetTranslatedReasoningEffort` skipped (no local equivalent), `RequestToFormat` interface method absent (opts.SourceFormat covers routing); `internal/translator/common/responses.go` new file is a codex-phase helper carrier | rationale: each reflects absent local machinery rather than skipped work; ported behavior covers all locally-reachable paths.
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=T1 task_status=DONE | ported `1119ef142466` (hardened NormalizeToCanonicalUUID: empty-after-strip rejected — no ghost UUIDv8, ctx:v1:/ctx: prefixes, iterative unwrap for layered prefixes, golden 2ad1939c-…-3d084d5614c4 regression) + `e899f0e53985` W1 share (SessionInfo IsFork/IsSubagent + forked_from_* parent candidates, codex thread/turn-metadata hierarchy extraction incl. subagent_kind=thread_spawn, claude metadata parent/agent fallbacks, hasExplicitSession +13 headers/+26 payload paths, executor ParentSessionID/IsFork/LCPAccessGeneration metadata keys) | check `go test ./sdk/cliproxy/...` -> all ok | surfaces: sdk/cliproxy/session/{identity,info}.go, sdk/cliproxy/executor/types.go; tests: identity_test +305, info_test +88; committed as 26a4983b
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=wave-summary task_status=DONE_WITH_CONCERNS | W1 committed as 26a4983b (5 files, +738/-33); concern: `390589159eff` extraction share still pending — hasExplicitSession currently recognizes task_id/action_id/parent_* fields whose extraction branches only exist in that commit; ordering a W1-completion pass before W2 (see Decisions) | surfaces: commit 26a4983b
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=T1-completion task_status=DONE | ported `390589159eff` info.go share: parentCandidate table 12->60 keys, metadata.parent_agent_id/parentAgentId fallbacks, X-Parent-*/X-Task-ID/X-Parent-Slot-* header branches + parent chains, task/action payload extraction, child_session_id + expanded metadata./extra_body. paths, isBodyForkCandidate expansion — closes the hasExplicitSession/ExtractSessionInfo gap flagged at W1 | check `go test ./sdk/cliproxy/session/ -count=1` -> ok 0.185s | surfaces: sdk/cliproxy/session/{info,info_test}.go; committed as c8d0d67d (2 files, +318/-27); remainder to W2: selector dedup rewrite + home_session_alias +3
@@ -275,6 +278,13 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-16 | phase=lan-discovery wave=W1 task=T1 task_status=DONE_WITH_CONCERNS | ported `3428110d49be`: internal/discovery (types/spec/id/interfaces/service/zeroconf + 545-line test), internal/cmd/discover, cmd/server discover mode, sdk/cliproxy/discovery_advertiser, DiscoveryConfig + defaults + normalization; deps libp2p/zeroconf/v2 v2.2.0 + miekg/dns (indirect) | check `go test ./internal/discovery/... -count=1` -> ok 5.141s | concerns: config.example.yaml deleted locally (383222ee, Postgres runtime); sync.Map advertiser wiring vs upstream Service field; committed as 5ff06e71
 - 2026-09-16 | phase=lan-discovery wave=W2 task=T2 task_status=DONE_WITH_CONCERNS | all 8 hardening commits' semantics present: timeout clamp, argv pre-scan, TCP-only types, uniquified instance names, default scan config + hostname sanitize, JSON-clean scans + include-list bypass, caller cancellation + boundEndpoint, bounded browse, advertiser lifecycle | checks `go test ./internal/discovery/... ./internal/cmd/... -count=1` -> ok; `make build` -> pass | committed as 5ff06e71
 - 2026-09-16 | phase=claude-fingerprint+management-auth-ops+lan-discovery task=batch-summary | parallel batch committed dcc0a153 + 202587cf + 5ff06e71; combined gate clean (see Validation 2026-09-16T04:05Z); pre-existing environmental `TestUpdateCommandRollback` failure (uid=0 test env vs root-gate assertion — predates all three phases, verified by test's own comment) recorded as proof gap
+- 2026-09-16 | phase=antigravity-compaction task=phase-start | user-approved parallel pair w/ codex-openai-ws; shared-surface risk limited to internal/config/config.go + helps/* — conflict-deferral rule in prompts; W1+W2 staged in one agent
+- 2026-09-16 | phase=codex-openai-ws task=phase-start | parallel pair member; W1 codex executor T1-T3 + W2 translator/ws/kimi T4-T6 staged in one agent; kimi is a new-provider-path executor file (no collision w/ antigravity)
+- 2026-09-16 | phase=antigravity-compaction wave=W1 task=T1+T2 task_status=DONE | ported `70f456045222` (conversation compaction + capsule encryption via helps/antigravity_compaction) + `272c1cff4e4c` (cooling-disabled quota cooldown/credit-hint bypass; QuotaCooldownDisabledForAuth* in conductor.go — rides in codex commit, shared file) | checks `go test ./internal/runtime/... -run 'Antigravity|Compaction'` + `./sdk/cliproxy/...` -> ok | committed as d92f5c1b
+- 2026-09-16 | phase=antigravity-compaction wave=W2 task=T3+T4 task_status=DONE | ported `e44432ab85fd`+`acf919ce50fb`+`d8f2dceef789` (batched index-keyed reasoning replay w/ offset-validated splice + staleness gate, degrade-on-pairing-break, functionResponse name repair) + `d0fb44ca95e8`+pool rows (CountTokens strip, HTTP/1.1 pool settings, bounded LRU TransportCache, hot-reload purge hook in server.go); extras `1c45093d`,`b8e6ec0a`(exec half),`5dc428f3` | checks `go test ./internal/runtime/executor/ -run 'Antigravity'` + `./internal/config/...` -> ok | committed as d92f5c1b (config.go/config_diff.go hunks ride in codex commit)
+- 2026-09-16 | phase=codex-openai-ws wave=W1 task=T1+T2+T3 task_status=DONE | ported `291cfb87efac`+`e696ea47c5ee` (orphan-delegation compat, X-Codex-Turn-State), `b064b832e242`+`6e307553f43f`+`f702bc1ac263` (model-level quota cooling, stream bootstrap ceiling, responses-lite fidelity), `d1a024e9400b`+error rows (retryable server errors, capacity->overload, gpt-image-2.5 wiring); ResetQuota retention-guard fix | checks `go test ./internal/runtime/executor/ -run 'Codex'` + `./internal/config/...` -> ok | committed as 18b244c4
+- 2026-09-16 | phase=codex-openai-ws wave=W2 task=T4+T5+T6 task_status=DONE | ported `cdda333cd287`+`5208aec703b5`+translator rows (reasoning-level clearing, tool-name sanitize, dotted collab names, service-tier/cache-write), `2a6b87aca083`+`bd03aabcf157`+`ca929459f987`+openai rows (ws ping frames, prewarm merge, named outputs, nested errors+seq numbers, reasoning-first deltas, bounded observed-compaction), `d4146bde1248` (kimi /v1/responses routing) | checks `go test ./internal/translator/codex/... ./sdk/api/... ./internal/translator/openai/...` + `-run 'Kimi'` -> ok | committed as 18b244c4
+- 2026-09-16 | phase=antigravity-compaction+codex-openai-ws task=batch-summary | parallel pair committed d92f5c1b + 18b244c4 (shared files conductor.go/config.go/config_diff.go/types.go carry both phases' hunks — co-located in codex commit, hunk-split infeasible non-interactively); combined gate clean (Validation 2026-09-16T05:55Z)
 
 ## Validation
 - `2026-09-15T18:18:34Z` — phase: `model-registry-adds` — verdict: `APPROVED`
@@ -447,14 +457,61 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     failure_ledger: absent
     enforcement: local-only
     not_independently_verified: zeroconf wire behavior under real multicast conditions; advertiser lifecycle under process signal handling beyond unit coverage
+- `2026-09-16T05:55:00Z` — phase: `antigravity-compaction` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target + recorded extensions (internal/watcher/diff +3, internal/api/server.go +8 — required for ported pool config under hot-reload); shared files co-located in codex commit per Decisions
+  - proof_gaps: compaction/capsule round-trip verified by unit tests only; pool behavior under real Cloudflare 429s unexercised; batch-vs-sequential equivalence proven on ported fixtures
+  - commands:
+    - `go test -count=1 ./internal/runtime/... ./internal/translator/... ./internal/config/... ./internal/api/... ./internal/client/... ./internal/util/... ./internal/thinking/... ./internal/watcher/... ./sdk/...` — pass (all pkgs ok; executor 2.6s, helps 6.1s)
+    - `go test -race -count=1 ./sdk/cliproxy/auth/ ./internal/runtime/executor/helps/` — pass (32.4s/25.2s, no data races incl. TransportCache + model-level cooling)
+    - `make build` — pass
+    - `git diff --check master..HEAD` — pass
+    - `gofmt -l` on changed files — pass, no output
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 64d97e0c
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: capsule encryption wire-compat against a real Antigravity endpoint; degrade-on-pairing-break frequency in production traffic
+- `2026-09-16T05:55:00Z` — phase: `codex-openai-ws` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (codex/kimi executor paths + codex/openai translators + sdk/api websocket + client/config/util/thinking); `internal/translator/common/responses.go` new-file helper recorded; registry defs untouched
+  - proof_gaps: ws ping/prewarm/compaction-replay verified by handler tests — no live websocket client round-trip; kimi responses routing tested at URL/dispatch level (no real Kimi endpoint); `preserveCompletionOutput` intentionally unported (no-op locally — see Decisions)
+  - commands: same batch sweep + race + build + diff-check + gofmt as antigravity-compaction entry above — all pass
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 64d97e0c
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: websocket protocol correctness against a live Codex/OpenAI backend; orphan-delegation compatibility against real codex_app payloads beyond ported fixtures
 
 ## Current State and Next Action
-- active_phase: none — claude-fingerprint, management-auth-ops, lan-discovery all `checked` (batch gate, Validation 2026-09-16T04:05:00Z); 7 of 11 phases now `checked` (translator-hardening, model-registry-adds, auth-cooldown-fairness, session-usage-hierarchy, + this batch)
+- active_phase: none — antigravity-compaction + codex-openai-ws both `checked` (pair gate, Validation 2026-09-16T05:55:00Z); 9 of 11 phases `checked` — only devin-provider and final-gate remain
 - lifecycle_status: in-progress
-- latest_anchors: session-recovery 2026-09-15 (lost WIP confirmed, upstream refs + Go toolchain recreated); wave-summaries for gated phases (commits 2cb10f4e, 59975d54+450bf629, 1c5d8533+a628dbf9); session-usage-hierarchy (26a4983b, c8d0d67d, 814a6ecd, 8a9c2f80); parallel batch (dcc0a153, 202587cf, 5ff06e71; gate 2026-09-16T04:05:00Z)
-- blockers: none — antigravity-compaction (dep translator-hardening `checked`) and codex-openai-ws (dep auth-cooldown-fairness `checked`) ready for parallel execution; devin-provider deps all `checked`; final-gate waits on all
+- latest_anchors: session-recovery 2026-09-15 (lost WIP confirmed, upstream refs + Go toolchain recreated); wave-summaries for gated phases (commits 2cb10f4e, 59975d54+450bf629, 1c5d8533+a628dbf9); session-usage-hierarchy (26a4983b, c8d0d67d, 814a6ecd, 8a9c2f80); parallel batch (dcc0a153, 202587cf, 5ff06e71); parallel pair (d92f5c1b, 18b244c4; gate 2026-09-16T05:55:00Z)
+- blockers: none — devin-provider deps all `checked` (model-registry-adds, auth-cooldown-fairness, session-usage-hierarchy); it is the last feature phase before final-gate
 - open_items:
-  - follow-ups recorded in Decisions: `sdk-cliproxy-capability-propagation` (second source found in `60e5b8bd432e` registry share), `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing`, `harness-runtime-extraction` (sdk/api/handlers share only), `claude-fingerprint`: count-tokens billing relocation + credential-identity fallbacks
+  - follow-ups recorded in Decisions: `sdk-cliproxy-capability-propagation` (second source found in `60e5b8bd432e` registry share; third source `6ff680e9` home model capabilities for thinking), `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing`, `harness-runtime-extraction` (sdk/api/handlers share only), `claude-fingerprint`: count-tokens billing relocation + credential-identity fallbacks; `antigravity-compaction`: `b8e6ec0a` translator half, `5dc428f3` non-antigravity halves; `codex-openai-ws`: preserveCompletionOutput machinery, plugin-executor observedCompaction identity, SetTranslatedReasoningEffort equivalent
   - 210 semantic-review paths still need per-commit disposition across remaining phases.
-  - environmental: `TestUpdateCommandRollback` fails under uid=0 test envs (pre-existing on master — test asserts root-gate rejection; unrelated to all ported work)
-- exact_next_action: parallel pair — antigravity-compaction (W1: T1 compaction+capsule `70f456045222`, T2 cooling bypass `272c1cff4e4c`; W2: T3+T4) + codex-openai-ws (W1: T1–T3 codex executor; W2: T4–T6 translator/ws/kimi), then devin-provider alone (largest scope), then final-gate
+  - environmental: `TestUpdateCommandRollback` + `internal/updater` `TestRollbackFailure` fail under uid=0 test envs (pre-existing on master — root-gate/permission-failure assumptions; unrelated to ported work)
+- exact_next_action: execute devin-provider — the flagship phase (~48 upstream commits, 3 waves: W1 auth+catalog, W2 executor core, W3 cloak+management); all deps `checked`

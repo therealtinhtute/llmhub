@@ -851,6 +851,9 @@ type statusErr struct {
 	code       int
 	msg        string
 	retryAfter *time.Duration
+	// credentialScoped marks failures that apply to the whole credential across
+	// models (e.g. Codex usage_limit_reached when model-level cooling is off).
+	credentialScoped bool
 }
 
 func (e statusErr) Error() string {
@@ -861,3 +864,4 @@ func (e statusErr) Error() string {
 }
 func (e statusErr) StatusCode() int            { return e.code }
 func (e statusErr) RetryAfter() *time.Duration { return e.retryAfter }
+func (e statusErr) IsCredentialScoped() bool   { return e.credentialScoped }

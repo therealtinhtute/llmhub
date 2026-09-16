@@ -67,29 +67,13 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	// Model
 	out, _ = sjson.SetBytes(out, "model", modelName)
 
-	// Build tool name shortening map from original tools (if any)
+	// Build tool name shortening map from original tools (if any).
+	// Names are collected across tools declarations, tool_choice, and assistant
+	// tool_calls history so shortening stays consistent everywhere the name
+	// appears (upstream bee20b9940251).
 	originalToolNameMap := map[string]string{}
-	{
-		tools := gjson.GetBytes(rawJSON, "tools")
-		if tools.IsArray() && len(tools.Array()) > 0 {
-			// Collect original tool names
-			var names []string
-			arr := tools.Array()
-			for i := 0; i < len(arr); i++ {
-				t := arr[i]
-				if t.Get("type").String() == "function" {
-					fn := t.Get("function")
-					if fn.Exists() {
-						if v := fn.Get("name"); v.Exists() {
-							names = append(names, v.String())
-						}
-					}
-				}
-			}
-			if len(names) > 0 {
-				originalToolNameMap = buildShortNameMap(names)
-			}
-		}
+	if allNames := collectRequestToolNames(rawJSON); len(allNames) > 0 {
+		originalToolNameMap = buildShortNameMap(allNames)
 	}
 
 	// Extract system instructions from first system message (string or text object)
@@ -318,6 +302,11 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 					}
 					if v := fn.Get("strict"); v.Exists() {
 						item, _ = sjson.SetBytes(item, "strict", v.Value())
+					} else {
+						// Chat Completions defaults strict to false while the
+						// Responses API defaults it to true, so an omitted value
+						// must be forwarded explicitly (upstream d01516c120fa).
+						item, _ = sjson.SetBytes(item, "strict", false)
 					}
 				}
 				out, _ = sjson.SetRawBytes(out, "tools.-1", item)
@@ -456,26 +445,112 @@ func appendToolOutputFallbackPart(output []byte, item gjson.Result) []byte {
 	return output
 }
 
-// shortenNameIfNeeded applies the simple shortening rule for a single name.
-// If the name length exceeds 64, it will try to preserve the "mcp__" prefix and last segment.
-// Otherwise it truncates to 64 characters.
+// sanitizeToolName normalizes a tool name by replacing any character outside
+// [a-zA-Z0-9_-] with an underscore so it conforms to Codex upstream requirements
+// (upstream bee20b9940251).
+func sanitizeToolName(name string) string {
+	if name == "" {
+		return ""
+	}
+	var sb strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteByte('_')
+		}
+	}
+	return sb.String()
+}
+
+// shortenNameIfNeeded normalizes invalid characters and applies the shortening
+// rule for a single name. If the name length exceeds 64, it will try to preserve
+// the "mcp__" prefix and last segment. Otherwise it truncates to 64 characters.
 func shortenNameIfNeeded(name string) string {
 	const limit = 64
-	if len(name) <= limit {
-		return name
+	sanitized := sanitizeToolName(name)
+	if len(sanitized) <= limit {
+		return sanitized
 	}
-	if strings.HasPrefix(name, "mcp__") {
+	if strings.HasPrefix(sanitized, "mcp__") {
 		// Keep prefix and last segment after '__'
-		idx := strings.LastIndex(name, "__")
+		idx := strings.LastIndex(sanitized, "__")
 		if idx > 0 {
-			candidate := "mcp__" + name[idx+2:]
+			candidate := "mcp__" + sanitized[idx+2:]
 			if len(candidate) > limit {
 				return candidate[:limit]
 			}
 			return candidate
 		}
 	}
-	return name[:limit]
+	return sanitized[:limit]
+}
+
+// collectRequestToolNames extracts unique tool names across tools declarations,
+// tool_choice, and historical assistant tool_calls in a deterministic order
+// (upstream bee20b9940251).
+func collectRequestToolNames(rawJSON []byte) []string {
+	var names []string
+	seen := map[string]struct{}{}
+	addName := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; !ok {
+			names = append(names, name)
+			seen[name] = struct{}{}
+		}
+	}
+
+	// 1. tools declarations
+	tools := gjson.GetBytes(rawJSON, "tools")
+	if tools.IsArray() {
+		for _, tool := range tools.Array() {
+			switch tool.Get("type").String() {
+			case "function":
+				addName(tool.Get("function.name").String())
+			case "custom":
+				addName(tool.Get("name").String())
+			}
+		}
+	}
+
+	// 2. tool_choice
+	tc := gjson.GetBytes(rawJSON, "tool_choice")
+	if tc.IsObject() {
+		switch tc.Get("type").String() {
+		case "function":
+			fnName := tc.Get("function.name").String()
+			if fnName == "" {
+				fnName = tc.Get("name").String()
+			}
+			addName(fnName)
+		case "custom":
+			addName(tc.Get("name").String())
+		}
+	}
+
+	// 3. assistant tool_calls in messages
+	messages := gjson.GetBytes(rawJSON, "messages")
+	if messages.IsArray() {
+		for _, msg := range messages.Array() {
+			if msg.Get("role").String() == "assistant" {
+				toolCalls := msg.Get("tool_calls")
+				if toolCalls.IsArray() {
+					for _, tc := range toolCalls.Array() {
+						fnName := tc.Get("function.name").String()
+						if fnName != "" {
+							addName(fnName)
+						} else {
+							addName(tc.Get("custom.name").String())
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return names
 }
 
 // buildShortNameMap generates unique short names (<=64) for the given list of names.
@@ -487,20 +562,7 @@ func buildShortNameMap(names []string) map[string]string {
 	m := map[string]string{}
 
 	baseCandidate := func(n string) string {
-		if len(n) <= limit {
-			return n
-		}
-		if strings.HasPrefix(n, "mcp__") {
-			idx := strings.LastIndex(n, "__")
-			if idx > 0 {
-				cand := "mcp__" + n[idx+2:]
-				if len(cand) > limit {
-					cand = cand[:limit]
-				}
-				return cand
-			}
-		}
-		return n[:limit]
+		return shortenNameIfNeeded(n)
 	}
 
 	makeUnique := func(cand string) string {

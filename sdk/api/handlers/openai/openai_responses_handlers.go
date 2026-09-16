@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	multiagentv2 "github.com/therealtinhtute/llmhub/internal/client/codex/optimize-multi-agent-v2"
 	. "github.com/therealtinhtute/llmhub/internal/constant"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -483,6 +484,24 @@ func (h *OpenAIResponsesAPIHandler) OpenAIResponsesModels(c *gin.Context) {
 	})
 }
 
+// prepareCodexOrphanDelegation rewrites orphan Codex delegation outputs into
+// standard user messages when codex-orphan-delegation-compatibility is enabled
+// and the request carries X-Openai-Subagent: collab_spawn
+// (upstream 291cfb87efac).
+func (h *OpenAIResponsesAPIHandler) prepareCodexOrphanDelegation(c *gin.Context, payload []byte) []byte {
+	if h == nil || h.Cfg == nil || !h.Cfg.CodexOrphanDelegationCompatibility {
+		return payload
+	}
+	requestCtx := context.Background()
+	var requestHeaders http.Header
+	if c != nil && c.Request != nil {
+		requestCtx = c.Request.Context()
+		requestHeaders = c.Request.Header
+	}
+	requestCtx = context.WithValue(requestCtx, "gin", c)
+	return multiagentv2.RewriteCodexOrphanDelegationInput(requestCtx, requestHeaders, payload, true)
+}
+
 // Responses handles the /v1/responses endpoint.
 // It determines whether the request is for a streaming or non-streaming response
 // and calls the appropriate handler based on the model provider.
@@ -501,6 +520,8 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 		})
 		return
 	}
+
+	rawJSON = h.prepareCodexOrphanDelegation(c, rawJSON)
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
@@ -561,6 +582,8 @@ func (h *OpenAIResponsesAPIHandler) Compact(c *gin.Context) {
 		})
 		return
 	}
+
+	rawJSON = h.prepareCodexOrphanDelegation(c, rawJSON)
 
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	if streamResult.Type == gjson.True {

@@ -4,8 +4,8 @@ package thinking
 import (
 	"strings"
 
-	"github.com/therealtinhtute/llmhub/internal/registry"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/tidwall/gjson"
 )
 
@@ -87,6 +87,11 @@ func IsUserDefinedModel(modelInfo *registry.ModelInfo) bool {
 //	result, err := thinking.ApplyThinking(body, "gemini-2.5-pro", "gemini", "gemini", "gemini")
 func ApplyThinking(body []byte, model string, fromFormat string, toFormat string, providerKey string) ([]byte, error) {
 	providerFormat := strings.ToLower(strings.TrimSpace(toFormat))
+	if providerFormat == "openai-response" {
+		// The Responses API shares Codex's thinking-parameter shape; normalize
+		// so codex's applier handles it (upstream d4146bde1248).
+		providerFormat = "codex"
+	}
 	providerKey = strings.ToLower(strings.TrimSpace(providerKey))
 	if providerKey == "" {
 		providerKey = providerFormat

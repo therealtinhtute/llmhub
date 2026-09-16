@@ -93,6 +93,9 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 	if oldCfg.QuotaExceeded.AntigravityCredits != newCfg.QuotaExceeded.AntigravityCredits {
 		changes = append(changes, fmt.Sprintf("quota-exceeded.antigravity-credits: %t -> %t", oldCfg.QuotaExceeded.AntigravityCredits, newCfg.QuotaExceeded.AntigravityCredits))
 	}
+	if !reflect.DeepEqual(oldCfg.AntigravityConnectionPool, newCfg.AntigravityConnectionPool) {
+		changes = append(changes, fmt.Sprintf("antigravity-connection-pool: %+v -> %+v", oldCfg.AntigravityConnectionPool, newCfg.AntigravityConnectionPool))
+	}
 
 	if oldCfg.Routing.Strategy != newCfg.Routing.Strategy {
 		changes = append(changes, fmt.Sprintf("routing.strategy: %s -> %s", oldCfg.Routing.Strategy, newCfg.Routing.Strategy))
@@ -241,6 +244,19 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 			}
 			changes = appendOptionalIntChange(changes, fmt.Sprintf("codex[%d].request-retry", i), o.RequestRetry, n.RequestRetry)
 		}
+	}
+
+	if oldCfg.CodexStreamBootstrapBuffering != newCfg.CodexStreamBootstrapBuffering {
+		changes = append(changes, fmt.Sprintf("codex-stream-bootstrap-buffering: %t -> %t", oldCfg.CodexStreamBootstrapBuffering, newCfg.CodexStreamBootstrapBuffering))
+	}
+	if oldCfg.CodexStreamBootstrapTimeout != newCfg.CodexStreamBootstrapTimeout {
+		changes = append(changes, fmt.Sprintf("codex-stream-bootstrap-timeout: %s -> %s", oldCfg.CodexStreamBootstrapTimeout, newCfg.CodexStreamBootstrapTimeout))
+	}
+	if oldCfg.CodexOrphanDelegationCompatibility != newCfg.CodexOrphanDelegationCompatibility {
+		changes = append(changes, fmt.Sprintf("codex-orphan-delegation-compatibility: %t -> %t", oldCfg.CodexOrphanDelegationCompatibility, newCfg.CodexOrphanDelegationCompatibility))
+	}
+	if oldCfg.CodexModelLevelCooling != newCfg.CodexModelLevelCooling {
+		changes = append(changes, fmt.Sprintf("codex-model-level-cooling: %t -> %t", oldCfg.CodexModelLevelCooling, newCfg.CodexModelLevelCooling))
 	}
 
 	if entries, _ := DiffOAuthExcludedModelChanges(oldCfg.OAuthExcludedModels, newCfg.OAuthExcludedModels); len(entries) > 0 {

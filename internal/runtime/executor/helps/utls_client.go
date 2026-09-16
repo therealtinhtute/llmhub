@@ -8,10 +8,10 @@ import (
 	"time"
 
 	tls "github.com/refraction-networking/utls"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
 )

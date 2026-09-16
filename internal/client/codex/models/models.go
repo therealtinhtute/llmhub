@@ -323,7 +323,7 @@ func applyCPAWebSearchCapability(entry map[string]any, id string, capabilityForM
 
 func applyCodexClientVisibilityOverride(entry map[string]any, id string) {
 	switch strings.TrimSpace(id) {
-	case "grok-imagine-image-quality", "gpt-image-1.5", "gpt-image-2", "grok-imagine-image", "grok-imagine-video", "grok-imagine-video-1.5-preview":
+	case "grok-imagine-image-quality", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5", "grok-imagine-image", "grok-imagine-video", "grok-imagine-video-1.5-preview":
 		entry["visibility"] = "hide"
 	}
 }
@@ -361,7 +361,7 @@ func applyCodexClientInputModalitiesMetadata(entry map[string]any, modalities []
 }
 
 func applyCodexClientThinkingMetadata(entry map[string]any, thinking *registry.ThinkingSupport, clientVersion string) {
-	if thinking == nil || len(thinking.Levels) == 0 {
+	if thinking == nil {
 		return
 	}
 
@@ -385,6 +385,10 @@ func applyCodexClientThinkingMetadata(entry map[string]any, thinking *registry.T
 		})
 	}
 	if len(levels) == 0 {
+		// Upstream cdda333cd287/5208aec703b5: a present-but-empty levels set keeps
+		// supported_reasoning_levels as an empty array while dropping the default.
+		entry["supported_reasoning_levels"] = levels
+		delete(entry, "default_reasoning_level")
 		return
 	}
 	if defaultLevel == "" {
@@ -419,7 +423,9 @@ func sanitizeCodexClientReasoningMetadata(entry map[string]any, clientVersion st
 	}
 
 	if len(levels) == 0 {
-		delete(entry, "supported_reasoning_levels")
+		// Upstream 5208aec703b5: preserve supported_reasoning_levels as an empty
+		// array instead of deleting it; only the default level is dropped.
+		entry["supported_reasoning_levels"] = levels
 		delete(entry, "default_reasoning_level")
 		return
 	}

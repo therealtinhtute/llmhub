@@ -451,6 +451,32 @@ func convertResponsesCustomToolToOpenAIChat(tool gjson.Result, overrideName stri
 	return chatTool, true
 }
 
+// responsesToolOutputText flattens a tool output payload to plain text
+// (upstream openai_openai-responses_tools.go).
+func responsesToolOutputText(output gjson.Result) string {
+	if output.Type == gjson.String {
+		return output.String()
+	}
+	if output.IsArray() {
+		var b strings.Builder
+		output.ForEach(func(_, part gjson.Result) bool {
+			if part.Type == gjson.String {
+				b.WriteString(part.String())
+				return true
+			}
+			if text := part.Get("text"); text.Exists() {
+				b.WriteString(text.String())
+			}
+			return true
+		})
+		return b.String()
+	}
+	if output.Exists() {
+		return output.Raw
+	}
+	return ""
+}
+
 func responsesToolName(tool gjson.Result) string {
 	if name := tool.Get("name"); name.Exists() {
 		return name.String()

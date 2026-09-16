@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -308,6 +308,7 @@ func AppendAPIWebsocketResponse(ctx context.Context, cfg *config.Config, payload
 
 	appendAPIWebsocketTimeline(ginCtx, []byte(builder.String()))
 }
+
 // AppendCodexAPIWebsocketResponse stores a codex upstream websocket response frame and merges any
 // quota event headers carried by the frame into the request log.
 func AppendCodexAPIWebsocketResponse(ctx context.Context, cfg *config.Config, payload []byte) {

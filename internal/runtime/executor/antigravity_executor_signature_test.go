@@ -182,11 +182,15 @@ func TestAntigravityReasoningReplayClientSessionKeyUsesDerivedMetadata(t *testin
 }
 
 func TestPrepareAntigravityGeminiReasoningReplayPayloadRejectsBadFunctionPairing(t *testing.T) {
+	// Since upstream CLIProxyAPI commit 0fe19ede90a4 ("preserve Gemini prompt
+	// cache by demoting mid-session developer messages"), intervening user
+	// content before pending functionResponse parts is accepted; only a model
+	// boundary still breaks pairing. The boundary below must be role=model.
 	payload := []byte(`{
 		"request": {
 			"contents": [
 				{"role":"model","parts":[{"functionCall":{"id":"call-1","name":"run","args":{}}}]},
-				{"role":"user","parts":[{"text":"boundary"}]},
+				{"role":"model","parts":[{"text":"boundary"}]},
 				{"role":"function","parts":[{"functionResponse":{"id":"call-1","name":"run","response":{"result":"ok"}}}]}
 			]
 		}

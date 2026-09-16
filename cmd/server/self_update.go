@@ -137,11 +137,11 @@ func newApplyConfig() updater.ApplyConfig {
 		target = ""
 	}
 	return updater.ApplyConfig{
-		DataDir:         resolveDataDir(),
-		Target:          target,
+		DataDir:          resolveDataDir(),
+		Target:           target,
 		InstalledVersion: buildinfo.Version,
-		Client:          updater.NewClient(),
-		MarkerDir:       resolveMarkerDir(),
+		Client:           updater.NewClient(),
+		MarkerDir:        resolveMarkerDir(),
 	}
 }
 
@@ -202,6 +202,8 @@ func dispatchEarlyCommand(args []string) (code int, ok bool) {
 		return runInitDBFromEnv(args[1:]), true
 	case "migrate-local-to-db":
 		return runMigrateLocalToDB(args[1:]), true
+	case "discover":
+		return runDiscoverCommand(args[1:]), true
 	}
 	return 0, false
 }

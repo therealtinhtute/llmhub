@@ -5,12 +5,12 @@
 package config
 
 import (
-	"sort"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	DefaultPprofAddr = "127.0.0.1:8316"
-	DefaultAuthDir   = "~/.llmhub"
+	DefaultPprofAddr            = "127.0.0.1:8316"
+	DefaultAuthDir              = "~/.llmhub"
+	DefaultDiscoveryServiceType = "_ai-gateway._tcp"
 )
 
 // RequestScopedErrorRule configures custom classification and handling for upstream errors.
@@ -69,6 +70,9 @@ type Config struct {
 
 	// Pprof config controls the optional pprof HTTP debug server.
 	Pprof PprofConfig `yaml:"pprof" json:"pprof"`
+
+	// Discovery configures local network mDNS / DNS-SD service advertising.
+	Discovery DiscoveryConfig `yaml:"discovery" json:"discovery"`
 
 	// CommercialMode disables high-overhead HTTP middleware features to minimize per-request memory usage.
 	CommercialMode bool `yaml:"commercial-mode" json:"commercial-mode"`
@@ -238,6 +242,36 @@ type PprofConfig struct {
 	Enable bool `yaml:"enable" json:"enable"`
 	// Addr is the host:port address for the pprof HTTP server.
 	Addr string `yaml:"addr" json:"addr"`
+}
+
+// DiscoveryInterfacesConfig specifies interface inclusion and exclusion rules.
+type DiscoveryInterfacesConfig struct {
+	Include []string `yaml:"include" json:"include"`
+	Exclude []string `yaml:"exclude" json:"exclude"`
+}
+
+// DiscoveryConfig controls local network mDNS / DNS-SD service advertising.
+type DiscoveryConfig struct {
+	// Enabled toggles mDNS service advertising on the local network (default: false).
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// ServiceName is the optional custom instance name. When empty, defaults to CPA-<ShortID>.
+	ServiceName string `yaml:"service-name" json:"service-name"`
+
+	// ServiceType is the DNS-SD service type (default: _ai-gateway._tcp).
+	ServiceType string `yaml:"service-type" json:"service-type"`
+
+	// Subtypes specifies DNS-SD API protocol subtypes to advertise (e.g. _responses, _messages, _generate-content).
+	Subtypes []string `yaml:"subtypes" json:"subtypes"`
+
+	// Interfaces specifies network interface filtering rules.
+	Interfaces DiscoveryInterfacesConfig `yaml:"interfaces" json:"interfaces"`
+
+	// AuthRequired indicates whether authentication is required for client calls (default: true).
+	AuthRequired *bool `yaml:"auth-required" json:"auth-required"`
+
+	// AdvertiseManagement explicitly controls whether management endpoints are exposed (default: false).
+	AdvertiseManagement bool `yaml:"advertise-management" json:"advertise-management"`
 }
 
 // RemoteManagement holds management API configuration under 'remote-management'.
@@ -444,10 +478,10 @@ type ClaudeModel struct {
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
-func (m ClaudeModel) GetName() string               { return m.Name }
-func (m ClaudeModel) GetAlias() string              { return m.Alias }
-func (m ClaudeModel) GetDisplayName() string        { return m.DisplayName }
-func (m ClaudeModel) GetMaxContextLength() int      { return m.MaxContextLength }
+func (m ClaudeModel) GetName() string          { return m.Name }
+func (m ClaudeModel) GetAlias() string         { return m.Alias }
+func (m ClaudeModel) GetDisplayName() string   { return m.DisplayName }
+func (m ClaudeModel) GetMaxContextLength() int { return m.MaxContextLength }
 
 // CodexKey represents the configuration for a Codex API key,
 // including the API key itself and an optional base URL for the API endpoint.
@@ -523,11 +557,11 @@ type CodexModel struct {
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
-func (m CodexModel) GetName() string               { return m.Name }
-func (m CodexModel) GetAlias() string              { return m.Alias }
-func (m CodexModel) GetDisplayName() string        { return m.DisplayName }
-func (m CodexModel) GetIsCompat() bool             { return m.IsCompat }
-func (m CodexModel) GetMaxContextLength() int      { return m.MaxContextLength }
+func (m CodexModel) GetName() string          { return m.Name }
+func (m CodexModel) GetAlias() string         { return m.Alias }
+func (m CodexModel) GetDisplayName() string   { return m.DisplayName }
+func (m CodexModel) GetIsCompat() bool        { return m.IsCompat }
+func (m CodexModel) GetMaxContextLength() int { return m.MaxContextLength }
 
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
@@ -590,10 +624,10 @@ type GeminiModel struct {
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
-func (m GeminiModel) GetName() string               { return m.Name }
-func (m GeminiModel) GetAlias() string              { return m.Alias }
-func (m GeminiModel) GetDisplayName() string        { return m.DisplayName }
-func (m GeminiModel) GetMaxContextLength() int      { return m.MaxContextLength }
+func (m GeminiModel) GetName() string          { return m.Name }
+func (m GeminiModel) GetAlias() string         { return m.Alias }
+func (m GeminiModel) GetDisplayName() string   { return m.DisplayName }
+func (m GeminiModel) GetMaxContextLength() int { return m.MaxContextLength }
 
 // OpenAICompatibility represents the configuration for OpenAI API compatibility
 // with external providers, allowing model aliases to be routed through OpenAI API format.
@@ -695,10 +729,10 @@ type OpenAICompatibilityModel struct {
 	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
-func (m OpenAICompatibilityModel) GetName() string               { return m.Name }
-func (m OpenAICompatibilityModel) GetAlias() string              { return m.Alias }
-func (m OpenAICompatibilityModel) GetDisplayName() string        { return m.DisplayName }
-func (m OpenAICompatibilityModel) GetMaxContextLength() int      { return m.MaxContextLength }
+func (m OpenAICompatibilityModel) GetName() string          { return m.Name }
+func (m OpenAICompatibilityModel) GetAlias() string         { return m.Alias }
+func (m OpenAICompatibilityModel) GetDisplayName() string   { return m.DisplayName }
+func (m OpenAICompatibilityModel) GetMaxContextLength() int { return m.MaxContextLength }
 
 // LoadConfig reads a YAML configuration file from the given path,
 // unmarshals it into a Config struct, applies environment variable overrides,
@@ -748,6 +782,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.DisableImageGeneration = DisableImageGenerationOff
 	cfg.Pprof.Enable = false
 	cfg.Pprof.Addr = DefaultPprofAddr
+	cfg.Discovery.Enabled = false
+	cfg.Discovery.ServiceType = DefaultDiscoveryServiceType
+	cfg.Discovery.Subtypes = []string{"_chat-completions", "_responses", "_messages", "_generate-content", "_interactions"}
 	cfg.CredentialInFlight = DefaultCredentialInFlightConfig()
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {
@@ -760,6 +797,12 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.CredentialInFlight = cfg.CredentialInFlight.WithDefaults()
 	if errValidate := cfg.CredentialInFlight.Validate(); errValidate != nil {
 		return nil, errValidate
+	}
+	if cfg.Discovery.ServiceType == "" {
+		cfg.Discovery.ServiceType = DefaultDiscoveryServiceType
+	}
+	if len(cfg.Discovery.Subtypes) == 0 {
+		cfg.Discovery.Subtypes = []string{"_chat-completions", "_responses", "_messages", "_generate-content", "_interactions"}
 	}
 
 	// NOTE: Startup legacy key migration is intentionally disabled.

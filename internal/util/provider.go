@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/registry"
-	log "github.com/sirupsen/logrus"
 )
 
 // GetProviderName determines all AI service providers capable of serving a registered model.
@@ -50,6 +50,11 @@ func GetProviderName(modelName string) []string {
 
 	for _, provider := range registry.GetGlobalRegistry().GetModelProviders(modelName) {
 		appendProvider(provider)
+	}
+	if len(providers) == 0 && strings.ToLower(modelName) != modelName {
+		for _, provider := range registry.GetGlobalRegistry().GetModelProviders(strings.ToLower(modelName)) {
+			appendProvider(provider)
+		}
 	}
 
 	if len(providers) > 0 {

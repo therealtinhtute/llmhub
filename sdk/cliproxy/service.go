@@ -458,6 +458,8 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewXAIExecutor(s.cfg))
 	case "kiro":
 		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
+	case "devin":
+		s.coreManager.RegisterExecutor(executor.NewDevinExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -655,6 +657,7 @@ func (s *Service) registerHomeExecutors() {
 	s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
+	s.coreManager.RegisterExecutor(executor.NewDevinExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor("openai-compatibility", s.cfg))
 }
 

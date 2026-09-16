@@ -780,6 +780,61 @@ func firstExistingUsageNode(root gjson.Result, paths ...string) gjson.Result {
 	return gjson.Result{}
 }
 
+// ParseInteractionsUsage extracts a usage.Detail from an intermediate interactions
+// JSON payload (non-streaming interaction document or a streaming interaction.completed event).
+// Ported from upstream CLIProxyAPI helps/usage_helpers.go (f94752762bb9 at v7.3.3);
+// adapted to the local usage.Detail, which has no TokenBreakdown/ResponseServiceTier fields.
+func ParseInteractionsUsage(data []byte) usage.Detail {
+	root := gjson.ParseBytes(data)
+	node := firstExistingUsageNode(root, "usage", "total_usage", "metadata.total_usage", "metadata.usage", "usageMetadata", "usage_metadata", "interaction.usage", "interaction.total_usage", "interaction.metadata.total_usage")
+	if !node.Exists() {
+		return usage.Detail{}
+	}
+	if node.Get("promptTokenCount").Exists() || node.Get("candidatesTokenCount").Exists() {
+		return parseGeminiFamilyUsageDetail(node)
+	}
+	return parseInteractionsUsageDetail(node)
+}
+
+func parseInteractionsUsageDetail(node gjson.Result) usage.Detail {
+	cacheRead := firstExistingUsageNode(node, "cache_read_tokens", "cacheReadTokens")
+	toolUseTokens := firstExistingUsageNode(node, "tool_use_tokens", "total_tool_use_tokens", "toolUseTokens", "totalToolUseTokens").Int()
+	detail := usage.Detail{
+		InputTokens:         firstExistingUsageNode(node, "input_tokens", "prompt_tokens", "total_input_tokens").Int() + toolUseTokens,
+		OutputTokens:        firstExistingUsageNode(node, "output_tokens", "completion_tokens", "total_output_tokens").Int(),
+		ReasoningTokens:     firstExistingUsageNode(node, "reasoning_tokens", "thoughtsTokenCount", "total_thought_tokens").Int(),
+		TotalTokens:         firstExistingUsageNode(node, "total_tokens", "totalTokenCount").Int(),
+		CachedTokens:        firstExistingUsageNode(node, "cached_tokens", "cachedContentTokenCount", "total_cached_tokens").Int(),
+		CacheReadTokens:     cacheRead.Int(),
+		CacheCreationTokens: firstExistingUsageNode(node, "cache_creation_tokens", "cacheCreationTokens", "cache_write_tokens", "cacheWriteTokens").Int(),
+	}
+	if !cacheRead.Exists() && detail.CachedTokens > 0 {
+		detail.CacheReadTokens = detail.CachedTokens
+	}
+	if detail.TotalTokens == 0 {
+		detail.TotalTokens = detail.InputTokens + detail.OutputTokens + detail.ReasoningTokens
+	}
+	return detail
+}
+
+// ParseInteractionsStreamUsage extracts a usage.Detail from a single interactions stream
+// event payload (SSE data line or raw JSON), reporting false when no token fields are present.
+// Ported from upstream CLIProxyAPI helps/usage_helpers.go (f94752762bb9 at v7.3.3).
+func ParseInteractionsStreamUsage(line []byte) (usage.Detail, bool) {
+	payload := jsonPayload(line)
+	if len(payload) == 0 {
+		payload = line
+	}
+	if len(payload) == 0 || !gjson.ValidBytes(payload) {
+		return usage.Detail{}, false
+	}
+	detail := ParseInteractionsUsage(payload)
+	if !hasNonZeroTokenUsage(detail) {
+		return usage.Detail{}, false
+	}
+	return detail, true
+}
+
 func ParseAntigravityUsage(data []byte) usage.Detail {
 	usageNode := gjson.ParseBytes(data)
 	node := usageNode.Get("response.usageMetadata")

@@ -129,7 +129,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
   - W2:
     - T2 session+parent hierarchy propagated to usage queue and normalized in records; branch session IDs with parent lineage on Merkle LCP forks (`580df36423e4`, `6b187e778ceb`, `e899f0e53985`). check: `go test ./sdk/cliproxy/... ./internal/api/... ./internal/logging/...`
 
-### Phase `claude-fingerprint` (story-20260915-claude-fingerprint) — status: planned
+### Phase `claude-fingerprint` (story-20260915-claude-fingerprint) — status: checked
 - goal: R3 — Claude Code 2.1.258 fingerprint chain and Fable 5.1 reporting.
 - dependencies: `translator-hardening` (same provider chain).
 - allowed surfaces: `internal/runtime/executor/**` claude paths, `internal/runtime/executor/helps/**` cloak/fingerprint, `config.example.yaml`.
@@ -168,7 +168,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     - T5 responses websocket: ping control frames, prewarm input, named tool outputs, nested error details + sequence numbers, reasoning deltas before content (`2a6b87aca083`, `bd03aabcf157`, `ca929459f987` + openai rows). check: `go test ./sdk/api/... ./internal/translator/openai/...`
     - T6 kimi OpenAI responses API (`d4146bde1248`). check: `go test ./internal/runtime/executor/ -run 'Kimi'`
 
-### Phase `management-auth-ops` (story-20260915-management-auth-ops) — status: planned
+### Phase `management-auth-ops` (story-20260915-management-auth-ops) — status: checked
 - goal: R13 — auth-file refresh endpoint + cooldown snapshot for management auth files.
 - dependencies: `auth-cooldown-fairness` (snapshot reads cooldown state).
 - allowed surfaces: `internal/api/handlers/management/**`, `internal/api` route registration, `internal/tui` only if upstream wires it.
@@ -194,7 +194,7 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     - T5 sensitive-words cloak restricted to system prompt, config-external, regex matcher cached; subagent identity/emoji sanitization (`5b8e3821b1fe`, `c0b76c2d0991`, `d115fe2c450f`, `1b6948513d37`, `f5247e496f92`, `6c7d2d57f711`, `c0b86059c4b3`). check: `go test ./internal/runtime/executor/ -run 'Devin'`
     - T6 management OAuth endpoints + login cmd wiring + request-log decoded-body diagnostics (`44e62bc8acc2` mgmt parts, `2caab7dbf997`, `16cb6c0b02fb`, `2683ec201dde` if ported). check: `go test ./internal/api/... && make build`
 
-### Phase `lan-discovery` (story-20260915-lan-discovery) — status: planned
+### Phase `lan-discovery` (story-20260915-lan-discovery) — status: checked
 - goal: R11 — LAN gateway discovery (advertise + browse/scan) behind existing config/cmd wiring.
 - dependencies: none (new `internal/discovery` package); scheduled after core phases for risk ordering.
 - allowed surfaces: new `internal/discovery/**`, `internal/cmd`, `cmd/server`, `internal/config`, `config.example.yaml`, `go.mod` (upstream added a dep — review before taking it).
@@ -255,6 +255,10 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-15 | phase=session-usage-hierarchy task=T2 | decision: extend allowed surfaces to `internal/runtime/executor/helps/usage_helpers.go` (+3 upstream) | rationale: it is the local usage-record emission point — `580df36423e4`'s session fields cannot reach usage.Record without it; this resolves the `harness-runtime-extraction` follow-up for the usage_helpers share (the `sdk/api/handlers` share of `390589159eff`/`580df36423e4` remains deferred — no local sdk/pluginapi exists to carry it).
 - 2026-09-15 | phase=session-usage-hierarchy task=T2 | decision: reconcile pck parent to upstream's pure-parentCandidate end-state per `580df36423e4` (supersedes the T1-completion hybrid decision); the conv-parent local test was updated to upstream expectations | rationale: upstream's end-state makes parentCandidate authoritative for pck sessions; the hybrid would leave a fork-local divergence in reported lineage.
 - 2026-09-15 | phase=session-usage-hierarchy task=regression-fix | decision: treat the executor pairing-test failure as a stale expectation from `a628dbf9` (phase translator-hardening), not a new bug — fixed by switching the test boundary to role=model, matching the signature package's own updated test | rationale: the intentional upstream-faithful relaxation (user content before pending functionResponse accepted, `0fe19ede90a4`) was verified on a master worktree (passes) vs branch HEAD (fails); the regression escaped the translator-hardening gate because internal/runtime/executor was outside that phase's touched-package check scope — recorded here for gate-scope awareness.
+- 2026-09-16 | phase=management-auth-ops task=T1 | decision: defer `60e5b8bd432e`'s non-endpoint shares — `internal/registry` ApplyClientModelCapabilities/SupportsWebSearch (+90), `sdk/auth/filestore` proxy_url/prefix hydration (+42), watcher synthesizer (+6), refresh-loop executor keying, antigravity model defs (+242) | rationale: none are required for the refresh endpoint to function (local ForceRefreshAuth/ForceRefreshAll + refreshAuthForRequest keying already suffice); the registry capability share overlaps the existing `sdk-cliproxy-capability-propagation` follow-up — this commit is a second upstream source for it, noted for that follow-up's execution.
+- 2026-09-16 | phase=management-auth-ops task=T2 | decision: port `availabilityBlock` inside the cooldown view only (read-only projection) | rationale: upstream tests require it for view shape, but gating selection on it would regress local DisableCooling (per auth-cooldown-fairness Decision); a view that cannot influence selection preserves both.
+- 2026-09-16 | phase=lan-discovery task=T1/T2 | decision: adapt advertiser wiring to a `sync.Map` manager keyed by *Service + `Builder.WithDiscoveryAdvertiser()`/`Service.ShutdownDiscovery()` in new sdk files; skip `config.example.yaml` (deleted in local 383222ee — Postgres runtime), skip `sdk/config` type aliases, use `-discover-config` flag (no local `-config` flag); add cfgSource poll for Home-mode config swaps beyond upstream | rationale: surfaces forbade editing existing sdk/cliproxy files, and upstream's Service-field wiring has no local equivalent — the package-level manager preserves start-after-up/reload-apply/shutdown-stop semantics.
+- 2026-09-16 | phase=claude-fingerprint task=T2 | decision: accept `claudeDiagnosticsCredentialIdentity` divergence (auth.ID/auth.Index only — upstream's device-pool/account-UUID identities don't exist locally) and defer count-tokens billing relocation (different upstream commit) | rationale: equivalent behavior wherever a stable auth ID exists; remainders recorded for completeness.
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=T1 task_status=DONE | ported `1119ef142466` (hardened NormalizeToCanonicalUUID: empty-after-strip rejected — no ghost UUIDv8, ctx:v1:/ctx: prefixes, iterative unwrap for layered prefixes, golden 2ad1939c-…-3d084d5614c4 regression) + `e899f0e53985` W1 share (SessionInfo IsFork/IsSubagent + forked_from_* parent candidates, codex thread/turn-metadata hierarchy extraction incl. subagent_kind=thread_spawn, claude metadata parent/agent fallbacks, hasExplicitSession +13 headers/+26 payload paths, executor ParentSessionID/IsFork/LCPAccessGeneration metadata keys) | check `go test ./sdk/cliproxy/...` -> all ok | surfaces: sdk/cliproxy/session/{identity,info}.go, sdk/cliproxy/executor/types.go; tests: identity_test +305, info_test +88; committed as 26a4983b
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=wave-summary task_status=DONE_WITH_CONCERNS | W1 committed as 26a4983b (5 files, +738/-33); concern: `390589159eff` extraction share still pending — hasExplicitSession currently recognizes task_id/action_id/parent_* fields whose extraction branches only exist in that commit; ordering a W1-completion pass before W2 (see Decisions) | surfaces: commit 26a4983b
 - 2026-09-15 | phase=session-usage-hierarchy wave=W1 task=T1-completion task_status=DONE | ported `390589159eff` info.go share: parentCandidate table 12->60 keys, metadata.parent_agent_id/parentAgentId fallbacks, X-Parent-*/X-Task-ID/X-Parent-Slot-* header branches + parent chains, task/action payload extraction, child_session_id + expanded metadata./extra_body. paths, isBodyForkCandidate expansion — closes the hasExplicitSession/ExtractSessionInfo gap flagged at W1 | check `go test ./sdk/cliproxy/session/ -count=1` -> ok 0.185s | surfaces: sdk/cliproxy/session/{info,info_test}.go; committed as c8d0d67d (2 files, +318/-27); remainder to W2: selector dedup rewrite + home_session_alias +3
@@ -262,6 +266,15 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
 - 2026-09-15 | phase=session-usage-hierarchy wave=W2 task=T2b task_status=DONE | ported `580df36423e4` + `6b187e778ceb`: Enrich precedence rework (explicit > canonical-metadata > LCP-affinity > execution > derived) wired into conductor Execute/ExecuteCount/ExecuteStream + syncMetadataSessionToContext at 6 call sites; homeDispatchSessionIDs w/ hasAuthoritativeInput gate; SessionID/ParentSessionID on usage.Record + ClientRequestMetadata; redisqueue canonical UUIDv8 normalization + self-loop clear + session_id/parent_session_id payload; usage_helpers reporter seeding; codexlive handler + codex/live adaptation | check `go test ./sdk/cliproxy/... ./internal/api/... ./internal/logging/...` -> all ok | surfaces: conductor.go, home_dispatch.go, home_selection.go, usage/manager.go, logging/requestmeta.go, redisqueue/plugin.go, helps/usage_helpers.go, api/handlers/codexlive, client/codex/live; committed as 814a6ecd
 - 2026-09-15 | phase=session-usage-hierarchy task=regression-fix task_status=DONE | fixed pre-existing executor test `TestPrepareAntigravityGeminiReasoningReplayPayloadRejectsBadFunctionPairing` — stale user-role boundary expectation vs `a628dbf9`'s ported 0fe19ede90a4 semantics (user boundary now accepted, model boundary rejected); verified failing at branch HEAD, passing on master worktree, passing after boundary->model | committed as 8a9c2f80 | see Decisions
 - 2026-09-15 | phase=session-usage-hierarchy wave=W2 task=wave-summary task_status=DONE | W2 committed as 814a6ecd (24 files, +2843/-634) + test fix 8a9c2f80; in-session gate clean (see Validation 2026-09-16T02:20Z) | surfaces: commits 814a6ecd, 8a9c2f80
+- 2026-09-16 | phase=claude-fingerprint task=phase-start | user approved parallel batch of three small/disjoint phases; surfaces disjoint except config.example.yaml (shared w/ lan-discovery — conflict-deferral rule in agent prompts); W1 = T1+T2+T3 in one agent (same package, sequential)
+- 2026-09-16 | phase=management-auth-ops task=phase-start | parallel batch member; upstream `60e5b8bd432e` spans beyond letter-of-surfaces (sdk/auth/filestore, internal/registry, watcher) — agent instructed to port what the endpoint needs and record deviations
+- 2026-09-16 | phase=lan-discovery task=phase-start | parallel batch member; greenfield internal/discovery + sdk/cliproxy/discovery_advertiser (new files, no collisions); go.mod dep addition requires review per plan note; W1+W2 staged in one agent
+- 2026-09-16 | phase=claude-fingerprint wave=W1 task=T1+T2+T3 task_status=DONE | ported `df7e04ea2850`+`d7052c96af78` (dynamic claudeCodeCLIBetas per-request assembly, model fallbacks, Haiku/effort gating, paired cache TTL, device profile 2.1.258), `086ad91bd970`+`4a5ab534f827` (billing header fingerprint chain, cc_prev_req/cc_prompt_id continuity, probe/helper classification, commit-on-complete-only diagnostics), `de4aa600280e` (Fable 5.1 reporting outcomes + post-payload reconcile) | checks `go test ./internal/runtime/executor/ -run 'Claude|Cloak'` + `-run 'Claude|Fable'` -> ok | surfaces: claude_executor.go +1162, new claude_executor_diagnostics.go, helps/{claude_diagnostics,claude_code_session,payload_helpers,cloak_obfuscate,claude_device_profile}.go, 21 parity tests; committed as dcc0a153
+- 2026-09-16 | phase=management-auth-ops wave=W1 task=T1 task_status=DONE | ported `60e5b8bd432e`: POST /auth-files/refresh (?all/?name/?auth_index + JSON body, chunked tolerant) via existing ForceRefreshAuth/ForceRefreshAll; TUI R-key + client methods + en strings | check `go test ./internal/api/... -count=1` -> all ok | surfaces: auth_files_refresh.go +130 +253 test, server.go +1, tui/{client,auth_tab,i18n}; committed as 202587cf
+- 2026-09-16 | phase=management-auth-ops wave=W1 task=T2 task_status=DONE | ported `1ca975dfc011`: CooldownSnapshotForAuth read-only view + ListAuthFiles observed_at/per-entry cooldowns | check `go test ./internal/api/... ./sdk/cliproxy/... -count=1` -> all ok | surfaces: sdk/cliproxy/auth/cooldown_view.go +228 +236 test, auth_files.go +13, auth_files_cooldown_test.go +245; committed as 202587cf
+- 2026-09-16 | phase=lan-discovery wave=W1 task=T1 task_status=DONE_WITH_CONCERNS | ported `3428110d49be`: internal/discovery (types/spec/id/interfaces/service/zeroconf + 545-line test), internal/cmd/discover, cmd/server discover mode, sdk/cliproxy/discovery_advertiser, DiscoveryConfig + defaults + normalization; deps libp2p/zeroconf/v2 v2.2.0 + miekg/dns (indirect) | check `go test ./internal/discovery/... -count=1` -> ok 5.141s | concerns: config.example.yaml deleted locally (383222ee, Postgres runtime); sync.Map advertiser wiring vs upstream Service field; committed as 5ff06e71
+- 2026-09-16 | phase=lan-discovery wave=W2 task=T2 task_status=DONE_WITH_CONCERNS | all 8 hardening commits' semantics present: timeout clamp, argv pre-scan, TCP-only types, uniquified instance names, default scan config + hostname sanitize, JSON-clean scans + include-list bypass, caller cancellation + boundEndpoint, bounded browse, advertiser lifecycle | checks `go test ./internal/discovery/... ./internal/cmd/... -count=1` -> ok; `make build` -> pass | committed as 5ff06e71
+- 2026-09-16 | phase=claude-fingerprint+management-auth-ops+lan-discovery task=batch-summary | parallel batch committed dcc0a153 + 202587cf + 5ff06e71; combined gate clean (see Validation 2026-09-16T04:05Z); pre-existing environmental `TestUpdateCommandRollback` failure (uid=0 test env vs root-gate assertion — predates all three phases, verified by test's own comment) recorded as proof gap
 
 ## Validation
 - `2026-09-15T18:18:34Z` — phase: `model-registry-adds` — verdict: `APPROVED`
@@ -366,13 +379,82 @@ Lifecycle status per phase: `planned|in-progress|checked|done`. Append-only `## 
     failure_ledger: absent
     enforcement: local-only
     not_independently_verified: selector.go ~731-line end-state diff reviewed at behavior level via ported tests, not hunk-by-hunk upstream equivalence; multi-level Claude subagent lineage beyond test fixtures unexercised
+- `2026-09-16T04:05:00Z` — phase: `claude-fingerprint` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (internal/runtime/executor claude paths + helps cloak/fingerprint only; config.example.yaml moot — file deleted locally)
+  - proof_gaps: commit-on-complete semantics verified by ported tests + code inspection, not a live Claude Code session; `claudeDiagnosticsCredentialIdentity` uses auth.ID/Index only (upstream's device-pool/account-UUID fallbacks don't exist locally)
+  - commands:
+    - `go test -count=1 ./internal/runtime/executor/... ./internal/api/... ./internal/tui/... ./internal/discovery/... ./internal/cmd/... ./internal/config/... ./cmd/server/... ./sdk/cliproxy/...` — pass (batch sweep; only `cmd/server` `TestUpdateCommandRollback` fails — pre-existing environmental, uid=0 vs test's root-gate assumption, unrelated to all three phases)
+    - `go test -race -count=1 ./internal/discovery/ ./internal/runtime/executor/helps/ ./sdk/cliproxy/auth/` — pass (29.4s helps incl. TTL continuity map, no data races)
+    - `make build` — pass
+    - `git diff --check master..HEAD` — pass
+    - `gofmt -l` on changed files — pass, no output
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 49fab349
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: dynamic beta-header assembly verified via 21 focused parity tests citing upstream SHAs, not upstream-request diff capture
+- `2026-09-16T04:05:00Z` — phase: `management-auth-ops` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (management handlers + route reg + TUI + new cooldown_view.go); upstream `60e5b8bd432e` non-endpoint shares (registry capability propagation, filestore hydration, refresh-loop keying, antigravity model defs) deferred as remainders — see Decisions
+  - proof_gaps: endpoint exercised by ported handler tests only — no live management-API round trip; cooldown snapshot fields verified vs upstream test expectations, not a running conductor with real cooldowns
+  - commands: same batch sweep + race + build + diff-check + gofmt as claude-fingerprint entry above — all pass
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 49fab349
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: `availabilityBlock` view-only port relies on existing selector tests to prove selection semantics unchanged; upstream auth-index locking idiom replaced with local EnsureIndex (equivalence assumed via tests)
+- `2026-09-16T04:05:00Z` — phase: `lan-discovery` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target (new internal/discovery + cmd wiring + config + new sdk/cliproxy/discovery_advertiser files; config.example.yaml skipped — deleted locally; go.mod dep reviewed: libp2p/zeroconf/v2 v2.2.0 legitimate published mDNS lib)
+  - proof_gaps: mDNS advertise/browse verified via unit tests w/ loopback — no cross-host LAN verification possible in this env; Home-mode config-swap path covered by cfgSource poll addition (beyond upstream — recorded in Decisions)
+  - commands: same batch sweep + race + build + diff-check + gofmt as claude-fingerprint entry above — all pass (discovery race 6.401s)
+  - receipt:
+    context_sources:
+      - docs/plans/active/cliproxyapi-v7.3.3-parity.md
+      - docs/upstream/cliproxyapi-checkpoint.json
+      - docs/upstream/cliproxyapi-ledger-v7.2.147..v7.3.3.md
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 49fab349
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: zeroconf wire behavior under real multicast conditions; advertiser lifecycle under process signal handling beyond unit coverage
 
 ## Current State and Next Action
-- active_phase: none — session-usage-hierarchy `checked` (same-session gate, Validation 2026-09-16T02:20:00Z); translator-hardening, model-registry-adds, auth-cooldown-fairness also `checked`
+- active_phase: none — claude-fingerprint, management-auth-ops, lan-discovery all `checked` (batch gate, Validation 2026-09-16T04:05:00Z); 7 of 11 phases now `checked` (translator-hardening, model-registry-adds, auth-cooldown-fairness, session-usage-hierarchy, + this batch)
 - lifecycle_status: in-progress
-- latest_anchors: session-recovery 2026-09-15 (lost WIP confirmed, upstream refs + Go toolchain recreated); wave-summaries for gated phases (commits 2cb10f4e, 59975d54+450bf629, 1c5d8533+a628dbf9); session-usage-hierarchy complete (commits 26a4983b, c8d0d67d, 814a6ecd, 8a9c2f80; gate 2026-09-16T02:20:00Z)
-- blockers: none — all four `checked` phases unblock the fan-out: claude-fingerprint, antigravity-compaction, codex-openai-ws, management-auth-ops, lan-discovery now have deps satisfied; devin-provider's deps (model-registry-adds, auth-cooldown-fairness, session-usage-hierarchy) all `checked`
+- latest_anchors: session-recovery 2026-09-15 (lost WIP confirmed, upstream refs + Go toolchain recreated); wave-summaries for gated phases (commits 2cb10f4e, 59975d54+450bf629, 1c5d8533+a628dbf9); session-usage-hierarchy (26a4983b, c8d0d67d, 814a6ecd, 8a9c2f80); parallel batch (dcc0a153, 202587cf, 5ff06e71; gate 2026-09-16T04:05:00Z)
+- blockers: none — antigravity-compaction (dep translator-hardening `checked`) and codex-openai-ws (dep auth-cooldown-fairness `checked`) ready for parallel execution; devin-provider deps all `checked`; final-gate waits on all
 - open_items:
-  - follow-ups recorded in Decisions: `sdk-cliproxy-capability-propagation`, `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing`, `harness-runtime-extraction` (sdk/api/handlers share only — usage_helpers share resolved in 814a6ecd)
+  - follow-ups recorded in Decisions: `sdk-cliproxy-capability-propagation` (second source found in `60e5b8bd432e` registry share), `auth-error-propagation-wiring`, `transient-cooldown-config-plumbing`, `refresh-workers-config-plumbing`, `harness-runtime-extraction` (sdk/api/handlers share only), `claude-fingerprint`: count-tokens billing relocation + credential-identity fallbacks
   - 210 semantic-review paths still need per-commit disposition across remaining phases.
-- exact_next_action: pick next phase from the unblocked set — claude-fingerprint, antigravity-compaction, codex-openai-ws, management-auth-ops, lan-discovery (all deps `checked`), or devin-provider (all three deps `checked`; largest scope, ~48 upstream commits)
+  - environmental: `TestUpdateCommandRollback` fails under uid=0 test envs (pre-existing on master — test asserts root-gate rejection; unrelated to all ported work)
+- exact_next_action: parallel pair — antigravity-compaction (W1: T1 compaction+capsule `70f456045222`, T2 cooling bypass `272c1cff4e4c`; W2: T3+T4) + codex-openai-ws (W1: T1–T3 codex executor; W2: T4–T6 translator/ws/kimi), then devin-provider alone (largest scope), then final-gate

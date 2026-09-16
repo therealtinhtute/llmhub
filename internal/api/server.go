@@ -640,6 +640,28 @@ func (s *Server) setupRoutes() {
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
 	})
 
+	// Devin's authorization server redirects straight back to this endpoint;
+	// invalid or expired callbacks are rejected (upstream 44e62bc8acc2).
+	s.engine.GET("/devin/callback", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		code := strings.TrimSpace(c.Query("code"))
+		state := strings.TrimSpace(c.Query("state"))
+		errStr := strings.TrimSpace(c.Query("error"))
+		if errStr == "" {
+			errStr = strings.TrimSpace(c.Query("error_description"))
+		}
+		if code == "" && errStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code or error is required"})
+			return
+		}
+		if errSubmit := managementHandlers.SubmitOAuthCallbackForPendingSession("devin", state, code, errStr); errSubmit != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired OAuth callback"})
+			return
+		}
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, oauthCallbackSuccessHTML)
+	})
+
 	// Management routes are registered lazily by registerManagementRoutes when a secret is configured.
 }
 
@@ -851,6 +873,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/antigravity-auth-url", s.mgmt.RequestAntigravityToken)
 		mgmt.GET("/kimi-auth-url", s.mgmt.RequestKimiToken)
 		mgmt.GET("/xai-auth-url", s.mgmt.RequestXAIToken)
+		mgmt.GET("/devin-auth-url", s.mgmt.RequestDevinToken)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 	}

@@ -93,11 +93,25 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 		execReq.Model = upstreamModel
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
+		if selection.CanonicalSessionID != "" {
+			meta := make(map[string]any, len(execOpts.Metadata)+2)
+			for k, v := range execOpts.Metadata {
+				meta[k] = v
+			}
+			meta[cliproxyexecutor.CanonicalSessionIDMetadataKey] = selection.CanonicalSessionID
+			if selection.ParentSessionID != "" && selection.ParentSessionID != selection.CanonicalSessionID {
+				meta[cliproxyexecutor.ParentSessionIDMetadataKey] = selection.ParentSessionID
+			} else {
+				delete(meta, cliproxyexecutor.ParentSessionIDMetadataKey)
+			}
+			execOpts.Metadata = meta
+		}
 		if errCtx := execCtx.Err(); errCtx != nil {
 			releaseAttempt()
 			selection.End("attempt_canceled")
 			return cliproxyexecutor.Response{}, errCtx
 		}
+		execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
 
 		var response cliproxyexecutor.Response
 		var errExecute error
@@ -217,6 +231,20 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 		execReq.Model = models[0]
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
+		if selection.CanonicalSessionID != "" {
+			meta := make(map[string]any, len(execOpts.Metadata)+2)
+			for k, v := range execOpts.Metadata {
+				meta[k] = v
+			}
+			meta[cliproxyexecutor.CanonicalSessionIDMetadataKey] = selection.CanonicalSessionID
+			if selection.ParentSessionID != "" && selection.ParentSessionID != selection.CanonicalSessionID {
+				meta[cliproxyexecutor.ParentSessionIDMetadataKey] = selection.ParentSessionID
+			} else {
+				delete(meta, cliproxyexecutor.ParentSessionIDMetadataKey)
+			}
+			execOpts.Metadata = meta
+		}
+		execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
 		streamResult, errStream := selection.Executor.ExecuteStream(execCtx, preparedAuth, execReq, execOpts)
 		result := Result{AuthID: preparedAuth.ID, Provider: selection.Provider, Model: routeModel, Success: errStream == nil, Options: execOpts}
 		if errStream != nil {
@@ -401,7 +429,15 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 		return nil, &Error{Code: "home_unavailable", Message: "home execution registry unavailable", Retryable: true, HTTPStatus: http.StatusServiceUnavailable}
 	}
 
-	sessionID := m.homeDispatchSessionID(opts)
+	sessionID, parentSessionID := m.homeDispatchSessionIDs(opts)
+	if sessionID != "" && opts.Metadata != nil {
+		opts.Metadata[cliproxyexecutor.CanonicalSessionIDMetadataKey] = sessionID
+		if parentSessionID != "" {
+			opts.Metadata[cliproxyexecutor.ParentSessionIDMetadataKey] = parentSessionID
+		} else {
+			delete(opts.Metadata, cliproxyexecutor.ParentSessionIDMetadataKey)
+		}
+	}
 	raw, errRPop := client.RPopAuth(ctx, requestedModel, sessionID, homeDispatchHeaders(ctx, opts.Headers), homeAuthCountFromMetadata(opts.Metadata))
 	if errRPop != nil {
 		if home.IsAmbiguousDispatchError(errRPop) {
@@ -564,5 +600,7 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 			return nil, errEnd
 		}
 	}
+	selection.CanonicalSessionID = sessionID
+	selection.ParentSessionID = parentSessionID
 	return selection, nil
 }

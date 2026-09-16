@@ -18,6 +18,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/client/codex/live"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	cliproxysession "github.com/therealtinhtute/llmhub/sdk/cliproxy/session"
 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
 	"golang.org/x/net/proxy"
 )
@@ -121,7 +122,14 @@ func (h *Handler) CreateCall(c *gin.Context) {
 			resources.Add(mediaSession.Close)
 		}
 		ownerPrincipal, ownerProvider := requestRealtimeOwner(c)
-		h.sessions.Put(callID, live.Session{AuthID: auth.ID, Model: model, Resources: resources, OwnerPrincipal: ownerPrincipal, OwnerProvider: ownerProvider})
+		session := live.Session{AuthID: auth.ID, Model: model, Resources: resources, OwnerPrincipal: ownerPrincipal, OwnerProvider: ownerProvider}
+		if info, ok := cliproxysession.ExtractSessionInfo(c.Request.Header, body, nil); ok {
+			session.SessionID = cliproxysession.BoundSessionIdentity(info.SessionID)
+			if info.ParentSessionID != "" && info.ParentSessionID != info.SessionID {
+				session.ParentSessionID = cliproxysession.BoundSessionIdentity(info.ParentSessionID)
+			}
+		}
+		h.sessions.Put(callID, session)
 		if mediaSession != nil {
 			mediaSession.SetCallID(callID)
 			mediaSession.SetCloseHandler(func(string) {

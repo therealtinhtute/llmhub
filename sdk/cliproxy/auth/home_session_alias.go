@@ -7,6 +7,7 @@ import (
 
 	internalconfig "github.com/therealtinhtute/llmhub/internal/config"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	cliproxysession "github.com/therealtinhtute/llmhub/sdk/cliproxy/session"
 )
 
 const defaultHomeSessionAliasTTL = time.Hour
@@ -114,11 +115,88 @@ func homeSessionAliasTTL(cfg *internalconfig.Config) time.Duration {
 	return parsed
 }
 
-func (m *Manager) homeDispatchSessionID(opts cliproxyexecutor.Options) string {
-	primary, fallback := extractSessionIDs(opts.Headers, opts.OriginalRequest, opts.Metadata)
-	if primary == "" || m == nil {
-		return primary
+// isHierarchyParent reports whether fallback is a parent lineage for primary.
+// Same-namespace siblings (including bare IDs) and :agent: subagent paths both
+// count as hierarchy, which keeps fork and subagent parents out of alias groups.
+func isHierarchyParent(primary, fallback string) bool {
+	if fallback == "" || primary == "" || primary == fallback {
+		return false
 	}
+	if strings.Contains(primary, ":agent:") {
+		return true
+	}
+	idx1 := strings.Index(primary, ":")
+	idx2 := strings.Index(fallback, ":")
+	if idx1 > 0 && idx2 > 0 && primary[:idx1] == fallback[:idx2] {
+		return true
+	}
+	if idx1 == -1 && idx2 == -1 {
+		return true
+	}
+	return false
+}
+
+// homeDispatchSessionIDs resolves the canonical session identity and any parent
+// lineage used for Home dispatch and usage reporting. Parent lineage comes from
+// the explicit extraction fallback or request metadata, with self-referential
+// loops suppressed.
+func (m *Manager) homeDispatchSessionIDs(opts cliproxyexecutor.Options) (string, string) {
+	primary, fallback := extractExplicitSessionIDs(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	hasAuthoritativeInput := primary != ""
+	if primary == "" {
+		if canonicalID, ok := opts.Metadata[cliproxyexecutor.CanonicalSessionIDMetadataKey].(string); ok && strings.TrimSpace(canonicalID) != "" {
+			primary = strings.TrimSpace(canonicalID)
+		} else if lcpID, ok := opts.Metadata[cliproxyexecutor.LCPAffinitySessionIDMetadataKey].(string); ok && strings.TrimSpace(lcpID) != "" {
+			primary = strings.TrimSpace(lcpID)
+		} else {
+			primary, fallback = extractSessionIDs(opts.Headers, opts.OriginalRequest, opts.Metadata)
+			hasAuthoritativeInput = primary != ""
+		}
+	}
+	if primary == "" || m == nil {
+		return primary, ""
+	}
+
+	var parentSessionID string
+	var aliasFallback string
+	if fallback != "" && fallback != primary {
+		if isHierarchyParent(primary, fallback) {
+			parentSessionID = fallback
+		} else {
+			aliasFallback = fallback
+		}
+	}
+	if !hasAuthoritativeInput && parentSessionID == "" && opts.Metadata != nil {
+		if metaParent, ok := opts.Metadata[cliproxyexecutor.ParentSessionIDMetadataKey].(string); ok && strings.TrimSpace(metaParent) != "" {
+			parentSessionID = strings.TrimSpace(metaParent)
+		}
+	}
+
 	cfg, _ := m.runtimeConfig.Load().(*internalconfig.Config)
-	return m.homeSessionAliases.canonical(primary, fallback, homeSessionAliasTTL(cfg), time.Now())
+	ttl := homeSessionAliasTTL(cfg)
+	now := time.Now()
+	canonical := m.homeSessionAliases.canonical(primary, aliasFallback, ttl, now)
+	if parentSessionID != "" {
+		if parentSessionID == canonical || parentSessionID == primary || (aliasFallback != "" && parentSessionID == aliasFallback) {
+			parentSessionID = ""
+		} else {
+			parentSessionID = m.homeSessionAliases.canonical(parentSessionID, "", ttl, now)
+			if parentSessionID == canonical {
+				parentSessionID = ""
+			}
+		}
+	}
+	canonical = cliproxysession.BoundSessionIdentity(canonical)
+	if parentSessionID != "" {
+		parentSessionID = cliproxysession.BoundSessionIdentity(parentSessionID)
+	}
+	if canonical == parentSessionID {
+		parentSessionID = ""
+	}
+	return canonical, parentSessionID
+}
+
+func (m *Manager) homeDispatchSessionID(opts cliproxyexecutor.Options) string {
+	sessionID, _ := m.homeDispatchSessionIDs(opts)
+	return sessionID
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	internallogging "github.com/therealtinhtute/llmhub/internal/logging"
+	coresession "github.com/therealtinhtute/llmhub/sdk/cliproxy/session"
 	coreusage "github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 )
 
@@ -353,4 +354,190 @@ func requireHeaderField(t *testing.T, payload map[string]json.RawMessage, field,
 			t.Fatalf("%s[%q] = %v, want %v", field, key, got, want)
 		}
 	}
+}
+
+// Ported from upstream CLIProxyAPI commits 580df36423e4 and 6b187e778ceb:
+// queue payloads carry session/parent lineage normalized to canonical UUIDv8.
+func TestUsageQueuePluginPayloadIncludesExplicitSessionHierarchy(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "ctx-session-req-1")
+		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
+		ctx = internallogging.WithClientRequestMetadata(ctx, internallogging.ClientRequestMetadata{
+			ClientIP:        "192.0.2.10",
+			SessionID:       "slot:pi-worker-1",
+			ParentSessionID: "slot:pi-main-root",
+		})
+		ctx = internallogging.WithResponseStatusHolder(ctx)
+		internallogging.SetResponseStatus(ctx, http.StatusOK)
+
+		plugin := &usageQueuePlugin{}
+		plugin.HandleUsage(ctx, coreusage.Record{
+			Provider:        "openai",
+			Model:           "gpt-5.6-sol",
+			APIKey:          "test-key",
+			SessionID:       "slot:pi-worker-1",
+			ParentSessionID: "slot:pi-main-root",
+			RequestedAt:     time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+			Latency:         5000 * time.Millisecond,
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "request_id", "ctx-session-req-1")
+		wantSession := coresession.NormalizeToCanonicalUUID("slot:pi-worker-1")
+		wantParent := coresession.NormalizeToCanonicalUUID("slot:pi-main-root")
+		requireStringField(t, payload, "session_id", wantSession)
+		requireStringField(t, payload, "parent_session_id", wantParent)
+		if len(wantSession) != 36 || wantSession[14] != '8' {
+			t.Fatalf("expected 36-char UUIDv8 for session_id, got %q", wantSession)
+		}
+		if len(wantParent) != 36 || wantParent[14] != '8' {
+			t.Fatalf("expected 36-char UUIDv8 for parent_session_id, got %q", wantParent)
+		}
+	})
+}
+
+// Ported from upstream CLIProxyAPI commit 6b187e778ceb: protocol-prefixed
+// native UUIDs are unwrapped to the canonical lowercase UUID in queue payloads.
+func TestUsageQueuePluginPayloadNormalizesPrefixedNativeUUID(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "ctx-native-uuid-1")
+		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
+		ctx = internallogging.WithResponseStatusHolder(ctx)
+		internallogging.SetResponseStatus(ctx, http.StatusOK)
+
+		plugin := &usageQueuePlugin{}
+		plugin.HandleUsage(ctx, coreusage.Record{
+			Provider:        "codex",
+			Model:           "gpt-5.6-sol",
+			APIKey:          "test-key",
+			SessionID:       "codex:01a07e72-c84d-7fd3-8207-d217b41cc649",
+			ParentSessionID: "codex:01a07e71-a1b2-7c3d-98e1-f23456789abc",
+			RequestedAt:     time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+			Latency:         1000 * time.Millisecond,
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "session_id", "01a07e72-c84d-7fd3-8207-d217b41cc649")
+		requireStringField(t, payload, "parent_session_id", "01a07e71-a1b2-7c3d-98e1-f23456789abc")
+	})
+}
+
+// Ported from upstream CLIProxyAPI commit 580df36423e4: self-referential
+// parents are dropped before queueing.
+func TestUsageQueuePluginPayloadPreventsSelfReferentialLoop(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "ctx-loop-req-1")
+		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
+		ctx = internallogging.WithResponseStatusHolder(ctx)
+		internallogging.SetResponseStatus(ctx, http.StatusOK)
+
+		plugin := &usageQueuePlugin{}
+		plugin.HandleUsage(ctx, coreusage.Record{
+			Provider:        "openai",
+			Model:           "gpt-5.6-sol",
+			APIKey:          "test-key",
+			SessionID:       "loop-sess-1",
+			ParentSessionID: "loop-sess-1",
+			RequestedAt:     time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+			Latency:         1000 * time.Millisecond,
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "request_id", "ctx-loop-req-1")
+		wantSession := coresession.NormalizeToCanonicalUUID("loop-sess-1")
+		requireStringField(t, payload, "session_id", wantSession)
+		if _, exists := payload["parent_session_id"]; exists {
+			t.Fatalf("expected parent_session_id to be omitted on self-referential loop, got %s", payload["parent_session_id"])
+		}
+	})
+}
+
+// Ported from upstream CLIProxyAPI commit 580df36423e4: a record-defined root
+// session does not inherit a stale context parent (ghost-parent guard).
+func TestUsageQueuePluginPayloadSameOriginFallback(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "ctx-same-origin-1")
+		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
+		ctx = internallogging.WithClientRequestMetadata(ctx, internallogging.ClientRequestMetadata{
+			SessionID:       "old-root",
+			ParentSessionID: "old-parent",
+		})
+		ctx = internallogging.WithResponseStatusHolder(ctx)
+		internallogging.SetResponseStatus(ctx, http.StatusOK)
+
+		plugin := &usageQueuePlugin{}
+		// Record explicitly defines an independent root session without parent.
+		// It should NOT pick up old-parent from context.
+		plugin.HandleUsage(ctx, coreusage.Record{
+			Provider:        "openai",
+			Model:           "gpt-5.6-sol",
+			APIKey:          "test-key",
+			SessionID:       "new-custom-root",
+			ParentSessionID: "",
+			RequestedAt:     time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+			Latency:         1000 * time.Millisecond,
+		})
+
+		payload := popSinglePayload(t)
+		wantSession := coresession.NormalizeToCanonicalUUID("new-custom-root")
+		requireStringField(t, payload, "session_id", wantSession)
+		if _, exists := payload["parent_session_id"]; exists {
+			t.Fatalf("expected parent_session_id to be omitted when record is independent root, got %s", payload["parent_session_id"])
+		}
+	})
+}
+
+// Context metadata fallback covers records that lack explicit session fields,
+// and a context parent that does not match the record session is not adopted.
+func TestUsageQueuePluginPayloadContextFallbackAndMismatch(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "ctx-fallback-1")
+		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
+		ctx = internallogging.WithClientRequestMetadata(ctx, internallogging.ClientRequestMetadata{
+			SessionID:       "ctx-session",
+			ParentSessionID: "ctx-parent",
+		})
+		ctx = internallogging.WithResponseStatusHolder(ctx)
+		internallogging.SetResponseStatus(ctx, http.StatusOK)
+
+		plugin := &usageQueuePlugin{}
+		// Record carries no session fields: context metadata supplies both.
+		plugin.HandleUsage(ctx, coreusage.Record{
+			Provider:    "openai",
+			Model:       "gpt-5.6-sol",
+			RequestedAt: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+			Latency:     1000 * time.Millisecond,
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "session_id", coresession.NormalizeToCanonicalUUID("ctx-session"))
+		requireStringField(t, payload, "parent_session_id", coresession.NormalizeToCanonicalUUID("ctx-parent"))
+	})
+
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "ctx-mismatch-1")
+		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
+		ctx = internallogging.WithClientRequestMetadata(ctx, internallogging.ClientRequestMetadata{
+			SessionID:       "different-session",
+			ParentSessionID: "ctx-parent",
+		})
+		ctx = internallogging.WithResponseStatusHolder(ctx)
+		internallogging.SetResponseStatus(ctx, http.StatusOK)
+
+		plugin := &usageQueuePlugin{}
+		// Record session differs from context session: context parent must not leak.
+		plugin.HandleUsage(ctx, coreusage.Record{
+			Provider:    "openai",
+			Model:       "gpt-5.6-sol",
+			SessionID:   "record-session",
+			RequestedAt: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+			Latency:     1000 * time.Millisecond,
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "session_id", coresession.NormalizeToCanonicalUUID("record-session"))
+		if _, exists := payload["parent_session_id"]; exists {
+			t.Fatalf("expected parent_session_id to be omitted when context session mismatches record, got %s", payload["parent_session_id"])
+		}
+	})
 }

@@ -12,12 +12,14 @@ import (
 
 // Record contains the usage statistics captured for a single provider request.
 type Record struct {
-	Provider  string
-	Model     string
-	Alias     string
-	APIKey    string
-	AuthID    string
-	AuthIndex string
+	Provider        string
+	Model           string
+	Alias           string
+	APIKey          string
+	SessionID       string
+	ParentSessionID string
+	AuthID          string
+	AuthIndex       string
 	// AccessTokenSHA256 identifies the OAuth token version without exposing the token.
 	AccessTokenSHA256 string
 	AuthType          string

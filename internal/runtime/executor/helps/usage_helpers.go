@@ -28,6 +28,8 @@ type UsageReporter struct {
 	accessToken         string
 	authType            string
 	apiKey              string
+	sessionID           string
+	parentSessionID     string
 	source              string
 	reasoning           string
 	stream              bool
@@ -47,16 +49,28 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 	if alias == "" {
 		alias = model
 	}
+	sessionID := ""
+	parentSessionID := ""
+	clientMeta := internallogging.GetClientRequestMetadata(ctx)
+	if clientMeta.SessionID != "" {
+		sessionID = clientMeta.SessionID
+		parentSessionID = clientMeta.ParentSessionID
+		if sessionID == parentSessionID || !isUsageHierarchyParent(sessionID, parentSessionID) {
+			parentSessionID = ""
+		}
+	}
 	reporter := &UsageReporter{
-		provider:    provider,
-		model:       model,
-		alias:       strings.TrimSpace(alias),
-		requestedAt: time.Now(),
-		apiKey:      apiKey,
-		source:      resolveUsageSource(auth, apiKey),
-		authType:    resolveUsageAuthType(auth),
-		reasoning:   usage.ReasoningEffortFromContext(ctx),
-		stream:      usage.StreamFromContext(ctx),
+		provider:        provider,
+		model:           model,
+		alias:           strings.TrimSpace(alias),
+		requestedAt:     time.Now(),
+		apiKey:          apiKey,
+		sessionID:       sessionID,
+		parentSessionID: parentSessionID,
+		source:          resolveUsageSource(auth, apiKey),
+		authType:        resolveUsageAuthType(auth),
+		reasoning:       usage.ReasoningEffortFromContext(ctx),
+		stream:          usage.StreamFromContext(ctx),
 	}
 	if auth != nil {
 		reporter.authID = auth.ID
@@ -72,6 +86,37 @@ func (r *UsageReporter) SetStream(stream bool) {
 		return
 	}
 	r.stream = stream
+}
+
+// SetSessionHierarchy sets the explicit session and parent session identifiers.
+// Callers should invoke this method before Publish or EnsurePublished on the request thread.
+func (r *UsageReporter) SetSessionHierarchy(sessionID, parentSessionID string) {
+	if r == nil {
+		return
+	}
+	r.sessionID = strings.TrimSpace(sessionID)
+	r.parentSessionID = strings.TrimSpace(parentSessionID)
+	if r.sessionID == "" || r.sessionID == r.parentSessionID || !isUsageHierarchyParent(r.sessionID, r.parentSessionID) {
+		r.parentSessionID = ""
+	}
+}
+
+// isUsageHierarchyParent reports whether parent is a plausible lineage ancestor
+// of primary: same-namespace identifiers and :agent: subagent paths qualify,
+// while empty, equal, or cross-namespace pairs do not.
+func isUsageHierarchyParent(primary, parent string) bool {
+	if parent == "" || primary == "" || primary == parent {
+		return false
+	}
+	if strings.Contains(primary, ":agent:") {
+		return true
+	}
+	idx1 := strings.Index(primary, ":")
+	idx2 := strings.Index(parent, ":")
+	if idx1 > 0 && idx2 > 0 && primary[:idx1] == parent[:idx2] {
+		return true
+	}
+	return false
 }
 
 func (r *UsageReporter) TrackHTTPClient(client *http.Client) *http.Client {
@@ -365,6 +410,8 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		Alias:           r.alias,
 		Source:          r.source,
 		APIKey:          r.apiKey,
+		SessionID:       r.sessionID,
+		ParentSessionID: r.parentSessionID,
 		AuthID:          r.authID,
 		AuthIndex:       r.authIndex,
 		AuthType:        r.authType,

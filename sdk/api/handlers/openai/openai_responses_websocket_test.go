@@ -1239,6 +1239,7 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 			timelineLog,
 			"session-1",
 			nil,
+			nil,
 		)
 		if err != nil {
 			serverErrCh <- err
@@ -1322,6 +1323,7 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
 			errCh,
 			timelineLog,
 			"session-1",
+			nil,
 			nil,
 		)
 		if err == nil {
@@ -1451,6 +1453,69 @@ func TestResponsesWebsocketClosesOnCodexUpstreamDisconnect(t *testing.T) {
 	_, _, err = conn.ReadMessage()
 	if err == nil {
 		t.Fatalf("expected downstream websocket to close after upstream disconnect")
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit aedc9e6a3987.
+func TestResponsesWebsocketExposesTerminalOAuthError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	executor := &websocketUpstreamDisconnectExecutor{subscribed: make(chan string, 1)}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	conn, _, errDial := websocket.DefaultDialer.Dial(wsURL, nil)
+	if errDial != nil {
+		t.Fatalf("dial websocket: %v", errDial)
+	}
+	defer func() { _ = conn.Close() }()
+
+	var sessionID string
+	select {
+	case sessionID = <-executor.subscribed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for upstream disconnect subscription")
+	}
+
+	terminalErr := coreauth.NewTerminalAuthError(&coreauth.Error{
+		Code:       "auth_unavailable",
+		Message:    "no auth available",
+		HTTPStatus: http.StatusServiceUnavailable,
+	}, errors.New(`token refresh failed with status 401: {"error":{"message":"Refresh credential has already been consumed; sign in again.","type":"invalid_request_error","code":"refresh_token_reused"}}`))
+
+	executor.TriggerDisconnect(sessionID, terminalErr)
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, payload, errRead := conn.ReadMessage()
+	if errRead != nil {
+		t.Fatalf("terminal OAuth rejection was hidden: %v", errRead)
+	}
+	if got := gjson.GetBytes(payload, "type").String(); got != "error" {
+		t.Fatalf("type = %q, want error: %s", got, payload)
+	}
+	if got := gjson.GetBytes(payload, "status").Int(); got != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", got, payload)
+	}
+	if got := gjson.GetBytes(payload, "error.type").String(); got != "authentication_error" {
+		t.Fatalf("error.type = %q, want authentication_error: %s", got, payload)
+	}
+	if got := gjson.GetBytes(payload, "error.code").String(); got != "upstream_authentication_required" {
+		t.Fatalf("error.code = %q, want upstream_authentication_required: %s", got, payload)
+	}
+	retryable := gjson.GetBytes(payload, "error.retryable")
+	if !retryable.Exists() || retryable.Bool() {
+		t.Fatalf("error.retryable = %v, want explicit false: %s", retryable, payload)
+	}
+	if !strings.Contains(gjson.GetBytes(payload, "error.message").String(), "refresh_token_reused") {
+		t.Fatalf("error.message missing refresh_token_reused: %s", payload)
 	}
 }
 

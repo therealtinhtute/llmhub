@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/clienterror"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	requestlogging "github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -330,6 +332,11 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	wsDone := make(chan struct{})
 	defer close(wsDone)
 
+	// wsWriteMu serializes writes so the disconnect goroutine below can emit a
+	// terminal error frame without racing the main goroutine's writes
+	// (upstream responsesWebsocketWriter.writeMu equivalent).
+	var wsWriteMu sync.Mutex
+
 	if h != nil && h.AuthManager != nil {
 		if exec, ok := h.AuthManager.Executor("codex"); ok && exec != nil {
 			type upstreamDisconnectSubscriber interface {
@@ -345,6 +352,21 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 						case disconnectErr := <-disconnectCh:
 							if isRequestScopedResponsesWebsocketError(disconnectErr) {
 								return
+							}
+							// Ported from upstream CLIProxyAPI commit aedc9e6a3987:
+							// terminal upstream auth failures are exposed to the
+							// client as an error event instead of a silent close
+							// (upstream shouldExposeResponsesUpstreamError).
+							if coreauth.IsTerminalAuthError(disconnectErr) && wsWriteMu.TryLock() {
+								status := clienterror.HTTPStatusFromError(disconnectErr)
+								if status <= 0 {
+									status = http.StatusInternalServerError
+								}
+								_, _ = writeResponsesWebsocketError(conn, wsTimelineLog, &interfaces.ErrorMessage{
+									StatusCode: status,
+									Error:      disconnectErr,
+								})
+								wsWriteMu.Unlock()
 							}
 							_ = conn.Close()
 						}
@@ -489,7 +511,9 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		if errMsg != nil {
 			h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
 			markAPIResponseTimestamp(c)
+			unlockWebsocketWriter := lockWebsocketWriter(&wsWriteMu)
 			errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
+			unlockWebsocketWriter()
 			log.Infof(
 				"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
 				passthroughSessionID,
@@ -520,7 +544,9 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			lastRequest = updatedLastRequest
 			lastResponseOutput = []byte("[]")
 			observedCompaction.clear()
+			unlockWebsocketWriter := lockWebsocketWriter(&wsWriteMu)
 			prewarmID, errWrite := writeResponsesWebsocketSyntheticPrewarm(c, conn, requestJSON, wsTimelineLog, passthroughSessionID)
+			unlockWebsocketWriter()
 			if errWrite != nil {
 				wsTerminateErr = errWrite
 				return
@@ -572,7 +598,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		})
 		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
 
-		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID, toolCacheTransaction)
+		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID, toolCacheTransaction, &wsWriteMu)
 		if errForward != nil {
 			wsTerminateErr = errForward
 			log.Warnf("responses websocket: forward failed id=%s error=%v", passthroughSessionID, errForward)
@@ -1331,6 +1357,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	wsTimelineLog websocketTimelineAppender,
 	sessionID string,
 	toolCacheTransaction *responsesWebsocketToolCacheTransaction,
+	writeMu *sync.Mutex,
 ) ([]byte, *interfaces.ErrorMessage, error) {
 	completed := false
 	completedOutput := []byte("[]")
@@ -1340,8 +1367,9 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	}
 
 	// Downstream ping control frames keep intermediaries alive during long
-	// upstream stalls; all writes happen on this goroutine so no extra mutex is
-	// needed (upstream responsesWebsocketWriter.writePing + keepAlive ticker).
+	// upstream stalls; text writes go through writeMu so the disconnect
+	// goroutine can interleave a terminal error frame safely.
+	// (Upstream responsesWebsocketWriter.writePing + keepAlive ticker.)
 	keepAliveInterval := time.Duration(0)
 	if h != nil {
 		keepAliveInterval = handlers.StreamingKeepAliveInterval(h.Cfg)
@@ -1357,7 +1385,9 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 		if errMsg != nil {
 			h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
 			markAPIResponseTimestamp(c)
+			unlockWebsocketWriter := lockWebsocketWriter(writeMu)
 			errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
+			unlockWebsocketWriter()
 			log.Infof(
 				"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
 				sessionID,
@@ -1441,7 +1471,10 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				// 	websocketPayloadEventType(payloads[i]),
 				// 	websocketPayloadPreview(payloads[i]),
 				// )
-				if errWrite := writeResponsesWebsocketPayload(conn, wsTimelineLog, payloads[i], time.Now()); errWrite != nil {
+				unlockWebsocketWriter := lockWebsocketWriter(writeMu)
+				errWrite := writeResponsesWebsocketPayload(conn, wsTimelineLog, payloads[i], time.Now())
+				unlockWebsocketWriter()
+				if errWrite != nil {
 					log.Warnf(
 						"responses websocket: downstream_out write failed id=%s event=%s error=%v",
 						sessionID,
@@ -1650,6 +1683,18 @@ func setWebsocketBody(c *gin.Context, key string, body string) {
 		return
 	}
 	c.Set(key, []byte(trimmedBody))
+}
+
+// lockWebsocketWriter serializes websocket text writes when writeMu is
+// provided, so the upstream-disconnect goroutine can emit a terminal error
+// frame without racing in-flight writes (upstream responsesWebsocketWriter.writeMu).
+// Callers on the main handler goroutine may pass nil when no sharing is needed.
+func lockWebsocketWriter(writeMu *sync.Mutex) func() {
+	if writeMu == nil {
+		return func() {}
+	}
+	writeMu.Lock()
+	return writeMu.Unlock
 }
 
 func writeResponsesWebsocketPayload(conn *websocket.Conn, wsTimelineLog websocketTimelineAppender, payload []byte, timestamp time.Time) error {

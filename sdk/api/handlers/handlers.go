@@ -1349,12 +1349,24 @@ func enrichAuthSelectionError(err error, providers []string, model string) error
 		status = http.StatusServiceUnavailable
 	}
 
-	return &coreauth.Error{
+	cause := errors.Unwrap(err)
+
+	enriched := &coreauth.Error{
 		Code:       authErr.Code,
 		Message:    detail,
 		Retryable:  authErr.Retryable,
 		HTTPStatus: status,
 	}
+	// Ported from upstream CLIProxyAPI commit aedc9e6a3987: keep the terminal
+	// upstream-auth classification (and the wrapped cause) through enrichment so
+	// response writers can emit the non-retryable contract.
+	if coreauth.IsTerminalAuthError(err) {
+		return coreauth.NewTerminalAuthError(enriched, cause)
+	}
+	if cause != nil {
+		return coreauth.WithCause(enriched, cause)
+	}
+	return enriched
 }
 
 // WriteErrorResponse writes an error message to the response writer using the HTTP status embedded in the message.
@@ -1387,7 +1399,14 @@ func (h *BaseAPIHandler) WriteErrorResponse(c *gin.Context, msg *interfaces.Erro
 		}
 	}
 
-	body := BuildErrorResponseBody(status, errText)
+	// Ported from upstream CLIProxyAPI commit aedc9e6a3987: propagate the
+	// structured error (terminal auth classification, retryable flag) into the
+	// response envelope instead of flattening to a generic body.
+	var errCause error
+	if msg != nil {
+		errCause = msg.Error
+	}
+	body := BuildErrorResponseBodyWithError(status, errText, errCause)
 	// Append first to preserve upstream response logs, then drop duplicate payloads if already recorded.
 	var previous []byte
 	if existing, exists := c.Get("API_RESPONSE"); exists {

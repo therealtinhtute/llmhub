@@ -213,6 +213,11 @@ export function ProvidersWorkbenchPage() {
         callbackSubmitting: false,
         callbackStatus: undefined,
         callbackError: undefined,
+        deviceFlow: undefined,
+        userCode: undefined,
+        verificationUri: undefined,
+        verificationUriComplete: undefined,
+        expiresIn: undefined,
       });
       successResetTimers.current[provider] = window.setTimeout(() => {
         resetProviderAttempt(provider);
@@ -281,6 +286,11 @@ export function ProvidersWorkbenchPage() {
         error: undefined,
         callbackStatus: undefined,
         callbackError: undefined,
+        deviceFlow: undefined,
+        userCode: undefined,
+        verificationUri: undefined,
+        verificationUriComplete: undefined,
+        expiresIn: undefined,
       });
       try {
         const response = await oauthApi.startAuth(
@@ -301,12 +311,33 @@ export function ProvidersWorkbenchPage() {
           toast.error(message);
           return;
         }
+        const isDeviceFlow =
+          response.flow === 'device' ||
+          Boolean(response.user_code?.trim()) ||
+          Boolean(response.verification_uri?.trim());
         updateProviderState(provider, {
           url: response.url,
           state: response.state,
           status: 'waiting',
           polling: true,
+          deviceFlow: isDeviceFlow || undefined,
+          userCode: response.user_code?.trim() || undefined,
+          verificationUri: response.verification_uri?.trim() || undefined,
+          verificationUriComplete: response.verification_uri_complete?.trim() || undefined,
+          expiresIn:
+            typeof response.expires_in === 'number' && response.expires_in > 0
+              ? response.expires_in
+              : undefined,
         });
+        // Device flow: the start response carries no browser redirect — open the
+        // complete verification URL (which embeds the user code) when present so
+        // the user lands on the approval page directly.
+        const autoOpenUrl =
+          response.verification_uri_complete?.trim() ||
+          (isDeviceFlow ? response.url?.trim() : undefined);
+        if (autoOpenUrl) {
+          window.open(autoOpenUrl, '_blank', 'noopener,noreferrer');
+        }
         startPolling(provider, response.state);
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -334,6 +365,30 @@ export function ProvidersWorkbenchPage() {
       }
     },
     [t]
+  );
+
+  const copyOAuthCode = useCallback(
+    async (code?: string) => {
+      if (!code) return;
+      const copied = await copyToClipboard(code);
+      if (copied) {
+        toast.success(t('notification.code_copied'));
+      } else {
+        toast.error(t('notification.copy_failed'));
+      }
+    },
+    [t]
+  );
+
+  const cancelOAuth = useCallback(
+    (provider: OAuthProvider) => {
+      const sessionState = oauthStates[provider]?.state;
+      if (sessionState) {
+        void oauthApi.cancelAuthSession(sessionState).catch(() => {});
+      }
+      resetProviderAttempt(provider);
+    },
+    [oauthStates, resetProviderAttempt]
   );
 
   const submitOAuthCallback = useCallback(
@@ -682,7 +737,9 @@ export function ProvidersWorkbenchPage() {
           void submitOAuthCallback(providerId, callbackInput)
         }
         onResetOAuth={resetProviderAttempt}
+        onCancelOAuth={cancelOAuth}
         onCopyOAuthLink={(url) => void copyOAuthLink(url)}
+        onCopyOAuthCode={(code) => void copyOAuthCode(code)}
         onAuthFilesChanged={refreshAuthFiles}
         authFilesRevision={authFilesRevision}
       />

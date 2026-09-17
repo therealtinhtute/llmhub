@@ -69,7 +69,9 @@ interface ProviderSheetProps {
     callbackInput: string
   ) => void;
   onResetOAuth: (providerId: ProviderEntryOAuthMeta['id']) => void;
+  onCancelOAuth: (providerId: ProviderEntryOAuthMeta['id']) => void;
   onCopyOAuthLink: (url?: string) => void;
+  onCopyOAuthCode: (code?: string) => void;
   onAuthFilesChanged: () => void | Promise<void>;
   authFilesRevision: number;
   ref?: Ref<ProviderSheetHandle>;
@@ -111,7 +113,9 @@ export function ProviderSheet({
   onStartOAuth,
   onSubmitOAuthCallback,
   onResetOAuth,
+  onCancelOAuth,
   onCopyOAuthLink,
+  onCopyOAuthCode,
   onAuthFilesChanged,
   authFilesRevision,
   ref,
@@ -459,7 +463,9 @@ export function ProviderSheet({
           onStart={onStartOAuth}
           onSubmitCallback={onSubmitOAuthCallback}
           onReset={onResetOAuth}
+          onCancel={onCancelOAuth}
           onCopyLink={onCopyOAuthLink}
+          onCopyCode={onCopyOAuthCode}
         />
         <div className="flex flex-col gap-2 border-t border-border pt-4">
           <h3 className="m-0 text-sm font-semibold text-foreground">

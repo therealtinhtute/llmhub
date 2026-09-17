@@ -210,6 +210,10 @@ function ProviderEntryCard({
               invertOnDark ? '[data-theme=dark]_&:invert [data-theme=dark]_&:hue-rotate-180' : '',
             ].join(' ')}
           />
+        ) : entry.kind === 'oauth' ? (
+          <span className="w-6 h-6 flex-shrink-0 inline-flex items-center justify-center bg-secondary text-[12px] font-bold text-foreground">
+            {entry.oauthId.slice(0, 1).toUpperCase()}
+          </span>
         ) : null}
         <span className="flex flex-col min-w-0 gap-1">
           <span className="text-[13px] font-medium whitespace-nowrap overflow-hidden text-ellipsis">

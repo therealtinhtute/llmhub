@@ -298,6 +298,7 @@
     "filter_xai": "xAI",
     "filter_iflow": "iFlow",
     "filter_vertex": "Vertex",
+    "filter_meta": "Meta",
     "filter_empty": "Empty",
     "filter_unknown": "Other",
     "type_qwen": "Qwen",
@@ -781,6 +782,17 @@
     "xai_callback_hint": "Grok may only show a code on the page. Paste that code directly and the app will submit it as http://127.0.0.1:56121/callback?... automatically.",
     "xai_callback_required": "Please paste the code shown by Grok or the full callback URL first.",
     "xai_callback_state_missing": "Missing the state for this xAI login. Start xAI login again, then submit the code.",
+    "meta_oauth_title": "Meta (Muse Code)",
+    "meta_oauth_button": "Start Meta Login",
+    "meta_oauth_hint": "Sign in with your Meta account using the device code flow, automatically obtain and save authentication files.",
+    "meta_oauth_url_label": "Verification URL:",
+    "meta_open_link": "Open Link",
+    "meta_copy_link": "Copy Link",
+    "meta_oauth_status_waiting": "Waiting for device authorization...",
+    "meta_oauth_status_success": "Authentication successful!",
+    "meta_oauth_status_error": "Authentication failed:",
+    "meta_oauth_start_error": "Failed to start Meta OAuth:",
+    "meta_oauth_polling_error": "Failed to check authentication status:",
     "oauth_callback_label": "Callback URL",
     "oauth_callback_placeholder": "http://localhost:1455/auth/callback?code=...&state=...",
     "oauth_callback_hint": "Remote browser mode: after the provider redirects to http://localhost:..., copy the full URL and submit it here.",
@@ -805,6 +817,10 @@
     "iflow_oauth_status_error": "Authentication failed:",
     "iflow_oauth_start_error": "Failed to start iFlow OAuth:",
     "iflow_oauth_polling_error": "Failed to check authentication status:",
+    "device_user_code_label": "Enter this code on the verification page:",
+    "device_copy_code": "Copy Code",
+    "device_code_expires_hint": "The code expires in about {{minutes}} minutes.",
+    "oauth_cancel": "Cancel",
     "remote_access_disabled": "This login method is not available for remote access. Please access from localhost."
   },
   "stats": {
@@ -1395,7 +1411,8 @@
     "claude_api_key": "Claude API key",
     "commercial_mode_restart_required": "Commercial mode setting changed. Please restart the service for it to take effect",
     "copy_failed": "Copy failed",
-    "link_copied": "Link copied to clipboard"
+    "link_copied": "Link copied to clipboard",
+    "code_copied": "Code copied to clipboard"
   },
   "language": {
     "switch": "Ngôn ngữ",

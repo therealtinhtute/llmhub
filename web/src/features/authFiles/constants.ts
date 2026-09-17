@@ -113,6 +113,10 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
   vertex: {
     light: { bg: '#e4edfd', text: '#2b5fbc' },
   },
+  // Meta (Muse Code): brand blue #0081FB
+  meta: {
+    light: { bg: '#e2efff', text: '#0663c8' },
+  },
   empty: {
     light: { bg: '#f5f5f5', text: '#616161' },
   },
@@ -152,6 +156,7 @@ export const resolveQuotaErrorMessage = (
 export const normalizeProviderKey = (value: string) => {
   const key = value.trim().toLowerCase().replace(/_/g, '-');
   if (key === 'x-ai' || key === 'grok') return 'xai';
+  if (key === 'muse') return 'meta';
   return key;
 };
 

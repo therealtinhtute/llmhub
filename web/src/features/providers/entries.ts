@@ -27,7 +27,7 @@ export interface ProviderEntryOAuthMeta {
   titleKey: string;
   hintKey: string;
   urlLabelKey: string;
-  icon: string | { light: string; dark: string };
+  icon?: string | { light: string; dark: string };
 }
 
 export type ProviderEntry =
@@ -39,7 +39,7 @@ export type ProviderEntry =
       titleKey: string;
       hintKey: string;
       urlLabelKey: string;
-      icon: string | { light: string; dark: string };
+      icon?: string | { light: string; dark: string };
       accountCount: number;
       hasIssue: boolean;
     }
@@ -101,6 +101,14 @@ export const PROVIDERS: ProviderEntryOAuthMeta[] = [
     urlLabelKey: 'auth_login.xai_oauth_url_label',
     icon: { light: iconGrok, dark: iconGrokDark },
   },
+  {
+    id: 'meta',
+    titleKey: 'auth_login.meta_oauth_title',
+    hintKey: 'auth_login.meta_oauth_hint',
+    urlLabelKey: 'auth_login.meta_oauth_url_label',
+    // No bundled meta.svg (upstream assets/logo/meta.svg is excluded); the
+    // panel renders an initial badge when no icon asset is set.
+  },
 ];
 
 export const CALLBACK_SUPPORTED: OAuthProvider[] = [
@@ -118,6 +126,7 @@ export const OAUTH_TO_AUTH_FILE_TYPE: Record<OAuthProvider, string> = {
   'gemini-cli': 'gemini',
   kimi: 'kimi',
   xai: 'xai',
+  meta: 'meta',
 };
 
 export const getOAuthAuthFileTypes = (provider: OAuthProvider): string[] =>
@@ -137,6 +146,12 @@ export interface ProviderOAuthState {
   callbackSubmitting?: boolean;
   callbackStatus?: 'success' | 'error';
   callbackError?: string;
+  /** RFC 8628 device-flow fields populated for providers like meta. */
+  deviceFlow?: boolean;
+  userCode?: string;
+  verificationUri?: string;
+  verificationUriComplete?: string;
+  expiresIn?: number;
 }
 
 export const getProviderI18nPrefix = (provider: OAuthProvider) => provider.replace('-', '_');
@@ -217,9 +232,16 @@ export const resolveCallbackUrl = (
 };
 
 export const getOAuthIcon = (
-  icon: string | { light: string; dark: string },
+  icon: string | { light: string; dark: string } | undefined,
   theme: 'light' | 'dark'
-): string => (typeof icon === 'string' ? icon : theme === 'dark' ? icon.dark : icon.light);
+): string | null =>
+  icon === undefined
+    ? null
+    : typeof icon === 'string'
+      ? icon
+      : theme === 'dark'
+        ? icon.dark
+        : icon.light;
 
 const APIKEY_CONFIG_BRANDS: Exclude<ProviderBrand, 'openaiCompatibility' | NativeProviderBrand>[] = [
   'gemini',

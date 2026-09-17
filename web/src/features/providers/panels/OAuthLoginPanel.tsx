@@ -19,7 +19,9 @@ interface OAuthLoginPanelProps {
   onStart: (providerId: OAuthProvider, projectId?: string) => void;
   onSubmitCallback: (providerId: OAuthProvider, callbackInput: string) => void;
   onReset: (providerId: OAuthProvider) => void;
+  onCancel: (providerId: OAuthProvider) => void;
   onCopyLink: (url?: string) => void;
+  onCopyCode: (code?: string) => void;
 }
 
 export function OAuthLoginPanel({
@@ -28,13 +30,18 @@ export function OAuthLoginPanel({
   onStart,
   onSubmitCallback,
   onReset,
+  onCancel,
   onCopyLink,
+  onCopyCode,
 }: OAuthLoginPanelProps) {
   const { t } = useTranslation();
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
   const [projectId, setProjectId] = useState('');
   const [callbackInput, setCallbackInput] = useState('');
 
+  const isDeviceFlow = state.deviceFlow === true;
+  const deviceVerificationUrl = state.verificationUri || state.url;
+  const deviceOpenUrl = state.verificationUriComplete || deviceVerificationUrl;
   const canSubmitCallback = CALLBACK_SUPPORTED.includes(provider.id) && Boolean(state.url);
   const loginButtonLabel =
     state.status === 'success'
@@ -47,17 +54,24 @@ export function OAuthLoginPanel({
   ]
     .filter(Boolean)
     .join(' ');
+  const oauthIconSrc = getOAuthIcon(provider.icon, resolvedTheme);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3 pr-2">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/55">
-            <img
-              src={getOAuthIcon(provider.icon, resolvedTheme)}
-              alt=""
-              className="h-5 w-5 shrink-0"
-            />
+            {oauthIconSrc ? (
+              <img
+                src={oauthIconSrc}
+                alt=""
+                className="h-5 w-5 shrink-0"
+              />
+            ) : (
+              <span className="text-sm font-bold text-foreground">
+                {provider.id.slice(0, 1).toUpperCase()}
+              </span>
+            )}
           </span>
           <span className="flex min-w-0 flex-col gap-1">
             <span className="truncate text-sm font-semibold text-foreground">
@@ -92,7 +106,60 @@ export function OAuthLoginPanel({
         />
       )}
 
-      {state.url && (
+      {isDeviceFlow && (
+        <div className="flex flex-col gap-2 border border-dashed border-border bg-muted p-3">
+          <div className="text-sm text-muted-foreground">
+            {t('auth_login.device_user_code_label')}
+          </div>
+          {state.userCode && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="break-all font-mono text-2xl font-bold tracking-[0.2em] text-foreground">
+                {state.userCode}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onCopyCode(state.userCode)}
+              >
+                {t('auth_login.device_copy_code')}
+              </Button>
+            </div>
+          )}
+          {deviceVerificationUrl && (
+            <>
+              <div className="text-sm text-muted-foreground">{t(provider.urlLabelKey)}</div>
+              <div className="max-w-full break-all font-bold leading-relaxed text-foreground">
+                {deviceVerificationUrl}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onCopyLink(deviceVerificationUrl)}
+                >
+                  {t(getAuthKey(provider.id, 'copy_link'))}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => window.open(deviceOpenUrl, '_blank', 'noopener,noreferrer')}
+                >
+                  {t(getAuthKey(provider.id, 'open_link'))}
+                </Button>
+              </div>
+            </>
+          )}
+          {state.expiresIn ? (
+            <div className="text-[12px] text-muted-foreground">
+              {t('auth_login.device_code_expires_hint', {
+                minutes: Math.max(1, Math.ceil(state.expiresIn / 60)),
+              })}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {state.url && !isDeviceFlow && (
         <div className="flex flex-col gap-1 border border-dashed border-border bg-muted p-3">
           <div className="text-sm text-muted-foreground">{t(provider.urlLabelKey)}</div>
           <div className="max-w-full break-all font-bold leading-relaxed text-foreground">
@@ -160,6 +227,14 @@ export function OAuthLoginPanel({
             : state.status === 'error'
               ? `${t(getAuthKey(provider.id, 'oauth_status_error'))} ${state.error || ''}`
               : t(getAuthKey(provider.id, 'oauth_status_waiting'))}
+        </div>
+      )}
+
+      {state.status === 'waiting' && (
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => onCancel(provider.id)}>
+            {t('auth_login.oauth_cancel')}
+          </Button>
         </div>
       )}
 

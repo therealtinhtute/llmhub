@@ -10,11 +10,22 @@ export type OAuthProvider =
   | 'antigravity'
   | 'gemini-cli'
   | 'kimi'
-  | 'xai';
+  | 'xai'
+  | 'meta';
 
 export interface OAuthStartResponse {
   url: string;
   state?: string;
+  /**
+   * RFC 8628 device-flow fields returned by providers that authenticate via
+   * device code instead of a browser redirect (e.g. meta).
+   */
+  flow?: string;
+  user_code?: string;
+  verification_uri?: string;
+  verification_uri_complete?: string;
+  expires_in?: number;
+  interval?: number;
 }
 
 export interface OAuthCallbackResponse {
@@ -26,7 +37,8 @@ const WEBUI_SUPPORTED: OAuthProvider[] = [
   'anthropic',
   'antigravity',
   'gemini-cli',
-  'xai'
+  'xai',
+  'meta'
 ];
 const CALLBACK_PROVIDER_MAP: Partial<Record<OAuthProvider, string>> = {
   'gemini-cli': 'gemini'
@@ -57,5 +69,10 @@ export const oauthApi = {
       provider: callbackProvider,
       redirect_url: redirectUrl
     });
-  }
+  },
+
+  cancelAuthSession: (state: string) =>
+    apiClient.delete<{ status: 'ok'; cancelled?: boolean }>('/oauth-session', {
+      params: { state }
+    })
 };

@@ -6,10 +6,12 @@ import (
 
 // newAuthManager creates a new authentication manager instance with all supported
 // authenticators and a file-based token store. It initializes authenticators for
-// Gemini, Codex, Claude, Antigravity, Kimi, xAI, and Devin providers.
+// Gemini, Codex, Claude, Antigravity, Kimi, xAI, Devin, and Meta providers.
 //
 // Returns:
 //   - *sdkAuth.Manager: A configured authentication manager instance
+//
+// Meta registration ported from upstream CLIProxyAPI commit 54d4f4c0193c.
 func newAuthManager() *sdkAuth.Manager {
 	store := sdkAuth.GetTokenStore()
 	manager := sdkAuth.NewManager(store,
@@ -20,6 +22,7 @@ func newAuthManager() *sdkAuth.Manager {
 		sdkAuth.NewKimiAuthenticator(),
 		sdkAuth.NewXAIAuthenticator(),
 		sdkAuth.NewDevinAuthenticator(),
+		sdkAuth.NewMetaAuthenticator(),
 	)
 	return manager
 }

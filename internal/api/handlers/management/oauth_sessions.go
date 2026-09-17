@@ -437,6 +437,9 @@ func NormalizeOAuthProvider(provider string) (string, error) {
 		return "xai", nil
 	case "devin", "cognition":
 		return "devin", nil
+	// Meta/Muse provider normalization ported from upstream CLIProxyAPI commit e475807a.
+	case "meta", "muse":
+		return "meta", nil
 	default:
 		return "", errUnsupportedOAuthFlow
 	}

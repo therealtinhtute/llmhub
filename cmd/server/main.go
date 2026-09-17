@@ -87,6 +87,7 @@ func main() {
 	var kimiLogin bool
 	var xaiLogin bool
 	var devinLogin bool
+	var metaLogin bool
 	var projectID string
 	var vertexImport string
 	var vertexImportPrefix string
@@ -113,6 +114,8 @@ func main() {
 	flag.BoolVar(&kimiLogin, "kimi-login", false, "Login to Kimi using OAuth")
 	flag.BoolVar(&xaiLogin, "xai-login", false, "Login to xAI using OAuth")
 	flag.BoolVar(&devinLogin, "devin-login", false, "Login to Devin using OAuth")
+	// -meta-login flag ported from upstream CLIProxyAPI commit 54d4f4c0193c.
+	flag.BoolVar(&metaLogin, "meta-login", false, "Login to Meta using OAuth")
 	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
 	flag.StringVar(&vertexImportPrefix, "vertex-import-prefix", "", "Prefix for Vertex model namespacing (use with -vertex-import)")
@@ -257,6 +260,8 @@ func main() {
 		cmd.DoXAILogin(cfg, options)
 	} else if devinLogin {
 		cmd.DoDevinLogin(cfg, options)
+	} else if metaLogin {
+		cmd.DoMetaLogin(cfg, options)
 	} else {
 		if localModel && (!tuiMode || standalone) {
 			log.Info("Local model mode: using embedded model catalog, remote model updates disabled")

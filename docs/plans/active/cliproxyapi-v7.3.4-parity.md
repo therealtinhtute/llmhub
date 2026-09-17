@@ -96,7 +96,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     - T1 conductor lifecycle deltas (mint serialization, persistMetaMint, dca_token credential detection, indexSeed, metadata-merge skip). check: `go test ./sdk/cliproxy/...`
     - T2 executor trio + service registration + shims. check: `go test ./internal/runtime/executor/... ./sdk/cliproxy/...`
 
-### Phase `meta-config-apikey` (story-20260916-meta-config-apikey) — status: planned
+### Phase `meta-config-apikey` (story-20260916-meta-config-apikey) — status: in-progress
 - goal: R5 — MetaKey config family + alias/error-rules cases.
 - dependencies: `meta-executor` (synthesized auths need registered executor).
 - allowed surfaces: `internal/config/**`, `internal/watcher/synthesizer/config.go`, `internal/watcher/clients.go`, `internal/watcher/diff/config_diff.go`, `sdk/cliproxy/service.go` (resolve/build/case hunks), `sdk/cliproxy/auth/oauth_model_alias.go`, `sdk/cliproxy/auth/conductor_request_scoped_errors.go`, `sdk/cliproxy/auth/api_key_model_capabilities.go` (meta case folds into landed machinery), `internal/api/handlers/management/config_lists.go` + `config_auth_index.go` + `config_meta_keys*.go` (new), `internal/api/server.go` (routes).
@@ -105,7 +105,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     - T1 config family: MetaKey type/sanitize/parse + synthesizer + diff + BuildAPIKeyClients + service resolve/build/case. check: `go test ./internal/config/... ./internal/watcher/... ./sdk/cliproxy/...`
     - T2 mgmt CRUD + auth-index + routes + alias/error-rules meta cases. check: `go test ./internal/api/... ./sdk/cliproxy/...`
 
-### Phase `meta-mgmt-oauth` (story-20260916-meta-mgmt-oauth) — status: planned
+### Phase `meta-mgmt-oauth` (story-20260916-meta-mgmt-oauth) — status: in-progress
 - goal: R6 — management OAuth endpoint + FULL TUI device UX + WebUI support.
 - dependencies: `meta-auth` (auth service), `meta-executor` (display only — soft).
 - allowed surfaces: new `internal/api/handlers/management/auth_files_meta_oauth.go`, `internal/api/server.go`, `internal/tui/**`, `web/src/services/api/oauth.ts` + device-code display components (owner-approved UI work), `internal/api/handlers/management/auth_files.go` (wiring only).
@@ -114,7 +114,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     - T5a `RequestMetaToken` + routes + TUI full deviceFlow UX. check: `go test ./internal/api/... ./internal/tui/...`
     - T5b web panel: `'meta'` union + `WEBUI_SUPPORTED` + device-code display. check: `cd web && bun run build` (or repo lint/typecheck script — no new test files per invariant)
 
-### Phase `meta-api-call` (story-20260916-meta-api-call) — status: planned
+### Phase `meta-api-call` (story-20260916-meta-api-call) — status: in-progress
 - goal: R7 — `/api-call` meta token resolution.
 - dependencies: `meta-executor` (`Manager.PrepareRequestAuth` export).
 - allowed surfaces: `internal/api/handlers/management/api_tools.go` + tests.
@@ -150,6 +150,8 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 - 2026-09-16 | phase=meta-executor wave=W1 task=T1+T2 task_status=DONE | conductor lifecycle (indexSeed meta-api-key, dca_token credential, MergeExistingAuthMetadata meta skip, PrepareRequestAuth export, persistMetaMint under m.mu pre-install, tryRefreshAfterUnauthorized 401->refresh->retry — hard dep of be7323f3) + executor trio + sanitizer + 16 upstream tests | checks `go test ./sdk/cliproxy/... ./internal/runtime/executor/...` + `-race` auth -> ok | committed
 - 2026-09-16 | phase=meta-executor task=wave-summary | meta executor self-selects codex format (requestToFormat N/A); shims recorded (metaIsConfigAPIKeyAuth, TranslateRequestWithCodexMultiAgentV2, SetTranslatedReasoningEffort no-op); upstream test UA bug corrected (muse-build/1.3.0); remainders -> config-apikey (MetaKey/resolveConfigMetaKey/buildMetaConfigModels), api-call (PrepareRequestAuth consumers), home-dispatch 401 hooks (out of slice)
 
+- 2026-09-16 | phase=meta-config-apikey+meta-mgmt-oauth+meta-api-call task=phase-start | wave-3 parallel fanout (4 agents: config T1+T2 sequential, mgmt T5a Go, mgmt T5b web, api-call T6); server.go route registrations deferred to orchestrator (config+mgmt both need them)
+
 ## Validation
 - (populated at each phase gate — see work-full.md step 11 / check-validation.md format)
 
@@ -178,7 +180,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     not_independently_verified: live Meta OIDC endpoints; minted-key behavior under real plan states
 
 ## Current State and Next Action
-- active_phase: none — meta-executor checked; next: meta-config-apikey + meta-mgmt-oauth + meta-api-call parallel wave (server.go routes deferred to orchestrator)
+- active_phase: meta-config-apikey + meta-mgmt-oauth + meta-api-call — wave-3 in flight (4 agents; server.go routes → orchestrator)
 - lifecycle_status: in-progress
 - latest_anchors: prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released); debt-cleanup commits on master `dc3aa689`/`c5a96047`/`4729ed69`/`73a2c234`
 - blockers: none — all deps satisfied (cancel machinery landed, capability machinery landed, devin pattern established)

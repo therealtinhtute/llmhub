@@ -80,6 +80,7 @@ func TestMetaDeviceOAuthFlow(t *testing.T) {
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir, Port: 8317}, nil)
 
 	waited := make(chan struct{}, 1)
+	release := make(chan struct{})
 	service := &fakeMetaOAuthService{
 		wait: func(ctx context.Context, dcr *metaauth.DeviceCodeResponse) (*metaauth.MetaAuthBundle, error) {
 			if dcr.DeviceCode != "device-code" {
@@ -89,6 +90,14 @@ func TestMetaDeviceOAuthFlow(t *testing.T) {
 				t.Error("device poll inherited completed HTTP request cancellation")
 			}
 			waited <- struct{}{}
+			// Hold the poll open so the pending-status assertion below is
+			// deterministic — otherwise the session can complete (tombstone)
+			// before get-auth-status runs and the test flakes.
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 			return &metaauth.MetaAuthBundle{
 				TokenData: &metaauth.TokenData{AccessToken: "dca:test-token", TokenType: "Bearer", ExpiresIn: 3600, ExpiresAt: time.Now().Add(time.Hour).Unix()},
 				MintedKey: &metaauth.MintedKeyResponse{APIKey: "mk-test-key", BaseURL: "https://api.meta.ai/v1", UserEmail: "user@example.com", UserFullName: "Meta User"},
@@ -141,17 +150,19 @@ func TestMetaDeviceOAuthFlow(t *testing.T) {
 		t.Fatalf("expires_in = %d, want 900", start.Expires)
 	}
 
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("device authorization poll did not start")
+	}
+
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/get-auth-status?state="+start.State, nil))
 	if !strings.Contains(w.Body.String(), `"status":"wait"`) {
 		t.Fatalf("pending: %s", w.Body.String())
 	}
 
-	select {
-	case <-waited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("device authorization poll did not start")
-	}
+	close(release)
 
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()

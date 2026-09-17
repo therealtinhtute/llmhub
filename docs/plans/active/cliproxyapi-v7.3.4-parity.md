@@ -87,7 +87,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
   - W1:
     - T1 `internal/auth/meta/**` + `sdk/auth/meta.go` + refresh-registry + auth-manager + `-meta-login` cmd. check: `go test ./internal/auth/meta/... ./sdk/auth/... ./internal/cmd/...`
 
-### Phase `meta-executor` (story-20260916-meta-executor) — status: planned
+### Phase `meta-executor` (story-20260916-meta-executor) — status: in-progress
 - goal: R4 — executor trio + conductor lifecycle.
 - dependencies: `meta-models` (model resolution), `meta-auth` (auth records).
 - allowed surfaces: new `internal/runtime/executor/meta_executor{,_execute,_stream}.go` + tests, `sdk/cliproxy/auth/conductor.go`, `sdk/cliproxy/auth/types.go`, `sdk/cliproxy/auth/metadata_merge.go`, `sdk/cliproxy/service.go` (executor registration + PrepareRequestAuth export).
@@ -145,6 +145,8 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 - 2026-09-16 | phase=meta-auth wave=W1 task=T1 task_status=DONE | internal/auth/meta (~585 LOC + 365 test), sdk/auth/meta.go, meta_login cmd + -meta-login flag, refresh_registry + auth_manager + NormalizeOAuthProvider meta/muse; device flow + /muse-code/key mint + atomic SaveTokenToFile + RefreshLead=nil; 21aa46b6 correctly excluded (upstream removed local-CLI creds); 1144ae70 auth-side N/A | check `go test ./internal/auth/meta` -> ok 4.2s | committed
 - 2026-09-16 | phase=misc-fixes+meta-models+meta-auth task=wave-summary | wave-1 complete in 3 commits; combined gate clean (Validation 2026-09-16T07:30Z); next: meta-executor (deps meta-models+meta-auth satisfied)
 
+- 2026-09-16 | phase=meta-executor task=phase-start | deps meta-models+meta-auth checked; single agent runs T1 conductor lifecycle then T2 executor trio sequentially (shared concepts)
+
 ## Validation
 - (populated at each phase gate — see work-full.md step 11 / check-validation.md format)
 
@@ -173,7 +175,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     not_independently_verified: live Meta OIDC endpoints; minted-key behavior under real plan states
 
 ## Current State and Next Action
-- active_phase: none — wave-1 checked; next: meta-executor (deps satisfied)
+- active_phase: meta-executor — in flight (T1 conductor lifecycle, then T2 executor trio)
 - lifecycle_status: in-progress
 - latest_anchors: prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released); debt-cleanup commits on master `dc3aa689`/`c5a96047`/`4729ed69`/`73a2c234`
 - blockers: none — all deps satisfied (cancel machinery landed, capability machinery landed, devin pattern established)

@@ -909,6 +909,11 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
+	// Ported from upstream CLIProxyAPI commit 78c14b80 (disable caching for
+	// management.html to prevent stale SPA views).
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 }
 

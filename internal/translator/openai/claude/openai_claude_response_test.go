@@ -816,3 +816,102 @@ func TestStreamingTool_PerChunkUsageOmittedFinishReasonPreservesToolArguments(t 
 		t.Fatalf("output_tokens = %d, want 15", output)
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit 772c63c8
+// ("refine tool call argument validation for finish reason logic").
+func TestStreamingTool_FinishReasonLengthEmitsMaxTokensStopReason(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/test.txt\",\"content\":\"hello"}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":400}}`,
+	)
+
+	if got := lastStopReason(events); got != "max_tokens" {
+		t.Fatalf("stop_reason = %q, want %q", got, "max_tokens")
+	}
+}
+
+func TestStreamingTool_TruncatedArgumentsWithoutFinishReasonEmitsMaxTokens(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/test.txt\",\"content\":\"hello"}}]},"finish_reason":null}]}`,
+	)
+
+	if got := lastStopReason(events); got != "max_tokens" {
+		t.Fatalf("stop_reason = %q, want %q", got, "max_tokens")
+	}
+}
+
+func TestStreamingTool_ValidArgumentsWithStopReasonEmitsToolUse(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/test.txt\"}"}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20}}`,
+	)
+
+	if got := lastStopReason(events); got != "tool_use" {
+		t.Fatalf("stop_reason = %q, want %q", got, "tool_use")
+	}
+}
+
+func TestStreamingTool_TruncatedArgumentsWithStopReasonEmitsMaxTokens(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/test.txt\""}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20}}`,
+	)
+
+	if got := lastStopReason(events); got != "max_tokens" {
+		t.Fatalf("stop_reason = %q, want %q", got, "max_tokens")
+	}
+}
+
+func TestStreamingTool_EmptyArgumentsWithToolCallsEmitsToolUse(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_time","arguments":""}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":10}}`,
+	)
+
+	if got := lastStopReason(events); got != "tool_use" {
+		t.Fatalf("stop_reason = %q, want %q", got, "tool_use")
+	}
+}
+
+func TestStreamingTool_WhitespaceOnlyArgumentsWithoutFinishReasonEmitsMaxTokens(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":" \n\t"}}]},"finish_reason":null}]}`,
+	)
+
+	if got := lastStopReason(events); got != "max_tokens" {
+		t.Fatalf("stop_reason = %q, want %q", got, "max_tokens")
+	}
+}
+
+func TestStreamingTool_ContentFilterWithToolCallEmitsEndTurn(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/test.txt\"}"}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":10,"completion_tokens":20}}`,
+	)
+
+	if got := lastStopReason(events); got != "end_turn" {
+		t.Fatalf("stop_reason = %q, want %q", got, "end_turn")
+	}
+}
+
+func TestStreamingTool_ParallelCallsOneTruncatedEmitsMaxTokens(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/a\"}"}},{"index":1,"id":"call_2","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/b"}}]},"finish_reason":null}]}`,
+	)
+
+	if got := lastStopReason(events); got != "max_tokens" {
+		t.Fatalf("stop_reason = %q, want %q", got, "max_tokens")
+	}
+}
+
+func TestStreamingTool_MultiChunkTruncatedWithTrailingUsageEmitsMaxTokens(t *testing.T) {
+	events := runStream(t, streamReq,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/a\","}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"function":{"arguments":"\"content\":\"incompl"}}]},"finish_reason":null}]}`,
+		`{"id":"c1","model":"m","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":400}}`,
+	)
+
+	if got := lastStopReason(events); got != "max_tokens" {
+		t.Fatalf("stop_reason = %q, want %q", got, "max_tokens")
+	}
+}

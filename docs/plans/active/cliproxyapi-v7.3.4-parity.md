@@ -61,7 +61,7 @@ updated: 2026-09-16
 ## Phases and Verification
 Phase gate (each phase): `go test -count=1` on touched packages + `make build` + `git diff --check master..HEAD` + `gofmt -l` on changed files.
 
-### Phase `misc-fixes` (story-20260916-misc-fixes) — status: planned
+### Phase `misc-fixes` (story-20260916-misc-fixes) — status: in-progress
 - goal: R1 — translator finish-reason validation + mgmt no-cache.
 - dependencies: none.
 - allowed surfaces: `internal/translator/openai/claude/**`, `internal/api/server.go` (serveManagementControlPanel only).
@@ -71,7 +71,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     - T1 `772c63c8` — `hasValidToolCallArguments` + `effectiveOpenAIFinishReason` rework (~50 LOC impl + ~97 LOC test). check: `go test ./internal/translator/openai/...`
     - T2 `78c14b80` — 3 no-cache headers before `c.Data` in `serveManagementControlPanel` (~`internal/api/server.go:900`). check: `go test ./internal/api/...`
 
-### Phase `meta-models` (story-20260916-meta-models) — status: planned
+### Phase `meta-models` (story-20260916-meta-models) — status: in-progress
 - goal: R2 — muse-spark catalog + registry/updater plumbing.
 - dependencies: none.
 - allowed surfaces: `internal/registry/models/models.json`, `internal/registry/model_definitions.go`, `internal/registry/model_updater.go`, related tests.
@@ -79,7 +79,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
   - W1:
     - T1 models.json `"meta"` section + `staticModelsJSON.Meta`/`GetMetaModels` + channel wiring + updater requiredSections/detectChangedProviders/backfill + tests. check: `go test ./internal/registry/...`
 
-### Phase `meta-auth` (story-20260916-meta-auth) — status: planned
+### Phase `meta-auth` (story-20260916-meta-auth) — status: in-progress
 - goal: R3 — device OAuth + key mint + auth record.
 - dependencies: none (cancel machinery already landed).
 - allowed surfaces: new `internal/auth/meta/**`, `sdk/auth/meta.go`, `internal/cmd/meta_login.go`, `sdk/auth/refresh_registry.go`, `internal/cmd/auth_manager.go`, `internal/api/handlers/management/oauth_sessions.go` (NormalizeOAuthProvider case only), `internal/util` (shared helpers if needed).
@@ -138,11 +138,13 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 ## Progress
 - 2026-09-16 | phase=init task=plan-seed task_status=DONE | handoff analysis `7d91f4db` scoped the full delta (26 commits / 80 paths / +5275−85 → 9 include slices, 3 excluded); checkpoint scope_policy recorded (9 include / 6 exclude / 6 defer); owner triage answers received (full TUI UX + WEBUI_SUPPORTED); plan written from `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` conventions
 
+- 2026-09-16 | phase=misc-fixes+meta-models+meta-auth task=phase-start | wave-1 parallel fanout — zero-dep trio; disjoint surfaces (translator+server.go vs registry vs auth/cmd); per plan wave-1 ordering
+
 ## Validation
 - (populated at each phase gate — see work-full.md step 11 / check-validation.md format)
 
 ## Current State and Next Action
-- active_phase: none — plan seeded, no phase started
+- active_phase: misc-fixes + meta-models + meta-auth — wave-1 in flight
 - lifecycle_status: in-progress
 - latest_anchors: prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released); debt-cleanup commits on master `dc3aa689`/`c5a96047`/`4729ed69`/`73a2c234`
 - blockers: none — all deps satisfied (cancel machinery landed, capability machinery landed, devin pattern established)

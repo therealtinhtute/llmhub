@@ -2957,7 +2957,17 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 		CompleteOAuthSessionsByProvider("kimi")
 	}()
 
-	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
+	// Device-flow response fields (flow/user_code/expires_in) let the TUI and
+	// WebUI render the device-code prompt — upstream CLIProxyAPI
+	// auth_files_provider_oauth.go RequestKimiToken end-state (6e819ab62257).
+	response := gin.H{"status": "ok", "url": authURL, "state": state, "flow": "device"}
+	if userCode := strings.TrimSpace(deviceFlow.UserCode); userCode != "" {
+		response["user_code"] = userCode
+	}
+	if deviceFlow.ExpiresIn > 0 {
+		response["expires_in"] = deviceFlow.ExpiresIn
+	}
+	c.JSON(200, response)
 }
 
 type projectSelectionRequiredError struct{}

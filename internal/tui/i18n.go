@@ -141,7 +141,8 @@ var enStrings = map[string]string{
 	"oauth_success":      "Authentication successful! Refresh Auth Files tab to see the new credential.",
 	"oauth_completed":    "Authentication flow completed.",
 	"oauth_failed":       "Authentication failed",
-	"oauth_timeout":      "OAuth flow timed out (5 minutes)",
+	"oauth_timeout":      "OAuth flow timed out",
+	"oauth_status_error": "Failed to query OAuth status",
 	"oauth_press_esc":    "  Press [Esc] to cancel",
 	"oauth_auth_url":     "  Authorization URL:",
 	"oauth_remote_hint":  "  Remote browser mode: Open the URL above in browser, paste the callback URL below after authorization.",
@@ -151,6 +152,11 @@ var enStrings = map[string]string{
 	"oauth_submit_ok":    "✓ Callback submitted, waiting...",
 	"oauth_submit_fail":  "✗ Callback submission failed",
 	"oauth_waiting":      "  Waiting for authentication...",
+	// Device-code flow keys ported from upstream CLIProxyAPI
+	// internal/tui/i18n.go (6e819ab62257, v7.3.4 end-state).
+	"oauth_user_code":      "  User code:",
+	"oauth_device_hint":    "  Device-code login: open the URL above and approve access. No callback URL paste is required.",
+	"oauth_device_expires": "  Device code expires in %d seconds.",
 
 	// ── Usage ──
 	"usage_title":         "📈 Usage Statistics",

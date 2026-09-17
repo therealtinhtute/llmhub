@@ -146,13 +146,29 @@ func TestCancelOAuthSessionExportedRoundTrip(t *testing.T) {
 }
 
 func TestGuardOAuthSessionPendingForSave(t *testing.T) {
+	// Provider coverage mirrors upstream oauth_sessions_test.go (e475807a96c9
+	// added "meta" to this list at v7.3.4); the local store is the package
+	// global rather than a replaced fixture.
+	providers := []string{"anthropic", "codex", "antigravity", "xai", "kimi", "meta"}
+	for _, provider := range providers {
+		state := provider + "-save-guard"
+		RegisterOAuthSession(state, provider)
+
+		if err := guardOAuthSessionPendingForSave(state, provider); err != nil {
+			t.Fatalf("%s: guard returned %v for pending session, want nil", provider, err)
+		}
+		if !CancelOAuthSession(state) {
+			t.Fatalf("%s: CancelOAuthSession() = false, want true", provider)
+		}
+		if err := guardOAuthSessionPendingForSave(state, provider); !errors.Is(err, errOAuthSessionNotPending) {
+			t.Fatalf("%s: guard returned %v after cancel, want errOAuthSessionNotPending", provider, err)
+		}
+	}
+
+	// Local extra: a mismatched provider must also refuse the save.
 	state := "guard-state"
 	RegisterOAuthSession(state, "codex")
 	t.Cleanup(func() { CompleteOAuthSession(state) })
-
-	if err := guardOAuthSessionPendingForSave(state, "codex"); err != nil {
-		t.Fatalf("guard returned %v for pending session, want nil", err)
-	}
 	if err := guardOAuthSessionPendingForSave(state, "anthropic"); !errors.Is(err, errOAuthSessionNotPending) {
 		t.Fatalf("guard returned %v for mismatched provider, want errOAuthSessionNotPending", err)
 	}

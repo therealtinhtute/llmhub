@@ -7,39 +7,22 @@
  "scope_policy": {
   "strategy": "targeted-semantic-ports",
   "include": [
-   "xai-runtime-fixes",
-   "gemini-schema-normalize",
-   "gemini-antigravity-protocol",
-   "claude-translator-fixes",
-   "codex-openai-compat",
-   "auth-rotation-fairness",
-   "session-subagent-affinity",
-   "session-lcp-merkle",
-   "session-cache-lru",
-   "auth-epochs-generations",
-   "auth-error-propagation",
-   "proxy-http11-alpn",
-   "video-multi-ref-duration",
-   "kimi-schema-normalize",
-   "quota-signals",
-   "ttft-measurement",
-   "usage-streaming-state",
-   "devin-provider",
-   "lan-discovery",
-   "claude-21258-fingerprint",
-   "antigravity-compaction-perf",
-   "codex-quota-delegation",
-   "openai-ws-responses",
-   "usage-session-uuidv8",
-   "model-registry-adds",
-   "management-auth-ops"
+   "meta-auth-device-flow",
+   "meta-executor",
+   "meta-models",
+   "meta-apikey-config",
+   "meta-mgmt-oauth-tui-webui",
+   "meta-api-call",
+   "oauth-alias-error-rules",
+   "translator-finish-reason-validation",
+   "mgmt-no-cache-headers"
   ],
   "exclude": [
+   "plugin-quota-hardening",
+   "meta-logo-asset",
+   "config-optional-commandmode",
    "branding-docs",
-   "github-token-assets",
    "test-hygiene",
-   "management-post-persist",
-   "pluginhost-hot-reload-ws-usage",
    "pluginhost-platform"
   ],
   "defer": [
@@ -138,5 +121,5 @@
    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.4"
   }
  ],
- "generated_at": "2026-09-16T06:51:30Z"
+ "generated_at": "2026-09-17T06:36:11Z"
 }

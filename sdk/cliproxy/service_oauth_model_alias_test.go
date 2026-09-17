@@ -3,6 +3,7 @@ package cliproxy
 import (
 	"testing"
 
+	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/sdk/config"
 )
 
@@ -88,5 +89,39 @@ func TestApplyOAuthModelAlias_ForkAddsMultipleAliases(t *testing.T) {
 	}
 	if out[2].Name != "models/g5-2" {
 		t.Fatalf("expected forked model name %q, got %q", "models/g5-2", out[2].Name)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 4311ae874774
+// (sdk/cliproxy/service_oauth_model_alias_test.go): prefixed catalog clones must
+// inherit a deep copy of NativeCapabilities so mutating the clone cannot corrupt
+// the source model's capability metadata. The fork has no MetadataModelID field,
+// so only the capability assertions of the upstream test are carried over.
+func TestApplyModelPrefixes_ClonesNativeCapabilities(t *testing.T) {
+	webSearch := true
+	models := []*ModelInfo{
+		{ID: "gpt-6-astra"},
+		{ID: "codex-main", NativeCapabilities: &registry.NativeCapabilities{WebSearch: &webSearch}},
+	}
+
+	out := applyModelPrefixes(models, "1", false)
+	entryMap := make(map[string]*ModelInfo, len(out))
+	for _, entry := range out {
+		if entry == nil {
+			continue
+		}
+		entryMap[entry.ID] = entry
+	}
+
+	m, ok := entryMap["1/codex-main"]
+	if !ok {
+		t.Fatal("missing 1/codex-main")
+	} else if m.NativeCapabilities == nil || m.NativeCapabilities.WebSearch == nil || !*m.NativeCapabilities.WebSearch {
+		t.Fatalf("1/codex-main did not inherit native capabilities: %+v", m)
+	} else {
+		*m.NativeCapabilities.WebSearch = false
+		if !*entryMap["codex-main"].NativeCapabilities.WebSearch {
+			t.Fatal("prefixed capability metadata aliases the source model")
+		}
 	}
 }

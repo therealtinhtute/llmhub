@@ -416,7 +416,7 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 		// Pure addition path.
 		for _, modelID := range rawModelIDs {
 			model := newModels[modelID]
-			r.addModelRegistration(modelID, provider, model, now)
+			r.addModelRegistration(modelID, provider, model, now, clientID)
 		}
 		r.clientModels[clientID] = append([]string(nil), rawModelIDs...)
 		// Store client's own model infos
@@ -479,6 +479,11 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 						}
 					} else {
 						reg.Providers[oldProvider] = count - toRemove
+						// Recompute the aggregate capability for the provider the
+						// client moved away from (upstream 60e5b8bd432e).
+						if reg.InfoByProvider != nil && reg.InfoByProvider[oldProvider] != nil {
+							setModelInfoWebSearch(reg.InfoByProvider[oldProvider], r.mergedWebSearchCapabilityLocked(id, oldProvider, clientID, nil))
+						}
 					}
 				}
 			}
@@ -513,7 +518,7 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 		model := newModels[id]
 		diff := newCount - oldCount
 		for i := 0; i < diff; i++ {
-			r.addModelRegistration(id, provider, model, now)
+			r.addModelRegistration(id, provider, model, now, clientID)
 		}
 	}
 
@@ -525,12 +530,22 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 	for _, id := range uniqueModelIDs {
 		model := newModels[id]
 		if reg, ok := r.models[id]; ok {
+			// Capability propagation (upstream 60e5b8bd432e): re-registering a
+			// client must not clobber another client's declared capability in the
+			// aggregate views. Upstream ORs a dynamic SupportsWebSearch flag; the
+			// fork merges the static NativeCapabilities.WebSearch tri-state
+			// across the remaining clients' stored model infos.
 			reg.Info = cloneModelInfo(model)
+			setModelInfoWebSearch(reg.Info, r.mergedWebSearchCapabilityLocked(id, "", clientID, webSearchCapabilityOf(model)))
 			if provider != "" {
 				if reg.InfoByProvider == nil {
 					reg.InfoByProvider = make(map[string]*ModelInfo)
 				}
 				reg.InfoByProvider[provider] = cloneModelInfo(model)
+				setModelInfoWebSearch(reg.InfoByProvider[provider], r.mergedWebSearchCapabilityLocked(id, provider, clientID, webSearchCapabilityOf(model)))
+			}
+			if providerChanged && oldProvider != "" && reg.InfoByProvider != nil && reg.InfoByProvider[oldProvider] != nil {
+				setModelInfoWebSearch(reg.InfoByProvider[oldProvider], r.mergedWebSearchCapabilityLocked(id, oldProvider, clientID, nil))
 			}
 			reg.LastUpdated = now
 			// Re-registering an existing client/model binding starts a fresh registry
@@ -588,14 +603,18 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 	misc.LogCredentialSeparator()
 }
 
-func (r *ModelRegistry) addModelRegistration(modelID, provider string, model *ModelInfo, now time.Time) {
+func (r *ModelRegistry) addModelRegistration(modelID, provider string, model *ModelInfo, now time.Time, excludeClientID string) {
 	if model == nil || modelID == "" {
 		return
 	}
 	if existing, exists := r.models[modelID]; exists {
 		existing.Count++
 		existing.LastUpdated = now
+		// Capability propagation (upstream 60e5b8bd432e): the aggregate view folds
+		// the registering client's own declared capability together with every
+		// other client's stored capability for this model.
 		existing.Info = cloneModelInfo(model)
+		setModelInfoWebSearch(existing.Info, r.mergedWebSearchCapabilityLocked(modelID, "", excludeClientID, webSearchCapabilityOf(model)))
 		if existing.SuspendedClients == nil {
 			existing.SuspendedClients = make(map[string]string)
 		}
@@ -608,6 +627,7 @@ func (r *ModelRegistry) addModelRegistration(modelID, provider string, model *Mo
 			}
 			existing.Providers[provider]++
 			existing.InfoByProvider[provider] = cloneModelInfo(model)
+			setModelInfoWebSearch(existing.InfoByProvider[provider], r.mergedWebSearchCapabilityLocked(modelID, provider, excludeClientID, webSearchCapabilityOf(model)))
 		}
 		log.Debugf("Incremented count for model %s, now %d clients", modelID, existing.Count)
 		return
@@ -661,6 +681,16 @@ func (r *ModelRegistry) removeModelRegistration(clientID, modelID, provider stri
 	if registration.Count <= 0 {
 		delete(r.models, modelID)
 		log.Debugf("Removed model %s as no clients remain", modelID)
+	} else {
+		// Capability propagation (upstream 60e5b8bd432e): the departing client's
+		// stored infos are still present here, so exclude it explicitly and
+		// recompute the aggregate capability over the remaining clients.
+		if registration.Info != nil {
+			setModelInfoWebSearch(registration.Info, r.mergedWebSearchCapabilityLocked(modelID, "", clientID, nil))
+		}
+		if provider != "" && registration.InfoByProvider != nil && registration.InfoByProvider[provider] != nil {
+			setModelInfoWebSearch(registration.InfoByProvider[provider], r.mergedWebSearchCapabilityLocked(modelID, provider, clientID, nil))
+		}
 	}
 }
 
@@ -770,6 +800,15 @@ func (r *ModelRegistry) unregisterClientInternal(clientID string) {
 			if registration.Count <= 0 {
 				delete(r.models, modelID)
 				log.Debugf("Removed model %s as no clients remain", modelID)
+			} else {
+				// Capability propagation (upstream 60e5b8bd432e): drop the
+				// unregistered client's contribution from the aggregate views.
+				if registration.Info != nil {
+					setModelInfoWebSearch(registration.Info, r.mergedWebSearchCapabilityLocked(modelID, "", clientID, nil))
+				}
+				if hasProvider && registration.InfoByProvider != nil && registration.InfoByProvider[provider] != nil {
+					setModelInfoWebSearch(registration.InfoByProvider[provider], r.mergedWebSearchCapabilityLocked(modelID, provider, clientID, nil))
+				}
 			}
 		}
 	}
@@ -924,6 +963,114 @@ func (r *ModelRegistry) ApplyClientModelProjections(clientID string, epoch uint6
 		r.invalidateAvailableModelsCacheLocked()
 	}
 	return true
+}
+
+// ApplyClientModelCapabilities applies capability mutations to matching models of clientID
+// if the client is currently registered and its registration epoch matches expectedEpoch.
+// Returns true if applied, false if client is unregistered or epoch changed.
+//
+// Ported from upstream CLIProxyAPI commit 60e5b8bd432e
+// (internal/registry/model_registry.go). Upstream's dynamic SupportsWebSearch flag
+// maps onto the fork's static NativeCapabilities.WebSearch tri-state; the caller
+// mutates the client's stored model infos and the aggregate registration views are
+// recomputed across every remaining client.
+func (r *ModelRegistry) ApplyClientModelCapabilities(clientID string, expectedEpoch uint64, mutate func(modelID string, info *ModelInfo)) bool {
+	if r == nil || mutate == nil {
+		return false
+	}
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return false
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if r.clientEpochs == nil || r.clientEpochs[clientID] != expectedEpoch {
+		return false
+	}
+	clientInfos, exists := r.clientModelInfos[clientID]
+	if !exists || len(clientInfos) == 0 {
+		return false
+	}
+
+	provider := r.clientProviders[clientID]
+	for id, info := range clientInfos {
+		if info != nil {
+			mutate(id, info)
+			if reg, okReg := r.models[id]; okReg && reg != nil {
+				if reg.Info != nil {
+					setModelInfoWebSearch(reg.Info, r.mergedWebSearchCapabilityLocked(id, "", "", nil))
+				}
+				if provider != "" && reg.InfoByProvider != nil && reg.InfoByProvider[provider] != nil {
+					setModelInfoWebSearch(reg.InfoByProvider[provider], r.mergedWebSearchCapabilityLocked(id, provider, "", nil))
+				}
+			}
+		}
+	}
+	r.invalidateAvailableModelsCacheLocked()
+	return true
+}
+
+// webSearchCapabilityOf returns the declared WebSearch tri-state of a model info.
+func webSearchCapabilityOf(model *ModelInfo) *bool {
+	if model == nil || model.NativeCapabilities == nil {
+		return nil
+	}
+	return model.NativeCapabilities.WebSearch
+}
+
+// setModelInfoWebSearch writes the aggregate WebSearch tri-state onto info's
+// NativeCapabilities, allocating the capabilities holder when needed.
+func setModelInfoWebSearch(info *ModelInfo, webSearch *bool) {
+	if info == nil {
+		return
+	}
+	if info.NativeCapabilities == nil {
+		if webSearch == nil {
+			return
+		}
+		info.NativeCapabilities = &NativeCapabilities{}
+	}
+	info.NativeCapabilities.WebSearch = webSearch
+}
+
+// mergedWebSearchCapabilityLocked recomputes the aggregate WebSearch tri-state
+// for modelID (optionally scoped to provider) across every registered client's
+// stored model infos, excluding excludeClientID and folding in base, the
+// registering client's own declared value which is not yet stored.
+// Any explicit WebSearch=true wins (matching upstream's OR semantics); otherwise
+// an explicit false is preserved; otherwise the capability stays unknown (nil).
+// Callers must hold r.mutex.
+// Ported from upstream CLIProxyAPI commit 60e5b8bd432e
+// (internal/registry/model_registry.go hasClientSupportingWebSearchLocked).
+func (r *ModelRegistry) mergedWebSearchCapabilityLocked(modelID, provider, excludeClientID string, base *bool) *bool {
+	sawFalse := false
+	if base != nil {
+		if *base {
+			return boolPointer(true)
+		}
+		sawFalse = true
+	}
+	for cID, infos := range r.clientModelInfos {
+		if cID == excludeClientID {
+			continue
+		}
+		if provider != "" && r.clientProviders[cID] != provider {
+			continue
+		}
+		if info, ok := infos[modelID]; ok && info != nil {
+			if declared := webSearchCapabilityOf(info); declared != nil {
+				if *declared {
+					return boolPointer(true)
+				}
+				sawFalse = true
+			}
+		}
+	}
+	if sawFalse {
+		return boolPointer(false)
+	}
+	return nil
 }
 
 // IsModelSuspendedForClient reports whether a model is currently suspended for a specific client.

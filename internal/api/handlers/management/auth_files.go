@@ -2126,6 +2126,9 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
 			Storage:  tokenStorage,
 			Metadata: map[string]any{"email": tokenStorage.Email},
 		}
+		if errGuard := guardOAuthSessionPendingForSave(state, "anthropic"); errGuard != nil {
+			return
+		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
 			log.Errorf("Failed to save authentication tokens: %v", errSave)
@@ -2378,6 +2381,9 @@ func (h *Handler) RequestGeminiCLIToken(c *gin.Context) {
 			Storage:  &ts,
 			Metadata: recordMetadata,
 		}
+		if errGuard := guardOAuthSessionPendingForSave(state, "gemini"); errGuard != nil {
+			return
+		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
 			log.Errorf("Failed to save token to file: %v", errSave)
@@ -2509,6 +2515,9 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 				"email":      tokenStorage.Email,
 				"account_id": tokenStorage.AccountID,
 			},
+		}
+		if errGuard := guardOAuthSessionPendingForSave(state, "codex"); errGuard != nil {
+			return
 		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
@@ -2663,6 +2672,9 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
 			FileName: fileName,
 			Label:    label,
 			Metadata: metadata,
+		}
+		if errGuard := guardOAuthSessionPendingForSave(state, "antigravity"); errGuard != nil {
+			return
 		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
@@ -2836,6 +2848,9 @@ func (h *Handler) RequestXAIToken(c *gin.Context) {
 				"base_url":  tokenStorage.BaseURL,
 			},
 		}
+		if errGuard := guardOAuthSessionPendingForSave(state, "xai"); errGuard != nil {
+			return
+		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
 			log.Errorf("Failed to save xAI token to file: %v", errSave)
@@ -2877,11 +2892,24 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 	RegisterOAuthSession(state, "kimi")
 
 	go func() {
+		// pollCtx is cancelled early when the session is cancelled server-side
+		// (DELETE /oauth-session) so the device poll aborts instead of running
+		// to its own deadline (upstream 6e819ab62257).
+		pollCtx, cancelPoll := context.WithCancel(ctx)
+		defer cancelPoll()
+		go watchOAuthSessionCancel(pollCtx, cancelPoll, state, "kimi")
+
 		fmt.Println("Waiting for authentication...")
-		authBundle, errWaitForAuthorization := kimiAuth.WaitForAuthorization(ctx, deviceFlow)
+		authBundle, errWaitForAuthorization := kimiAuth.WaitForAuthorization(pollCtx, deviceFlow)
 		if errWaitForAuthorization != nil {
-			SetOAuthSessionError(state, "Authentication failed")
+			if !IsOAuthSessionPending(state, "kimi") {
+				return
+			}
+			SetOAuthSessionError(state, oauthSessionErrorWithCause("Authentication failed", errWaitForAuthorization))
 			fmt.Printf("Authentication failed: %v\n", errWaitForAuthorization)
+			return
+		}
+		if !IsOAuthSessionPending(state, "kimi") {
 			return
 		}
 
@@ -2912,6 +2940,9 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 			Label:    "Kimi User",
 			Storage:  tokenStorage,
 			Metadata: metadata,
+		}
+		if errGuard := guardOAuthSessionPendingForSave(state, "kimi"); errGuard != nil {
+			return
 		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
@@ -3317,8 +3348,15 @@ func (h *Handler) GetAuthStatus(c *gin.Context) {
 		return
 	}
 
-	_, status, ok := GetOAuthSession(state)
+	// Upstream v7.3.4 end-state: a cancelled/expired/unknown session reports an
+	// error so pollers do not read it as success; only the completed tombstone
+	// reports ok.
+	_, status, completed, ok := GetOAuthSessionDetails(state)
 	if !ok {
+		c.JSON(http.StatusOK, gin.H{"status": "error", "error": "unknown or expired state"})
+		return
+	}
+	if completed {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		return
 	}
@@ -3327,6 +3365,47 @@ func (h *Handler) GetAuthStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "wait"})
+}
+
+// watchOAuthSessionCancel cancels pollCtx once the OAuth session is no longer
+// pending. Ported from upstream CLIProxyAPI
+// internal/api/handlers/management/auth_files_provider_oauth.go (6e819ab62257).
+func watchOAuthSessionCancel(pollCtx context.Context, cancel context.CancelFunc, state, provider string) {
+	if cancel == nil {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-pollCtx.Done():
+			return
+		case <-ticker.C:
+			if !IsOAuthSessionPending(state, provider) {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// CancelAuthSession cancels a pending OAuth session identified by state.
+// Protected by management auth. Safe for both callback and device-code flows:
+// background waiters check IsOAuthSessionPending and exit without saving
+// credentials. Ported from upstream CLIProxyAPI
+// internal/api/handlers/management/auth_files_provider_oauth.go (6e819ab62257).
+func (h *Handler) CancelAuthSession(c *gin.Context) {
+	state := strings.TrimSpace(c.Query("state"))
+	if state == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "missing state"})
+		return
+	}
+	if err := ValidateOAuthState(state); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "invalid state"})
+		return
+	}
+	cancelled := CancelOAuthSession(state)
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "cancelled": cancelled})
 }
 
 // PopulateAuthContext extracts request info and adds it to the context

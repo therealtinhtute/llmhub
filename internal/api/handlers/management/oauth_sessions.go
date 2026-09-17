@@ -12,8 +12,14 @@ import (
 )
 
 const (
-	oauthSessionTTL     = 10 * time.Minute
-	maxOAuthStateLength = 128
+	// oauthSessionTTL must cover device-code flows (xAI ~30m, Kimi ~15m).
+	// Ported from upstream CLIProxyAPI 6e819ab62257.
+	oauthSessionTTL = 30 * time.Minute
+	// oauthCompletedSessionTTL retains a completed-session tombstone so a
+	// replayed callback is rejected with 409 instead of 404 (upstream
+	// 7115e7e00c4d/d1ef06cb5e34 idempotent-completion slice).
+	oauthCompletedSessionTTL = time.Minute
+	maxOAuthStateLength      = 128
 )
 
 var (
@@ -26,23 +32,30 @@ type oauthSession struct {
 	Provider  string
 	Status    string
 	Callback  *oauthCallbackFilePayload
+	Completed bool
 	CreatedAt time.Time
 	ExpiresAt time.Time
 }
 
 type oauthSessionStore struct {
-	mu       sync.RWMutex
-	ttl      time.Duration
-	sessions map[string]oauthSession
+	mu           sync.RWMutex
+	ttl          time.Duration
+	completedTTL time.Duration
+	sessions     map[string]oauthSession
 }
 
 func newOAuthSessionStore(ttl time.Duration) *oauthSessionStore {
 	if ttl <= 0 {
 		ttl = oauthSessionTTL
 	}
+	completedTTL := oauthCompletedSessionTTL
+	if ttl < completedTTL {
+		completedTTL = ttl
+	}
 	return &oauthSessionStore{
-		ttl:      ttl,
-		sessions: make(map[string]oauthSession),
+		ttl:          ttl,
+		completedTTL: completedTTL,
+		sessions:     make(map[string]oauthSession),
 	}
 }
 
@@ -90,7 +103,7 @@ func (s *oauthSessionStore) SetError(state, message string) {
 
 	s.purgeExpiredLocked(now)
 	session, ok := s.sessions[state]
-	if !ok {
+	if !ok || session.Completed {
 		return
 	}
 	session.Status = message
@@ -111,7 +124,7 @@ func (s *oauthSessionStore) SetCallback(state, provider string, payload oauthCal
 
 	s.purgeExpiredLocked(now)
 	session, ok := s.sessions[state]
-	if !ok || session.Status != "" {
+	if !ok || session.Completed || session.Status != "" {
 		return errOAuthSessionNotPending
 	}
 	if provider != "" && !strings.EqualFold(session.Provider, provider) {
@@ -137,7 +150,7 @@ func (s *oauthSessionStore) TakeCallback(state, provider string) (oauthCallbackF
 
 	s.purgeExpiredLocked(now)
 	session, ok := s.sessions[state]
-	if !ok || session.Status != "" {
+	if !ok || session.Completed || session.Status != "" {
 		return oauthCallbackFilePayload{}, false, errOAuthSessionNotPending
 	}
 	if provider != "" && !strings.EqualFold(session.Provider, provider) {
@@ -152,6 +165,10 @@ func (s *oauthSessionStore) TakeCallback(state, provider string) (oauthCallbackF
 	return payload, true, nil
 }
 
+// Complete marks a session completed and retains a short-lived tombstone
+// (completedTTL) instead of deleting it, so replayed callbacks are rejected
+// with 409 and completion is idempotent. Ported from upstream CLIProxyAPI
+// internal/api/handlers/management/oauth_sessions.go (7115e7e00c4d).
 func (s *oauthSessionStore) Complete(state string) {
 	state = strings.TrimSpace(state)
 	if state == "" {
@@ -163,7 +180,15 @@ func (s *oauthSessionStore) Complete(state string) {
 	defer s.mu.Unlock()
 
 	s.purgeExpiredLocked(now)
-	delete(s.sessions, state)
+	session, ok := s.sessions[state]
+	if !ok || session.Completed {
+		return
+	}
+	session.Status = ""
+	session.Callback = nil
+	session.Completed = true
+	session.ExpiresAt = now.Add(s.completedTTL)
+	s.sessions[state] = session
 }
 
 func (s *oauthSessionStore) CompleteProvider(provider string) int {
@@ -179,8 +204,12 @@ func (s *oauthSessionStore) CompleteProvider(provider string) int {
 	s.purgeExpiredLocked(now)
 	removed := 0
 	for state, session := range s.sessions {
-		if strings.EqualFold(session.Provider, provider) {
-			delete(s.sessions, state)
+		if !session.Completed && strings.EqualFold(session.Provider, provider) {
+			session.Status = ""
+			session.Callback = nil
+			session.Completed = true
+			session.ExpiresAt = now.Add(s.completedTTL)
+			s.sessions[state] = session
 			removed++
 		}
 	}
@@ -212,13 +241,37 @@ func (s *oauthSessionStore) IsPending(state, provider string) bool {
 	if !ok {
 		return false
 	}
-	if session.Status != "" {
+	if session.Completed || session.Status != "" {
 		return false
 	}
 	if provider == "" {
 		return true
 	}
 	return strings.EqualFold(session.Provider, provider)
+}
+
+// Cancel removes a pending OAuth session so background callback and device-code
+// waiters observe IsOAuthSessionPending as false and exit without saving
+// credentials. Returns true when a pending session was cancelled. Completed
+// tombstones and errored sessions are not cancellable. Ported from upstream
+// CLIProxyAPI internal/api/handlers/management/oauth_sessions.go (6e819ab62257).
+func (s *oauthSessionStore) Cancel(state string) bool {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		return false
+	}
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.purgeExpiredLocked(now)
+	session, ok := s.sessions[state]
+	if !ok || session.Completed || session.Status != "" {
+		return false
+	}
+	delete(s.sessions, state)
+	return true
 }
 
 var oauthSessions = newOAuthSessionStore(oauthSessionTTL)
@@ -233,16 +286,52 @@ func CompleteOAuthSessionsByProvider(provider string) int {
 	return oauthSessions.CompleteProvider(provider)
 }
 
+// GetOAuthSession hides completed tombstones from legacy readers
+// (upstream d1ef06cb5e34); use GetOAuthSessionDetails when the completed flag
+// must be observed.
 func GetOAuthSession(state string) (provider string, status string, ok bool) {
 	session, ok := oauthSessions.Get(state)
-	if !ok {
+	if !ok || session.Completed {
 		return "", "", false
 	}
 	return session.Provider, session.Status, true
 }
 
+// GetOAuthSessionDetails additionally reports the completed tombstone flag so
+// handlers can distinguish a completed session (409 replay) from an unknown or
+// expired one (404). Local variant of the upstream details getter (v7.3.4):
+// plugin source/metadata are omitted because llmhub has no plugin OAuth
+// sessions.
+func GetOAuthSessionDetails(state string) (provider string, status string, completed bool, ok bool) {
+	session, ok := oauthSessions.Get(state)
+	if !ok {
+		return "", "", false, false
+	}
+	return session.Provider, session.Status, session.Completed, true
+}
+
 func IsOAuthSessionPending(state, provider string) bool {
 	return oauthSessions.IsPending(state, provider)
+}
+
+// CancelOAuthSession cancels a pending OAuth session by state. Background
+// callback and device-code waiters observe IsOAuthSessionPending as false and
+// exit without saving credentials. Returns true when a pending session was
+// cancelled.
+func CancelOAuthSession(state string) bool {
+	return oauthSessions.Cancel(state)
+}
+
+// guardOAuthSessionPendingForSave returns errOAuthSessionNotPending when the
+// session is no longer pending (cancelled, completed, errored, or expired).
+// Call immediately before persisting credentials so a cancel that races with
+// token exchange or metadata fetch cannot save credentials for a cancelled
+// flow.
+func guardOAuthSessionPendingForSave(state, provider string) error {
+	if IsOAuthSessionPending(state, provider) {
+		return nil
+	}
+	return errOAuthSessionNotPending
 }
 
 func SubmitOAuthCallbackForPendingSession(provider, state, code, errorMessage string) error {

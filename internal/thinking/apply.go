@@ -86,6 +86,23 @@ func IsUserDefinedModel(modelInfo *registry.ModelInfo) bool {
 //	// Without suffix - uses body config
 //	result, err := thinking.ApplyThinking(body, "gemini-2.5-pro", "gemini", "gemini", "gemini")
 func ApplyThinking(body []byte, model string, fromFormat string, toFormat string, providerKey string) ([]byte, error) {
+	return applyThinking(body, model, fromFormat, toFormat, providerKey, nil, false)
+}
+
+// ApplyThinkingWithModelInfo applies thinking configuration using the provided
+// authoritative model capabilities instead of a registry lookup. It is used when
+// the auth manager bound exact model metadata to the execution attempt (e.g.,
+// home-dispatched model_info), so user-defined fallback heuristics do not
+// silently rewrite a level-based thinking config into a budget.
+//
+// Ported from upstream CLIProxyAPI commit 6ff680e90ab5
+// (internal/thinking/apply.go ApplyThinkingWithModelInfo*; the fork's pipeline
+// has no summary stage, so only the model-info override is carried here).
+func ApplyThinkingWithModelInfo(body []byte, model string, fromFormat string, toFormat string, providerKey string, modelInfo *registry.ModelInfo) ([]byte, error) {
+	return applyThinking(body, model, fromFormat, toFormat, providerKey, modelInfo, true)
+}
+
+func applyThinking(body []byte, model string, fromFormat string, toFormat string, providerKey string, resolvedModelInfo *registry.ModelInfo, modelInfoResolved bool) ([]byte, error) {
 	providerFormat := strings.ToLower(strings.TrimSpace(toFormat))
 	if providerFormat == "openai-response" {
 		// The Responses API shares Codex's thinking-parameter shape; normalize
@@ -113,8 +130,14 @@ func ApplyThinking(body []byte, model string, fromFormat string, toFormat string
 	// 2. Parse suffix and get modelInfo
 	suffixResult := ParseSuffix(model)
 	baseModel := suffixResult.ModelName
-	// Use provider-specific lookup to handle capability differences across providers.
-	modelInfo := registry.LookupModelInfo(baseModel, providerKey)
+	// Use provider-specific lookup to handle capability differences across providers,
+	// unless the caller bound an authoritative model info to this attempt.
+	var modelInfo *registry.ModelInfo
+	if modelInfoResolved {
+		modelInfo = resolvedModelInfo
+	} else {
+		modelInfo = registry.LookupModelInfo(baseModel, providerKey)
+	}
 
 	// 3. Model capability check
 	// Unknown models are treated as user-defined so thinking config can still be applied.

@@ -35,6 +35,8 @@ type staticModelsJSON struct {
 	XAI         []*ModelInfo `json:"xai"`
 	Kiro        []*ModelInfo `json:"kiro"`
 	Devin       []*ModelInfo `json:"devin"`
+	// Meta models ported from upstream CLIProxyAPI commits 54d4f4c0, 65348b95, cee799f6.
+	Meta []*ModelInfo `json:"meta"`
 }
 
 // GetClaudeModels returns the standard Claude model definitions.
@@ -464,6 +466,7 @@ func cloneModelInfos(models []*ModelInfo) []*ModelInfo {
 //   - xai
 //   - kiro
 //   - devin
+//   - meta
 func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 	key := strings.ToLower(strings.TrimSpace(channel))
 	switch key {
@@ -489,6 +492,9 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetKiroModels()
 	case "devin":
 		return GetDevinModels()
+	// Ported from upstream CLIProxyAPI commit 54d4f4c0.
+	case "meta", "muse":
+		return GetMetaModels()
 	default:
 		return nil
 	}
@@ -507,6 +513,12 @@ func LookupStaticModelInfoByChannel(modelID, channel string) *ModelInfo {
 		}
 	}
 	return nil
+}
+
+// GetMetaModels returns the standard Meta Muse model definitions.
+// Ported from upstream CLIProxyAPI commit 54d4f4c0.
+func GetMetaModels() []*ModelInfo {
+	return cloneModelInfos(getModels().Meta)
 }
 
 // LookupStaticModelInfo searches all static model definitions for a model by ID.
@@ -530,6 +542,7 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.Kiro,
 		data.Devin,
 		staticDevinModels,
+		data.Meta, // Ported from upstream CLIProxyAPI commit 54d4f4c0.
 	}
 	for _, models := range allModels {
 		for _, m := range models {

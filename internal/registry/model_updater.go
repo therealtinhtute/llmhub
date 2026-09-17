@@ -122,6 +122,12 @@ func tryRefreshModels(ctx context.Context, label string) {
 		return
 	}
 
+	// Ported from upstream CLIProxyAPI commit 54d4f4c0: keep existing Meta
+	// definitions when the remote catalog has not published a meta section yet.
+	if len(parsed.Meta) == 0 && oldData != nil && len(oldData.Meta) > 0 {
+		parsed.Meta = oldData.Meta
+	}
+
 	// Detect changes before updating store.
 	changed := detectChangedProviders(oldData, parsed)
 
@@ -219,6 +225,7 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"xai", oldData.XAI, newData.XAI},
 		{"kiro", oldData.Kiro, newData.Kiro},
 		{"devin", oldData.Devin, newData.Devin},
+		{"meta", oldData.Meta, newData.Meta}, // Ported from upstream CLIProxyAPI commit 54d4f4c0.
 	}
 
 	seen := make(map[string]bool, len(sections))
@@ -347,6 +354,7 @@ func validateModelsCatalog(data *staticModelsJSON) error {
 		{name: "antigravity", models: data.Antigravity},
 		{name: "xai", models: data.XAI},
 		{name: "kiro", models: WithKiroBuiltins(cloneModelInfos(data.Kiro))},
+		{name: "meta", models: data.Meta}, // Ported from upstream CLIProxyAPI commit 06660dd6.
 	}
 
 	for _, section := range requiredSections {

@@ -229,3 +229,39 @@ func TestGemini37FlashRegisteredAcrossGeminiSurfaces(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateModelsCatalog_Meta is ported from upstream CLIProxyAPI commit 06660dd6.
+func TestValidateModelsCatalog_Meta(t *testing.T) {
+	valid := &staticModelsJSON{
+		Meta: []*ModelInfo{
+			{ID: "muse-spark-1.3"},
+		},
+	}
+	if err := validateModelsCatalog(valid); err != nil {
+		t.Fatalf("expected valid Meta catalog to pass, got: %v", err)
+	}
+
+	withNull := &staticModelsJSON{
+		Meta: []*ModelInfo{nil},
+	}
+	if err := validateModelsCatalog(withNull); err == nil {
+		t.Fatal("expected error for Meta section with null model, got nil")
+	}
+
+	withEmptyID := &staticModelsJSON{
+		Meta: []*ModelInfo{{ID: " "}},
+	}
+	if err := validateModelsCatalog(withEmptyID); err == nil {
+		t.Fatal("expected error for Meta section with empty model id, got nil")
+	}
+
+	withDuplicate := &staticModelsJSON{
+		Meta: []*ModelInfo{
+			{ID: "muse-spark-1.3"},
+			{ID: "muse-spark-1.3"},
+		},
+	}
+	if err := validateModelsCatalog(withDuplicate); err == nil {
+		t.Fatal("expected error for Meta section with duplicate model id, got nil")
+	}
+}

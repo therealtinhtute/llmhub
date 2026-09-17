@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/runtime/executor"
 	"github.com/therealtinhtute/llmhub/internal/runtime/geminicli"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -274,6 +275,11 @@ func (h *Handler) resolveTokenForAuth(ctx context.Context, auth *coreauth.Auth, 
 		token, errToken := h.refreshAntigravityOAuthAccessToken(ctx, auth, requestProxyURL)
 		return token, errToken
 	}
+	// Ported from upstream CLIProxyAPI commit cee799f61af3 (final shape 4a0131c062cd).
+	if provider == "meta" {
+		token, errToken := h.resolveMetaToken(ctx, auth, requestProxyURL)
+		return token, errToken
+	}
 
 	return tokenValueForAuth(auth), nil
 }
@@ -445,6 +451,89 @@ func (h *Handler) refreshAntigravityOAuthAccessToken(ctx context.Context, auth *
 	}
 
 	return strings.TrimSpace(tokenResp.AccessToken), nil
+}
+
+// metaTokenFromAuth returns the first usable (non-DCA) Meta credential on the
+// auth record. DCA tokens are credentials-to-be-minted, never request tokens.
+// Ported from upstream CLIProxyAPI commit 06660dd6f47b.
+func metaTokenFromAuth(auth *coreauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	if auth.Metadata != nil {
+		if k, ok := auth.Metadata["api_key"].(string); ok && strings.TrimSpace(k) != "" && !strings.HasPrefix(strings.TrimSpace(k), "dca:") {
+			return strings.TrimSpace(k)
+		}
+		if t, ok := auth.Metadata["access_token"].(string); ok && strings.TrimSpace(t) != "" && !strings.HasPrefix(strings.TrimSpace(t), "dca:") {
+			return strings.TrimSpace(t)
+		}
+	}
+	if auth.Attributes != nil {
+		if k := strings.TrimSpace(auth.Attributes["api_key"]); k != "" && !strings.HasPrefix(k, "dca:") {
+			return k
+		}
+		if t := strings.TrimSpace(auth.Attributes["access_token"]); t != "" && !strings.HasPrefix(t, "dca:") {
+			return t
+		}
+	}
+	return ""
+}
+
+// metaManagementPreparer applies the tool's proxy override only to acquisition.
+// The saved credential retains its configured proxy.
+// Ported from upstream CLIProxyAPI commit 4a0131c062cd.
+type metaManagementPreparer struct {
+	executor *executor.MetaExecutor
+	proxyURL string
+}
+
+func (p metaManagementPreparer) ShouldPrepareRequestAuth(auth *coreauth.Auth) bool {
+	return p.executor.ShouldPrepareRequestAuth(auth)
+}
+
+func (p metaManagementPreparer) PrepareRequestAuth(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
+	proxyURL := auth.ProxyURL
+	if strings.TrimSpace(p.proxyURL) != "" {
+		auth.ProxyURL = p.proxyURL
+	}
+	updated, err := p.executor.PrepareRequestAuth(ctx, auth)
+	if updated != nil {
+		updated.ProxyURL = proxyURL
+	}
+	return updated, err
+}
+
+// resolveMetaToken returns a usable Meta API key for the management APICall
+// tool. Minting goes through Manager.PrepareRequestAuth so the fresh key is
+// serialized, merged, and persisted exactly like request-path minting.
+// Ported from upstream CLIProxyAPI commits cee799f61af3, be7323f3bf66,
+// 06660dd6f47b, and 4a0131c062cd (final shape: manager-driven mint).
+func (h *Handler) resolveMetaToken(ctx context.Context, auth *coreauth.Auth, requestProxyURL string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if auth == nil {
+		return "", nil
+	}
+	if token := metaTokenFromAuth(auth); token != "" {
+		return token, nil
+	}
+	var cfg *config.Config
+	if h != nil {
+		cfg = h.cfg
+	}
+	preparer := metaManagementPreparer{executor: executor.NewMetaExecutor(cfg), proxyURL: requestProxyURL}
+	if !preparer.ShouldPrepareRequestAuth(auth) {
+		return "", nil
+	}
+	if h == nil || h.authManager == nil || auth.ID == "" {
+		return "", fmt.Errorf("meta token mint requires a registered credential")
+	}
+	updated, err := h.authManager.PrepareRequestAuth(ctx, preparer, auth)
+	if err != nil {
+		return "", err
+	}
+	return metaTokenFromAuth(updated), nil
 }
 
 func antigravityTokenNeedsRefresh(metadata map[string]any) bool {
@@ -765,6 +854,8 @@ func proxyURLFromAPIKeyConfig(cfg *config.Config, auth *coreauth.Auth) string {
 			return strings.TrimSpace(entry.ProxyURL)
 		}
 	}
+	// TODO(meta-api-call): add case "meta" resolving cfg.MetaKey (upstream
+	// e475807a96c9) once the meta-config-apikey phase lands config.MetaKey.
 	return ""
 }
 

@@ -63,6 +63,9 @@ type APIKeyClientResult struct {
 	// CodexKeyCount is the number of Codex API keys loaded
 	CodexKeyCount int
 
+	// MetaKeyCount is the number of Meta API keys loaded
+	MetaKeyCount int
+
 	// OpenAICompatCount is the number of OpenAI compatibility API keys loaded
 	OpenAICompatCount int
 }

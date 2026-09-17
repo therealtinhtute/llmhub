@@ -853,9 +853,12 @@ func proxyURLFromAPIKeyConfig(cfg *config.Config, auth *coreauth.Auth) string {
 		if entry := resolveAPIKeyConfig(cfg.CodexKey, auth); entry != nil {
 			return strings.TrimSpace(entry.ProxyURL)
 		}
+	case "meta":
+		// Ported from upstream CLIProxyAPI commit e475807a.
+		if entry := resolveAPIKeyConfig(cfg.MetaKey, auth); entry != nil {
+			return strings.TrimSpace(entry.ProxyURL)
+		}
 	}
-	// TODO(meta-api-call): add case "meta" resolving cfg.MetaKey (upstream
-	// e475807a96c9) once the meta-config-apikey phase lands config.MetaKey.
 	return ""
 }
 

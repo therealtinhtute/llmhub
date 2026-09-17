@@ -72,6 +72,19 @@ func TestPatchDisableCoolingOverrideForEveryFamily(t *testing.T) {
 			patch: (*Handler).PatchCodexKey,
 			get:   func(cfg *config.Config) *bool { return cfg.CodexKey[0].DisableCooling },
 		},
+		{
+			// Ported from upstream CLIProxyAPI commit e475807a.
+			name: "meta",
+			setup: func(cfg *config.Config) {
+				cfg.MetaKey = []config.MetaKey{{
+					APIKey:         "key",
+					BaseURL:        "https://api.meta.ai/v1",
+					DisableCooling: &initial,
+				}}
+			},
+			patch: (*Handler).PatchMetaKey,
+			get:   func(cfg *config.Config) *bool { return cfg.MetaKey[0].DisableCooling },
+		},
 	}
 
 	for _, tc := range tests {

@@ -178,3 +178,52 @@ func TestApplyAPIKeyModelAlias(t *testing.T) {
 		})
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit 47cc31ae
+// (sdk/cliproxy/auth/api_key_model_alias_test.go
+// TestLookupAPIKeyUpstreamModel_MetaKey). Adapted: the local conductor resolves
+// via applyAPIKeyModelAlias(auth, model) rather than a routing snapshot, and
+// the apiKeyModelRoutingSnapshot/configuredModelAliasEntries producer machinery
+// is a recorded remainder that does not exist locally.
+func TestLookupAPIKeyUpstreamModel_MetaKey(t *testing.T) {
+	cfg := &internalconfig.Config{
+		MetaKey: []internalconfig.MetaKey{
+			{
+				APIKey:  "meta-key",
+				BaseURL: "https://api.meta.ai/v1",
+				Models: []internalconfig.CodexModel{
+					{Name: "muse-spark-1.3", Alias: "muse-latest"},
+				},
+			},
+		},
+	}
+
+	mgr := NewManager(nil, nil, nil)
+	mgr.SetConfig(cfg)
+
+	ctx := context.Background()
+	auth := &Auth{
+		ID:       "meta-auth-1",
+		Provider: "meta",
+		Attributes: map[string]string{
+			"api_key":   "meta-key",
+			"base_url":  "https://api.meta.ai/v1",
+			"auth_kind": "apikey",
+		},
+	}
+	if _, err := mgr.Register(ctx, auth); err != nil {
+		t.Fatalf("register auth: %v", err)
+	}
+
+	// 1. Fast path: lookup per-auth mapping table compiled during register.
+	resolved := mgr.lookupAPIKeyUpstreamModel("meta-auth-1", "muse-latest")
+	if resolved != "muse-spark-1.3" {
+		t.Fatalf("lookupAPIKeyUpstreamModel() = %q, want muse-spark-1.3", resolved)
+	}
+
+	// 2. Slow path: applyAPIKeyModelAlias falls back to config resolution.
+	slowResolved := mgr.applyAPIKeyModelAlias(auth, "muse-latest")
+	if slowResolved != "muse-spark-1.3" {
+		t.Fatalf("applyAPIKeyModelAlias() = %q, want muse-spark-1.3", slowResolved)
+	}
+}

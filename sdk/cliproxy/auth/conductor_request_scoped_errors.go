@@ -137,6 +137,11 @@ func extractRequestScopedErrorRules(auth *Auth, cfg *internalconfig.Config) []in
 		if index >= 0 && index < len(cfg.CodexKey) {
 			return cfg.CodexKey[index].RequestScopedErrors
 		}
+	case "meta":
+		// Ported from upstream CLIProxyAPI commit 47cc31ae.
+		if index >= 0 && index < len(cfg.MetaKey) {
+			return cfg.MetaKey[index].RequestScopedErrors
+		}
 	case "gemini":
 		if index >= 0 && index < len(cfg.GeminiKey) {
 			return cfg.GeminiKey[index].RequestScopedErrors

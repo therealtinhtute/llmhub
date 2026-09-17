@@ -80,6 +80,16 @@ func TestResolveOAuthUpstreamModel_SuffixPreservation(t *testing.T) {
 			want:    "kimi-k2.5(high)",
 		},
 		{
+			// Ported from upstream CLIProxyAPI commit 8335eac7.
+			name: "meta suffix preserved",
+			aliases: map[string][]internalconfig.OAuthModelAlias{
+				"meta": {{Name: "muse-spark-1.3", Alias: "muse-latest"}},
+			},
+			channel: "meta",
+			input:   "muse-latest(high)",
+			want:    "muse-spark-1.3(high)",
+		},
+		{
 			name: "case insensitive alias lookup with suffix",
 			aliases: map[string][]internalconfig.OAuthModelAlias{
 				"gemini-cli": {{Name: "gemini-2.5-pro-exp-03-25", Alias: "Gemini-2.5-Pro"}},
@@ -159,6 +169,10 @@ func createAuthForChannel(channel string) *Auth {
 		return &Auth{Provider: "antigravity"}
 	case "kimi":
 		return &Auth{Provider: "kimi"}
+	case "meta":
+		// Ported from upstream CLIProxyAPI commit 8335eac7: meta OAuth
+		// credentials mint an LLM API key but remain OAuth-backed.
+		return &Auth{Provider: "meta", Attributes: map[string]string{"auth_kind": "oauth"}}
 	default:
 		return &Auth{Provider: channel}
 	}
@@ -169,6 +183,18 @@ func TestOAuthModelAliasChannel_Kimi(t *testing.T) {
 
 	if got := OAuthModelAliasChannel("kimi", "oauth"); got != "kimi" {
 		t.Fatalf("OAuthModelAliasChannel() = %q, want %q", got, "kimi")
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 8335eac7.
+func TestOAuthModelAliasChannel_Meta(t *testing.T) {
+	t.Parallel()
+
+	if got := OAuthModelAliasChannel("meta", "oauth"); got != "meta" {
+		t.Fatalf("OAuthModelAliasChannel() = %q, want %q", got, "meta")
+	}
+	if got := OAuthModelAliasChannel("meta", "api_key"); got != "" {
+		t.Fatalf("OAuthModelAliasChannel() = %q, want empty channel for meta-api-key", got)
 	}
 }
 
@@ -188,5 +214,53 @@ func TestApplyOAuthModelAlias_SuffixPreservation(t *testing.T) {
 	resolvedModel := mgr.applyOAuthModelAlias(auth, "gemini-2.5-pro(8192)")
 	if resolvedModel != "gemini-2.5-pro-exp-03-25(8192)" {
 		t.Errorf("applyOAuthModelAlias() model = %q, want %q", resolvedModel, "gemini-2.5-pro-exp-03-25(8192)")
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 8335eac7
+// (TestApplyOAuthModelAlias_Meta). The upstream ForceMapping field/assertion is
+// omitted because OAuthModelAlias.ForceMapping is not part of the local struct.
+func TestApplyOAuthModelAlias_Meta(t *testing.T) {
+	t.Parallel()
+
+	aliases := map[string][]internalconfig.OAuthModelAlias{
+		"meta": {
+			{
+				Name:  "muse-spark-1.3",
+				Alias: "muse-latest",
+				Fork:  true,
+			},
+		},
+	}
+
+	mgr := NewManager(nil, nil, nil)
+	mgr.SetConfig(&internalconfig.Config{})
+	mgr.SetOAuthModelAlias(aliases)
+
+	// Meta OAuth credentials mint an LLM API key; aliases must still apply.
+	auth := &Auth{
+		ID:       "meta-auth",
+		Provider: "meta",
+		Attributes: map[string]string{
+			"auth_kind": "oauth",
+		},
+	}
+
+	resolved := mgr.applyOAuthModelAlias(auth, "muse-latest")
+	if resolved != "muse-spark-1.3" {
+		t.Fatalf("applyOAuthModelAlias() = %q, want muse-spark-1.3", resolved)
+	}
+
+	// meta-api-key credentials use per-credential models, not oauth-model-alias.
+	apiKeyAuth := &Auth{
+		ID:       "meta-apikey",
+		Provider: "meta",
+		Attributes: map[string]string{
+			"auth_kind": "apikey",
+			"api_key":   "meta-key",
+		},
+	}
+	if got := mgr.applyOAuthModelAlias(apiKeyAuth, "muse-latest"); got != "muse-latest" {
+		t.Fatalf("applyOAuthModelAlias(apikey) = %q, want unchanged muse-latest", got)
 	}
 }

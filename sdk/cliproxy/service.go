@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1386,10 +1387,15 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		}
 		models = applyExcludedModels(models, excluded)
 	case "meta":
-		// Ported from upstream CLIProxyAPI commit 54d4f4c0. The upstream
-		// resolveConfigMetaKey/buildMetaConfigModels branch depends on
-		// config.MetaKey and is deferred to the config-apikey phase.
 		models = registry.GetMetaModels()
+		if entry := s.resolveConfigMetaKey(a); entry != nil {
+			if len(entry.Models) > 0 {
+				models = buildMetaConfigModels(entry)
+			}
+			if authKind == "apikey" {
+				excluded = entry.ExcludedModels
+			}
+		}
 		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config
@@ -1657,6 +1663,45 @@ func (s *Service) resolveConfigCodexKey(auth *coreauth.Auth) *config.CodexKey {
 	}
 	for i := range s.cfg.CodexKey {
 		entry := &s.cfg.CodexKey[i]
+		cfgKey := strings.TrimSpace(entry.APIKey)
+		cfgBase := strings.TrimSpace(entry.BaseURL)
+		if attrKey != "" && strings.EqualFold(cfgKey, attrKey) {
+			if cfgBase == "" || strings.EqualFold(cfgBase, attrBase) {
+				return entry
+			}
+			continue
+		}
+		if attrKey == "" && attrBase != "" && strings.EqualFold(cfgBase, attrBase) {
+			return entry
+		}
+	}
+	return nil
+}
+
+// resolveConfigMetaKey returns the config meta-api-key entry matching the auth's
+// api_key/base_url attributes. Mirrors resolveConfigCodexKey; upstream's
+// resolveConfigCodexStyleKey (service_models.go, commit 54d4f4c0) shares the
+// same credential-matching semantics.
+func (s *Service) resolveConfigMetaKey(auth *coreauth.Auth) *config.MetaKey {
+	if auth == nil || s.cfg == nil {
+		return nil
+	}
+	// Fast path: upstream resolveConfigCodexStyleKey trusts the synthesized
+	// config_index for meta (validateIndexCredentials=false).
+	if auth.Attributes != nil {
+		if idxStr := strings.TrimSpace(auth.Attributes["config_index"]); idxStr != "" {
+			if parsed, errIndex := strconv.Atoi(idxStr); errIndex == nil && parsed >= 0 && parsed < len(s.cfg.MetaKey) {
+				return &s.cfg.MetaKey[parsed]
+			}
+		}
+	}
+	var attrKey, attrBase string
+	if auth.Attributes != nil {
+		attrKey = strings.TrimSpace(auth.Attributes["api_key"])
+		attrBase = strings.TrimSpace(auth.Attributes["base_url"])
+	}
+	for i := range s.cfg.MetaKey {
+		entry := &s.cfg.MetaKey[i]
 		cfgKey := strings.TrimSpace(entry.APIKey)
 		cfgBase := strings.TrimSpace(entry.BaseURL)
 		if attrKey != "" && strings.EqualFold(cfgKey, attrKey) {
@@ -1944,6 +1989,16 @@ func buildClaudeConfigModels(entry *config.ClaudeKey) []*ModelInfo {
 		return nil
 	}
 	return buildConfigModels(entry.Models, "anthropic", "claude", "claude")
+}
+
+// buildMetaConfigModels builds ModelInfo entries for a meta-api-key config
+// credential. Ported from upstream CLIProxyAPI commit 54d4f4c0
+// (sdk/cliproxy/service_models.go).
+func buildMetaConfigModels(entry *config.MetaKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, "meta", "meta", "meta")
 }
 
 func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {

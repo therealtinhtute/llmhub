@@ -29,6 +29,12 @@ type vertexCompatKeyWithAuthIndex struct {
 	AuthIndex string `json:"auth-index,omitempty"`
 }
 
+// Ported from upstream CLIProxyAPI commit e475807a.
+type metaKeyWithAuthIndex struct {
+	config.MetaKey
+	AuthIndex string `json:"auth-index,omitempty"`
+}
+
 type openAICompatibilityAPIKeyWithAuthIndex struct {
 	config.OpenAICompatibilityAPIKey
 	AuthIndex string `json:"auth-index,omitempty"`
@@ -163,6 +169,39 @@ func (h *Handler) codexKeysWithAuthIndex() []codexKeyWithAuthIndex {
 		}
 		out[i] = codexKeyWithAuthIndex{
 			CodexKey:  entry,
+			AuthIndex: authIndex,
+		}
+	}
+	return out
+}
+
+// metaKeysWithAuthIndex mirrors the synthesizer's meta:apikey ID seed
+// (provider+":apikey", key, base_url) so the reported auth-index matches the
+// live credential registered by the watcher.
+// Ported from upstream CLIProxyAPI commit e475807a.
+func (h *Handler) metaKeysWithAuthIndex() []metaKeyWithAuthIndex {
+	if h == nil {
+		return nil
+	}
+	liveIndexByID := h.liveAuthIndexByID()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cfg == nil {
+		return nil
+	}
+
+	idGen := synthesizer.NewStableIDGenerator()
+	out := make([]metaKeyWithAuthIndex, len(h.cfg.MetaKey))
+	for i := range h.cfg.MetaKey {
+		entry := h.cfg.MetaKey[i]
+		authIndex := ""
+		if key := strings.TrimSpace(entry.APIKey); key != "" {
+			id, _ := idGen.Next("meta:apikey", key, entry.BaseURL)
+			authIndex = liveIndexByID[id]
+		}
+		out[i] = metaKeyWithAuthIndex{
+			MetaKey:   entry,
 			AuthIndex: authIndex,
 		}
 	}

@@ -125,3 +125,32 @@ func TestApplyModelPrefixes_ClonesNativeCapabilities(t *testing.T) {
 		}
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit 8335eac7
+// (sdk/cliproxy/service_oauth_model_alias_test.go TestApplyOAuthModelAlias_Meta).
+func TestApplyOAuthModelAlias_Meta(t *testing.T) {
+	cfg := &config.Config{
+		OAuthModelAlias: map[string][]config.OAuthModelAlias{
+			"meta": {
+				{Name: "muse-spark-1.3", Alias: "muse-latest", DisplayName: "Muse Latest"},
+			},
+		},
+	}
+	models := []*ModelInfo{
+		{ID: "muse-spark-1.3", Name: "models/muse-spark-1.3", DisplayName: "Muse Spark 1.3"},
+	}
+
+	out := applyOAuthModelAlias(cfg, "meta", "oauth", models)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(out))
+	}
+	if out[0].ID != "muse-latest" {
+		t.Fatalf("expected model id %q, got %q", "muse-latest", out[0].ID)
+	}
+	if out[0].Name != "models/muse-latest" {
+		t.Fatalf("expected model name %q, got %q", "models/muse-latest", out[0].Name)
+	}
+	if out[0].DisplayName != "Muse Latest" {
+		t.Fatalf("expected display name %q, got %q", "Muse Latest", out[0].DisplayName)
+	}
+}

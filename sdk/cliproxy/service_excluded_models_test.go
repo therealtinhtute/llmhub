@@ -132,3 +132,61 @@ func TestRegisterModelsForAuth_OpenAICompatibilityImageModelType(t *testing.T) {
 		t.Fatal("expected chat model to keep default thinking support")
 	}
 }
+
+// Ported from upstream CLIProxyAPI commit 8335eac7
+// (sdk/cliproxy/service_excluded_models_test.go
+// TestRegisterModelsForAuth_MetaOAuthAliasAndExcludedModels). Adapted: local
+// registerModelsForAuth takes only the auth argument.
+func TestRegisterModelsForAuth_MetaOAuthAliasAndExcludedModels(t *testing.T) {
+	service := &Service{
+		cfg: &config.Config{
+			OAuthExcludedModels: map[string][]string{
+				"meta": {"muse-spark-1.1"},
+			},
+			OAuthModelAlias: map[string][]config.OAuthModelAlias{
+				"meta": {{Name: "muse-spark-1.3", Alias: "muse-latest"}},
+			},
+		},
+	}
+	auth := &coreauth.Auth{
+		ID:       "auth-meta-oauth",
+		Provider: "meta",
+		Status:   coreauth.StatusActive,
+		Attributes: map[string]string{
+			"auth_kind": "oauth",
+			"api_key":   "LLM|minted",
+		},
+	}
+
+	registry := GlobalModelRegistry()
+	registry.UnregisterClient(auth.ID)
+	t.Cleanup(func() {
+		registry.UnregisterClient(auth.ID)
+	})
+
+	service.registerModelsForAuth(auth)
+
+	models := registry.GetModelsForClient(auth.ID)
+	if len(models) == 0 {
+		t.Fatal("expected meta models to be registered")
+	}
+
+	seenLatest := false
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		modelID := strings.TrimSpace(model.ID)
+		switch {
+		case strings.EqualFold(modelID, "muse-spark-1.1"):
+			t.Fatalf("expected model %q to be excluded by oauth-excluded-models", modelID)
+		case strings.EqualFold(modelID, "muse-spark-1.3"):
+			t.Fatalf("expected model %q to be renamed by oauth-model-alias", modelID)
+		case strings.EqualFold(modelID, "muse-latest"):
+			seenLatest = true
+		}
+	}
+	if !seenLatest {
+		t.Fatal("expected oauth-model-alias to expose muse-latest")
+	}
+}

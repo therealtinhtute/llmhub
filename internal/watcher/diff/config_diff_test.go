@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -496,5 +497,75 @@ func TestTrimStrings(t *testing.T) {
 	out := trimStrings([]string{" a ", "b", "  c"})
 	if len(out) != 3 || out[0] != "a" || out[1] != "b" || out[2] != "c" {
 		t.Fatalf("unexpected trimmed strings: %v", out)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commits 54d4f4c0 + cee799f6
+// (internal/watcher/diff/config_diff_test.go meta-api-key diff coverage).
+func TestBuildConfigChangeDetails_Meta(t *testing.T) {
+	disableCooling := true
+	requestRetry := 3
+	oldCfg := &config.Config{
+		MetaKey: []config.MetaKey{
+			{
+				APIKey:         "meta-old",
+				BaseURL:        "https://api.meta.ai/v1",
+				ProxyURL:       "http://proxy-old",
+				Prefix:         "old",
+				Priority:       1,
+				DisableCooling: &disableCooling,
+				RequestRetry:   &requestRetry,
+				Headers:        map[string]string{"X-Trace": "1"},
+				Models:         []config.CodexModel{{Name: "muse-spark-1.3"}},
+				ExcludedModels: []string{"muse-spark-1.1"},
+			},
+		},
+	}
+	newCfg := &config.Config{
+		MetaKey: []config.MetaKey{
+			{
+				APIKey:         "meta-new",
+				BaseURL:        "https://meta.example.com/v1",
+				ProxyURL:       "http://proxy-new",
+				Prefix:         "new",
+				Priority:       5,
+				Headers:        map[string]string{"X-Trace": "2"},
+				Models:         []config.CodexModel{{Name: "muse-spark-1.3"}, {Name: "muse-spark-1.4"}},
+				ExcludedModels: []string{"muse-spark-1.1", "muse-spark-1.2"},
+			},
+		},
+	}
+
+	changes := BuildConfigChangeDetails(oldCfg, newCfg)
+	joined := strings.Join(changes, "\n")
+
+	for _, want := range []string{
+		"meta[0].base-url: https://api.meta.ai/v1 -> https://meta.example.com/v1",
+		"meta[0].prefix: old -> new",
+		"meta[0].priority: 1 -> 5",
+		"meta[0].api-key: updated",
+		"meta[0].headers: updated",
+		"meta[0].models: updated (1 -> 2 entries)",
+		"meta[0].excluded-models: updated (1 -> 2 entries)",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing expected change %q in:\n%s", want, joined)
+		}
+	}
+	for _, leaked := range []string{"meta-old", "meta-new"} {
+		if strings.Contains(joined, leaked) {
+			t.Errorf("change details leaked API key material %q", leaked)
+		}
+	}
+
+	countChanges := BuildConfigChangeDetails(oldCfg, &config.Config{})
+	foundCount := false
+	for _, c := range countChanges {
+		if strings.Contains(c, "meta-api-key count: 1 -> 0") {
+			foundCount = true
+		}
+	}
+	if !foundCount {
+		t.Errorf("expected meta-api-key count change, got %v", countChanges)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/watcher/diff"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
@@ -38,6 +39,8 @@ func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth,
 	out = append(out, s.synthesizeClaudeKeys(ctx)...)
 	// Codex API Keys
 	out = append(out, s.synthesizeCodexKeys(ctx)...)
+	// Meta API Keys
+	out = append(out, s.synthesizeMetaKeys(ctx)...)
 	// OpenAI-compat
 	out = append(out, s.synthesizeOpenAICompat(ctx)...)
 	// Vertex-compat
@@ -64,7 +67,8 @@ func (s *ConfigSynthesizer) synthesizeGeminiKeys(ctx *SynthesisContext) []*corea
 		proxyURL := strings.TrimSpace(entry.ProxyURL)
 		id, token := idGen.Next("gemini:apikey", key, base)
 		attrs := map[string]string{
-			"source": fmt.Sprintf("config:gemini[%s]", token),
+			"source":       fmt.Sprintf("config:gemini[%s]", token),
+			"config_index": strconv.Itoa(i),
 		}
 		if key != "" {
 			attrs["api_key"] = key
@@ -124,8 +128,9 @@ func (s *ConfigSynthesizer) synthesizeClaudeKeys(ctx *SynthesisContext) []*corea
 		base := strings.TrimSpace(ck.BaseURL)
 		id, token := idGen.Next("claude:apikey", key, base)
 		attrs := map[string]string{
-			"source":  fmt.Sprintf("config:claude[%s]", token),
-			"api_key": key,
+			"source":       fmt.Sprintf("config:claude[%s]", token),
+			"api_key":      key,
+			"config_index": strconv.Itoa(i),
 		}
 		metadata := map[string]any{}
 		if ck.DisableCooling != nil {
@@ -168,22 +173,34 @@ func (s *ConfigSynthesizer) synthesizeClaudeKeys(ctx *SynthesisContext) []*corea
 
 // synthesizeCodexKeys creates Auth entries for Codex API keys.
 func (s *ConfigSynthesizer) synthesizeCodexKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	return s.synthesizeCodexStyleKeys(ctx, ctx.Config.CodexKey, "codex")
+}
+
+// synthesizeMetaKeys creates Auth entries for Meta API keys.
+// Ported from upstream CLIProxyAPI commit 54d4f4c0 (the meta-api-key family
+// shares the codex-style synthesis template; MetaKey = CodexKey).
+func (s *ConfigSynthesizer) synthesizeMetaKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	return s.synthesizeCodexStyleKeys(ctx, ctx.Config.MetaKey, "meta")
+}
+
+func (s *ConfigSynthesizer) synthesizeCodexStyleKeys(ctx *SynthesisContext, entries []config.CodexKey, provider string) []*coreauth.Auth {
 	cfg := ctx.Config
 	now := ctx.Now
 	idGen := ctx.IDGenerator
 
-	out := make([]*coreauth.Auth, 0, len(cfg.CodexKey))
-	for i := range cfg.CodexKey {
-		ck := cfg.CodexKey[i]
+	out := make([]*coreauth.Auth, 0, len(entries))
+	for i := range entries {
+		ck := entries[i]
 		key := strings.TrimSpace(ck.APIKey)
 		if key == "" {
 			continue
 		}
 		prefix := strings.TrimSpace(ck.Prefix)
-		id, token := idGen.Next("codex:apikey", key, ck.BaseURL)
+		id, token := idGen.Next(provider+":apikey", key, ck.BaseURL)
 		attrs := map[string]string{
-			"source":  fmt.Sprintf("config:codex[%s]", token),
-			"api_key": key,
+			"source":       fmt.Sprintf("config:%s[%s]", provider, token),
+			"api_key":      key,
+			"config_index": strconv.Itoa(i),
 		}
 		metadata := map[string]any{}
 		if ck.DisableCooling != nil {
@@ -201,7 +218,7 @@ func (s *ConfigSynthesizer) synthesizeCodexKeys(ctx *SynthesisContext) []*coreau
 		if ck.Websockets {
 			attrs["websockets"] = "true"
 		}
-		if ck.AlphaSearch {
+		if provider == "codex" && ck.AlphaSearch {
 			attrs["alpha_search"] = "true"
 		}
 		if hash := diff.ComputeCodexModelsHash(ck.Models); hash != "" {
@@ -211,8 +228,8 @@ func (s *ConfigSynthesizer) synthesizeCodexKeys(ctx *SynthesisContext) []*coreau
 		proxyURL := strings.TrimSpace(ck.ProxyURL)
 		a := &coreauth.Auth{
 			ID:         id,
-			Provider:   "codex",
-			Label:      "codex-apikey",
+			Provider:   provider,
+			Label:      provider + "-apikey",
 			Prefix:     prefix,
 			Status:     coreauth.StatusActive,
 			ProxyURL:   proxyURL,
@@ -263,6 +280,7 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				"base_url":     base,
 				"compat_name":  compat.Name,
 				"provider_key": providerName,
+				"config_index": strconv.Itoa(i),
 			}
 			metadata := map[string]any{}
 			if disableCooling != nil {
@@ -308,6 +326,7 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				"base_url":     base,
 				"compat_name":  compat.Name,
 				"provider_key": providerName,
+				"config_index": strconv.Itoa(i),
 			}
 			metadata := map[string]any{}
 			if disableCooling != nil {
@@ -364,6 +383,7 @@ func (s *ConfigSynthesizer) synthesizeVertexCompat(ctx *SynthesisContext) []*cor
 			"source":       fmt.Sprintf("config:vertex-apikey[%s]", token),
 			"base_url":     base,
 			"provider_key": providerName,
+			"config_index": strconv.Itoa(i),
 		}
 		if compat.Priority != 0 {
 			attrs["priority"] = strconv.Itoa(compat.Priority)

@@ -314,6 +314,67 @@ func TestConfigSynthesizer_CodexKeys_SkipsEmptyAndHeaders(t *testing.T) {
 	}
 }
 
+// Ported from upstream CLIProxyAPI commit 54d4f4c0
+// (internal/watcher/synthesizer/config_test.go TestConfigSynthesizer_MetaKeys).
+func TestConfigSynthesizer_MetaKeys(t *testing.T) {
+	synth := NewConfigSynthesizer()
+	disableCooling := true
+	ctx := &SynthesisContext{
+		Config: &config.Config{
+			MetaKey: []config.MetaKey{
+				{
+					APIKey:         "meta-secret",
+					BaseURL:        "https://api.meta.ai/v1",
+					ProxyURL:       "http://proxy.local",
+					DisableCooling: &disableCooling,
+					Models: []config.CodexModel{
+						{Name: "muse-spark-1.3", Alias: "muse-spark-1.3"},
+					},
+					Headers: map[string]string{"X-Custom": "value"},
+				},
+			},
+		},
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, errSynthesize := synth.Synthesize(ctx)
+	if errSynthesize != nil {
+		t.Fatalf("Synthesize() error = %v", errSynthesize)
+	}
+	if len(auths) != 1 {
+		t.Fatalf("auth count = %d, want 1", len(auths))
+	}
+	auth := auths[0]
+	if auth.Provider != "meta" {
+		t.Fatalf("provider = %q, want meta", auth.Provider)
+	}
+	if auth.Label != "meta-apikey" {
+		t.Fatalf("label = %q, want meta-apikey", auth.Label)
+	}
+	if auth.Attributes["base_url"] != "https://api.meta.ai/v1" {
+		t.Fatalf("base_url = %q, want https://api.meta.ai/v1", auth.Attributes["base_url"])
+	}
+	if auth.Attributes["api_key"] != "meta-secret" {
+		t.Fatalf("api_key = %q, want meta-secret", auth.Attributes["api_key"])
+	}
+	if auth.Attributes["auth_kind"] != "apikey" {
+		t.Fatalf("auth_kind = %q, want apikey", auth.Attributes["auth_kind"])
+	}
+	if auth.Attributes["header:X-Custom"] != "value" {
+		t.Fatalf("custom header = %q, want value", auth.Attributes["header:X-Custom"])
+	}
+	if auth.ProxyURL != "http://proxy.local" {
+		t.Fatalf("proxy URL = %q, want http://proxy.local", auth.ProxyURL)
+	}
+	if v, ok := auth.Metadata["disable_cooling"].(bool); !ok || !v {
+		t.Fatalf("disable_cooling = %v, want true", auth.Metadata["disable_cooling"])
+	}
+	if auth.Attributes["models_hash"] == "" {
+		t.Fatal("expected models_hash attribute to be set for configured models")
+	}
+}
+
 func TestConfigSynthesizer_OpenAICompat(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -615,6 +676,9 @@ func TestConfigSynthesizer_AllProviders(t *testing.T) {
 			CodexKey: []config.CodexKey{
 				{APIKey: "codex-key"},
 			},
+			MetaKey: []config.MetaKey{
+				{APIKey: "meta-key", BaseURL: "https://api.meta.ai/v1"},
+			},
 			OpenAICompatibility: []config.OpenAICompatibility{
 				{Name: "compat", BaseURL: "https://compat.api"},
 			},
@@ -630,8 +694,8 @@ func TestConfigSynthesizer_AllProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(auths) != 5 {
-		t.Fatalf("expected 5 auths, got %d", len(auths))
+	if len(auths) != 6 {
+		t.Fatalf("expected 6 auths, got %d", len(auths))
 	}
 
 	providers := make(map[string]bool)
@@ -639,7 +703,7 @@ func TestConfigSynthesizer_AllProviders(t *testing.T) {
 		providers[a.Provider] = true
 	}
 
-	expected := []string{"gemini", "claude", "codex", "compat", "vertex"}
+	expected := []string{"gemini", "claude", "codex", "meta", "compat", "vertex"}
 	for _, p := range expected {
 		if !providers[p] {
 			t.Errorf("expected provider %s not found", p)

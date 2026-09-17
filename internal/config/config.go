@@ -145,6 +145,10 @@ type Config struct {
 	// Codex defines a list of Codex API key configurations as specified in the YAML configuration file.
 	CodexKey []CodexKey `yaml:"codex-api-key" json:"codex-api-key"`
 
+	// MetaKey defines Meta API key configurations using the same structure as Codex API keys.
+	// Ported from upstream CLIProxyAPI commit 54d4f4c0.
+	MetaKey []MetaKey `yaml:"meta-api-key" json:"meta-api-key"`
+
 	// CodexHeaderDefaults configures fallback headers for Codex OAuth model requests.
 	// These are used only when the client does not send its own headers.
 	CodexHeaderDefaults CodexHeaderDefaults `yaml:"codex-header-defaults" json:"codex-header-defaults"`
@@ -209,14 +213,14 @@ type Config struct {
 
 	// OAuthModelAlias defines global model name aliases for OAuth/file-backed auth channels.
 	// These aliases affect both model listing and model routing for supported channels:
-	// gemini-cli, vertex, aistudio, antigravity, claude, codex, kimi, xai.
+	// gemini-cli, vertex, aistudio, antigravity, claude, codex, kimi, xai, meta.
 	//
 	// NOTE: This does not apply to existing per-credential model alias features under:
-	// gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, and vertex-api-key.
+	// gemini-api-key, codex-api-key, meta-api-key, claude-api-key, openai-compatibility, and vertex-api-key.
 	OAuthModelAlias map[string][]OAuthModelAlias `yaml:"oauth-model-alias,omitempty" json:"oauth-model-alias,omitempty"`
 
 	// OAuthRequestScopedErrors defines per-provider request-scoped error rules applied to OAuth/file-backed auth entries.
-	// Supported channels include: vertex, aistudio, antigravity, claude, codex, kimi, xai, and OAuth plugin provider keys.
+	// Supported channels include: vertex, aistudio, antigravity, claude, codex, kimi, xai, meta, and OAuth plugin provider keys.
 	//
 	// NOTE: This applies only to OAuth credentials and does not affect per-credential request-scoped-errors under *-api-key.
 	OAuthRequestScopedErrors map[string][]RequestScopedErrorRule `yaml:"oauth-request-scoped-errors,omitempty" json:"oauth-request-scoped-errors,omitempty"`
@@ -615,6 +619,13 @@ type CodexModel struct {
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
 
+// MetaKey uses the Codex API key structure for native Meta Muse execution.
+// Ported from upstream CLIProxyAPI commit 54d4f4c0 (internal/config/config_types.go).
+type MetaKey = CodexKey
+
+// MetaModel uses the Codex model mapping structure for Meta Muse models.
+type MetaModel = CodexModel
+
 func (m CodexModel) GetName() string          { return m.Name }
 func (m CodexModel) GetAlias() string         { return m.Alias }
 func (m CodexModel) GetDisplayName() string   { return m.DisplayName }
@@ -923,6 +934,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sanitize Codex keys: drop entries without base-url
 	cfg.SanitizeCodexKeys()
 
+	// Sanitize Meta keys: drop empty/dca: keys, default base-url.
+	cfg.SanitizeMetaKeys()
+
 	// Sanitize Codex header defaults.
 	cfg.SanitizeCodexHeaderDefaults()
 
@@ -1183,6 +1197,36 @@ func (cfg *Config) SanitizeCodexKeys() {
 		out = append(out, e)
 	}
 	cfg.CodexKey = out
+}
+
+// SanitizeMetaKeys normalizes Meta API key entries, defaulting BaseURL to
+// https://api.meta.ai/v1 when empty. Entries with an empty API key or a
+// dca:-prefixed device token are dropped: DCA tokens require OAuth storage
+// (auth file with dca_token), never the meta-api-key config list.
+// Ported from upstream CLIProxyAPI commits 54d4f4c0 + 1144ae70
+// (internal/config/config_normalization.go).
+func (cfg *Config) SanitizeMetaKeys() {
+	if cfg == nil || len(cfg.MetaKey) == 0 {
+		return
+	}
+	out := make([]MetaKey, 0, len(cfg.MetaKey))
+	for i := range cfg.MetaKey {
+		e := cfg.MetaKey[i]
+		e.APIKey = strings.TrimSpace(e.APIKey)
+		if e.APIKey == "" || strings.HasPrefix(e.APIKey, "dca:") {
+			continue
+		}
+		e.Prefix = normalizeModelPrefix(e.Prefix)
+		e.BaseURL = strings.TrimSpace(e.BaseURL)
+		if e.BaseURL == "" {
+			e.BaseURL = "https://api.meta.ai/v1"
+		}
+		e.Headers = NormalizeHeaders(e.Headers)
+		e.ExcludedModels = NormalizeExcludedModels(e.ExcludedModels)
+		e.AlphaSearch = false
+		out = append(out, e)
+	}
+	cfg.MetaKey = out
 }
 
 // SanitizeClaudeKeys normalizes headers for Claude credentials.

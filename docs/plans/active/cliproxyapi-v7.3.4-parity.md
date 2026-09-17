@@ -61,7 +61,7 @@ updated: 2026-09-16
 ## Phases and Verification
 Phase gate (each phase): `go test -count=1` on touched packages + `make build` + `git diff --check master..HEAD` + `gofmt -l` on changed files.
 
-### Phase `misc-fixes` (story-20260916-misc-fixes) — status: in-progress
+### Phase `misc-fixes` (story-20260916-misc-fixes) — status: checked
 - goal: R1 — translator finish-reason validation + mgmt no-cache.
 - dependencies: none.
 - allowed surfaces: `internal/translator/openai/claude/**`, `internal/api/server.go` (serveManagementControlPanel only).
@@ -71,7 +71,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     - T1 `772c63c8` — `hasValidToolCallArguments` + `effectiveOpenAIFinishReason` rework (~50 LOC impl + ~97 LOC test). check: `go test ./internal/translator/openai/...`
     - T2 `78c14b80` — 3 no-cache headers before `c.Data` in `serveManagementControlPanel` (~`internal/api/server.go:900`). check: `go test ./internal/api/...`
 
-### Phase `meta-models` (story-20260916-meta-models) — status: in-progress
+### Phase `meta-models` (story-20260916-meta-models) — status: checked
 - goal: R2 — muse-spark catalog + registry/updater plumbing.
 - dependencies: none.
 - allowed surfaces: `internal/registry/models/models.json`, `internal/registry/model_definitions.go`, `internal/registry/model_updater.go`, related tests.
@@ -79,7 +79,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
   - W1:
     - T1 models.json `"meta"` section + `staticModelsJSON.Meta`/`GetMetaModels` + channel wiring + updater requiredSections/detectChangedProviders/backfill + tests. check: `go test ./internal/registry/...`
 
-### Phase `meta-auth` (story-20260916-meta-auth) — status: in-progress
+### Phase `meta-auth` (story-20260916-meta-auth) — status: checked
 - goal: R3 — device OAuth + key mint + auth record.
 - dependencies: none (cancel machinery already landed).
 - allowed surfaces: new `internal/auth/meta/**`, `sdk/auth/meta.go`, `internal/cmd/meta_login.go`, `sdk/auth/refresh_registry.go`, `internal/cmd/auth_manager.go`, `internal/api/handlers/management/oauth_sessions.go` (NormalizeOAuthProvider case only), `internal/util` (shared helpers if needed).
@@ -140,11 +140,40 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 
 - 2026-09-16 | phase=misc-fixes+meta-models+meta-auth task=phase-start | wave-1 parallel fanout — zero-dep trio; disjoint surfaces (translator+server.go vs registry vs auth/cmd); per plan wave-1 ordering
 
+- 2026-09-16 | phase=misc-fixes wave=W1 task=T1+T2 task_status=DONE | `772c63c8` hasValidToolCallArguments + effectiveOpenAIFinishReason (length over tool_calls on invalid args, content_filter passthrough) + 9 upstream tests; `78c14b80` no-cache headers in serveManagementControlPanel | check `go test ./internal/translator/... ./internal/api/...` -> ok | committed f17b30f6
+- 2026-09-16 | phase=meta-models wave=W1 task=T1 task_status=DONE | models.json meta section (5 muse-spark, 1M ctx, thinking levels), staticModelsJSON.Meta + GetMetaModels + meta/muse channel, updater requiredSections+detectChangedProviders+backfill; agent corrected SHAs — requiredSections/test came from `06660dd6` | check `go test ./internal/registry/...` -> ok 0.048s | committed (4 files +199)
+- 2026-09-16 | phase=meta-auth wave=W1 task=T1 task_status=DONE | internal/auth/meta (~585 LOC + 365 test), sdk/auth/meta.go, meta_login cmd + -meta-login flag, refresh_registry + auth_manager + NormalizeOAuthProvider meta/muse; device flow + /muse-code/key mint + atomic SaveTokenToFile + RefreshLead=nil; 21aa46b6 correctly excluded (upstream removed local-CLI creds); 1144ae70 auth-side N/A | check `go test ./internal/auth/meta` -> ok 4.2s | committed
+- 2026-09-16 | phase=misc-fixes+meta-models+meta-auth task=wave-summary | wave-1 complete in 3 commits; combined gate clean (Validation 2026-09-16T07:30Z); next: meta-executor (deps meta-models+meta-auth satisfied)
+
 ## Validation
 - (populated at each phase gate — see work-full.md step 11 / check-validation.md format)
 
+- `2026-09-16T07:30:00Z` — phase: `misc-fixes + meta-models + meta-auth` (wave-1 batch) — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target — translator/api-server.go + registry + auth/cmd surfaces only
+  - proof_gaps: device flow + mint verified via httptest fixtures; no live auth.meta.com/api.meta.ai round-trip (none available)
+  - commands:
+    - `go test -count=1` over touched pkgs (auth/meta, sdk/auth, cmd, registry, translator/openai/claude, api) — pass (16 pkgs)
+    - `go test -race -count=1 ./internal/auth/meta/` — pass 4.2s
+    - `make build` — pass
+    - `git diff --check` — pass
+    - `gofmt -l` on changed files — pass
+  - receipt:
+    context_sources: [docs/plans/active/cliproxyapi-v7.3.4-parity.md, docs/upstream/cliproxyapi-checkpoint.json]
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: 7d07f2eb
+    failure_ledger: absent
+    enforcement: local-only
+    not_independently_verified: live Meta OIDC endpoints; minted-key behavior under real plan states
+
 ## Current State and Next Action
-- active_phase: misc-fixes + meta-models + meta-auth — wave-1 in flight
+- active_phase: none — wave-1 checked; next: meta-executor (deps satisfied)
 - lifecycle_status: in-progress
 - latest_anchors: prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released); debt-cleanup commits on master `dc3aa689`/`c5a96047`/`4729ed69`/`73a2c234`
 - blockers: none — all deps satisfied (cancel machinery landed, capability machinery landed, devin pattern established)

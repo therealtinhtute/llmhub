@@ -87,7 +87,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
   - W1:
     - T1 `internal/auth/meta/**` + `sdk/auth/meta.go` + refresh-registry + auth-manager + `-meta-login` cmd. check: `go test ./internal/auth/meta/... ./sdk/auth/... ./internal/cmd/...`
 
-### Phase `meta-executor` (story-20260916-meta-executor) — status: in-progress
+### Phase `meta-executor` (story-20260916-meta-executor) — status: checked
 - goal: R4 — executor trio + conductor lifecycle.
 - dependencies: `meta-models` (model resolution), `meta-auth` (auth records).
 - allowed surfaces: new `internal/runtime/executor/meta_executor{,_execute,_stream}.go` + tests, `sdk/cliproxy/auth/conductor.go`, `sdk/cliproxy/auth/types.go`, `sdk/cliproxy/auth/metadata_merge.go`, `sdk/cliproxy/service.go` (executor registration + PrepareRequestAuth export).
@@ -147,6 +147,9 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 
 - 2026-09-16 | phase=meta-executor task=phase-start | deps meta-models+meta-auth checked; single agent runs T1 conductor lifecycle then T2 executor trio sequentially (shared concepts)
 
+- 2026-09-16 | phase=meta-executor wave=W1 task=T1+T2 task_status=DONE | conductor lifecycle (indexSeed meta-api-key, dca_token credential, MergeExistingAuthMetadata meta skip, PrepareRequestAuth export, persistMetaMint under m.mu pre-install, tryRefreshAfterUnauthorized 401->refresh->retry — hard dep of be7323f3) + executor trio + sanitizer + 16 upstream tests | checks `go test ./sdk/cliproxy/... ./internal/runtime/executor/...` + `-race` auth -> ok | committed
+- 2026-09-16 | phase=meta-executor task=wave-summary | meta executor self-selects codex format (requestToFormat N/A); shims recorded (metaIsConfigAPIKeyAuth, TranslateRequestWithCodexMultiAgentV2, SetTranslatedReasoningEffort no-op); upstream test UA bug corrected (muse-build/1.3.0); remainders -> config-apikey (MetaKey/resolveConfigMetaKey/buildMetaConfigModels), api-call (PrepareRequestAuth consumers), home-dispatch 401 hooks (out of slice)
+
 ## Validation
 - (populated at each phase gate — see work-full.md step 11 / check-validation.md format)
 
@@ -175,7 +178,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     not_independently_verified: live Meta OIDC endpoints; minted-key behavior under real plan states
 
 ## Current State and Next Action
-- active_phase: meta-executor — in flight (T1 conductor lifecycle, then T2 executor trio)
+- active_phase: none — meta-executor checked; next: meta-config-apikey + meta-mgmt-oauth + meta-api-call parallel wave (server.go routes deferred to orchestrator)
 - lifecycle_status: in-progress
 - latest_anchors: prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released); debt-cleanup commits on master `dc3aa689`/`c5a96047`/`4729ed69`/`73a2c234`
 - blockers: none — all deps satisfied (cancel machinery landed, capability machinery landed, devin pattern established)

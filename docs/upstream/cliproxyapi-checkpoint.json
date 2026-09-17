@@ -35,17 +35,17 @@
   ]
  },
  "checkpoint": {
-  "tag": "v7.3.4",
-  "commit": "8335eac731946bd4eff18f500653f93736df53d6",
-  "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.4",
-  "published_at": "2026-09-15T14:06:39Z",
-  "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.4",
+  "tag": "v7.3.6",
+  "commit": "8c664b2fede5c83b919be1df9b01057ec4e4c950",
+  "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.6",
+  "published_at": "2026-09-17T05:53:32Z",
+  "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.6",
   "target_commitish": "main",
-  "checked_at": "2026-09-16T06:51:30Z"
+  "checked_at": "2026-09-17T09:27:30Z"
  },
  "local_baseline": {
-  "commit": "bb33b31c9f72473861a1d597b5ba0d31da286cef",
-  "branch": "docs/cliproxyapi-v7.3.3-parity"
+  "commit": "ee727c649fed9306a8c0667656ee895c64709fc9",
+  "branch": "master"
  },
  "prior_checkpoints": [
   {
@@ -107,19 +107,31 @@
    "commit": "7bbfeaf8a7acf2cd5a834dcb0842539fe6aabc2b",
    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.3",
    "role": "prior-checkpoint"
-  }
- ],
- "source_range": {
-  "from_exclusive": "v7.3.3",
-  "to_inclusive": "v7.3.4"
- },
- "releases": [
+  },
   {
    "tag": "v7.3.4",
    "commit": "8335eac731946bd4eff18f500653f93736df53d6",
-   "published_at": "2026-09-15T14:06:39Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.4"
+   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.4",
+   "role": "prior-checkpoint"
   }
  ],
- "generated_at": "2026-09-17T06:36:11Z"
+ "source_range": {
+  "from_exclusive": "v7.3.4",
+  "to_inclusive": "v7.3.6"
+ },
+ "releases": [
+  {
+   "tag": "v7.3.5",
+   "commit": "b681a1e0f7b89d26814f788b60bf84feaf72e912",
+   "published_at": "2026-09-16T21:23:18Z",
+   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.5"
+  },
+  {
+   "tag": "v7.3.6",
+   "commit": "8c664b2fede5c83b919be1df9b01057ec4e4c950",
+   "published_at": "2026-09-17T05:53:32Z",
+   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.6"
+  }
+ ],
+ "generated_at": "2026-09-17T09:27:31Z"
 }

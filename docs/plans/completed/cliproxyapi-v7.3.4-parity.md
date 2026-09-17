@@ -3,7 +3,7 @@ id: plan-20260916-v734
 type: plan
 intake_id: intake-20260916-v734
 lane: high-risk
-status: active
+status: completed
 created: 2026-09-16
 updated: 2026-09-16
 ---
@@ -122,7 +122,7 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
   - W1:
     - T6 `resolveMetaToken`/`metaManagementPreparer`/`metaTokenFromAuth`/`proxyURLFromAPIKeyConfig` meta case. check: `go test ./internal/api/...`
 
-### Phase `final-gate` (story-20260916-final-gate) — status: planned
+### Phase `final-gate` (story-20260916-final-gate) — status: checked
 - goal: R9 — checkpoint refresh and delta pinning.
 - dependencies: all phases above.
 - allowed surfaces: `docs/upstream/**`, checkpoint refs.
@@ -134,6 +134,11 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 - 2026-09-16 | phase=init task=triage | decision: approved FULL TUI device-flow UX (user_code display, skip callback input, deviceOAuthPollTimeout, device i18n) AND `meta` in `WEBUI_SUPPORTED` with device-code display — owner chose the complete option on both triage questions | rationale: meta's device flow is unusable without visible user_code; devin/Kimi patterns make the work bounded.
 - 2026-09-16 | phase=init task=triage | decision: meta mgmt OAuth uses the oauth-cancel machinery ported in `dc3aa689` (watchOAuthSessionCancel/guardOAuthSessionPendingForSave/CancelOAuthSession) | rationale: resolves the "port cancel now or stay devin-consistent" triage question — it landed as debt cleanup first.
 - 2026-09-16 | phase=init task=triage | decision: `config-optional commandMode` (`fbf74645`) rejected — llmhub is Postgres-authoritative with no config.yaml path; `plugin-quota-hardening` excluded (pluginhost scope); `meta.svg` excluded (no local assets dir) | rationale: recorded in checkpoint scope_policy.
+- 2026-09-16 | phase=final-gate task=upstream-refresh | follow-up:devin-fixes-736 — `ad088a87` automation-tool filter + description sanitize, `c2bb91d2` buffer content deltas for late thinking signatures, `d44901f9` high-demand→rate-limit classification, `dea4ce8a` swe-1-6-slow variant | rationale: upstream shipped v7.3.5+v7.3.6 during this initiative; pinned for next triage, never worked.
+- 2026-09-16 | phase=final-gate task=upstream-refresh | follow-up:translator-enhancements-736 — `a9e92b81` model metadata, `f668ac41` schema identifier strip, `b681a1e0` system-reminder envelope, `77820cb2` alt reasoning fields, `7fcbdf88` web-search streaming/citations, `7def8425` tool names in tool results, `e3e97ad9` namespace-aware tool-name capping, `e54a8e97` cache-usage/input-token logic, `6f908cbc` finish-reason + tool-call translations | rationale: same — 9-commit translator wave pinned for next triage.
+- 2026-09-16 | phase=final-gate task=upstream-refresh | follow-up:executor-fixes-736 — `c4982e84` strip tool-result images for text-only models, `7c32971b` stream failure on client disconnect after claude completion | rationale: same.
+- 2026-09-16 | phase=final-gate task=upstream-refresh | follow-up:antigravity-websearch-736 — `ef63d2e7` antigravity web-search translation + URL resolution | rationale: upstream now carries the probe-stack machinery our capability-propagation remainder was waiting on — next triage should fold the recorded remainder into this slice.
+- 2026-09-16 | phase=final-gate task=upstream-refresh | follow-up:misc-736 — `6724a958` auth retry enrichment, `f51d3ae9` interactions id/call_id strip, `923a8c30` codex_exec UA recognition, `311efcb3` metaUserAgent test const | rationale: same. Docs/readme commits (`46f6cb01`,`45160378`,`cfeeeb34`,`7c961b34`) excluded — docs churn outside scope_policy.
 
 ## Progress
 - 2026-09-16 | phase=init task=plan-seed task_status=DONE | handoff analysis `7d91f4db` scoped the full delta (26 commits / 80 paths / +5275−85 → 9 include slices, 3 excluded); checkpoint scope_policy recorded (9 include / 6 exclude / 6 defer); owner triage answers received (full TUI UX + WEBUI_SUPPORTED); plan written from `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` conventions
@@ -158,6 +163,9 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
 - 2026-09-16 | phase=meta-config-apikey wave=W1 task=T1+T2 task_status=DONE | `1144ae70`/`e475807a` MetaKey/MetaModel aliases + `meta-api-key` sanitize (drops empty + `dca:`-prefixed, AlphaSearch off, default https://api.meta.ai/v1) + synthesizer/diff/clients + oauth-model-alias + request-scoped-errors + excluded-models + providers meta cases + SDK re-exports + config_meta_keys.go CRUD handlers | check `go test ./internal/config/... ./internal/watcher/... ./sdk/cliproxy/... ./internal/api/...` -> ok | committed 957e49df
 - 2026-09-16 | phase=meta-config-apikey+meta-mgmt-oauth task=routes task_status=DONE | orchestrator applied deferred server.go registrations: meta-api-key CRUD block after vertex-api-key; meta-auth-url after devin-auth-url | committed 957e49df
 - 2026-09-16 | phase=meta-mgmt-oauth task=flake-fix task_status=DONE | TestMetaDeviceOAuthFlow raced stub completion vs pending-status assertion (tombstone -> "ok" not "wait"); fixed by holding stub poll on release channel — deterministic now | check `go test -count=5 -run TestMetaDeviceOAuthFlow` -> ok | committed 79303c4c
+
+- 2026-09-16 | phase=final-gate task=phase-start | deps all-7 checked; full-repo sweep + upstream refresh
+- 2026-09-16 | phase=final-gate wave=W1 task=T1 task_status=DONE | `upstream_sync.py sync --slug cliproxyapi` found NEWER release: checkpoint v7.3.4 -> v7.3.6 (`8c664b2fede5`, ref fetched, 2 releases / 24 non-merge commits / 87 changed paths: 8 upstream-add-absent, 31 diverged-absent, 45 semantic-review, 3 baseline); gap artifact docs/upstream/cliproxyapi-gap-v7.3.4..v7.3.6.json (gitignored per convention); delta pinned as 5 follow-up Decisions — never worked; disposition sweep: every in-scope v7.3.4 commit ported (SHA-cited above) or recorded Decision/remainder | committed
 
 ## Validation
 - (populated at each phase gate — see work-full.md step 11 / check-validation.md format)
@@ -212,12 +220,37 @@ Phase gate (each phase): `go test -count=1` on touched packages + `make build` +
     enforcement: local-only
     not_independently_verified: live Meta device-flow endpoints; WebUI device-code UX in a real browser
 
+- `2026-09-16T09:20:00Z` — phase: `final-gate` — verdict: `APPROVED`
+  - mode: `gate`
+  - verdict: `APPROVED`
+  - judge: `same-session`
+  - judge_model: `devin/swe-2-max`
+  - scope: on target — checkpoint ref + gap artifact only; no code touched
+  - proof_gaps: none new — feature proof gaps recorded per-phase above
+  - commands:
+    - `go test -count=1 ./...` — green except 2 pre-existing uid=0 failures (`cmd/server` TestUpdateCommandRollback, `internal/updater` TestRollbackFailure; fail on master too)
+    - `go build ./...` — pass
+    - `git diff --check` + `gofmt -l` changed files — pass
+    - `python3 .claude/skills/upstream/scripts/upstream_sync.py sync --slug cliproxyapi` — checkpoint v7.3.4 -> v7.3.6 (`8c664b2fede5`)
+    - `python3 .claude/skills/upstream/scripts/upstream_gap.py --slug cliproxyapi` — 87 paths enumerated, 5 follow-up Decisions pinned
+  - receipt:
+    context_sources: [docs/plans/active/cliproxyapi-v7.3.4-parity.md, docs/upstream/cliproxyapi-checkpoint.json, docs/upstream/cliproxyapi-gap-v7.3.4..v7.3.6.json]
+    policy: targeted-semantic-ports
+    judge: same-session
+    judge_model: devin/swe-2-max
+    retries: 0
+    rollback_point: ee727c64
+    failure_ledger: 2 environmental uid=0 test failures (pre-existing)
+    enforcement: local-only
+    not_independently_verified: live Meta endpoints; upstream v7.3.5/v7.3.6 delta intentionally unreviewed beyond topical grouping (next initiative's triage)
+
 ## Current State and Next Action
-- active_phase: final-gate — all 7 feature phases checked; full-repo sweep + upstream refresh remaining
-- lifecycle_status: in-progress
-- latest_anchors: wave-3 commits `0bbc5084`/`a5e6451c`/`2be858c7`/`957e49df`/`79303c4c`; prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released)
+- active_phase: none — all 8 phases checked; plan complete
+- lifecycle_status: completed
+- latest_anchors: checkpoint `v7.3.6` @ `8c664b2fede5`; wave-3 commits `0bbc5084`/`a5e6451c`/`2be858c7`/`957e49df`/`79303c4c`; prior initiative `docs/plans/completed/cliproxyapi-v7.3.3-parity.md` (v0.0.39 released)
 - blockers: none
 - open_items:
-  - remainders: `RequestToFormat`/`SetTranslatedReasoningEffort` absences (recorded, meta tolerates them like codex did); home-dispatch 401 hooks (out of slice); xAI device-flow refactor (deferred); antigravity web-search probe stack (needs separate feature port)
+  - next-initiative seeds: 5 `follow-up:` Decisions covering upstream v7.3.5+v7.3.6 (24 commits — devin fixes, translator wave, executor fixes, antigravity web-search, misc)
+  - remainders: `RequestToFormat`/`SetTranslatedReasoningEffort` absences; home-dispatch 401 hooks; xAI device-flow refactor; antigravity probe stack (superseded by `ef63d2e7` follow-up)
   - environmental: `TestUpdateCommandRollback` + `internal/updater` `TestRollbackFailure` fail under uid=0 (pre-existing, unrelated)
-- exact_next_action: run final-gate — full-repo test sweep + `upstream_sync.py sync --slug cliproxyapi` + gap refresh; pin any newer delta as follow-ups; then move plan to completed/
+- exact_next_action: initiative complete — seed a v7.3.5..v7.3.6 plan when the owner approves

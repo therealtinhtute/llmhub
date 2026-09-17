@@ -142,6 +142,8 @@ func newDefaultAuthManager() *sdkAuth.Manager {
 		sdkAuth.NewCodexAuthenticator(),
 		sdkAuth.NewClaudeAuthenticator(),
 		sdkAuth.NewXAIAuthenticator(),
+		// Ported from upstream CLIProxyAPI commit 54d4f4c0.
+		sdkAuth.NewMetaAuthenticator(),
 	)
 }
 
@@ -461,6 +463,9 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
 	case "devin":
 		s.coreManager.RegisterExecutor(executor.NewDevinExecutor(s.cfg))
+	case "meta":
+		// Ported from upstream CLIProxyAPI commit 54d4f4c0.
+		s.coreManager.RegisterExecutor(executor.NewMetaExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -659,6 +664,8 @@ func (s *Service) registerHomeExecutors() {
 	s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewDevinExecutor(s.cfg))
+	// Ported from upstream CLIProxyAPI commit 54d4f4c0 (baselineExecutorAuths "meta" entry).
+	s.coreManager.RegisterExecutor(executor.NewMetaExecutor(s.cfg))
 	s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor("openai-compatibility", s.cfg))
 }
 
@@ -1377,6 +1384,12 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 				}
 			}
 		}
+		models = applyExcludedModels(models, excluded)
+	case "meta":
+		// Ported from upstream CLIProxyAPI commit 54d4f4c0. The upstream
+		// resolveConfigMetaKey/buildMetaConfigModels branch depends on
+		// config.MetaKey and is deferred to the config-apikey phase.
+		models = registry.GetMetaModels()
 		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config

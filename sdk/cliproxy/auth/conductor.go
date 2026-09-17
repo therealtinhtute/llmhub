@@ -1558,6 +1558,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 	ctx = contextWithRequestedModelAlias(ctx, opts, routeModel)
 	ctx = syncMetadataSessionToContext(ctx, opts.Metadata)
 	var lastErr error
+	didRefreshOnUnauthorized := false
 	for idx, execModel := range execModels {
 		resultModel := m.stateModelForExecution(auth, routeModel, execModel, pooled)
 		execReq := req
@@ -1567,6 +1568,21 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if errCtx := ctx.Err(); errCtx != nil {
 				return nil, errCtx
 			}
+			// Refresh a stale credential once after a 401 and retry the same
+			// auth before fallback (upstream conductor_stream.go
+			// tryRefreshAfterUnauthorized call site; required by be7323f3bf66).
+			if refreshed, okRefresh := m.tryRefreshAfterUnauthorized(ctx, auth, errStream, didRefreshOnUnauthorized); okRefresh {
+				auth = refreshed
+				didRefreshOnUnauthorized = true
+				streamResult, errStream = executor.ExecuteStream(ctx, auth, execReq, opts)
+				if errStream != nil {
+					if errCtx := ctx.Err(); errCtx != nil {
+						return nil, errCtx
+					}
+				}
+			}
+		}
+		if errStream != nil {
 			rerr := &Error{Message: errStream.Error()}
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errStream); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
@@ -1602,6 +1618,34 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				discardStreamChunks(streamResult.Chunks)
 				return nil, errCtx
 			}
+			// A 401 surfacing inside the stream bootstrap means the credential
+			// went stale before first payload; refresh once and retry (upstream
+			// conductor_stream.go second tryRefreshAfterUnauthorized call site,
+			// required by be7323f3bf66).
+			if refreshed, okRefresh := m.tryRefreshAfterUnauthorized(ctx, auth, bootstrapErr, didRefreshOnUnauthorized); okRefresh {
+				discardStreamChunks(streamResult.Chunks)
+				auth = refreshed
+				didRefreshOnUnauthorized = true
+				retryStream, retryErr := executor.ExecuteStream(ctx, auth, execReq, opts)
+				if retryErr != nil {
+					if errCtx := ctx.Err(); errCtx != nil {
+						return nil, errCtx
+					}
+					bootstrapErr = retryErr
+					streamResult = &cliproxyexecutor.StreamResult{}
+				} else {
+					streamResult = retryStream
+					buffered, closed, bootstrapErr = readStreamBootstrap(ctx, streamResult.Chunks)
+					if bootstrapErr != nil {
+						if errCtx := ctx.Err(); errCtx != nil {
+							discardStreamChunks(streamResult.Chunks)
+							return nil, errCtx
+						}
+					}
+				}
+			}
+		}
+		if bootstrapErr != nil {
 			credentialScope := isCredentialScopedError(bootstrapErr)
 			action, okAction := matchRequestScopedErrorAction(auth, bootstrapErr, m.runtimeConfigSnapshot())
 			if okAction {
@@ -2023,6 +2067,17 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 	auth.UpdatedAt = time.Now()
 	normalizeModelStates(auth)
 	auth.EnsureIndex()
+	// A minted Meta key must reach the configured store before requests can use
+	// it. Keep the epoch check, save and installation together so a concurrent
+	// reload or removal cannot let an obsolete mint overwrite the credential on
+	// disk (upstream 4a0131c062cd, conductor_lifecycle.go).
+	persistMetaMint := (mode == updateModePrepare || mode == updateModeRefresh) && strings.EqualFold(strings.TrimSpace(auth.Provider), "meta")
+	if persistMetaMint {
+		if errPersist := m.persist(ctx, auth); errPersist != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("persist meta auth: %w", errPersist)
+		}
+	}
 	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone
 	m.mu.Unlock()
@@ -2031,8 +2086,10 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 		m.scheduler.upsertAuth(authClone)
 	}
 	m.queueRefreshReschedule(auth.ID)
-	if err := m.persist(ctx, auth); err != nil {
-		return auth.Clone(), err
+	if !persistMetaMint {
+		if err := m.persist(ctx, auth); err != nil {
+			return auth.Clone(), err
+		}
 	}
 	m.hook.OnAuthUpdated(ctx, auth.Clone())
 	return auth.Clone(), nil
@@ -2342,16 +2399,34 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 		}
 		execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
 		var authErr error
+		didRefreshOnUnauthorized := false
 		for _, upstreamModel := range models {
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
 			execReq := req
 			execReq.Model = upstreamModel
 			resp, errExec := executor.Execute(execCtx, auth, execReq, execOpts)
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil, Options: execOpts}
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
 					return cliproxyexecutor.Response{}, errCtx, progressed
 				}
+				// A 401 can be a stale credential rather than a dead account —
+				// Meta mints a fresh API key from its DCA token on this path.
+				// Refresh once and retry the same auth before fallback
+				// (upstream conductor_execution.go tryRefreshAfterUnauthorized
+				// call site; required by be7323f3bf66).
+				if refreshed, okRefresh := m.tryRefreshAfterUnauthorized(execCtx, auth, errExec, didRefreshOnUnauthorized); okRefresh {
+					auth = refreshed
+					didRefreshOnUnauthorized = true
+					resp, errExec = executor.Execute(execCtx, auth, execReq, execOpts)
+					if errExec != nil {
+						if errCtx := execCtx.Err(); errCtx != nil {
+							return cliproxyexecutor.Response{}, errCtx, progressed
+						}
+					}
+				}
+			}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil, Options: execOpts}
+			if errExec != nil {
 				result.Error = resultErrorFromError(errExec)
 				result.RequestScoped = isRequestScopedError(errExec)
 				result.CredentialScope = isCredentialScopedError(errExec)
@@ -2506,16 +2581,32 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 		}
 		execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
 		var authErr error
+		didRefreshOnUnauthorized := false
 		for _, upstreamModel := range models {
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
 			execReq := req
 			execReq.Model = upstreamModel
 			resp, errExec := executor.CountTokens(execCtx, auth, execReq, execOpts)
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil, Options: execOpts}
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
 					return cliproxyexecutor.Response{}, errCtx, progressed
 				}
+				// Refresh a stale credential once after a 401 and retry the
+				// same auth before fallback (upstream conductor_execution.go
+				// count-path tryRefreshAfterUnauthorized call site).
+				if refreshed, okRefresh := m.tryRefreshAfterUnauthorized(execCtx, auth, errExec, didRefreshOnUnauthorized); okRefresh {
+					auth = refreshed
+					didRefreshOnUnauthorized = true
+					resp, errExec = executor.CountTokens(execCtx, auth, execReq, execOpts)
+					if errExec != nil {
+						if errCtx := execCtx.Err(); errCtx != nil {
+							return cliproxyexecutor.Response{}, errCtx, progressed
+						}
+					}
+				}
+			}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil, Options: execOpts}
+			if errExec != nil {
 				result.Error = resultErrorFromError(errExec)
 				if ra := retryAfterFromError(errExec); ra != nil {
 					result.RetryAfter = ra
@@ -2797,7 +2888,18 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 		return auth, nil
 	}
 	preparer, ok := executor.(RequestAuthPreparer)
-	if !ok || preparer == nil || !preparer.ShouldPrepareRequestAuth(auth) {
+	if !ok {
+		return auth, nil
+	}
+
+	return m.PrepareRequestAuth(ctx, preparer, auth)
+}
+
+// PrepareRequestAuth prepares a registered credential using the same serialization
+// and lifecycle checks as normal request execution. Management tools use this path too.
+// Ported from upstream CLIProxyAPI commit 4a0131c062cd (conductor_execution.go).
+func (m *Manager) PrepareRequestAuth(ctx context.Context, preparer RequestAuthPreparer, auth *Auth) (*Auth, error) {
+	if m == nil || preparer == nil || auth == nil || !preparer.ShouldPrepareRequestAuth(auth) {
 		return auth, nil
 	}
 
@@ -2806,21 +2908,36 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 		return preparer.PrepareRequestAuth(ctx, auth.Clone())
 	}
 
-	lockValue, _ := m.requestPrepareLocks.LoadOrStore(id, &requestAuthPrepareLock{})
-	lock, ok := lockValue.(*requestAuthPrepareLock)
-	if !ok || lock == nil {
-		return preparer.PrepareRequestAuth(ctx, auth.Clone())
+	isMeta := strings.EqualFold(strings.TrimSpace(auth.Provider), "meta")
+	var prepareMu *sync.Mutex
+	if isMeta {
+		// Meta also mints on 401 recovery; serialize both paths per credential
+		// (upstream 4a0131c0 uses refreshLocks for meta instead of
+		// requestPrepareLocks). refreshLocks only ever stores *authRefreshLock.
+		lockValue, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
+		prepareMu = &lockValue.(*authRefreshLock).mu
+	} else {
+		lockValue, _ := m.requestPrepareLocks.LoadOrStore(id, &requestAuthPrepareLock{})
+		lock, ok := lockValue.(*requestAuthPrepareLock)
+		if !ok || lock == nil {
+			return preparer.PrepareRequestAuth(ctx, auth.Clone())
+		}
+		prepareMu = &lock.mu
 	}
 
-	lock.mu.Lock()
-	defer lock.mu.Unlock()
+	prepareMu.Lock()
+	defer prepareMu.Unlock()
 
 	target := auth.Clone()
 	m.mu.RLock()
-	if current := m.auths[id]; current != nil {
+	current := m.auths[id]
+	if current != nil {
 		target = current.Clone()
 	}
 	m.mu.RUnlock()
+	if current == nil && isMeta {
+		return nil, fmt.Errorf("prepare meta auth: credential no longer registered")
+	}
 
 	if !preparer.ShouldPrepareRequestAuth(target) {
 		return target, nil
@@ -2844,6 +2961,9 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 	}
 	if saved != nil {
 		return saved, nil
+	}
+	if isMeta {
+		return nil, fmt.Errorf("prepare meta auth: credential removed during mint")
 	}
 	return target, nil
 }
@@ -6558,6 +6678,31 @@ type authRefreshLock struct {
 
 func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	_, _ = m.refreshAuthForRequest(ctx, id, "")
+}
+
+// tryRefreshAfterUnauthorized refreshes local OAuth credentials once after a
+// 401 so the current auth can be retried before fallback/suspend.
+// Ported from upstream CLIProxyAPI sdk/cliproxy/auth/conductor_refresh.go;
+// required by the Meta DCA mint-on-401 recovery path (upstream be7323f3bf66).
+func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, execErr error, alreadyTried bool) (*Auth, bool) {
+	if m == nil || auth == nil || alreadyTried || execErr == nil {
+		return auth, false
+	}
+	// Request-scoped failures describe this request, not stale credentials.
+	// Refreshing would turn a direct error response into an implicit retry.
+	if isRequestScopedError(execErr) {
+		return auth, false
+	}
+	if !isUnauthorizedError(execErr) || !authHasRefreshCredential(auth) {
+		return auth, false
+	}
+	log.Debugf("unauthorized response for %s (%s), refreshing credentials before fallback", auth.Provider, auth.ID)
+	refreshed, errRefresh := m.refreshAuthForRequest(ctx, auth.ID, authAccessToken(auth))
+	if errRefresh != nil || refreshed == nil {
+		log.Debugf("credential refresh before fallback failed for %s (%s): %v", auth.Provider, auth.ID, errRefresh)
+		return auth, false
+	}
+	return refreshed, true
 }
 
 // refreshAuthForRequest performs a synchronous credential refresh for the given auth.

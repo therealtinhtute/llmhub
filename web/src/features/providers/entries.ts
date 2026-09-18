@@ -13,6 +13,8 @@ import iconKimiLight from '@/assets/icons/kimi-light.svg';
 import iconKimiDark from '@/assets/icons/kimi-dark.svg';
 import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
+import iconMeta from '@/assets/icons/meta.svg';
+import iconMetaDark from '@/assets/icons/meta-dark.svg';
 import type {
   NativeProviderBrand,
   ProviderBrand,
@@ -106,8 +108,9 @@ export const PROVIDERS: ProviderEntryOAuthMeta[] = [
     titleKey: 'auth_login.meta_oauth_title',
     hintKey: 'auth_login.meta_oauth_hint',
     urlLabelKey: 'auth_login.meta_oauth_url_label',
-    // No bundled meta.svg (upstream assets/logo/meta.svg is excluded); the
-    // panel renders an initial badge when no icon asset is set.
+    // Official Meta mark (upstream CLIProxyAPI assets/logo/meta.svg);
+    // white-fill variant for dark theme since <img> can't inherit currentColor.
+    icon: { light: iconMeta, dark: iconMetaDark },
   },
 ];
 

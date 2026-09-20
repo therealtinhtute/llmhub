@@ -1174,10 +1174,12 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 		}
 		if reason == blockReasonCooldown {
 			cooldownCount++
-			if !next.IsZero() && (earliest.IsZero() || next.Before(earliest)) {
-				earliest = next
-			}
-			continue
+		}
+		// Ported from upstream CLIProxyAPI commit 6724a95851f9: track the earliest
+		// recovery deadline for every non-disabled block (cooldown or transient)
+		// so unavailable errors can advertise a locally computed Retry-After hint.
+		if reason != blockReasonDisabled && next.After(now) && (earliest.IsZero() || next.Before(earliest)) {
+			earliest = next
 		}
 		if hasUnauthorizedAuthFailure(candidate) {
 			unauthorizedCount++
@@ -1211,7 +1213,7 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 				HTTPStatus: http.StatusServiceUnavailable,
 			}, terminalCause)
 		}
-		return nil, WithCause(&Error{Code: "auth_unavailable", Message: "no auth available"}, lastCandidateErr)
+		return nil, newAuthUnavailableErrorWithCause(earliest, now, lastCandidateErr)
 	}
 
 	return availableAuthsFromPriorityBuckets(availableByPriority, allPriorities), nil
@@ -5822,17 +5824,18 @@ type homeAuthDispatchResponse struct {
 // dispatched model so thinking/reasoning handling can use the authoritative
 // definition instead of the local registry fallback.
 //
-// Ported from upstream CLIProxyAPI commit 6ff680e90ab5
-// (sdk/cliproxy/auth/conductor_home.go).
+// Ported from upstream CLIProxyAPI commits 6ff680e90ab5 and a9e92b81453f
+// (sdk/cliproxy/auth/conductor_home.go); the latter adds NativeCapabilities.
 type homeDispatchModelInfo struct {
-	ID                  string                    `json:"id"`
-	Type                string                    `json:"type,omitempty"`
-	InputTokenLimit     int                       `json:"inputTokenLimit,omitempty"`
-	OutputTokenLimit    int                       `json:"outputTokenLimit,omitempty"`
-	ContextLength       int                       `json:"context_length,omitempty"`
-	MaxCompletionTokens int                       `json:"max_completion_tokens,omitempty"`
-	Thinking            *registry.ThinkingSupport `json:"thinking,omitempty"`
-	UserDefined         bool                      `json:"user_defined"`
+	ID                  string                       `json:"id"`
+	Type                string                       `json:"type,omitempty"`
+	InputTokenLimit     int                          `json:"inputTokenLimit,omitempty"`
+	OutputTokenLimit    int                          `json:"outputTokenLimit,omitempty"`
+	ContextLength       int                          `json:"context_length,omitempty"`
+	MaxCompletionTokens int                          `json:"max_completion_tokens,omitempty"`
+	Thinking            *registry.ThinkingSupport    `json:"thinking,omitempty"`
+	NativeCapabilities  *registry.NativeCapabilities `json:"native_capabilities,omitempty"`
+	UserDefined         bool                         `json:"user_defined"`
 }
 
 func (m *homeDispatchModelInfo) registryModelInfo() *registry.ModelInfo {
@@ -5847,6 +5850,7 @@ func (m *homeDispatchModelInfo) registryModelInfo() *registry.ModelInfo {
 		ContextLength:       m.ContextLength,
 		MaxCompletionTokens: m.MaxCompletionTokens,
 		Thinking:            m.Thinking,
+		NativeCapabilities:  m.NativeCapabilities,
 		UserDefined:         m.UserDefined,
 	}
 }

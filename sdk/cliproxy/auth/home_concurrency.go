@@ -267,13 +267,27 @@ func verifyAccountedHomeConcurrencyIdentity(tuple homeConcurrencyTuple, auth *Au
 	return nil
 }
 
-// SafeResponseHeaders returns trusted response headers only for CPA's concrete Home busy error.
+// SafeResponseHeaders returns trusted response headers only for concrete
+// retry/cooldown errors carrying locally computed recovery hints.
+//
+// Ported from upstream CLIProxyAPI commit 6724a95851f9
+// (sdk/cliproxy/auth/home_concurrency.go). Upstream also trusts
+// homeRetryRoundExhaustedError and homeDispatchRetryAfterError here; those
+// types have no local equivalents yet.
 func SafeResponseHeaders(err error) http.Header {
 	var busy *HomeConcurrencyBusyError
-	if !errors.As(err, &busy) || busy == nil {
-		return nil
+	if errors.As(err, &busy) && busy != nil {
+		return busy.SafeResponseHeaders()
 	}
-	return busy.SafeResponseHeaders()
+	var modelCooldown *modelCooldownError
+	if errors.As(err, &modelCooldown) && modelCooldown != nil {
+		return modelCooldown.Headers()
+	}
+	var unavailable *authUnavailableError
+	if errors.As(err, &unavailable) && unavailable != nil {
+		return unavailable.Headers()
+	}
+	return nil
 }
 
 func safeRetryAfterHeader(retryAfter time.Duration) http.Header {

@@ -1357,6 +1357,13 @@ func enrichAuthSelectionError(err error, providers []string, model string) error
 		Retryable:  authErr.Retryable,
 		HTTPStatus: status,
 	}
+	// Ported from upstream CLIProxyAPI commit 6724a95851f9: typed error carriers
+	// (e.g. authUnavailableError) keep their trusted retry deadline while the
+	// enriched message replaces the public face.
+	var carrier interface{ WithAuthError(*coreauth.Error) error }
+	if errors.As(err, &carrier) && carrier != nil {
+		return carrier.WithAuthError(enriched)
+	}
 	// Ported from upstream CLIProxyAPI commit aedc9e6a3987: keep the terminal
 	// upstream-auth classification (and the wrapped cause) through enrichment so
 	// response writers can emit the non-retryable contract.

@@ -792,7 +792,7 @@ func isCodexResponsesClientRequest(c *gin.Context) bool {
 	if c == nil || c.Request == nil {
 		return false
 	}
-	if isCodexClientUserAgent(c.GetHeader("User-Agent")) {
+	if multiagentv2.IsCodexClientUserAgent(c.GetHeader("User-Agent")) {
 		return true
 	}
 
@@ -802,15 +802,6 @@ func isCodexResponsesClientRequest(c *gin.Context) bool {
 	default:
 		return strings.HasPrefix(originator, "codex desktop/") || strings.HasPrefix(originator, "codex-tui/") || strings.HasPrefix(originator, "codex_cli_rs/")
 	}
-}
-
-// isCodexClientUserAgent reports whether a request uses an official Codex client identity.
-func isCodexClientUserAgent(userAgent string) bool {
-	userAgent = strings.TrimSpace(userAgent)
-	return strings.HasPrefix(userAgent, "Codex Desktop/") ||
-		strings.HasPrefix(userAgent, "codex-tui/") ||
-		userAgent == "codex_cli_rs" ||
-		strings.HasPrefix(userAgent, "codex_cli_rs/")
 }
 
 func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage, framer *responsesSSEFramer) {

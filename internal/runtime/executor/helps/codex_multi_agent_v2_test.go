@@ -1,0 +1,184 @@
+package helps
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/registry"
+	_ "github.com/therealtinhtute/llmhub/internal/translator"
+	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+)
+
+func geminiToolHistoryPayload(turns int) []byte {
+	contents := []string{`{"role":"user","parts":[{"text":"start"}]}`}
+	for i := 0; i < turns; i++ {
+		contents = append(contents,
+			fmt.Sprintf(`{"role":"user","parts":[{"text":"ask %d"}]}`, i),
+			fmt.Sprintf(`{"role":"model","parts":[{"text":"think %d"},{"thoughtSignature":"sig-%d","functionCall":{"id":"c%d","name":"read_file","args":{"path":"a%d.go"}}}]}`, i, i, i, i),
+			fmt.Sprintf(`{"role":"user","parts":[{"functionResponse":{"id":"c%d","name":"read_file","response":{"content":"data %d"}}}]}`, i, i),
+			fmt.Sprintf(`{"role":"model","parts":[{"text":"answer %d"}]}`, i))
+	}
+	return []byte(fmt.Sprintf(
+		`{"contents":[%s],"tools":[{"functionDeclarations":[{"name":"read_file","description":"read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}],"generationConfig":{"temperature":1}}`,
+		strings.Join(contents, ",")))
+}
+
+// TestTranslateRequestPairMatchesSeparateTranslations pins the reuse fast path to
+// the behavior of translating both payloads independently.
+func TestTranslateRequestPairMatchesSeparateTranslations(t *testing.T) {
+	from := sdktranslator.FormatGemini
+	to := sdktranslator.FromString("antigravity")
+	cfg := &config.Config{}
+	const model = "gemini-3.6-flash-high"
+
+	for _, turns := range []int{0, 1, 5, 20} {
+		payload := geminiToolHistoryPayload(turns)
+		// Same bytes in a different backing array forces the translate-twice branch.
+		detached := append([]byte(nil), payload...)
+
+		want := TranslateRequestWithCodexMultiAgentV2(context.Background(), http.Header{}, cfg, from, to, model, payload, true)
+
+		reuseBase, reuseWork := TranslateRequestPairWithCodexMultiAgentV2(
+			context.Background(), http.Header{}, cfg, from, to, model, payload, payload, true)
+		twiceBase, twiceWork := TranslateRequestPairWithCodexMultiAgentV2(
+			context.Background(), http.Header{}, cfg, from, to, model, payload, detached, true)
+
+		for name, got := range map[string][]byte{
+			"reuse baseline": reuseBase,
+			"reuse working":  reuseWork,
+			"twice baseline": twiceBase,
+			"twice working":  twiceWork,
+		} {
+			if !bytes.Equal(want, got) {
+				t.Fatalf("turns=%d: %s translation differs from a standalone translation", turns, name)
+			}
+		}
+
+		if len(reuseBase) > 0 && &reuseBase[0] == &reuseWork[0] {
+			t.Fatalf("turns=%d: working copy aliases the baseline; later in-place edits would corrupt it", turns)
+		}
+
+		// The caller mutates the working copy, so the baseline must stay intact.
+		baselineBefore := append([]byte(nil), reuseBase...)
+		reuseWork[0] = 'X'
+		if !bytes.Equal(baselineBefore, reuseBase) {
+			t.Fatalf("turns=%d: mutating the working copy changed the baseline", turns)
+		}
+	}
+}
+
+// TestTranslateRequestPairTranslatesDistinctPayloads guards the case where the
+// executor really does hand over two different requests.
+func TestTranslateRequestPairTranslatesDistinctPayloads(t *testing.T) {
+	from := sdktranslator.FormatGemini
+	to := sdktranslator.FromString("antigravity")
+	cfg := &config.Config{}
+	const model = "gemini-3.6-flash-high"
+
+	original := geminiToolHistoryPayload(2)
+	request := geminiToolHistoryPayload(4)
+
+	base, work := TranslateRequestPairWithCodexMultiAgentV2(
+		context.Background(), http.Header{}, cfg, from, to, model, original, request, true)
+
+	wantBase := TranslateRequestWithCodexMultiAgentV2(context.Background(), http.Header{}, cfg, from, to, model, original, true)
+	wantWork := TranslateRequestWithCodexMultiAgentV2(context.Background(), http.Header{}, cfg, from, to, model, request, true)
+
+	if !bytes.Equal(wantBase, base) {
+		t.Fatal("baseline translation differs for distinct payloads")
+	}
+	if !bytes.Equal(wantWork, work) {
+		t.Fatal("working translation differs for distinct payloads")
+	}
+	if bytes.Equal(base, work) {
+		t.Fatal("distinct payloads produced identical translations; the reuse path was taken by mistake")
+	}
+}
+
+func TestSameByteSlice(t *testing.T) {
+	buf := []byte("payload")
+	cases := []struct {
+		name string
+		a, b []byte
+		want bool
+	}{
+		{"identical slice", buf, buf, true},
+		{"same array same length", buf[:3], buf[:3], true},
+		{"equal bytes different array", buf, append([]byte(nil), buf...), false},
+		{"different length", buf, buf[:3], false},
+		{"both nil", nil, nil, true},
+		{"nil and empty", nil, []byte{}, true},
+		{"nil and non-empty", nil, buf, false},
+		{"offset alias", buf, buf[1:], false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sameByteSlice(tc.a, tc.b); got != tc.want {
+				t.Fatalf("sameByteSlice() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTranslateRequestEnvelopePairWithCodexMultiAgentV2UsesModelInfo verifies the
+// pair helper propagates request-scoped model metadata into envelope-aware
+// transforms for both the baseline and working payloads. The upstream version of
+// this test routes through the antigravity responses translator; here a
+// synthetic envelope transform stands in for that consumer, which is ported in a
+// later phase.
+func TestTranslateRequestEnvelopePairWithCodexMultiAgentV2UsesModelInfo(t *testing.T) {
+	trueVal := true
+	falseVal := false
+	const model = "gemini-3.8-flash-high"
+
+	input := []byte(`{
+		"model": "` + model + `",
+		"input": "Search weather",
+		"tools": [{"type": "web_search"}]
+	}`)
+
+	from := sdktranslator.Format("envelope-pair-from")
+	to := sdktranslator.Format("envelope-pair-to")
+	sdktranslator.RegisterRequestEnvelope(from, to, func(_ context.Context, req sdktranslator.RequestEnvelope) sdktranslator.RequestEnvelope {
+		webSearch := req.ModelInfo != nil &&
+			req.ModelInfo.NativeCapabilities != nil &&
+			req.ModelInfo.NativeCapabilities.WebSearch != nil &&
+			*req.ModelInfo.NativeCapabilities.WebSearch
+		requestType := "agent"
+		if webSearch {
+			requestType = "web_search"
+		}
+		req.Body, _ = sjson.SetBytes(req.Body, "requestType", requestType)
+		return req
+	})
+
+	enabled := &registry.ModelInfo{
+		ID:                 model,
+		NativeCapabilities: &registry.NativeCapabilities{WebSearch: &trueVal},
+	}
+	envelope := sdktranslator.RequestEnvelope{Format: from, Model: model, ModelInfo: enabled}
+	base, work := TranslateRequestEnvelopePairWithCodexMultiAgentV2(context.Background(), http.Header{}, &config.Config{}, from, to, envelope, input, input)
+	if gjson.GetBytes(base, "requestType").String() != "web_search" {
+		t.Fatalf("expected baseline requestType web_search, got: %s", base)
+	}
+	if gjson.GetBytes(work, "requestType").String() != "web_search" {
+		t.Fatalf("expected working requestType web_search, got: %s", work)
+	}
+
+	disabled := &registry.ModelInfo{
+		ID:                 model,
+		NativeCapabilities: &registry.NativeCapabilities{WebSearch: &falseVal},
+	}
+	envelope.ModelInfo = disabled
+	_, workDisabled := TranslateRequestEnvelopePairWithCodexMultiAgentV2(context.Background(), http.Header{}, &config.Config{}, from, to, envelope, input, input)
+	if gjson.GetBytes(workDisabled, "requestType").String() == "web_search" {
+		t.Fatalf("expected non-web_search when capability disabled, got: %s", workDisabled)
+	}
+}

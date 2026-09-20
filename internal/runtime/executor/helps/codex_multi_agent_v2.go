@@ -36,6 +36,52 @@ func TranslateRequestWithCodexMultiAgentV2(ctx context.Context, headers http.Hea
 	return multiagentv2.TranslateRequestWithCodexMultiAgentV2(ctx, headers, cfg, from, to, model, payload, stream)
 }
 
+// TranslateRequestEnvelopeWithCodexMultiAgentV2 normalizes official Codex
+// multi-agent input while preserving the complete request envelope.
+func TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx context.Context, headers http.Header, cfg *config.Config, from, to sdktranslator.Format, req sdktranslator.RequestEnvelope) sdktranslator.RequestEnvelope {
+	return multiagentv2.TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx, headers, cfg, from, to, req)
+}
+
+// TranslateRequestPairWithCodexMultiAgentV2 translates the untouched baseline
+// payload and the working payload that later stages mutate in place. Executors
+// normally assign the original payload to the request before translating, so both
+// translations would rescan the same bytes and produce the same result. Built-in
+// request translation is deterministic, so that case is translated once and
+// duplicated. This removes a full extra pass over payloads that can reach tens of
+// megabytes.
+func TranslateRequestPairWithCodexMultiAgentV2(ctx context.Context, headers http.Header, cfg *config.Config, from, to sdktranslator.Format, model string, originalPayload, requestPayload []byte, stream bool) (original, working []byte) {
+	req := sdktranslator.RequestEnvelope{Format: from, Model: model, Stream: stream}
+	return TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx, headers, cfg, from, to, req, originalPayload, requestPayload)
+}
+
+// TranslateRequestEnvelopePairWithCodexMultiAgentV2 translates the baseline and
+// working payload while preserving request-scoped metadata in req.
+func TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx context.Context, headers http.Header, cfg *config.Config, from, to sdktranslator.Format, req sdktranslator.RequestEnvelope, originalPayload, requestPayload []byte) (original, working []byte) {
+	originalReq := req
+	originalReq.Body = originalPayload
+	original = TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx, headers, cfg, from, to, originalReq).Body
+	if sameByteSlice(originalPayload, requestPayload) {
+		// The caller mutates the working copy, so it must not share the baseline array.
+		return original, append([]byte(nil), original...)
+	}
+	workingReq := req
+	workingReq.Body = requestPayload
+	return original, TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx, headers, cfg, from, to, workingReq).Body
+}
+
+// sameByteSlice reports whether both slices describe the same bytes of the same
+// backing array. It compares identity rather than content so the check stays
+// constant time on large payloads.
+func sameByteSlice(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	return &a[0] == &b[0]
+}
+
 // OptimizeCodexMultiAgentV2Request rewrites an eligible spawn_agent request and
 // reports whether the collaboration namespace was renamed for upstream use.
 func OptimizeCodexMultiAgentV2Request(ctx context.Context, headers http.Header, payload []byte, cfg *config.Config) ([]byte, bool) {

@@ -10,6 +10,61 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/registry"
 )
 
+func TestIsCodexMultiAgentClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		userAgent string
+		want      bool
+	}{
+		{
+			name:      "Codex Desktop",
+			userAgent: "Codex Desktop/0.146.0-alpha.3 (Mac OS 26.5.2; arm64) unknown (Codex Desktop; 26.721.30844)",
+			want:      true,
+		},
+		{
+			name:      "codex tui",
+			userAgent: "codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+			want:      true,
+		},
+		{
+			name:      "codex cli rs",
+			userAgent: "codex_cli_rs/0.144.1 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9",
+			want:      true,
+		},
+		{
+			name:      "bare codex cli rs",
+			userAgent: "codex_cli_rs",
+			want:      true,
+		},
+		{
+			name:      "codex exec",
+			userAgent: "codex_exec/0.153.2 (Mac OS 26.6.2; arm64) unknown (codex_exec; 0.153.2)",
+			want:      true,
+		},
+		{
+			name:      "other client",
+			userAgent: "curl/8.7.1",
+			want:      false,
+		},
+		{
+			name:      "embedded token",
+			userAgent: "proxy Codex Desktop/0.146.0",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isCodexMultiAgentClient(tt.userAgent); got != tt.want {
+				t.Fatalf("isCodexMultiAgentClient(%q) = %v, want %v", tt.userAgent, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCodexSpawnAgentModelsCacheInvalidation(t *testing.T) {
 	modelRegistry := registry.GetGlobalRegistry()
 	clientID1 := "cache-invalidation-client-1"

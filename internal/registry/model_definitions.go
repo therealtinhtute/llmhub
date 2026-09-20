@@ -94,6 +94,43 @@ func GetAntigravityModels() []*ModelInfo {
 	return cloneModelInfos(getModels().Antigravity)
 }
 
+// AntigravityWebSearchModelFor returns the normalized Antigravity model ID when the
+// currently registered Antigravity model supports web search, or "" otherwise.
+// Ported from upstream CLIProxyAPI v7.3.6
+// (internal/registry/model_definitions.go). Upstream reads the dynamic
+// SupportsWebSearch probe flag; the fork maps that flag onto the merged
+// NativeCapabilities.WebSearch tri-state (explicit true required).
+func AntigravityWebSearchModelFor(modelID string) string {
+	modelID = normalizeAntigravityCapabilityModelID(modelID)
+	if modelID == "" {
+		return ""
+	}
+	for _, model := range GetGlobalRegistry().GetAvailableModelsByProvider("antigravity") {
+		if model == nil {
+			continue
+		}
+		currentModelID := normalizeAntigravityCapabilityModelID(model.ID)
+		if currentModelID == "" {
+			continue
+		}
+		if currentModelID == modelID {
+			if declared := webSearchCapabilityOf(model); declared != nil && *declared {
+				return currentModelID
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+func normalizeAntigravityCapabilityModelID(modelID string) string {
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	if open := strings.LastIndex(modelID, "("); open >= 0 && strings.HasSuffix(modelID, ")") {
+		modelID = strings.TrimSpace(modelID[:open])
+	}
+	return modelID
+}
+
 // staticDevinModels is the last-resort Devin catalog used when neither the
 // dynamic devin_models.json catalog nor models.json's devin section is
 // available. IDs carry the devin/ namespace prefix.

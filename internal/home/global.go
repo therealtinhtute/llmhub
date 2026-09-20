@@ -3,6 +3,7 @@ package home
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync/atomic"
 )
@@ -25,10 +26,19 @@ func Current() *Client {
 }
 
 // CurrentKVClient returns the active Home client when Home-backed KV is available.
+// A configured-but-disabled or disconnected client reports homeMode=true with an
+// error so callers fail the Home write rather than silently using local storage.
+// Ported from upstream CLIProxyAPI (internal/home/kv_helpers.go).
 func CurrentKVClient() (*Client, bool, error) {
 	client := Current()
-	if client == nil || !client.Enabled() {
+	if client == nil {
 		return nil, false, nil
+	}
+	if !client.Enabled() {
+		return nil, true, fmt.Errorf("home kv store unavailable: %w", ErrDisabled)
+	}
+	if !client.HeartbeatOK() {
+		return nil, true, fmt.Errorf("home kv store unavailable: %w", ErrNotConnected)
 	}
 	return client, true, nil
 }

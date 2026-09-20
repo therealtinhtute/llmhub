@@ -648,6 +648,84 @@ func ensureAntigravityGeminiBoundaryUserContent(modelName string, payload []byte
 	return helps.EnsureGeminiBoundaryUserContent(payload, "request.contents")
 }
 
+// hasAntigravityClaudeTypedWebSearchTool reports whether a Claude-format request
+// carries a typed web_search tool block.
+// Ported from upstream CLIProxyAPI v7.3.6 (internal/runtime/executor/antigravity_executor.go).
+func hasAntigravityClaudeTypedWebSearchTool(payload []byte) bool {
+	tools := util.GetGJSONBytesNoCopy(payload, "tools")
+	if !tools.IsArray() {
+		return false
+	}
+	for _, tool := range tools.Array() {
+		switch tool.Get("type").String() {
+		case "web_search_20250305", "web_search_20260209":
+			return true
+		}
+	}
+	return false
+}
+
+// hasAntigravityGoogleSearchTool reports whether a translated Antigravity request
+// carries a native googleSearch tool block.
+// Ported from upstream CLIProxyAPI v7.3.6.
+func hasAntigravityGoogleSearchTool(payload []byte) bool {
+	tools := util.GetGJSONBytesNoCopy(payload, "request.tools")
+	if !tools.IsArray() {
+		return false
+	}
+	for _, tool := range tools.Array() {
+		if tool.Get("googleSearch").Exists() {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAntigravityResponsesWebSearchTool reports whether an OpenAI Responses request
+// carries a web search tool type.
+// Ported from upstream CLIProxyAPI v7.3.6.
+func hasAntigravityResponsesWebSearchTool(rawJSON []byte) bool {
+	tools := util.GetGJSONBytesNoCopy(rawJSON, "tools")
+	if !tools.IsArray() {
+		return false
+	}
+	for _, tool := range tools.Array() {
+		switch tool.Get("type").String() {
+		case "web_search", "web_search_2025_08_26", "web_search_preview", "web_search_preview_2025_03_11":
+			return true
+		}
+	}
+	return false
+}
+
+// shouldResolveAntigravityWebSearchGroundingURLs gates Vertex grounding redirect
+// resolution to requests that actually translated to a googleSearch Antigravity
+// request from a Claude typed web-search tool or an OpenAI Responses web-search
+// tool. Ported from upstream CLIProxyAPI v7.3.6.
+func shouldResolveAntigravityWebSearchGroundingURLs(from sdktranslator.Format, originalRequestRawJSON, requestRawJSON []byte) bool {
+	if !hasAntigravityGoogleSearchTool(requestRawJSON) {
+		return false
+	}
+	switch from {
+	case sdktranslator.FormatClaude:
+		return hasAntigravityClaudeTypedWebSearchTool(originalRequestRawJSON)
+	case sdktranslator.FormatOpenAIResponse:
+		return hasAntigravityResponsesWebSearchTool(originalRequestRawJSON)
+	default:
+		return false
+	}
+}
+
+// resolveWebSearchGroundingURLs replaces Vertex grounding redirect URLs in the
+// upstream response when the request path enabled native web search.
+// Ported from upstream CLIProxyAPI v7.3.6.
+func (e *AntigravityExecutor) resolveWebSearchGroundingURLs(ctx context.Context, auth *cliproxyauth.Auth, from sdktranslator.Format, originalRequestRawJSON, requestRawJSON, responseRawJSON []byte) []byte {
+	if !shouldResolveAntigravityWebSearchGroundingURLs(from, originalRequestRawJSON, requestRawJSON) {
+		return responseRawJSON
+	}
+	return helps.ResolveAntigravityGroundingURLs(ctx, e.cfg, auth, responseRawJSON)
+}
+
 // Identifier returns the executor identifier.
 func (e *AntigravityExecutor) Identifier() string { return antigravityAuthType }
 
@@ -921,8 +999,9 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 	if updatedAuth != nil {
 		auth = updatedAuth
 	}
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
-	translated := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
+	modelInfo, _ := cliproxyauth.ResolvedModelInfo(req)
+	translationReq := sdktranslator.RequestEnvelope{Format: from, Model: baseModel, ModelInfo: modelInfo}
+	originalTranslated, translated := helps.TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx, opts.Headers, e.cfg, from, to, translationReq, originalPayload, req.Payload)
 
 	// Use request-bound capabilities when Home attached them (upstream 6ff680e90ab5).
 	translated, err = helps.ApplyRequestThinking(translated, req, opts, from.String(), to.String(), e.Identifier())
@@ -960,7 +1039,7 @@ attemptLoop:
 			}
 
 			requestPayload = ensureAntigravityGeminiBoundaryUserContent(baseModel, requestPayload)
-			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, false, opts.Alt, baseURL)
+			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, false, opts.Alt, baseURL, helps.DerivedAntigravitySessionID(opts.Metadata, req.Metadata))
 			if errReq != nil {
 				err = errReq
 				return resp, err
@@ -1074,6 +1153,7 @@ attemptLoop:
 				clearAntigravityCreditsFailureState(auth)
 			}
 			cacheAntigravityReasoningReplayFromResponse(ctx, replayScope, requestPayload, bodyBytes)
+			bodyBytes = e.resolveWebSearchGroundingURLs(ctx, auth, from, originalPayload, translated, bodyBytes)
 			reporter.Publish(ctx, helps.ParseAntigravityUsage(bodyBytes))
 			var param any
 			converted := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, translated, bodyBytes, &param)
@@ -1185,8 +1265,9 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 	if updatedAuth != nil {
 		auth = updatedAuth
 	}
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
-	translated := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, true)
+	modelInfo, _ := cliproxyauth.ResolvedModelInfo(req)
+	translationReq := sdktranslator.RequestEnvelope{Format: from, Model: baseModel, Stream: true, ModelInfo: modelInfo}
+	originalTranslated, translated := helps.TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx, opts.Headers, e.cfg, from, to, translationReq, originalPayload, req.Payload)
 
 	translated, err = helps.ApplyRequestThinking(translated, req, opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
@@ -1219,7 +1300,7 @@ attemptLoop:
 				}
 			}
 			requestPayload = ensureAntigravityGeminiBoundaryUserContent(baseModel, requestPayload)
-			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL)
+			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL, helps.DerivedAntigravitySessionID(opts.Metadata, req.Metadata))
 			if errReq != nil {
 				err = errReq
 				return resp, err
@@ -1395,6 +1476,7 @@ attemptLoop:
 			}
 			resp = cliproxyexecutor.Response{Payload: e.convertStreamToNonStream(buffer.Bytes())}
 
+			resp.Payload = e.resolveWebSearchGroundingURLs(ctx, auth, from, originalPayload, translated, resp.Payload)
 			reporter.Publish(ctx, helps.ParseAntigravityUsage(resp.Payload))
 			var param any
 			converted := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, translated, resp.Payload, &param)
@@ -1672,8 +1754,9 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 		auth = updatedAuth
 	}
 
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
-	translated := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, true)
+	modelInfo, _ := cliproxyauth.ResolvedModelInfo(req)
+	translationReq := sdktranslator.RequestEnvelope{Format: from, Model: baseModel, Stream: true, ModelInfo: modelInfo}
+	originalTranslated, translated := helps.TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx, opts.Headers, e.cfg, from, to, translationReq, originalPayload, req.Payload)
 
 	translated, err = helps.ApplyRequestThinking(translated, req, opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
@@ -1710,7 +1793,7 @@ attemptLoop:
 				}
 			}
 			requestPayload = ensureAntigravityGeminiBoundaryUserContent(baseModel, requestPayload)
-			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL)
+			httpReq, errReq := e.buildRequest(ctx, auth, token, baseModel, requestPayload, true, opts.Alt, baseURL, helps.DerivedAntigravitySessionID(opts.Metadata, req.Metadata))
 			if errReq != nil {
 				err = errReq
 				return nil, err
@@ -1866,6 +1949,7 @@ attemptLoop:
 						reporter.Publish(ctx, detail)
 					}
 
+					payload = e.resolveWebSearchGroundingURLs(ctx, auth, from, originalPayload, translated, payload)
 					chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, from, req.Model, opts.OriginalRequest, translated, bytes.Clone(payload), &param, claudeInputTokens)
 					for i := range chunks {
 						select {
@@ -2054,7 +2138,9 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 	}
 
 	// Prepare payload once (doesn't depend on baseURL)
-	payload := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
+	modelInfo, _ := cliproxyauth.ResolvedModelInfo(req)
+	translationReq := sdktranslator.RequestEnvelope{Format: from, Model: baseModel, Body: req.Payload, ModelInfo: modelInfo}
+	payload := helps.TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx, opts.Headers, e.cfg, from, to, translationReq).Body
 
 	payload, err := helps.ApplyRequestThinking(payload, req, opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
@@ -2425,10 +2511,31 @@ func antigravityProjectIDFromAuth(auth *cliproxyauth.Auth) string {
 
 func missingAntigravityProjectIDError(cause error) statusErr {
 	msg := "antigravity auth missing project_id"
+	statusCode := http.StatusBadRequest
+	var retryAfter *time.Duration
 	if cause != nil {
 		msg = fmt.Sprintf("%s: %v", msg, cause)
+		// Preserve the upstream status (e.g. 403 on project discovery denial) and
+		// any retry hint instead of flattening every failure to a client 400.
+		// Ported from upstream CLIProxyAPI v7.3.6.
+		type statusCoder interface {
+			StatusCode() int
+		}
+		var sc statusCoder
+		if errors.As(cause, &sc) && sc != nil {
+			if code := sc.StatusCode(); code > 0 {
+				statusCode = code
+			}
+		}
+		type retryAfterProvider interface {
+			RetryAfter() *time.Duration
+		}
+		var rap retryAfterProvider
+		if errors.As(cause, &rap) && rap != nil {
+			retryAfter = rap.RetryAfter()
+		}
 	}
-	return statusErr{code: http.StatusBadRequest, msg: msg}
+	return statusErr{code: statusCode, msg: msg, retryAfter: retryAfter}
 }
 
 func (e *AntigravityExecutor) updateAntigravityCreditsBalance(ctx context.Context, auth *cliproxyauth.Auth, accessToken string) {
@@ -2530,7 +2637,7 @@ func (e *AntigravityExecutor) updateAntigravityCreditsBalance(ctx context.Contex
 	}
 }
 
-func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyauth.Auth, token, modelName string, payload []byte, stream bool, alt, baseURL string) (*http.Request, error) {
+func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyauth.Auth, token, modelName string, payload []byte, stream bool, alt, baseURL string, derivedSessionIDs ...string) (*http.Request, error) {
 	if token == "" {
 		return nil, statusErr{code: http.StatusUnauthorized, msg: "missing access token"}
 	}
@@ -2562,7 +2669,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 	if errProject != nil {
 		return nil, errProject
 	}
-	payload = geminiToAntigravity(modelName, payload, projectID)
+	payload = geminiToAntigravity(modelName, payload, projectID, derivedSessionIDs...)
 	payload, _ = sjson.SetBytes(payload, "model", modelName)
 
 	// Cap maxOutputTokens to model's max_completion_tokens from registry
@@ -3096,32 +3203,44 @@ func resolveCustomAntigravityBaseURL(auth *cliproxyauth.Auth) string {
 	return ""
 }
 
-func geminiToAntigravity(modelName string, payload []byte, projectID string) []byte {
+func geminiToAntigravity(modelName string, payload []byte, projectID string, derivedSessionIDs ...string) []byte {
 	template := payload
-	template, _ = sjson.SetBytes(template, "model", modelName)
-	template, _ = sjson.SetBytes(template, "userAgent", "antigravity")
+	template = helps.SetStringIfDifferent(template, "model", modelName)
+	template = helps.SetStringIfDifferent(template, "userAgent", "antigravity")
 
 	isImageModel := strings.Contains(modelName, "image")
 
-	var reqType string
-	if isImageModel {
-		reqType = "image_gen"
-	} else {
-		reqType = "agent"
+	// Preserve a requestType already present on the translated payload (e.g.
+	// "web_search" envelopes built by the Responses translator); only derive a
+	// default when none was set. Ported from upstream CLIProxyAPI v7.3.6.
+	reqType := strings.TrimSpace(gjson.GetBytes(template, "requestType").String())
+	if reqType == "" {
+		if isImageModel {
+			reqType = "image_gen"
+		} else {
+			reqType = "agent"
+		}
+		template, _ = sjson.SetBytes(template, "requestType", reqType)
 	}
-	template, _ = sjson.SetBytes(template, "requestType", reqType)
 
 	if projectID != "" {
-		template, _ = sjson.SetBytes(template, "project", projectID)
+		template = helps.SetStringIfDifferent(template, "project", projectID)
 	} else {
 		template, _ = sjson.DeleteBytes(template, "project")
 	}
 
 	if isImageModel {
 		template, _ = sjson.SetBytes(template, "requestId", generateImageGenRequestID())
-	} else {
+	} else if reqType != "web_search" {
 		template, _ = sjson.SetBytes(template, "requestId", generateRequestID())
-		template, _ = sjson.SetBytes(template, "request.sessionId", generateStableSessionID(payload))
+		sessionID := strings.TrimSpace(gjson.GetBytes(template, "request.sessionId").String())
+		if sessionID == "" && len(derivedSessionIDs) > 0 {
+			sessionID = strings.TrimSpace(derivedSessionIDs[0])
+		}
+		if sessionID == "" {
+			sessionID = generateStableSessionID(payload)
+		}
+		template, _ = sjson.SetBytes(template, "request.sessionId", sessionID)
 	}
 
 	template, _ = sjson.DeleteBytes(template, "request.safetySettings")

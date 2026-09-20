@@ -8,6 +8,10 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
+// MaxGeminiThoughtSignatureLen bounds an opaque Gemini thought signature blob.
+// Ported from upstream CLIProxyAPI (internal/signature/gemini_validation.go).
+const MaxGeminiThoughtSignatureLen = 32 * 1024 * 1024
+
 type geminiFunctionCallRef struct {
 	id   string
 	name string

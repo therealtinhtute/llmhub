@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"google.golang.org/protobuf/encoding/protowire"
 )
@@ -505,6 +506,9 @@ func BuildDevinGetChatMessageRequest(
 
 	// 6. Repeated Tools (Field 10)
 	for _, tool := range tools {
+		if tool.Name == "" || translatorcommon.IsDevinCodexAppAutomationUpdate("", tool.Name) {
+			continue
+		}
 		var tBytes []byte
 		if tool.Name != "" {
 			tBytes = protowire.AppendTag(tBytes, 1, protowire.BytesType)
@@ -517,6 +521,7 @@ func BuildDevinGetChatMessageRequest(
 		if strings.Contains(desc, "Takes a task_id parameter identifying the task") {
 			desc = strings.ReplaceAll(desc, "Takes a task_id parameter identifying the task", "Takes a taskId parameter identifying the task")
 		}
+		desc = translatorcommon.SanitizeDevinToolDescription(tool.Name, desc)
 		if desc != "" {
 			tBytes = protowire.AppendTag(tBytes, 2, protowire.BytesType)
 			tBytes = protowire.AppendString(tBytes, desc)
@@ -695,6 +700,12 @@ func SanitizeDevinSystemPrompt(prompt string, matcher *SensitiveWordMatcher) str
 			continue
 		}
 		if strings.Contains(trimmed, "Fast mode for Claude Code") {
+			continue
+		}
+		if strings.Contains(trimmed, "Codex refers to the open-source agentic coding interface") {
+			continue
+		}
+		if strings.Contains(trimmed, "- Don’t output ANSI escape codes directly — the CLI renderer applies them.") {
 			continue
 		}
 		if matcher != nil && matcher.Matches(trimmed) {
@@ -1045,7 +1056,11 @@ func ParseDevinTrailerError(payload []byte) (statusCode int, err error) {
 	case "unauthenticated":
 		httpCode = http.StatusUnauthorized
 	case "permission_denied":
-		httpCode = http.StatusForbidden
+		if strings.Contains(msgLower, "high demand") {
+			httpCode = http.StatusTooManyRequests
+		} else {
+			httpCode = http.StatusForbidden
+		}
 	case "resource_exhausted":
 		httpCode = http.StatusTooManyRequests
 	case "unavailable":
@@ -1210,13 +1225,21 @@ func BuildDevinUpstreamLogBody(
 
 	var toolItems []DevinToolLogItem
 	for _, t := range tools {
+		if t.Name == "" || translatorcommon.IsDevinCodexAppAutomationUpdate("", t.Name) {
+			continue
+		}
+		desc := t.Description
+		if strings.Contains(desc, "Takes a task_id parameter identifying the task") {
+			desc = strings.ReplaceAll(desc, "Takes a task_id parameter identifying the task", "Takes a taskId parameter identifying the task")
+		}
+		desc = translatorcommon.SanitizeDevinToolDescription(t.Name, desc)
 		var params json.RawMessage
 		if len(t.Parameters) > 0 && json.Valid(t.Parameters) {
 			params = json.RawMessage(t.Parameters)
 		}
 		toolItems = append(toolItems, DevinToolLogItem{
 			Name:        t.Name,
-			Description: t.Description,
+			Description: desc,
 			Parameters:  params,
 		})
 	}

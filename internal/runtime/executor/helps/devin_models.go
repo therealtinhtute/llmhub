@@ -19,6 +19,7 @@ var knownDevinSuffixes = []string{
 	"-xhigh",
 	"-max",
 	"-fast",
+	"-slow",
 	"-priority",
 	"-low-priority",
 	"-medium-priority",

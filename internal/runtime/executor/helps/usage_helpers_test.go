@@ -430,3 +430,103 @@ func TestUsageReporterPropagatesSessionHierarchy(t *testing.T) {
 		t.Fatalf("SetSessionHierarchy cross prefix alias emitted as parent: (%q, %q), want (pck:key-999, empty)", recordAlias2.SessionID, recordAlias2.ParentSessionID)
 	}
 }
+
+// TestParseInteractionsUsage_CacheSemantics ports upstream e54a8e97's
+// setClaudeUsageFromInteractions coverage to the local equivalent
+// (parseInteractionsUsageDetail via ParseInteractionsUsage): cache-inclusive
+// totals are split into uncached input plus cache_read/cache_creation.
+func TestParseInteractionsUsage_CacheSemantics(t *testing.T) {
+	tests := []struct {
+		name                string
+		payload             string
+		wantInput           int64
+		wantCacheRead       int64
+		wantCacheCreation   int64
+		wantCachedAggregate int64
+	}{
+		{
+			name:                "cache_hit",
+			payload:             `{"usage":{"total_input_tokens":10411,"total_output_tokens":76,"total_cached_tokens":10340,"total_tokens":10487}}`,
+			wantInput:           71,
+			wantCacheRead:       10340,
+			wantCachedAggregate: 10340,
+		},
+		{
+			name:                "non_streaming_cache_hit",
+			payload:             `{"usage":{"total_input_tokens":96724,"total_output_tokens":269,"total_cached_tokens":30784,"total_tokens":96993}}`,
+			wantInput:           65940,
+			wantCacheRead:       30784,
+			wantCachedAggregate: 30784,
+		},
+		{
+			name:                "zero_cache_tokens",
+			payload:             `{"usage":{"total_input_tokens":100,"total_output_tokens":50,"total_cached_tokens":0,"total_tokens":150}}`,
+			wantInput:           100,
+			wantCacheRead:       0,
+			wantCachedAggregate: 0,
+		},
+		{
+			name:                "explicit_uncached_and_cache_creation",
+			payload:             `{"usage":{"input_tokens":71,"total_input_tokens":10411,"total_output_tokens":76,"cache_read_input_tokens":10340,"cache_creation_input_tokens":25,"total_tokens":10487}}`,
+			wantInput:           71,
+			wantCacheRead:       10340,
+			wantCacheCreation:   25,
+			wantCachedAggregate: 0,
+		},
+		{
+			name:                "explicit_uncached_with_cache_write_in_total",
+			payload:             `{"usage":{"input_tokens":71,"total_input_tokens":10436,"total_output_tokens":76,"cache_read_input_tokens":10340,"cache_creation_input_tokens":25,"total_tokens":10512}}`,
+			wantInput:           71,
+			wantCacheRead:       10340,
+			wantCacheCreation:   25,
+			wantCachedAggregate: 0,
+		},
+		{
+			name:                "total_only_cache_read_and_write",
+			payload:             `{"usage":{"total_input_tokens":10436,"total_output_tokens":76,"cache_read_input_tokens":10340,"cache_creation_input_tokens":25,"total_tokens":10512}}`,
+			wantInput:           71,
+			wantCacheRead:       10340,
+			wantCacheCreation:   25,
+			wantCachedAggregate: 0,
+		},
+		{
+			name:                "full_cache_hit",
+			payload:             `{"usage":{"total_input_tokens":500,"total_output_tokens":50,"total_cached_tokens":500,"total_tokens":550}}`,
+			wantInput:           0,
+			wantCacheRead:       500,
+			wantCachedAggregate: 500,
+		},
+		{
+			name:                "cached_tokens_exceeds_input",
+			payload:             `{"usage":{"total_input_tokens":50,"total_output_tokens":50,"total_cached_tokens":100,"total_tokens":150}}`,
+			wantInput:           0,
+			wantCacheRead:       100,
+			wantCachedAggregate: 100,
+		},
+		{
+			name:                "prompt_tokens_treated_as_cache_inclusive_total",
+			payload:             `{"usage":{"prompt_tokens":1000,"cached_tokens":250,"completion_tokens":40}}`,
+			wantInput:           750,
+			wantCacheRead:       250,
+			wantCachedAggregate: 250,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detail := ParseInteractionsUsage([]byte(tt.payload))
+			if detail.InputTokens != tt.wantInput {
+				t.Errorf("InputTokens = %d, want %d", detail.InputTokens, tt.wantInput)
+			}
+			if detail.CacheReadTokens != tt.wantCacheRead {
+				t.Errorf("CacheReadTokens = %d, want %d", detail.CacheReadTokens, tt.wantCacheRead)
+			}
+			if detail.CacheCreationTokens != tt.wantCacheCreation {
+				t.Errorf("CacheCreationTokens = %d, want %d", detail.CacheCreationTokens, tt.wantCacheCreation)
+			}
+			if detail.CachedTokens != tt.wantCachedAggregate {
+				t.Errorf("CachedTokens = %d, want %d", detail.CachedTokens, tt.wantCachedAggregate)
+			}
+		})
+	}
+}

@@ -797,19 +797,35 @@ func ParseInteractionsUsage(data []byte) usage.Detail {
 }
 
 func parseInteractionsUsageDetail(node gjson.Result) usage.Detail {
-	cacheRead := firstExistingUsageNode(node, "cache_read_tokens", "cacheReadTokens")
+	cacheRead := firstExistingUsageNode(node, "cache_read_input_tokens", "cache_read_tokens", "cacheReadTokens")
+	cacheWrite := firstExistingUsageNode(node, "cache_creation_input_tokens", "cache_creation_tokens", "cacheCreationTokens", "cache_write_tokens", "cacheWriteTokens")
 	toolUseTokens := firstExistingUsageNode(node, "tool_use_tokens", "total_tool_use_tokens", "toolUseTokens", "totalToolUseTokens").Int()
 	detail := usage.Detail{
-		InputTokens:         firstExistingUsageNode(node, "input_tokens", "prompt_tokens", "total_input_tokens").Int() + toolUseTokens,
 		OutputTokens:        firstExistingUsageNode(node, "output_tokens", "completion_tokens", "total_output_tokens").Int(),
 		ReasoningTokens:     firstExistingUsageNode(node, "reasoning_tokens", "thoughtsTokenCount", "total_thought_tokens").Int(),
 		TotalTokens:         firstExistingUsageNode(node, "total_tokens", "totalTokenCount").Int(),
 		CachedTokens:        firstExistingUsageNode(node, "cached_tokens", "cachedContentTokenCount", "total_cached_tokens").Int(),
 		CacheReadTokens:     cacheRead.Int(),
-		CacheCreationTokens: firstExistingUsageNode(node, "cache_creation_tokens", "cacheCreationTokens", "cache_write_tokens", "cacheWriteTokens").Int(),
+		CacheCreationTokens: cacheWrite.Int(),
 	}
 	if !cacheRead.Exists() && detail.CachedTokens > 0 {
 		detail.CacheReadTokens = detail.CachedTokens
+	}
+	// total_input_tokens/prompt_tokens are cache-inclusive totals, so the uncached
+	// input portion is the total minus the effective cache volume (cache_read +
+	// cache_creation). A verbatim input_tokens field is already uncached and is
+	// preferred when present. Mirrors upstream e54a8e97 setClaudeUsageFromInteractions.
+	totalCache := detail.CacheReadTokens + detail.CacheCreationTokens
+	if inNode := node.Get("input_tokens"); inNode.Exists() {
+		detail.InputTokens = inNode.Int() + toolUseTokens
+	} else if totalNode := firstExistingUsageNode(node, "total_input_tokens", "prompt_tokens"); totalNode.Exists() {
+		if total := totalNode.Int(); total >= totalCache {
+			detail.InputTokens = total - totalCache + toolUseTokens
+		} else {
+			detail.InputTokens = toolUseTokens
+		}
+	} else {
+		detail.InputTokens = toolUseTokens
 	}
 	if detail.TotalTokens == 0 {
 		detail.TotalTokens = detail.InputTokens + detail.OutputTokens + detail.ReasoningTokens

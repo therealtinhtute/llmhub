@@ -194,3 +194,77 @@ func TestGeminiExecutorCountTokensPrependsLeadingUser(t *testing.T) {
 	}
 	assertGeminiLeadingUserContents(t, upstreamBody)
 }
+
+// TestSanitizeGeminiInteractionsUnsupportedInputIDs covers the Interactions
+// input-step ID rules ported from upstream f51d3ae93b87: function_call steps
+// require `id` (backfilled from `call_id`) and reject `call_id`,
+// function_result steps keep `call_id` and reject `id`, and every other step
+// or content part drops `id`. Upstream exercises this end-to-end through its
+// native Interactions executor path, which llmhub does not have, so the
+// semantics are asserted on the sanitizer directly.
+func TestSanitizeGeminiInteractionsUnsupportedInputIDs(t *testing.T) {
+	t.Run("function_call backfills id from call_id and drops call_id", func(t *testing.T) {
+		body := []byte(`{"input":[{"type":"function_call","name":"bash","call_id":"toolu_1","arguments":{"command":"ls"}}]}`)
+		out := sanitizeGeminiInteractionsUnsupportedInputIDs(body)
+		if got := gjson.GetBytes(out, "input.0.id").String(); got != "toolu_1" {
+			t.Fatalf("function_call id = %q, want toolu_1; body=%s", got, out)
+		}
+		if gjson.GetBytes(out, "input.0.call_id").Exists() {
+			t.Fatalf("function_call call_id must be omitted; body=%s", out)
+		}
+	})
+
+	t.Run("function_call keeps explicit id and still drops call_id", func(t *testing.T) {
+		body := []byte(`{"input":[{"type":"function_call","name":"bash","id":"call_9","call_id":"toolu_9"}]}`)
+		out := sanitizeGeminiInteractionsUnsupportedInputIDs(body)
+		if got := gjson.GetBytes(out, "input.0.id").String(); got != "call_9" {
+			t.Fatalf("function_call id = %q, want call_9; body=%s", got, out)
+		}
+		if gjson.GetBytes(out, "input.0.call_id").Exists() {
+			t.Fatalf("function_call call_id must be omitted; body=%s", out)
+		}
+	})
+
+	t.Run("function_result drops id and keeps call_id", func(t *testing.T) {
+		body := []byte(`{"input":[{"type":"function_result","id":"call_1","call_id":"toolu_1","result":"ok"}]}`)
+		out := sanitizeGeminiInteractionsUnsupportedInputIDs(body)
+		if gjson.GetBytes(out, "input.0.id").Exists() {
+			t.Fatalf("function_result id must be omitted; body=%s", out)
+		}
+		if got := gjson.GetBytes(out, "input.0.call_id").String(); got != "toolu_1" {
+			t.Fatalf("function_result call_id = %q, want toolu_1; body=%s", got, out)
+		}
+	})
+
+	t.Run("other steps and content parts drop id", func(t *testing.T) {
+		body := []byte(`{"input":[
+			{"type":"text","id":"x1","text":"hi"},
+			{"type":"model_output","id":"x2","content":[{"type":"text","id":"p1","text":"planning"}]},
+			{"type":"function_call","name":"read_file","call_id":"call_2","content":[{"type":"text","id":"p2","text":"note"}]}
+		]}`)
+		out := sanitizeGeminiInteractionsUnsupportedInputIDs(body)
+		if gjson.GetBytes(out, "input.0.id").Exists() {
+			t.Fatalf("text step id must be omitted; body=%s", out)
+		}
+		if gjson.GetBytes(out, "input.1.id").Exists() {
+			t.Fatalf("model_output step id must be omitted; body=%s", out)
+		}
+		if gjson.GetBytes(out, "input.1.content.0.id").Exists() {
+			t.Fatalf("content part id must be omitted; body=%s", out)
+		}
+		if gjson.GetBytes(out, "input.2.content.0.id").Exists() {
+			t.Fatalf("function_call content part id must be omitted; body=%s", out)
+		}
+		if got := gjson.GetBytes(out, "input.2.id").String(); got != "call_2" {
+			t.Fatalf("function_call id = %q, want call_2 backfilled from call_id; body=%s", got, out)
+		}
+	})
+
+	t.Run("non-array input is unchanged", func(t *testing.T) {
+		body := []byte(`{"input":{"type":"function_call","id":"x","call_id":"y"}}`)
+		out := sanitizeGeminiInteractionsUnsupportedInputIDs(body)
+		if string(out) != string(body) {
+			t.Fatalf("non-array input was modified: %s", out)
+		}
+	})
+}

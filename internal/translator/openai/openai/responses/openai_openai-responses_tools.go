@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -42,7 +43,10 @@ func (e *ResponsesToolNameCollisionError) Error() string {
 }
 
 // BuildResponsesToolDeclarationTable collects callable declarations from both
-// top-level tools and Codex Desktop additional_tools input items.
+// top-level tools and Codex Desktop additional_tools input items. Effective
+// names are namespace-qualified, capped to the Chat Completions function-name
+// limit, and disambiguated when two distinct declarations flatten onto the
+// same name (upstream disambiguateResponsesChatToolNames).
 func BuildResponsesToolDeclarationTable(requestRawJSON []byte) (*ResponsesToolDeclarationTable, error) {
 	table := &ResponsesToolDeclarationTable{
 		byEffective:          make(map[string]ResponsesToolDeclaration),
@@ -52,18 +56,21 @@ func BuildResponsesToolDeclarationTable(requestRawJSON []byte) (*ResponsesToolDe
 	}
 	root := gjson.ParseBytes(requestRawJSON)
 
-	collect := func(tools gjson.Result) error {
-		var collectTools func(gjson.Result, string) error
-		collectTools = func(items gjson.Result, namespace string) error {
+	var collected []ResponsesToolDeclaration
+	byRawIdentity := make(map[string]ResponsesToolDeclaration)
+	var collectErr error
+	collect := func(tools gjson.Result) bool {
+		var collectTools func(gjson.Result, string) bool
+		collectTools = func(items gjson.Result, namespace string) bool {
 			if !items.Exists() || !items.IsArray() {
-				return nil
+				return true
 			}
-			var collectErr error
+			proceed := true
 			items.ForEach(func(_, tool gjson.Result) bool {
 				toolType := tool.Get("type").String()
 				if strings.TrimSpace(toolType) == "namespace" {
-					collectErr = collectTools(tool.Get("tools"), tool.Get("name").String())
-					return collectErr == nil
+					proceed = collectTools(tool.Get("tools"), tool.Get("name").String())
+					return proceed
 				}
 				if !responsesCallableToolType(toolType) {
 					return true
@@ -78,37 +85,49 @@ func BuildResponsesToolDeclarationTable(requestRawJSON []byte) (*ResponsesToolDe
 					Type:          toolType,
 					EffectiveName: qualifyResponsesNamespaceToolName(namespace, name),
 				}
-				if existing, ok := table.byEffective[declaration.EffectiveName]; ok {
+				// Distinct declarations qualifying to the same raw name before
+				// the cap keep the local collision contract: a flat tool and a
+				// namespaced child flattening to one outbound name would be
+				// indistinguishable to the upstream. Exact duplicate deliveries
+				// (same tool through "tools" and "additional_tools") dedupe.
+				rawIdentity := rawResponsesNamespaceQualifiedName(namespace, name)
+				if existing, ok := byRawIdentity[rawIdentity]; ok {
 					if !sameResponsesDeclarationIdentity(existing, declaration) {
-						collectErr = &ResponsesToolNameCollisionError{EffectiveName: declaration.EffectiveName, First: existing, Second: declaration}
+						collectErr = &ResponsesToolNameCollisionError{EffectiveName: rawIdentity, First: existing, Second: declaration}
+						proceed = false
 						return false
 					}
 					return true
 				}
-				table.byEffective[declaration.EffectiveName] = declaration
-				table.declarations = append(table.declarations, declaration)
+				byRawIdentity[rawIdentity] = declaration
+				collected = append(collected, declaration)
 				return true
 			})
-			return collectErr
+			return proceed
 		}
 		return collectTools(tools, "")
 	}
 
-	if err := collect(root.Get("tools")); err != nil {
-		return nil, err
-	}
-	if input := root.Get("input"); input.Exists() && input.IsArray() {
-		var collectErr error
-		input.ForEach(func(_, item gjson.Result) bool {
-			if item.Get("type").String() != "additional_tools" {
-				return true
-			}
-			collectErr = collect(item.Get("tools"))
-			return collectErr == nil
-		})
-		if collectErr != nil {
-			return nil, collectErr
+	if proceed := collect(root.Get("tools")); proceed {
+		if input := root.Get("input"); input.Exists() && input.IsArray() {
+			input.ForEach(func(_, item gjson.Result) bool {
+				if item.Get("type").String() == "additional_tools" {
+					proceed = collect(item.Get("tools"))
+				}
+				return proceed
+			})
 		}
+	}
+	if collectErr != nil {
+		return nil, collectErr
+	}
+
+	disambiguateResponsesChatToolNames(collected)
+	for _, declaration := range collected {
+		if _, exists := table.byEffective[declaration.EffectiveName]; !exists {
+			table.byEffective[declaration.EffectiveName] = declaration
+		}
+		table.declarations = append(table.declarations, declaration)
 	}
 	return table, nil
 }
@@ -130,7 +149,7 @@ func NormalizeResponsesToolsForCodex(requestRawJSON []byte) []byte {
 			return
 		}
 		tools.ForEach(func(_, tool gjson.Result) bool {
-			for _, normalized := range normalizeResponsesToolForCodex(tool, "") {
+			for _, normalized := range normalizeResponsesToolForCodex(tool, "", table) {
 				toolsOut, _ = sjson.SetRawBytes(toolsOut, "-1", normalized)
 				hasTools = true
 			}
@@ -296,28 +315,117 @@ func (t *ResponsesToolDeclarationTable) restoreCustomCallInputEvent(event []byte
 	return event, nil
 }
 
+// normalizeCallReference rewrites one call reference (a replayed
+// function_call/custom_tool_call input item, tool_choice, or a
+// tool_choice.tools entry) to the exact effective name emitted for its
+// declaration, deleting any namespace fields. Resolution mirrors upstream
+// canonicalResponsesToolName/chatNameForResponsesNamespaceToolCall: declared
+// identities map to their disambiguated effective name, namespaced unknowns
+// qualify and cap without landing on a declared alias, and bare names resolve
+// through the emitted alias, the uncapped qualified identity, then a unique
+// local name before falling back to a capped non-alias.
 func (t *ResponsesToolDeclarationTable) normalizeCallReference(rawJSON []byte, itemPath string) []byte {
 	prefix := ""
 	if itemPath != "" {
 		prefix = itemPath + "."
 	}
-	nameResult := gjson.GetBytes(rawJSON, prefix+"name")
-	if !nameResult.Exists() {
+	namePath := ""
+	for _, candidate := range []string{prefix + "function.name", prefix + "custom.name", prefix + "name"} {
+		if gjson.GetBytes(rawJSON, candidate).Exists() {
+			namePath = candidate
+			break
+		}
+	}
+	if namePath == "" {
 		return rawJSON
 	}
-	name := nameResult.String()
-	namespaceResult := gjson.GetBytes(rawJSON, prefix+"namespace")
-	namespace := namespaceResult.String()
+	name := gjson.GetBytes(rawJSON, namePath).String()
+	namespace := ""
+	for _, candidate := range []string{prefix + "namespace", prefix + "function.namespace", prefix + "custom.namespace"} {
+		if ns := gjson.GetBytes(rawJSON, candidate); ns.Exists() {
+			namespace = ns.String()
+			break
+		}
+	}
 	kind := responsesCallReferenceKind(gjson.GetBytes(rawJSON, prefix+"type").String())
-	declaration, ok := t.findOriginal(namespace, name, kind)
+	resolved, ok := t.resolveChatCallName(namespace, name, kind)
 	if !ok {
 		return rawJSON
 	}
-	rawJSON, _ = sjson.SetBytes(rawJSON, prefix+"name", declaration.EffectiveName)
-	if namespaceResult.Exists() {
-		rawJSON, _ = sjson.DeleteBytes(rawJSON, prefix+"namespace")
+	rawJSON, _ = sjson.SetBytes(rawJSON, namePath, resolved)
+	for _, candidate := range []string{prefix + "namespace", prefix + "function.namespace", prefix + "custom.namespace"} {
+		rawJSON, _ = sjson.DeleteBytes(rawJSON, candidate)
 	}
 	return rawJSON
+}
+
+// resolveChatCallName resolves one call reference against the declaration
+// table. The second result is false for non-call items that match no
+// declaration, so unrelated payloads carrying a name field stay untouched.
+func (t *ResponsesToolDeclarationTable) resolveChatCallName(namespace, name, kind string) (string, bool) {
+	if declaration, ok := t.findOriginal(namespace, name, kind); ok {
+		return declaration.EffectiveName, true
+	}
+	if kind != "" {
+		// A replayed call may carry the wrong kind marker for a declared tool;
+		// identity (namespace + local name) still wins, as upstream's
+		// kind-agnostic declaration lookup does.
+		if declaration, ok := t.findOriginal(namespace, name, ""); ok {
+			return declaration.EffectiveName, true
+		}
+	}
+	if kind == "" {
+		return "", false
+	}
+	if namespace != "" {
+		// An identity no current declaration backs (history from an older
+		// build, or a foreign client) still needs a chat-legal name, but not
+		// one that a real declaration owns.
+		return t.avoidDeclaredAliases(qualifyResponsesNamespaceToolName(namespace, name)), true
+	}
+	if _, ok := t.byEffective[name]; ok {
+		return name, true
+	}
+	// A replayed call may carry the fully-qualified uncapped name of a long
+	// declaration; resolve it to that declaration's emitted chat name before
+	// the bare local-name lookup and the blind cap (upstream ordering).
+	for _, declaration := range t.declarations {
+		if rawResponsesNamespaceQualifiedName(declaration.Namespace, declaration.Name) == name {
+			return declaration.EffectiveName, true
+		}
+	}
+	candidate := ""
+	ambiguous := false
+	for _, declaration := range t.declarations {
+		if declaration.Name != name {
+			continue
+		}
+		if candidate != "" && candidate != declaration.EffectiveName {
+			ambiguous = true
+		}
+		candidate = declaration.EffectiveName
+	}
+	if candidate != "" && !ambiguous {
+		return candidate, true
+	}
+	// Unresolved or ambiguous names still get capped, but never onto a
+	// declared alias — that would attribute the call to the wrong tool.
+	return t.avoidDeclaredAliases(capResponsesChatToolName(name)), true
+}
+
+// avoidDeclaredAliases keeps a fallback name from colliding with any alias
+// the declaration table actually emits (upstream
+// avoidResponsesDeclaredChatAliases).
+func (t *ResponsesToolDeclarationTable) avoidDeclaredAliases(candidate string) string {
+	if _, taken := t.byEffective[candidate]; !taken {
+		return candidate
+	}
+	for suffix := 1; ; suffix++ {
+		variant := capResponsesChatToolName(candidate + "_" + strconv.Itoa(suffix))
+		if _, taken := t.byEffective[variant]; !taken {
+			return variant
+		}
+	}
 }
 
 func (t *ResponsesToolDeclarationTable) findOriginal(namespace, name, kind string) (ResponsesToolDeclaration, bool) {
@@ -333,7 +441,7 @@ func (t *ResponsesToolDeclarationTable) findOriginal(namespace, name, kind strin
 	return ResponsesToolDeclaration{}, false
 }
 
-func normalizeResponsesToolForCodex(tool gjson.Result, namespace string) [][]byte {
+func normalizeResponsesToolForCodex(tool gjson.Result, namespace string, table *ResponsesToolDeclarationTable) [][]byte {
 	toolType := tool.Get("type").String()
 	if strings.TrimSpace(toolType) == "namespace" {
 		namespaceName := tool.Get("name").String()
@@ -343,7 +451,7 @@ func normalizeResponsesToolForCodex(tool gjson.Result, namespace string) [][]byt
 		}
 		var out [][]byte
 		children.ForEach(func(_, child gjson.Result) bool {
-			out = append(out, normalizeResponsesToolForCodex(child, namespaceName)...)
+			out = append(out, normalizeResponsesToolForCodex(child, namespaceName, table)...)
 			return true
 		})
 		return out
@@ -355,10 +463,18 @@ func normalizeResponsesToolForCodex(tool gjson.Result, namespace string) [][]byt
 	if strings.TrimSpace(name) == "" {
 		return nil
 	}
+	// The emitted name is the declaration's effective name, so tools carry the
+	// same cap and disambiguation suffixes that call references resolve to.
+	effectiveName := qualifyResponsesNamespaceToolName(namespace, name)
+	if table != nil {
+		if declaration, ok := table.findOriginal(namespace, name, ""); ok {
+			effectiveName = declaration.EffectiveName
+		}
+	}
 	normalized := []byte(tool.Raw)
 	if tool.Get("function").IsObject() {
 		normalized = []byte(`{"type":"function","name":"","description":"","parameters":{}}`)
-		normalized, _ = sjson.SetBytes(normalized, "name", qualifyResponsesNamespaceToolName(namespace, name))
+		normalized, _ = sjson.SetBytes(normalized, "name", effectiveName)
 		if description := responsesToolDescription(tool); description != "" {
 			normalized, _ = sjson.SetBytes(normalized, "description", description)
 		}
@@ -370,7 +486,7 @@ func normalizeResponsesToolForCodex(tool gjson.Result, namespace string) [][]byt
 	if strings.TrimSpace(toolType) == "" {
 		normalized, _ = sjson.SetBytes(normalized, "type", "function")
 	}
-	normalized, _ = sjson.SetBytes(normalized, "name", qualifyResponsesNamespaceToolName(namespace, name))
+	normalized, _ = sjson.SetBytes(normalized, "name", effectiveName)
 	normalized, _ = sjson.DeleteBytes(normalized, "namespace")
 	return [][]byte{normalized}
 }
@@ -701,18 +817,144 @@ func scanCustomToolJSONString(value string, start int) (end int, complete bool, 
 	return len(value), false, true
 }
 
+// responsesChatToolNameLimit is the Chat Completions function name limit
+// enforced by strict upstreams (e.g. z-ai/glm). Responses namespace tools
+// routinely flatten to names longer than this.
+const responsesChatToolNameLimit = 64
+
 func qualifyResponsesNamespaceToolName(namespaceName, childName string) string {
+	return capResponsesChatToolName(rawResponsesNamespaceQualifiedName(namespaceName, childName))
+}
+
+// rawResponsesNamespaceQualifiedName is qualifyResponsesNamespaceToolName
+// without the length cap, so disambiguation can tell a genuine name apart
+// from a truncation-induced collision (upstream
+// rawResponsesNamespaceQualifiedName).
+func rawResponsesNamespaceQualifiedName(namespaceName, childName string) string {
+	childName = strings.TrimSpace(childName)
 	if childName == "" || namespaceName == "" || strings.HasPrefix(childName, "mcp__") {
 		return childName
 	}
-	prefix := namespaceName
-	if !strings.HasSuffix(prefix, "__") {
-		prefix += "__"
-	}
-	if strings.HasPrefix(childName, prefix) {
+	if strings.HasPrefix(childName, namespaceName) {
 		return childName
 	}
-	return prefix + childName
+	if strings.HasSuffix(namespaceName, "__") {
+		return namespaceName + childName
+	}
+	return namespaceName + "__" + childName
+}
+
+// capResponsesChatToolName truncates a flattened Responses tool name to the
+// Chat Completions limit while keeping the tail, which carries the most
+// identifying part of the name (the tool's local name). Namespace-qualified
+// names share a long "mcp__<server>" prefix, so keeping the tail preserves
+// more usable signal than keeping the head. Truncation can leave a partial
+// "_"/"-" run at the start; leading separators are stripped because some
+// strict upstreams reject names that do not begin with an alphanumeric
+// character. This is a pure function of the input name, so every path that
+// derives a chat function name stays consistent with every other (upstream
+// capResponsesChatToolName).
+func capResponsesChatToolName(name string) string {
+	if len(name) <= responsesChatToolNameLimit {
+		return name
+	}
+	truncated := name[len(name)-responsesChatToolNameLimit:]
+	if trimmed := strings.TrimLeft(truncated, "_-"); trimmed != "" {
+		return trimmed
+	}
+	return truncated
+}
+
+// disambiguateResponsesChatToolNames rewrites flattened names in place when
+// distinct declarations collapse onto the same capped Chat Completions name.
+// Identity is the pre-cap qualified name: declarations that qualified to the
+// same name before the cap (one tool delivered through both "tools" and
+// "additional_tools", or a flat tool colliding with a namespace child) are the
+// same upstream tool and keep the shared first-wins name, while distinct
+// names that only collide through truncation get "_1"-style suffixes so the
+// deduplication downstream never silently drops a real tool.
+//
+// Qualified names that fit the cap unchanged are claimed before any
+// truncation alias is assigned (equal raw names are one identity, so those
+// claims cannot conflict). Local names that fit the cap are reserved the same
+// way: a replayed call or tool_choice that omits the namespace carries the
+// local name, and local-name recovery resolves it to the declaration, so a
+// capped alias occupying that name would win the earlier exact-emitted-alias
+// match and attribute those calls to the wrong tool. A long declaration whose
+// capped tail lands on any reserved name therefore takes the suffix itself.
+// Suffixed variants stay within the name cap, and every variant is claimed in
+// the same pass so a later declaration cannot resurrect a collision.
+//
+// A local name carried by more than one distinct identity is ambiguous: no
+// namespace-less call naming it can be resolved, so the name is burned
+// instead of being awarded to whichever declaration came first. Burning
+// matters even when the name is also a declaration's capped alias — that
+// alias would be emitted verbatim, win the exact-emitted-alias match, and
+// silently route the other namespace's calls to the first declaration.
+// (upstream disambiguateResponsesChatToolNames)
+func disambiguateResponsesChatToolNames(declarations []ResponsesToolDeclaration) {
+	claimed := make(map[string]string, len(declarations))
+	claim := func(candidate, identity string) bool {
+		if ownerClaim, taken := claimed[candidate]; !taken {
+			claimed[candidate] = identity
+			return true
+		} else {
+			return ownerClaim == identity
+		}
+	}
+	longDeclarations := make([]int, 0)
+	identities := make([]string, len(declarations))
+	// localName → the single identity that declares it, or "" once a second,
+	// distinct identity shows the name is ambiguous.
+	localOwners := make(map[string]string)
+	ambiguousLocalNames := make(map[string]struct{})
+	for i := range declarations {
+		identity := rawResponsesNamespaceQualifiedName(declarations[i].Namespace, declarations[i].Name)
+		identities[i] = identity
+		if len(identity) > responsesChatToolNameLimit {
+			longDeclarations = append(longDeclarations, i)
+		} else {
+			claim(identity, identity)
+		}
+		local := declarations[i].Name
+		if local == "" || local == identity || len(local) > responsesChatToolNameLimit {
+			continue
+		}
+		if ownerLocal, seen := localOwners[local]; !seen {
+			localOwners[local] = identity
+		} else if ownerLocal != "" && ownerLocal != identity {
+			localOwners[local] = ""
+		}
+	}
+	for local, ownerLocal := range localOwners {
+		// Reserving under any identity keeps the name out of every later
+		// truncation alias; ambiguous names additionally never get emitted.
+		claim(local, ownerLocal)
+		if ownerLocal == "" {
+			ambiguousLocalNames[local] = struct{}{}
+		}
+	}
+	isAmbiguous := func(name string) bool {
+		_, ambiguous := ambiguousLocalNames[name]
+		return ambiguous
+	}
+	for _, i := range longDeclarations {
+		identity := identities[i]
+		name := declarations[i].EffectiveName
+		if !isAmbiguous(name) && claim(name, identity) {
+			continue
+		}
+		for suffix := 1; ; suffix++ {
+			candidate := capResponsesChatToolName(name + "_" + strconv.Itoa(suffix))
+			if isAmbiguous(candidate) {
+				continue
+			}
+			if claim(candidate, identity) {
+				declarations[i].EffectiveName = candidate
+				break
+			}
+		}
+	}
 }
 
 func pickRequestJSON(originalRequestRawJSON, requestRawJSON []byte) []byte {

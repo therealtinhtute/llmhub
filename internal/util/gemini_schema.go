@@ -907,7 +907,9 @@ func flattenTypeArrays(jsonStr string) string {
 
 func removeUnsupportedKeywords(jsonStr string) string {
 	keywords := append(unsupportedConstraints,
-		"$schema", "$defs", "definitions", "const", "$ref", "$id", "$comment", "additionalProperties",
+		"$schema", "$defs", "definitions", "const", "$ref", "$id", "id", "additionalProperties",
+		"$anchor", "$vocabulary", "$dynamicRef", "$dynamicAnchor",
+		"$comment",
 		"propertyNames", "patternProperties", // Gemini doesn't support these schema keywords
 		"enumTitles", "prefill", "deprecated", "encrypted", // Schema metadata fields unsupported by Gemini
 	)

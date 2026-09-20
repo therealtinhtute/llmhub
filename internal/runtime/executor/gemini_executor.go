@@ -607,3 +607,45 @@ func fixGeminiImageAspectRatio(modelName string, rawJSON []byte) []byte {
 	}
 	return rawJSON
 }
+
+// sanitizeGeminiInteractionsUnsupportedInputIDs aligns input step IDs with the
+// official Gemini Interactions API schema:
+// - `function_call` (FunctionCallStep) requires `id` and rejects `call_id`
+// - `function_result` (FunctionResultStep) requires `call_id` and rejects `id`
+// - other steps and content parts do not support `id`
+//
+// Ported from upstream f51d3ae93b87. Upstream wires this at the native
+// Gemini Interactions request sites (gemini_executor.go Execute/ExecuteStream);
+// llmhub has no Gemini Interactions executor path yet, so the helper lands
+// unwired until that surface is ported.
+func sanitizeGeminiInteractionsUnsupportedInputIDs(body []byte) []byte {
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return body
+	}
+	for i, item := range input.Array() {
+		stepType := item.Get("type").String()
+		if stepType == "function_call" {
+			if !item.Get("id").Exists() && item.Get("call_id").Exists() {
+				body, _ = sjson.SetBytes(body, fmt.Sprintf("input.%d.id", i), item.Get("call_id").String())
+			}
+			if item.Get("call_id").Exists() {
+				body, _ = sjson.DeleteBytes(body, fmt.Sprintf("input.%d.call_id", i))
+			}
+		} else {
+			if item.Get("id").Exists() {
+				body, _ = sjson.DeleteBytes(body, fmt.Sprintf("input.%d.id", i))
+			}
+		}
+		content := item.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		for j, part := range content.Array() {
+			if part.Get("id").Exists() {
+				body, _ = sjson.DeleteBytes(body, fmt.Sprintf("input.%d.content.%d.id", i, j))
+			}
+		}
+	}
+	return body
+}

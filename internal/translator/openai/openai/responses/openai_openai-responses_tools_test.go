@@ -76,6 +76,11 @@ func TestResponsesToolDeclarationTableNormalizesTopLevelAdditionalAndNamespaceTo
 }
 
 func TestResponsesToolDeclarationTableRejectsDistinctIdentityCollision(t *testing.T) {
+	// A flat "repo__read" and the namespaced repo/read declaration qualify to
+	// the same raw name before the cap. Local architecture keeps this a hard
+	// error (the Codex executor turns it into HTTP 400 tool_name_collision
+	// before any network I/O) even though upstream e3e97ad9 would treat the
+	// pair as one identity sharing a name.
 	request := []byte(`{
 		"tools":[
 			{"type":"function","name":"repo__read"},
@@ -223,14 +228,20 @@ func TestResponsesToolDeclarationTableRestoresFragmentedCustomInputWithoutWrappe
 	}
 }
 
-func TestResponsesToolDeclarationTableDoesNotAuthorizeNamespacedToolByShortName(t *testing.T) {
+func TestResponsesToolDeclarationTableDoesNotAuthorizeNamespacedToolByAmbiguousShortName(t *testing.T) {
+	// A bare local name declared by two distinct namespaces is ambiguous: no
+	// namespace-less reference may resolve it, so the name stays unresolved
+	// (upstream canonicalResponsesToolName ambiguity rule).
 	request := []byte(`{
-		"tools":[{"type":"namespace","name":"repo","tools":[{"type":"function","name":"read"}]}],
+		"tools":[
+			{"type":"namespace","name":"repo_a","tools":[{"type":"function","name":"read"}]},
+			{"type":"namespace","name":"repo_b","tools":[{"type":"function","name":"read"}]}
+		],
 		"tool_choice":{"type":"function","name":"read"}
 	}`)
 	normalized := NormalizeResponsesToolsForCodex(request)
 	if got := gjson.GetBytes(normalized, "tool_choice.name").String(); got != "read" {
-		t.Fatalf("short tool choice was authorized as namespaced declaration: %s", normalized)
+		t.Fatalf("ambiguous short tool choice was authorized as a namespaced declaration: %s", normalized)
 	}
 }
 

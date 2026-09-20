@@ -724,15 +724,23 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				case <-ctx.Done():
 					return
 				}
-			}
-			if errScan := scanner.Err(); errScan != nil {
-				helps.RecordAPIResponseError(ctx, e.cfg, errScan)
-				reporter.PublishFailure(ctx, errScan)
-				select {
-				case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
-				case <-ctx.Done():
+				// Stop reading once the terminal event (message_stop) has been
+				// fully forwarded — a client disconnect after upstream completion
+				// must not surface as a stream failure (upstream 7c32971b91c8).
+				if upstreamCompleted && len(bytes.TrimSpace(line)) == 0 {
+					break
 				}
-				return
+			}
+			if !upstreamCompleted {
+				if errScan := scanner.Err(); errScan != nil {
+					helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+					reporter.PublishFailure(ctx, errScan)
+					select {
+					case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
+					case <-ctx.Done():
+					}
+					return
+				}
 			}
 			// Only a stream that reached message_stop advances continuity, so a
 			// truncated response cannot corrupt upstream request tracking
@@ -779,15 +787,23 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 					return
 				}
 			}
-		}
-		if errScan := scanner.Err(); errScan != nil {
-			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
-			reporter.PublishFailure(ctx, errScan)
-			select {
-			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
-			case <-ctx.Done():
+			// Stop reading once upstream completion is reached — a client
+			// disconnect after completion must not surface as a stream failure
+			// (upstream 7c32971b91c8).
+			if upstreamCompleted {
+				break
 			}
-			return
+		}
+		if !upstreamCompleted {
+			if errScan := scanner.Err(); errScan != nil {
+				helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+				reporter.PublishFailure(ctx, errScan)
+				select {
+				case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
+				case <-ctx.Done():
+				}
+				return
+			}
 		}
 		if upstreamCompleted {
 			commitClaudeContinuity(diagnosticsState, upstreamMessageID, helps.HeaderValueCaseInsensitive(httpResp.Header, "request-id"))

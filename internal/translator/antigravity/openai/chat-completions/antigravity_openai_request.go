@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/misc"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/translator/gemini/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
@@ -177,14 +178,18 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 				}
 			} else if role == "user" || role == "system" || role == "developer" {
 				hasEncounteredConversation = true
+				// Mid-session system/developer messages demote to user turns; wrap
+				// their text in the system-reminder envelope so upstream models
+				// treat them as directives (upstream b681a1e0f7b8).
+				isDemotedSystem := role == "system" || role == "developer"
 				// Build single user content node to avoid splitting into multiple contents
 				node := []byte(`{"role":"user","parts":[]}`)
 				hasParts := false
 				if content.Type == gjson.String {
-					node, _ = sjson.SetBytes(node, "parts.0.text", content.String())
+					node, _ = sjson.SetBytes(node, "parts.0.text", antigravityDemotedSystemText(content.String(), isDemotedSystem))
 					hasParts = true
 				} else if content.IsObject() && content.Get("type").String() == "text" {
-					node, _ = sjson.SetBytes(node, "parts.0.text", content.Get("text").String())
+					node, _ = sjson.SetBytes(node, "parts.0.text", antigravityDemotedSystemText(content.Get("text").String(), isDemotedSystem))
 					hasParts = true
 				} else if content.IsArray() {
 					items := content.Array()
@@ -194,7 +199,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						case "text":
 							text := item.Get("text").String()
 							if text != "" {
-								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".text", text)
+								node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".text", antigravityDemotedSystemText(text, isDemotedSystem))
 								hasParts = true
 							}
 							p++
@@ -526,3 +531,13 @@ func applyOpenAIToolChoiceToAntigravity(out, rawJSON []byte) []byte {
 
 // itoa converts int to string without strconv import for few usages.
 func itoa(i int) string { return fmt.Sprintf("%d", i) }
+
+// antigravityDemotedSystemText wraps a demoted mid-session system or developer
+// message in the <system-reminder> envelope so non-Claude upstream models treat it
+// as a directive rather than user speech (upstream b681a1e0f7b8).
+func antigravityDemotedSystemText(text string, isDemoted bool) string {
+	if !isDemoted || strings.TrimSpace(text) == "" {
+		return text
+	}
+	return translatorcommon.SystemReminderText(text)
+}

@@ -1792,3 +1792,112 @@ func TestCleanJSONSchema_ToolArraysMissingItems(t *testing.T) {
 		})
 	}
 }
+
+// TestCleanJSONSchema_RemovesDraft04IdAndSchemaIdentifierKeywords covers Issue #5888:
+// Draft-04 schema identifier "id" and Draft 2019-09/2020-12 identifier keywords ($anchor, $vocabulary,
+// $dynamicRef, $dynamicAnchor) should be stripped from schema nodes while preserving properties legitimately named "id".
+// Ported from upstream f668ac417d97 (CleanJSONSchemaForAntigravityTool has no local equivalent).
+func TestCleanJSONSchema_RemovesDraft04IdAndSchemaIdentifierKeywords(t *testing.T) {
+	// Repro case from Issue #5888: MCP tool property schema containing "id": "ContentType"
+	input := `{
+		"id": "http://example.com/root.json",
+		"$anchor": "rootAnchor",
+		"$vocabulary": {"https://json-schema.org/draft/2020-12/vocab/core": true},
+		"type": "object",
+		"properties": {
+			"kind": {
+				"type": "string",
+				"enum": ["short", "video"],
+				"id": "ContentType",
+				"$anchor": "contentTypeAnchor",
+				"$dynamicAnchor": "dynAnchor",
+				"$dynamicRef": "#dynAnchor",
+				"description": "Kind"
+			},
+			"id": {
+				"type": "string",
+				"description": "Property legitimately named id should survive"
+			}
+		},
+		"required": ["kind"]
+	}`
+
+	for cleaner, clean := range map[string]func(string) string{
+		"gemini":              CleanJSONSchemaForGemini,
+		"antigravity":         CleanJSONSchemaForAntigravity,
+		"antigravityResponse": CleanJSONSchemaForAntigravityResponse,
+	} {
+		got := clean(input)
+		parsed := gjson.Parse(got)
+
+		// Root keywords should be stripped
+		if parsed.Get("id").Exists() {
+			t.Errorf("%s: root 'id' was not removed: %s", cleaner, got)
+		}
+		if parsed.Get("$anchor").Exists() {
+			t.Errorf("%s: root '$anchor' was not removed: %s", cleaner, got)
+		}
+		if parsed.Get("$vocabulary").Exists() {
+			t.Errorf("%s: root '$vocabulary' was not removed: %s", cleaner, got)
+		}
+
+		// Keywords inside property schema should be stripped
+		if parsed.Get("properties.kind.id").Exists() {
+			t.Errorf("%s: 'properties.kind.id' was not removed: %s", cleaner, got)
+		}
+		if parsed.Get("properties.kind.$anchor").Exists() {
+			t.Errorf("%s: 'properties.kind.$anchor' was not removed: %s", cleaner, got)
+		}
+		if parsed.Get("properties.kind.$dynamicAnchor").Exists() {
+			t.Errorf("%s: 'properties.kind.$dynamicAnchor' was not removed: %s", cleaner, got)
+		}
+		if parsed.Get("properties.kind.$dynamicRef").Exists() {
+			t.Errorf("%s: 'properties.kind.$dynamicRef' was not removed: %s", cleaner, got)
+		}
+
+		// Property named "id" must be preserved
+		if !parsed.Get("properties.id").Exists() {
+			t.Errorf("%s: property named 'id' was incorrectly removed: %s", cleaner, got)
+		}
+		if parsed.Get("properties.id.type").String() != "string" {
+			t.Errorf("%s: property named 'id' type corrupted: %s", cleaner, got)
+		}
+	}
+
+	// Real-world MCP repro: definition carrying "id": "ContentType" referenced
+	// via $ref. Local cleaners convert refs to description hints rather than
+	// inlining the definition (upstream expands it), so the ported assertions
+	// only pin what both behaviors share: the definition block is stripped and
+	// no stray "id" keyword survives on the referencing property.
+	refInput := `{
+		"definitions": {
+			"ContentType": {
+				"type": "string",
+				"enum": ["short", "video"],
+				"id": "ContentType",
+				"description": "Kind"
+			}
+		},
+		"type": "object",
+		"properties": {
+			"kind": { "$ref": "#/definitions/ContentType" }
+		},
+		"required": ["kind"]
+	}`
+	for cleaner, clean := range map[string]func(string) string{
+		"antigravity":         CleanJSONSchemaForAntigravity,
+		"antigravityResponse": CleanJSONSchemaForAntigravityResponse,
+	} {
+		got := clean(refInput)
+		parsed := gjson.Parse(got)
+		if !parsed.Get("properties.kind").Exists() {
+			t.Errorf("%s: $ref property 'properties.kind' missing: %s", cleaner, got)
+		}
+		if parsed.Get("properties.kind.id").Exists() {
+			t.Errorf("%s: 'properties.kind.id' was not removed: %s", cleaner, got)
+		}
+		if parsed.Get("definitions").Exists() {
+			t.Errorf("%s: 'definitions' was not removed: %s", cleaner, got)
+		}
+	}
+}

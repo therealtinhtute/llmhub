@@ -15,7 +15,19 @@
    "meta-api-call",
    "oauth-alias-error-rules",
    "translator-finish-reason-validation",
-   "mgmt-no-cache-headers"
+   "mgmt-no-cache-headers",
+   "codex-exec-ua",
+   "devin-tool-sanitize",
+   "gemini-schema-id-keywords",
+   "home-native-capabilities-dispatch",
+   "envelope-modelinfo-api",
+   "compat-textonly-tool-results",
+   "devin-executor-sweep",
+   "auth-retry-enriched-errors",
+   "responses-websearch-feature",
+   "system-reminder-envelope",
+   "toolname-capping",
+   "misc-translator-fixes"
   ],
   "exclude": [
    "plugin-quota-hardening",
@@ -23,7 +35,8 @@
    "config-optional-commandmode",
    "branding-docs",
    "test-hygiene",
-   "pluginhost-platform"
+   "pluginhost-platform",
+   "interactions-translator-packages"
   ],
   "defer": [
    "home-401-refresh-revert",
@@ -133,5 +146,5 @@
    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.6"
   }
  ],
- "generated_at": "2026-09-17T09:27:31Z"
+ "generated_at": "2026-09-18T09:45:11Z"
 }

@@ -163,7 +163,13 @@ func convertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool, 
 					if preserveEmptyThinkingBlocks && strings.TrimSpace(rawSignature) == "" {
 						signature = rawSignature
 					} else {
-						return
+						if !codexClaudeTargetAcceptsGrokSignature(modelName) {
+							return
+						}
+						if _, err := sigcompat.InspectGrokEncryptedContent(rawSignature); err != nil {
+							return
+						}
+						signature = rawSignature
 					}
 				}
 
@@ -399,6 +405,14 @@ func convertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool, 
 	}
 
 	return template
+}
+
+// codexClaudeTargetAcceptsGrokSignature reports whether the Codex target model
+// is an xAI/Grok variant that accepts opaque Grok encrypted_content blobs.
+// Ported from upstream CLIProxyAPI (codex_claude_request.go).
+func codexClaudeTargetAcceptsGrokSignature(modelName string) bool {
+	baseModel := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(modelName).ModelName))
+	return strings.Contains(baseModel, "grok")
 }
 
 // shortenCodexCallIDIfNeeded keeps Claude tool IDs within the OpenAI Responses

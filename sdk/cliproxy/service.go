@@ -1878,6 +1878,13 @@ type modelMaxContextLengthEntry interface {
 	GetMaxContextLength() int
 }
 
+// modelCompatEntry exposes the is-compat flag on configured API-key model
+// entries. Ported from upstream CLIProxyAPI commit 81d6ba774621
+// (service_models.go modelCompatEntry).
+type modelCompatEntry interface {
+	GetIsCompat() bool
+}
+
 func buildConfiguredModelInfo(model modelEntry, ownedBy, modelType string, created int64, fallbackDisplayName string, userDefined bool) *ModelInfo {
 	name := strings.TrimSpace(model.GetName())
 	alias := strings.TrimSpace(model.GetAlias())
@@ -1908,6 +1915,10 @@ func buildConfiguredModelInfo(model modelEntry, ownedBy, modelType string, creat
 			info.ContextLength = maxContextLength
 			info.MaxContextLength = maxContextLength
 		}
+	}
+	// Ported from upstream CLIProxyAPI commit 81d6ba774621.
+	if compatModel, okCompat := any(model).(modelCompatEntry); okCompat {
+		info.IsCompat = compatModel.GetIsCompat()
 	}
 	return info
 }

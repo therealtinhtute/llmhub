@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -280,6 +281,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
 	if declarationErr != nil {
 		return resp, codexToolDeclarationStatusErr(declarationErr)
@@ -305,6 +307,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
+	// Ported from upstream CLIProxyAPI commit 81d6ba774621: compat models keep
+	// reasoning.content and reasoning ids; others get the standard sanitize.
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	// Optimize official Codex multi_agent v2 requests: refresh spawn_agent model
 	// details, strip message encryption, and (for is-compat models) convert
@@ -370,6 +375,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 		eventData := bytes.TrimSpace(line[5:])
 		eventData = helps.RestoreCodexMultiAgentV2Response(eventData, optimizeMultiAgentV2)
+		reporter.ObserveCodexResponseModel(eventData)
 		eventType := gjson.GetBytes(eventData, "type").String()
 
 		if streamErr, ok := codexTerminalStreamContextLengthErr(eventData); ok {
@@ -525,6 +531,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
 	if declarationErr != nil {
 		return resp, codexToolDeclarationStatusErr(declarationErr)
@@ -546,6 +553,8 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
+	// Ported from upstream CLIProxyAPI commit 81d6ba774621 (compact flow).
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
 
@@ -638,6 +647,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
 	if declarationErr != nil {
 		return nil, codexToolDeclarationStatusErr(declarationErr)
@@ -666,6 +676,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
+	// Ported from upstream CLIProxyAPI commit 81d6ba774621 (streaming flow).
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
 
@@ -762,6 +774,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
 				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
+				observeCodexTokenEvent(reporter, data)
 				eventType := gjson.GetBytes(data, "type").String()
 				if streamErr, terminalBody, ok := codexTerminalFailureErrWithCooling(data, e.modelLevelCooling()); ok {
 					closeBootstrapBody()
@@ -921,6 +934,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
 				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
+				observeCodexTokenEvent(reporter, data)
 				if streamErr, _, ok := codexTerminalFailureErrWithCooling(data, e.modelLevelCooling()); ok {
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					reporter.PublishFailure(ctx, streamErr)
@@ -1476,6 +1490,13 @@ func normalizeCodexParallelToolCallsForTools(body []byte) []byte {
 	return body
 }
 
+// observeCodexTokenEvent inspects a stream payload, marks TTFT on the first substantive
+// token event, and records the model the upstream reports serving.
+func observeCodexTokenEvent(reporter *helps.UsageReporter, payload []byte) {
+	helps.ObserveResponsesTokenEvent(reporter, payload)
+	reporter.ObserveCodexResponseModel(payload)
+}
+
 func publishCodexImageToolUsage(ctx context.Context, reporter *helps.UsageReporter, body []byte, completedData []byte) {
 	detail, ok := helps.ParseCodexImageToolUsage(completedData)
 	if !ok {
@@ -1595,6 +1616,18 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 	if auth.Attributes != nil {
 		attrKey = strings.TrimSpace(auth.Attributes["api_key"])
 		attrBase = strings.TrimSpace(auth.Attributes["base_url"])
+		// Ported from upstream CLIProxyAPI commit 81d6ba774621
+		// (codex_executor_auth.go): the auth may carry the index of the config
+		// entry it was synthesized from ("config_index"; upstream
+		// cliproxyauth.AttributeConfigIndex — the fork uses the literal key).
+		if index, errIndex := strconv.Atoi(strings.TrimSpace(auth.Attributes["config_index"])); errIndex == nil && index >= 0 && index < len(e.cfg.CodexKey) {
+			entry := &e.cfg.CodexKey[index]
+			cfgKey := strings.TrimSpace(entry.APIKey)
+			cfgBase := strings.TrimSpace(entry.BaseURL)
+			if (attrKey == "" || strings.EqualFold(cfgKey, attrKey)) && (attrBase == "" || strings.EqualFold(cfgBase, attrBase)) {
+				return entry
+			}
+		}
 	}
 	for i := range e.cfg.CodexKey {
 		entry := &e.cfg.CodexKey[i]
@@ -1624,4 +1657,36 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 		}
 	}
 	return nil
+}
+
+// resolveCodexModelIsCompat reports whether the requested model runs against a
+// third-party Responses-compatible endpoint that must receive cleartext
+// reasoning content and reasoning item ids unmodified. The runtime-bound model
+// info wins over configuration so an explicitly resolved non-compat model
+// cannot be overridden by a matching config entry.
+//
+// Ported from upstream CLIProxyAPI commit 81d6ba774621
+// (codex_executor_auth.go).
+func (e *CodexExecutor) resolveCodexModelIsCompat(auth *cliproxyauth.Auth, req cliproxyexecutor.Request, baseModel string) bool {
+	if modelInfo, ok := cliproxyauth.ResolvedModelInfo(req); ok && modelInfo != nil {
+		return modelInfo.IsCompat
+	}
+	entry := e.resolveCodexConfig(auth)
+	if entry != nil && len(entry.Models) > 0 {
+		requested := strings.TrimSpace(req.Model)
+		target := strings.TrimSpace(baseModel)
+		for i := range entry.Models {
+			name := strings.TrimSpace(entry.Models[i].Name)
+			alias := strings.TrimSpace(entry.Models[i].Alias)
+			if (target != "" && (strings.EqualFold(name, target) || strings.EqualFold(alias, target))) ||
+				(requested != "" && (strings.EqualFold(name, requested) || strings.EqualFold(alias, requested))) {
+				return entry.Models[i].IsCompat
+			}
+		}
+		return false
+	}
+	if cliproxyauth.CodexAPIKeyModelIsCompat(e.cfg, auth, baseModel) || cliproxyauth.CodexAPIKeyModelIsCompat(e.cfg, auth, req.Model) {
+		return true
+	}
+	return false
 }

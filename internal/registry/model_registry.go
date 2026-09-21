@@ -78,6 +78,12 @@ type ModelInfo struct {
 	// array (e.g., openai-compatibility.*.models[], *-api-key.models[]).
 	// UserDefined models have thinking configuration passed through without validation.
 	UserDefined bool `json:"-"`
+
+	// IsCompat enables compatibility handling for this configured API-key model.
+	// When true, Codex/Responses executors preserve reasoning content and ids for
+	// third-party Responses-compatible endpoints instead of sanitizing them.
+	// Ported from upstream CLIProxyAPI commit 81d6ba774621.
+	IsCompat bool `json:"-"`
 }
 
 // UnmarshalJSON loads internal native capability metadata without exposing it

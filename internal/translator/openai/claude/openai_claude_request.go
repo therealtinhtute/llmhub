@@ -8,6 +8,7 @@ package claude
 import (
 	"strings"
 
+	sigcompat "github.com/therealtinhtute/llmhub/internal/signature"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
 	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
@@ -19,6 +20,17 @@ import (
 // It extracts the model name, system instruction, message contents, and tool declarations
 // from the raw JSON request and returns them in the format expected by the OpenAI API.
 func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream bool) []byte {
+	return convertClaudeRequestToOpenAI(modelName, inputRawJSON, stream, false)
+}
+
+// ConvertClaudeRequestToOpenAIWithCompat preserves assistant thinking text
+// for configured compatibility endpoints. Ported from upstream CLIProxyAPI
+// (openai_claude_request.go).
+func ConvertClaudeRequestToOpenAIWithCompat(modelName string, inputRawJSON []byte, stream bool) []byte {
+	return convertClaudeRequestToOpenAI(modelName, inputRawJSON, stream, true)
+}
+
+func convertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream bool, preserveThinkingBlocks bool) []byte {
 	rawJSON := inputRawJSON
 	// Base OpenAI Chat Completions API template
 	out := []byte(`{"model":"","messages":[]}`)
@@ -147,6 +159,9 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 					case "thinking":
 						// Only map thinking to reasoning_content for assistant messages (security: prevent injection)
 						if role == "assistant" {
+							if !shouldMapClaudeThinkingToGPTReasoning(part, preserveThinkingBlocks) {
+								return true
+							}
 							thinkingText := thinking.GetThinkingText(part)
 							// Skip empty or whitespace-only thinking
 							if strings.TrimSpace(thinkingText) != "" {
@@ -481,4 +496,20 @@ func convertClaudeToolResultContent(content gjson.Result) (string, bool) {
 	}
 
 	return content.Raw, false
+}
+
+// shouldMapClaudeThinkingToGPTReasoning reports whether an assistant thinking
+// part may be mapped into OpenAI reasoning_content. Compat endpoints preserve
+// the text unconditionally; otherwise a GPT-replayable signature is required.
+// Ported from upstream CLIProxyAPI (openai_claude_request.go).
+func shouldMapClaudeThinkingToGPTReasoning(part gjson.Result, preserveThinkingBlocks ...bool) bool {
+	if len(preserveThinkingBlocks) > 0 && preserveThinkingBlocks[0] {
+		return true
+	}
+	signature := part.Get("signature")
+	if !signature.Exists() || strings.TrimSpace(signature.String()) == "" {
+		return false
+	}
+	_, ok := sigcompat.CompatibleSignatureForProvider(sigcompat.SignatureProviderGPT, signature.String())
+	return ok
 }

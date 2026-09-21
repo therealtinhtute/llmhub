@@ -6,6 +6,12 @@ import (
 
 	multiagentv2 "github.com/therealtinhtute/llmhub/internal/client/codex/optimize-multi-agent-v2"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/thinking"
+	openaichatclaude "github.com/therealtinhtute/llmhub/internal/translator/claude/openai/chat-completions"
+	responsesclaude "github.com/therealtinhtute/llmhub/internal/translator/claude/openai/responses"
+	codexclaude "github.com/therealtinhtute/llmhub/internal/translator/codex/claude"
+	geminiclaude "github.com/therealtinhtute/llmhub/internal/translator/gemini/claude"
+	openaiclaude "github.com/therealtinhtute/llmhub/internal/translator/openai/claude"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 )
@@ -81,6 +87,42 @@ func sameByteSlice(a, b []byte) bool {
 		return true
 	}
 	return &a[0] == &b[0]
+}
+
+// TranslateRequestWithAPIKeyModelCompatibility applies compatibility-aware
+// request translators when a configured API-key model enables compatibility mode.
+// Ported from upstream CLIProxyAPI (helps/codex_multi_agent_v2.go). The upstream
+// claude->interactions branch is omitted: no local interactions translator exists.
+func TranslateRequestWithAPIKeyModelCompatibility(ctx context.Context, headers http.Header, cfg *config.Config, from, to sdktranslator.Format, model string, payload []byte, stream, isCompat bool) []byte {
+	if !isCompat {
+		return TranslateRequestWithCodexMultiAgentV2(ctx, headers, cfg, from, to, model, payload, stream)
+	}
+	if from == sdktranslator.FormatOpenAIResponse {
+		payload = RewriteCodexOrphanDelegationInput(ctx, headers, payload, cfg)
+		if to != sdktranslator.FormatCodex && to != sdktranslator.FormatOpenAIResponse {
+			payload = multiagentv2.RewriteCodexMultiAgentV2Input(ctx, headers, payload, cfg)
+		}
+	}
+
+	var translated []byte
+	switch {
+	case from == sdktranslator.FormatClaude && to == sdktranslator.FormatCodex:
+		translated = codexclaude.ConvertClaudeRequestToCodexWithCompat(model, payload, stream)
+	case from == sdktranslator.FormatClaude && to == sdktranslator.FormatGemini:
+		translated = geminiclaude.ConvertClaudeRequestToGeminiWithCompat(model, payload, stream)
+	case from == sdktranslator.FormatClaude && to == sdktranslator.FormatOpenAI:
+		translated = openaiclaude.ConvertClaudeRequestToOpenAIWithCompat(model, payload, stream)
+	case from == sdktranslator.FormatOpenAI && to == sdktranslator.FormatClaude:
+		translated = openaichatclaude.ConvertOpenAIRequestToClaudeWithCompat(model, payload, stream)
+	case from == sdktranslator.FormatOpenAIResponse && to == sdktranslator.FormatClaude:
+		translated = responsesclaude.ConvertOpenAIResponsesRequestToClaudeWithCompat(model, payload, stream)
+	default:
+		return TranslateRequestWithCodexMultiAgentV2(ctx, headers, cfg, from, to, model, payload, stream)
+	}
+
+	summaryConfig := thinking.ExtractSummaryConfig(payload, from.String())
+	translated = thinking.ApplySummaryConfigForModel(translated, to.String(), model, summaryConfig)
+	return sdktranslator.NormalizeRequest(ctx, from, to, model, translated, stream)
 }
 
 // OptimizeCodexMultiAgentV2Request rewrites an eligible spawn_agent request and

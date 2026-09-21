@@ -84,6 +84,11 @@ func DetectSignatureProviderForBlock(rawSignature string, blockKind SignatureBlo
 	if IsGeminiThoughtSignatureBypass(payload) {
 		return SignatureProviderGeminiBypass
 	}
+	// GPT carries the literal "gAAAA" Fernet prefix, which pins both the version
+	// byte and the high timestamp bytes — the strongest marker, probed first.
+	if IsValidGPTReasoningSignature(payload) {
+		return SignatureProviderGPT
+	}
 	// Gemini wire-shape matching runs before the Claude probes: Gemini's
 	// exact single-record envelope requirement keeps the families separable,
 	// while a loose Claude decodability probe can otherwise claim a native

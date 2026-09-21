@@ -7,12 +7,12 @@ package claude
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
 
+	sigcompat "github.com/therealtinhtute/llmhub/internal/signature"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
@@ -37,7 +37,18 @@ import (
 //
 // Returns:
 //   - []byte: The transformed request data in internal client format
-func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) []byte {
+func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, stream bool) []byte {
+	return convertClaudeRequestToCodex(modelName, inputRawJSON, stream, false)
+}
+
+// ConvertClaudeRequestToCodexWithCompat preserves assistant thinking blocks with
+// empty or unknown-format signatures for configured compatibility endpoints.
+// Ported from upstream CLIProxyAPI (codex_claude_request.go).
+func ConvertClaudeRequestToCodexWithCompat(modelName string, inputRawJSON []byte, stream bool) []byte {
+	return convertClaudeRequestToCodex(modelName, inputRawJSON, stream, true)
+}
+
+func convertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool, preserveEmptyThinkingBlocks bool) []byte {
 	rawJSON := inputRawJSON
 
 	template := []byte(`{"model":"","instructions":"","input":[]}`)
@@ -141,9 +152,19 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 					return
 				}
 
-				signature := part.Get("signature").String()
-				if !isFernetLikeReasoningSignature(signature) {
-					return
+				rawSignature := part.Get("signature").String()
+				signature, ok := sigcompat.CompatibleSignatureForProvider(sigcompat.SignatureProviderGPT, rawSignature)
+				if !ok && preserveEmptyThinkingBlocks && part.Get("signature").Type == gjson.String && strings.TrimSpace(rawSignature) != "" &&
+					sigcompat.DetectSignatureProviderForBlock(rawSignature, sigcompat.SignatureBlockKindClaudeThinking) == sigcompat.SignatureProviderUnknown {
+					signature = rawSignature
+					ok = true
+				}
+				if !ok {
+					if preserveEmptyThinkingBlocks && strings.TrimSpace(rawSignature) == "" {
+						signature = rawSignature
+					} else {
+						return
+					}
 				}
 
 				flushMessage()
@@ -378,39 +399,6 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 	}
 
 	return template
-}
-
-// isFernetLikeReasoningSignature checks only the encrypted_content envelope shape
-// observed in OpenAI reasoning signatures. It does not authenticate source or payload type.
-func isFernetLikeReasoningSignature(signature string) bool {
-	const (
-		fernetVersionLen = 1
-		fernetTimestamp  = 8
-		fernetIV         = 16
-		fernetHMAC       = 32
-		aesBlockSize     = 16
-	)
-
-	signature = strings.TrimSpace(signature)
-	if !strings.HasPrefix(signature, "gAAAA") {
-		return false
-	}
-
-	decoded, err := base64.URLEncoding.DecodeString(signature)
-	if err != nil {
-		decoded, err = base64.RawURLEncoding.DecodeString(signature)
-		if err != nil {
-			return false
-		}
-	}
-
-	minLen := fernetVersionLen + fernetTimestamp + fernetIV + aesBlockSize + fernetHMAC
-	if len(decoded) < minLen || decoded[0] != 0x80 {
-		return false
-	}
-
-	ciphertextLen := len(decoded) - fernetVersionLen - fernetTimestamp - fernetIV - fernetHMAC
-	return ciphertextLen > 0 && ciphertextLen%aesBlockSize == 0
 }
 
 // shortenCodexCallIDIfNeeded keeps Claude tool IDs within the OpenAI Responses

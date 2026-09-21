@@ -284,6 +284,9 @@ func TestUpdateCommandUsage(t *testing.T) {
 // exits 0 without touching anything; the root-path restore behavior is
 // covered by the updater package's TestRollback*.
 func TestUpdateCommandRollback(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("asserts the non-root gate; running as root proceeds past it")
+	}
 	engine := updater.NewEngine(updater.NewClient(), t.TempDir(), "v1.0.0")
 	var stdout, stderr bytes.Buffer
 	if code := runSelfUpdate([]string{"rollback"}, &stdout, &stderr, engine); code != 0 {

@@ -132,6 +132,9 @@ func TestRollbackNonRoot(t *testing.T) {
 
 func TestRollbackFailure(t *testing.T) {
 	requireSupportedPlatform(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses permission bits; the unwritable-dir restore cannot fail")
+	}
 	cfg, _ := rollbackFixture(t)
 	// Make the target directory unwritable so the atomic restore fails; the
 	// failure must surface as exit 1, unlike the apply path's exit 0.

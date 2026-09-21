@@ -15,6 +15,8 @@ import iconGrok from '@/assets/icons/grok.svg';
 import iconGrokDark from '@/assets/icons/grok-dark.svg';
 import iconMeta from '@/assets/icons/meta.svg';
 import iconMetaDark from '@/assets/icons/meta-dark.svg';
+import iconDevin from '@/assets/icons/devin.svg';
+import iconDevinDark from '@/assets/icons/devin-dark.svg';
 import type {
   NativeProviderBrand,
   ProviderBrand,
@@ -112,6 +114,15 @@ export const PROVIDERS: ProviderEntryOAuthMeta[] = [
     // white-fill variant for dark theme since <img> can't inherit currentColor.
     icon: { light: iconMeta, dark: iconMetaDark },
   },
+  {
+    id: 'devin',
+    titleKey: 'auth_login.devin_oauth_title',
+    hintKey: 'auth_login.devin_oauth_hint',
+    urlLabelKey: 'auth_login.devin_oauth_url_label',
+    // Official Devin mark; white-fill variant for dark theme since <img>
+    // can't inherit currentColor.
+    icon: { light: iconDevin, dark: iconDevinDark },
+  },
 ];
 
 export const CALLBACK_SUPPORTED: OAuthProvider[] = [
@@ -120,6 +131,7 @@ export const CALLBACK_SUPPORTED: OAuthProvider[] = [
   'antigravity',
   'gemini-cli',
   'xai',
+  'devin',
 ];
 
 export const OAUTH_TO_AUTH_FILE_TYPE: Record<OAuthProvider, string> = {
@@ -130,6 +142,7 @@ export const OAUTH_TO_AUTH_FILE_TYPE: Record<OAuthProvider, string> = {
   kimi: 'kimi',
   xai: 'xai',
   meta: 'meta',
+  devin: 'devin',
 };
 
 export const getOAuthAuthFileTypes = (provider: OAuthProvider): string[] =>

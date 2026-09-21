@@ -47,8 +47,9 @@ func TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx context.Context, headers 
 // normally assign the original payload to the request before translating, so both
 // translations would rescan the same bytes and produce the same result. Built-in
 // request translation is deterministic, so that case is translated once and
-// duplicated. This removes a full extra pass over payloads that can reach tens of
-// megabytes.
+// duplicated when no plugin hooks are installed. Hooks retain two invocations
+// because they may have request-scoped output or side effects. This removes a
+// full extra pass over payloads that can reach tens of megabytes.
 func TranslateRequestPairWithCodexMultiAgentV2(ctx context.Context, headers http.Header, cfg *config.Config, from, to sdktranslator.Format, model string, originalPayload, requestPayload []byte, stream bool) (original, working []byte) {
 	req := sdktranslator.RequestEnvelope{Format: from, Model: model, Stream: stream}
 	return TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx, headers, cfg, from, to, req, originalPayload, requestPayload)
@@ -60,7 +61,7 @@ func TranslateRequestEnvelopePairWithCodexMultiAgentV2(ctx context.Context, head
 	originalReq := req
 	originalReq.Body = originalPayload
 	original = TranslateRequestEnvelopeWithCodexMultiAgentV2(ctx, headers, cfg, from, to, originalReq).Body
-	if sameByteSlice(originalPayload, requestPayload) {
+	if sameByteSlice(originalPayload, requestPayload) && !sdktranslator.HasPluginHooks() {
 		// The caller mutates the working copy, so it must not share the baseline array.
 		return original, append([]byte(nil), original...)
 	}

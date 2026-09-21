@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/therealtinhtute/llmhub/internal/thinking"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -282,9 +283,15 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 		})
 	}
 
-	// Set messages
+	// Set messages. Tool result messages are aligned to immediately follow the
+	// assistant message that issued their matching tool_calls (upstream cc545cbf).
 	if msgs := gjson.ParseBytes(messagesJSON); msgs.IsArray() && len(msgs.Array()) > 0 {
-		out, _ = sjson.SetRawBytes(out, "messages", messagesJSON)
+		messageItems := make([][]byte, 0, len(msgs.Array()))
+		for _, m := range msgs.Array() {
+			messageItems = append(messageItems, []byte(m.Raw))
+		}
+		messageItems = translatorcommon.AlignOpenAIToolCallMessages(messageItems)
+		out = translatorcommon.SetRawArrayItems(out, "messages", messageItems)
 	}
 
 	// Process tools - convert Anthropic tools to OpenAI functions
@@ -311,21 +318,37 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 	}
 
 	// Tool choice mapping - convert Anthropic tool_choice to OpenAI format
-	if toolChoice := root.Get("tool_choice"); toolChoice.Exists() {
-		switch toolChoice.Get("type").String() {
+	if toolChoice := root.Get("tool_choice"); toolChoice.Exists() && toolChoice.Type != gjson.Null {
+		choiceType := toolChoice.Get("type").String()
+		if choiceType == "" && toolChoice.Type == gjson.String {
+			choiceType = toolChoice.String()
+		}
+		switch choiceType {
 		case "auto":
 			out, _ = sjson.SetBytes(out, "tool_choice", "auto")
 		case "any":
 			out, _ = sjson.SetBytes(out, "tool_choice", "required")
+		case "none":
+			out, _ = sjson.SetBytes(out, "tool_choice", "none")
 		case "tool":
 			// Specific tool choice
 			toolName := toolChoice.Get("name").String()
-			toolChoiceJSON := []byte(`{"type":"function","function":{"name":""}}`)
-			toolChoiceJSON, _ = sjson.SetBytes(toolChoiceJSON, "function.name", toolName)
-			out, _ = sjson.SetRawBytes(out, "tool_choice", toolChoiceJSON)
+			if toolName != "" {
+				toolChoiceJSON := []byte(`{"type":"function","function":{"name":""}}`)
+				toolChoiceJSON, _ = sjson.SetBytes(toolChoiceJSON, "function.name", toolName)
+				out, _ = sjson.SetRawBytes(out, "tool_choice", toolChoiceJSON)
+			} else {
+				out, _ = sjson.SetBytes(out, "tool_choice", "none")
+			}
 		default:
-			// Default to auto if not specified
-			out, _ = sjson.SetBytes(out, "tool_choice", "auto")
+			// Fail closed: unrecognized tool_choice values must not turn into permission
+			out, _ = sjson.SetBytes(out, "tool_choice", "none")
+		}
+
+		// Map Claude disable_parallel_tool_use to OpenAI parallel_tool_calls=false
+		// (upstream 49eec664).
+		if disableParallel := toolChoice.Get("disable_parallel_tool_use"); disableParallel.Type == gjson.True {
+			out, _ = sjson.SetBytes(out, "parallel_tool_calls", false)
 		}
 	}
 

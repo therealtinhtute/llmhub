@@ -1,9 +1,12 @@
 package responses
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
+	translatorcommon "github.com/therealtinhtute/llmhub/internal/translator/common"
 	openairesponses "github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
@@ -28,14 +31,32 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "max_completion_tokens")
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "temperature")
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "top_p")
-	if v := gjson.GetBytes(rawJSON, "service_tier"); v.Exists() {
-		if v.String() != "priority" {
+	// service_tier normalization (upstream 859c4865): case-insensitive and
+	// whitespace-trimmed; "fast" maps to "priority", "ultrafast" is preserved,
+	// unsupported values and non-string types are stripped before forwarding.
+	if serviceTier := gjson.GetBytes(rawJSON, "service_tier"); serviceTier.Exists() {
+		if serviceTier.Type == gjson.String {
+			switch strings.ToLower(strings.TrimSpace(serviceTier.String())) {
+			case "priority", "fast":
+				if serviceTier.String() != "priority" {
+					rawJSON, _ = sjson.SetBytes(rawJSON, "service_tier", "priority")
+				}
+			case "ultrafast":
+				if serviceTier.String() != "ultrafast" {
+					rawJSON, _ = sjson.SetBytes(rawJSON, "service_tier", "ultrafast")
+				}
+			default:
+				rawJSON, _ = sjson.DeleteBytes(rawJSON, "service_tier")
+			}
+		} else {
 			rawJSON, _ = sjson.DeleteBytes(rawJSON, "service_tier")
 		}
 	}
 
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "truncation")
+	rawJSON, _ = sjson.DeleteBytes(rawJSON, "prompt_cache_options")
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "prompt_cache_retention")
+	rawJSON = stripCodexResponsesCacheBreakpoints(rawJSON)
 	rawJSON = applyResponsesCompactionCompatibility(rawJSON)
 
 	// Delete the user field as it is not supported by the Codex upstream.
@@ -47,6 +68,99 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	rawJSON = normalizeCodexBuiltinTools(rawJSON)
 
 	return rawJSON
+}
+
+// stripCodexResponsesCacheBreakpoints removes any "prompt_cache_breakpoint" hint
+// attached to input items: inside content-part arrays (message input[].content[]
+// and function_call_output input[].output[]) or as an item-level field. Some
+// clients (e.g. GitHub Copilot CLI) attach this field per content item when
+// targeting the OpenAI Responses format. Codex Responses rejects it outright:
+// {"error":{"message":"prompt_cache_breakpoint is not supported on this model", ...}}.
+// The top-level prompt_cache_options strip above does not cover these nested cases.
+// Ported from upstream CLIProxyAPI commit 3662d153 (issue #5922).
+func stripCodexResponsesCacheBreakpoints(rawJSON []byte) []byte {
+	if !bytes.Contains(rawJSON, []byte(`"prompt_cache_breakpoint"`)) {
+		return rawJSON
+	}
+
+	input := util.GetGJSONBytesNoCopy(rawJSON, "input")
+	if !input.IsArray() {
+		return rawJSON
+	}
+
+	inputItems := input.Array()
+	if len(inputItems) == 0 {
+		return rawJSON
+	}
+
+	changed := false
+	rebuiltInput := make([][]byte, 0, len(inputItems))
+	for _, item := range inputItems {
+		itemRaw := []byte(item.Raw)
+		for _, arrayPath := range []string{"content", "output"} {
+			arrayResult := item.Get(arrayPath)
+			if !arrayResult.IsArray() {
+				continue
+			}
+			updatedArray, arrayChanged := stripPromptCacheBreakpointFromContent(arrayResult)
+			if !arrayChanged {
+				continue
+			}
+			if updatedItem, errSet := sjson.SetRawBytes(itemRaw, arrayPath, updatedArray); errSet == nil {
+				itemRaw = updatedItem
+				changed = true
+			}
+		}
+		if item.Get("prompt_cache_breakpoint").Exists() {
+			if updatedItem, errDelete := sjson.DeleteBytes(itemRaw, "prompt_cache_breakpoint"); errDelete == nil {
+				itemRaw = updatedItem
+				changed = true
+			}
+		}
+		rebuiltInput = append(rebuiltInput, itemRaw)
+	}
+	if !changed {
+		return rawJSON
+	}
+
+	updated, errSet := sjson.SetRawBytes(rawJSON, "input", translatorcommon.JoinRawArray(rebuiltInput))
+	if errSet != nil {
+		return rawJSON
+	}
+	return updated
+}
+
+// stripPromptCacheBreakpointFromContent removes "prompt_cache_breakpoint" from each
+// content part that carries it and reports whether anything changed.
+func stripPromptCacheBreakpointFromContent(content gjson.Result) ([]byte, bool) {
+	parts := content.Array()
+	hasBreakpoint := false
+	for _, part := range parts {
+		if part.Get("prompt_cache_breakpoint").Exists() {
+			hasBreakpoint = true
+			break
+		}
+	}
+	if !hasBreakpoint {
+		return nil, false
+	}
+
+	changed := false
+	rebuiltParts := make([][]byte, 0, len(parts))
+	for _, part := range parts {
+		partRaw := []byte(part.Raw)
+		if part.Get("prompt_cache_breakpoint").Exists() {
+			if updated, errDelete := sjson.DeleteBytes(partRaw, "prompt_cache_breakpoint"); errDelete == nil {
+				partRaw = updated
+				changed = true
+			}
+		}
+		rebuiltParts = append(rebuiltParts, partRaw)
+	}
+	if !changed {
+		return nil, false
+	}
+	return translatorcommon.JoinRawArray(rebuiltParts), true
 }
 
 // applyResponsesCompactionCompatibility handles OpenAI Responses context_management.compaction

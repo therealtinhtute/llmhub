@@ -6,9 +6,9 @@ package util
 import (
 	"net/http"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/sdk/config"
 	"github.com/therealtinhtute/llmhub/sdk/proxyutil"
-	log "github.com/sirupsen/logrus"
 )
 
 // SetProxy configures the provided HTTP client with proxy settings from the configuration.

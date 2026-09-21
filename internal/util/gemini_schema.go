@@ -17,25 +17,46 @@ var gjsonPathKeyReplacer = strings.NewReplacer(".", "\\.", "*", "\\*", "?", "\\?
 
 const placeholderReasonDescription = "Brief explanation of why you are calling this tool"
 
+// jsonSchemaCleanOptions controls which schema features cleanJSONSchema keeps
+// or rewrites. Semantic port of upstream CLIProxyAPI jsonSchemaCleanOptions
+// (internal/util/gemini_schema.go), reduced to the flags local callers need.
+type jsonSchemaCleanOptions struct {
+	// addPlaceholder adds a placeholder property to empty object schemas
+	// (Claude VALIDATED mode requirement) and keeps nullable/placeholder fields.
+	addPlaceholder bool
+	// preserveAllAdditionalProperties keeps additionalProperties (boolean and
+	// schema-valued) instead of deleting it or degrading it to a hint
+	// (upstream b532db9c).
+	preserveAllAdditionalProperties bool
+	// preserveStandardConstraints keeps standard JSON Schema constraint
+	// keywords (pattern, minLength, maxLength, ...) instead of moving them to
+	// description hints and stripping them (upstream b532db9c).
+	preserveStandardConstraints bool
+}
+
 // CleanJSONSchemaForAntigravity transforms a JSON schema to be compatible with Antigravity API.
 // It handles unsupported keywords, type flattening, and schema simplification while preserving
 // semantic information as description hints.
 func CleanJSONSchemaForAntigravity(jsonStr string) string {
-	return cleanJSONSchema(jsonStr, true)
+	return cleanJSONSchema(jsonStr, jsonSchemaCleanOptions{addPlaceholder: true})
 }
 
 // CleanJSONSchemaForAntigravityResponse transforms a response schema without applying
 // tool-only compatibility rewrites that would alter the client's structured output contract.
 func CleanJSONSchemaForAntigravityResponse(jsonStr string) string {
+	// Phase 0: normalize malformed schemas (bare property maps, boolean required,
+	// boolean true subschemas). Upstream runs this phase for response schemas
+	// too (c93978c4); addMissingArrayItems stays tool-only.
+	jsonStr = normalizeMalformedSchemaObjects(jsonStr, false)
 	jsonStr = convertRefsToHints(jsonStr)
 	jsonStr = convertConstToEnum(jsonStr)
 	jsonStr = convertEnumValuesToStringsPreservingType(jsonStr)
 	jsonStr = addEnumHints(jsonStr)
 	jsonStr = addAdditionalPropertiesHints(jsonStr)
-	jsonStr = moveConstraintsToDescription(jsonStr)
+	jsonStr = moveConstraintsToDescription(jsonStr, jsonSchemaCleanOptions{})
 	jsonStr = mergeAllOf(jsonStr)
 	jsonStr = flattenTypeArrays(jsonStr)
-	jsonStr = removeUnsupportedKeywords(jsonStr)
+	jsonStr = removeUnsupportedKeywords(jsonStr, jsonSchemaCleanOptions{})
 	jsonStr = cleanupRequiredFields(jsonStr)
 	return jsonStr
 }
@@ -43,11 +64,23 @@ func CleanJSONSchemaForAntigravityResponse(jsonStr string) string {
 // CleanJSONSchemaForGemini transforms a JSON schema to be compatible with Gemini tool calling.
 // It removes unsupported keywords and simplifies schemas, without adding empty-schema placeholders.
 func CleanJSONSchemaForGemini(jsonStr string) string {
-	return cleanJSONSchema(jsonStr, false)
+	return cleanJSONSchema(jsonStr, jsonSchemaCleanOptions{})
+}
+
+// CleanJSONSchemaForGeminiJSONSchema transforms a JSON schema for Gemini tool calling
+// when using the parametersJsonSchema carrier. It preserves standard JSON Schema constraints
+// (such as pattern, minLength, maxLength) and additionalProperties (both boolean and
+// schema-valued), while removing Gemini-incompatible metadata fields and cleaning required
+// properties. Ported from upstream CLIProxyAPI commit b532db9c (issue #5959).
+func CleanJSONSchemaForGeminiJSONSchema(jsonStr string) string {
+	return cleanJSONSchema(jsonStr, jsonSchemaCleanOptions{
+		preserveAllAdditionalProperties: true,
+		preserveStandardConstraints:     true,
+	})
 }
 
 // cleanJSONSchema performs the core cleaning operations on the JSON schema.
-func cleanJSONSchema(jsonStr string, addPlaceholder bool) string {
+func cleanJSONSchema(jsonStr string, options jsonSchemaCleanOptions) string {
 	// Phase 0: Normalize malformed schemas (e.g. bare property maps and boolean required from MCP tools)
 	jsonStr = normalizeMalformedSchemaObjects(jsonStr, true)
 
@@ -56,8 +89,10 @@ func cleanJSONSchema(jsonStr string, addPlaceholder bool) string {
 	jsonStr = convertConstToEnum(jsonStr)
 	jsonStr = convertEnumValuesToStrings(jsonStr)
 	jsonStr = addEnumHints(jsonStr)
-	jsonStr = addAdditionalPropertiesHints(jsonStr)
-	jsonStr = moveConstraintsToDescription(jsonStr)
+	if !options.preserveAllAdditionalProperties {
+		jsonStr = addAdditionalPropertiesHints(jsonStr)
+	}
+	jsonStr = moveConstraintsToDescription(jsonStr, options)
 
 	// Phase 2: Flatten complex structures
 	jsonStr = mergeAllOf(jsonStr)
@@ -65,17 +100,17 @@ func cleanJSONSchema(jsonStr string, addPlaceholder bool) string {
 	jsonStr = flattenTypeArrays(jsonStr)
 
 	// Phase 3: Cleanup
-	jsonStr = removeUnsupportedKeywords(jsonStr)
+	jsonStr = removeUnsupportedKeywords(jsonStr, options)
 	// Remove schema metadata title values while preserving properties named "title".
 	jsonStr = removeKeywords(jsonStr, []string{"title"})
-	if !addPlaceholder {
+	if !options.addPlaceholder {
 		// Gemini schema cleanup: remove nullable and placeholder-only fields.
 		jsonStr = removeKeywords(jsonStr, []string{"nullable"})
 		jsonStr = removePlaceholderFields(jsonStr)
 	}
 	jsonStr = cleanupRequiredFields(jsonStr)
 	// Phase 4: Add placeholder for empty object schemas (Claude VALIDATED mode requirement)
-	if addPlaceholder {
+	if options.addPlaceholder {
 		jsonStr = addEmptySchemaPlaceholder(jsonStr)
 	}
 
@@ -185,6 +220,12 @@ func normalizeMalformedSchemaObjects(jsonStr string, addMissingArrayItems bool) 
 		return jsonStr
 	}
 
+	// Boolean true subschema normalizes to the empty object schema {}
+	// (upstream c93978c4, issue #3551).
+	if rootBool, ok := root.(bool); ok && rootBool {
+		return "{}"
+	}
+
 	rootMap, ok := root.(map[string]any)
 	if !ok || isAPIRequestDocument(rootMap) {
 		return jsonStr
@@ -198,6 +239,12 @@ func normalizeMalformedSchemaObjects(jsonStr string, addMissingArrayItems bool) 
 				return jsonStr
 			}
 			out, err := marshalJSONNoHTMLEscape(map[string]any{"schema": repairedInner})
+			if err != nil {
+				return jsonStr
+			}
+			return string(out)
+		} else if innerBool, ok := rootMap["schema"].(bool); ok && innerBool {
+			out, err := marshalJSONNoHTMLEscape(map[string]any{"schema": map[string]any{}})
 			if err != nil {
 				return jsonStr
 			}
@@ -392,6 +439,9 @@ func repairSchemaNode(node map[string]any, addMissingArrayItems bool) (map[strin
 			clone["items"] = repairedList
 			modified = true
 		}
+	} else if itemsBool, ok := clone["items"].(bool); ok && itemsBool {
+		clone["items"] = map[string]any{}
+		modified = true
 	}
 
 	if addProps, ok := clone["additionalProperties"].(map[string]any); ok {
@@ -417,6 +467,9 @@ func repairSchemaNode(node map[string]any, addMissingArrayItems bool) (map[strin
 				clone[key] = repairedSub
 				modified = true
 			}
+		} else if subBool, ok := clone[key].(bool); ok && subBool {
+			clone[key] = map[string]any{}
+			modified = true
 		}
 	}
 
@@ -430,7 +483,7 @@ func repairSchemaNode(node map[string]any, addMissingArrayItems bool) (map[strin
 		}
 	}
 
-	for _, key := range []string{"$defs", "definitions", "dependentSchemas"} {
+	for _, key := range []string{"$defs", "definitions", "dependentSchemas", "dependencies"} {
 		if defsVal, ok := clone[key].(map[string]any); ok {
 			repairedDefs := make(map[string]any, len(defsVal))
 			defsModified := false
@@ -442,6 +495,10 @@ func repairSchemaNode(node map[string]any, addMissingArrayItems bool) (map[strin
 						defsModified = true
 						modified = true
 					}
+				} else if defBool, ok := dv.(bool); ok && defBool {
+					repairedDefs[dk] = map[string]any{}
+					defsModified = true
+					modified = true
 				} else {
 					repairedDefs[dk] = dv
 				}
@@ -465,6 +522,9 @@ func repairSchemaList(list []any, addMissingArrayItems bool) ([]any, bool) {
 			if itemMod {
 				listModified = true
 			}
+		} else if itemBool, ok := item.(bool); ok && itemBool {
+			repairedList = append(repairedList, map[string]any{})
+			listModified = true
 		} else {
 			repairedList = append(repairedList, item)
 		}
@@ -478,6 +538,12 @@ func repairPropertyMap(props map[string]any, addMissingArrayItems bool) (map[str
 	modified := false
 
 	for k, v := range props {
+		if b, ok := v.(bool); ok && b {
+			out[k] = map[string]any{}
+			modified = true
+			continue
+		}
+
 		childMap, isMap := v.(map[string]any)
 		if !isMap {
 			out[k] = v
@@ -665,9 +731,23 @@ var unsupportedConstraints = []string{
 	"default", "examples", // Claude rejects these in VALIDATED mode
 }
 
-func moveConstraintsToDescription(jsonStr string) string {
-	pathsByField := findPathsByFields(jsonStr, unsupportedConstraints)
-	for _, key := range unsupportedConstraints {
+// constraintKeywords returns the constraint keywords subject to description
+// hints and stripping. When preserveStandardConstraints is set the standard
+// JSON Schema constraints are kept untouched (upstream b532db9c).
+func constraintKeywords(options jsonSchemaCleanOptions) []string {
+	if options.preserveStandardConstraints {
+		return nil
+	}
+	return append([]string(nil), unsupportedConstraints...)
+}
+
+func moveConstraintsToDescription(jsonStr string, options jsonSchemaCleanOptions) string {
+	constraints := constraintKeywords(options)
+	if len(constraints) == 0 {
+		return jsonStr
+	}
+	pathsByField := findPathsByFields(jsonStr, constraints)
+	for _, key := range constraints {
 		for _, p := range pathsByField[key] {
 			val := gjson.Get(jsonStr, p)
 			if !val.Exists() {
@@ -905,13 +985,14 @@ func flattenTypeArrays(jsonStr string) string {
 	return jsonStr
 }
 
-func removeUnsupportedKeywords(jsonStr string) string {
-	keywords := append(unsupportedConstraints,
+func removeUnsupportedKeywords(jsonStr string, options jsonSchemaCleanOptions) string {
+	keywords := append(constraintKeywords(options),
 		"$schema", "$defs", "definitions", "const", "$ref", "$id", "id", "additionalProperties",
 		"$anchor", "$vocabulary", "$dynamicRef", "$dynamicAnchor",
 		"$comment",
 		"propertyNames", "patternProperties", // Gemini doesn't support these schema keywords
 		"enumTitles", "prefill", "deprecated", "encrypted", // Schema metadata fields unsupported by Gemini
+		"additionalItems", "unevaluatedProperties", "unevaluatedItems", "contentSchema", // upstream c93978c4
 	)
 
 	deletePaths := make([]string, 0)
@@ -919,6 +1000,9 @@ func removeUnsupportedKeywords(jsonStr string) string {
 	for _, key := range keywords {
 		for _, p := range pathsByField[key] {
 			if isPropertyDefinition(trimSuffix(p, "."+key)) {
+				continue
+			}
+			if key == "additionalProperties" && options.preserveAllAdditionalProperties {
 				continue
 			}
 			deletePaths = append(deletePaths, p)

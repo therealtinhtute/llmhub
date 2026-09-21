@@ -182,3 +182,110 @@ func TestTranslateRequestEnvelopePairWithCodexMultiAgentV2UsesModelInfo(t *testi
 		t.Fatalf("expected non-web_search when capability disabled, got: %s", workDisabled)
 	}
 }
+
+// pairRequestPluginHooks is a test PluginHooks implementation that counts
+// request normalizations and marks each body it touches.
+// Adapted from upstream CLIProxyAPI commit cc545cbf test scaffolding.
+type pairRequestPluginHooks struct {
+	calls       int64
+	onNormalize func(body []byte)
+}
+
+func (h *pairRequestPluginHooks) NormalizeRequest(_ context.Context, _, _ sdktranslator.Format, _ string, body []byte, _ bool) []byte {
+	h.calls++
+	if h.onNormalize != nil {
+		h.onNormalize(body)
+	}
+	updated, _ := sjson.SetBytes(body, "plugin_call", h.calls)
+	return updated
+}
+
+func (*pairRequestPluginHooks) TranslateRequest(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, bool) ([]byte, bool) {
+	return nil, false
+}
+
+func (*pairRequestPluginHooks) NormalizeResponseBefore(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, []byte, []byte, bool) []byte {
+	return nil
+}
+
+func (*pairRequestPluginHooks) TranslateResponse(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, []byte, []byte, bool) ([]byte, bool) {
+	return nil, false
+}
+
+func (*pairRequestPluginHooks) NormalizeResponseAfter(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, []byte, []byte, bool) []byte {
+	return nil
+}
+
+// TestTranslateRequestWithCodexMultiAgentV2_InvokesPluginNormalizers verifies
+// that request normalizer hooks run on the translated payload after summary
+// configuration is applied. Locally the codex multi-agent translation routes
+// through sdktranslator.TranslateRequestEnvelope, so the assertion lands on
+// the registry-level normalization (upstream cc545cbf targeted the compat
+// branch that bypasses the registry; that branch does not exist locally).
+func TestTranslateRequestWithCodexMultiAgentV2_InvokesPluginNormalizers(t *testing.T) {
+	var includeThoughtsInHook bool
+	var sawIncludeThoughts bool
+	hooks := &pairRequestPluginHooks{
+		onNormalize: func(body []byte) {
+			v := gjson.GetBytes(body, "generationConfig.thinkingConfig.includeThoughts")
+			sawIncludeThoughts = v.Exists()
+			includeThoughtsInHook = v.Bool()
+		},
+	}
+	sdktranslator.SetPluginHooks(hooks)
+	t.Cleanup(func() { sdktranslator.SetPluginHooks(nil) })
+
+	cfg := &config.Config{}
+	payload := []byte(`{"model":"gemini-3-flash","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}`)
+
+	out := TranslateRequestWithCodexMultiAgentV2(
+		context.Background(),
+		http.Header{},
+		cfg,
+		sdktranslator.FormatOpenAI,
+		sdktranslator.FormatGemini,
+		"gemini-3-flash",
+		payload,
+		false,
+	)
+
+	if hooks.calls != 1 {
+		t.Fatalf("plugin hook calls = %d, want 1", hooks.calls)
+	}
+	if got := gjson.GetBytes(out, "plugin_call").Int(); got != 1 {
+		t.Fatalf("plugin_call = %d, want 1; output was %s", got, out)
+	}
+	// Assert summary config was applied to the body before invoking the normalizer hook
+	if !sawIncludeThoughts || !includeThoughtsInHook {
+		t.Fatalf("expected generationConfig.thinkingConfig.includeThoughts = true in body delivered to normalizer, got exists=%v value=%v", sawIncludeThoughts, includeThoughtsInHook)
+	}
+}
+
+// TestTranslateRequestPairWithCodexMultiAgentV2_PluginHooksDisableReuse verifies
+// that the identical-payload fast path is bypassed while plugin hooks are
+// installed: normalizers may have side effects, so both payloads must run the
+// full pipeline (upstream cc545cbf companion semantics).
+func TestTranslateRequestPairWithCodexMultiAgentV2_PluginHooksDisableReuse(t *testing.T) {
+	hooks := &pairRequestPluginHooks{}
+	sdktranslator.SetPluginHooks(hooks)
+	t.Cleanup(func() { sdktranslator.SetPluginHooks(nil) })
+
+	from := sdktranslator.FormatGemini
+	to := sdktranslator.FromString("antigravity")
+	cfg := &config.Config{}
+	const model = "gemini-3.6-flash-high"
+
+	payload := geminiToolHistoryPayload(1)
+	base, work := TranslateRequestPairWithCodexMultiAgentV2(
+		context.Background(), http.Header{}, cfg, from, to, model, payload, payload, true)
+
+	if hooks.calls != 2 {
+		t.Fatalf("plugin hook calls = %d, want 2 (reuse path must be disabled)", hooks.calls)
+	}
+	if got := gjson.GetBytes(base, "plugin_call").Int(); got != 1 {
+		t.Fatalf("baseline plugin_call = %d, want 1; output was %s", got, base)
+	}
+	if got := gjson.GetBytes(work, "plugin_call").Int(); got != 2 {
+		t.Fatalf("working plugin_call = %d, want 2; output was %s", got, work)
+	}
+}

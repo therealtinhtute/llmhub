@@ -15,6 +15,7 @@ type Registry struct {
 	mu        sync.RWMutex
 	requests  map[Format]map[Format]RequestEnvelopeTransform
 	responses map[Format]map[Format]ResponseTransform
+	hooks     PluginHooks
 }
 
 // NewRegistry constructs an empty translator registry.
@@ -59,6 +60,20 @@ func (r *Registry) RegisterRequestEnvelope(from, to Format, request RequestEnvel
 	}
 }
 
+// SetPluginHooks stores translator plugin hooks for this registry.
+func (r *Registry) SetPluginHooks(hooks PluginHooks) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hooks = hooks
+}
+
+// HasPluginHooks reports whether request or response translation hooks are installed.
+func (r *Registry) HasPluginHooks() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.hooks != nil
+}
+
 // TranslateRequest converts a payload between schemas, returning the original payload
 // if no translator is registered. When falling back to the original payload, the
 // "model" field is still updated to match the resolved model name so that
@@ -84,12 +99,18 @@ func (r *Registry) TranslateRequestEnvelope(ctx context.Context, from, to Format
 	if byTarget, ok := r.requests[from]; ok {
 		fn = byTarget[to]
 	}
+	hooks := r.hooks
 	r.mu.RUnlock()
 
 	if fn != nil {
 		summaryConfig := thinking.ExtractSummaryConfig(req.Body, from.String())
 		req = fn(ctx, req)
 		req.Body = thinking.ApplySummaryConfigForModel(req.Body, to.String(), req.Model, summaryConfig)
+		if hooks != nil {
+			// Request normalizers run after native translation and own the final
+			// provider payload, including any summary field they remove.
+			req.Body = hooks.NormalizeRequest(ctx, from, to, req.Model, req.Body, req.Stream)
+		}
 		req.Format = to
 		return req
 	}
@@ -100,6 +121,21 @@ func (r *Registry) TranslateRequestEnvelope(ctx context.Context, from, to Format
 		} else {
 			req.Body = updated
 		}
+	}
+	if hooks == nil {
+		// No translation occurred. Preserve the documented fallback shape instead
+		// of mixing target-protocol summary fields into the source payload.
+		req.Format = to
+		return req
+	}
+
+	// Plugin request normalizers canonicalize the source before a plugin request
+	// translator gets a chance to handle a missing native route. Extract summary
+	// intent from that normalized source so a normalizer can remove or rewrite it.
+	req.Body = hooks.NormalizeRequest(ctx, from, to, req.Model, req.Body, req.Stream)
+	summaryConfig := thinking.ExtractSummaryConfig(req.Body, from.String())
+	if translated, ok := hooks.TranslateRequest(ctx, from, to, req.Model, req.Body, req.Stream); ok {
+		req.Body = thinking.ApplySummaryConfigForModel(translated, to.String(), req.Model, summaryConfig)
 	}
 	req.Format = to
 	return req
@@ -157,6 +193,23 @@ func (r *Registry) TranslateTokenCount(ctx context.Context, from, to Format, cou
 	return rawJSON
 }
 
+// NormalizeRequest executes registered plugin request normalizer hooks, returning
+// the payload unmodified if no hooks are registered.
+// Ported from upstream CLIProxyAPI commit cc545cbf.
+func (r *Registry) NormalizeRequest(ctx context.Context, from, to Format, model string, body []byte, stream bool) []byte {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.mu.RLock()
+	hooks := r.hooks
+	r.mu.RUnlock()
+
+	if hooks != nil {
+		return hooks.NormalizeRequest(ctx, from, to, model, body, stream)
+	}
+	return body
+}
+
 var defaultRegistry = NewRegistry()
 
 // Default exposes the package-level registry for shared use.
@@ -182,6 +235,22 @@ func TranslateRequest(from, to Format, model string, rawJSON []byte, stream bool
 // TranslateRequestEnvelope translates a complete request envelope using the default registry.
 func TranslateRequestEnvelope(ctx context.Context, from, to Format, req RequestEnvelope) RequestEnvelope {
 	return defaultRegistry.TranslateRequestEnvelope(ctx, from, to, req)
+}
+
+// SetPluginHooks stores plugin hooks on the default registry.
+func SetPluginHooks(hooks PluginHooks) {
+	defaultRegistry.SetPluginHooks(hooks)
+}
+
+// HasPluginHooks reports whether hooks are installed on the default registry.
+func HasPluginHooks() bool {
+	return defaultRegistry.HasPluginHooks()
+}
+
+// NormalizeRequest executes registered plugin request normalizer hooks on the default registry.
+// Ported from upstream CLIProxyAPI commit cc545cbf.
+func NormalizeRequest(ctx context.Context, from, to Format, model string, body []byte, stream bool) []byte {
+	return defaultRegistry.NormalizeRequest(ctx, from, to, model, body, stream)
 }
 
 // HasResponseTransformer inspects the default registry.

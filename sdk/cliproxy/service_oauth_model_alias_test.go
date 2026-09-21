@@ -95,8 +95,9 @@ func TestApplyOAuthModelAlias_ForkAddsMultipleAliases(t *testing.T) {
 // Ported from upstream CLIProxyAPI commit 4311ae874774
 // (sdk/cliproxy/service_oauth_model_alias_test.go): prefixed catalog clones must
 // inherit a deep copy of NativeCapabilities so mutating the clone cannot corrupt
-// the source model's capability metadata. The fork has no MetadataModelID field,
-// so only the capability assertions of the upstream test are carried over.
+// the source model's capability metadata. MetadataModelID assertions were
+// deferred until commit 8f23ad029144 added the field; they are covered by
+// TestApplyModelPrefixes_PreservesMetadataModelID below.
 func TestApplyModelPrefixes_ClonesNativeCapabilities(t *testing.T) {
 	webSearch := true
 	models := []*ModelInfo{
@@ -152,5 +153,82 @@ func TestApplyOAuthModelAlias_Meta(t *testing.T) {
 	}
 	if out[0].DisplayName != "Muse Latest" {
 		t.Fatalf("expected display name %q, got %q", "Muse Latest", out[0].DisplayName)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 8f23ad029144
+// (sdk/cliproxy/service_oauth_model_alias_test.go): OAuth aliases must carry the
+// canonical model ID so Codex client template metadata resolves correctly. The
+// upstream TestApplyOAuthModelAlias_PerAuthAlias hunk is not ported because the
+// fork has no applyOAuthModelAliasForAuth (per-auth alias) helper.
+func TestApplyOAuthModelAlias_PreservesMetadataModelID(t *testing.T) {
+	cfg := &config.Config{
+		OAuthModelAlias: map[string][]config.OAuthModelAlias{
+			"codex": {
+				{Name: "gpt-6-astra", Alias: "codex-main", Fork: true},
+				{Name: "gpt-5.6-luna", Alias: "codex-luna", Fork: false},
+			},
+		},
+	}
+	models := []*ModelInfo{
+		{ID: "gpt-6-astra", Name: "models/gpt-6-astra"},
+		{ID: "gpt-5.6-luna", Name: "models/gpt-5.6-luna"},
+	}
+
+	out := applyOAuthModelAlias(cfg, "codex", "oauth", models)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 models (original astra + forked astra alias + renamed luna alias), got %d", len(out))
+	}
+
+	entryMap := make(map[string]*ModelInfo, len(out))
+	for _, m := range out {
+		entryMap[m.ID] = m
+	}
+
+	if astra := entryMap["gpt-6-astra"]; astra == nil {
+		t.Fatal("missing original gpt-6-astra")
+	}
+	if codexMain := entryMap["codex-main"]; codexMain == nil {
+		t.Fatal("missing alias codex-main")
+	} else if codexMain.MetadataModelID != "gpt-6-astra" {
+		t.Fatalf("codex-main MetadataModelID = %q, want gpt-6-astra", codexMain.MetadataModelID)
+	}
+
+	if codexLuna := entryMap["codex-luna"]; codexLuna == nil {
+		t.Fatal("missing alias codex-luna")
+	} else if codexLuna.MetadataModelID != "gpt-5.6-luna" {
+		t.Fatalf("codex-luna MetadataModelID = %q, want gpt-5.6-luna", codexLuna.MetadataModelID)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 8f23ad029144
+// (sdk/cliproxy/service_oauth_model_alias_test.go): prefixed catalog clones must
+// propagate the canonical metadata model ID.
+func TestApplyModelPrefixes_PreservesMetadataModelID(t *testing.T) {
+	models := []*ModelInfo{
+		{ID: "gpt-6-astra"},
+		{ID: "codex-main", MetadataModelID: "gpt-6-astra"},
+	}
+
+	out := applyModelPrefixes(models, "1", false)
+	if len(out) != 4 {
+		t.Fatalf("expected 4 models (2 unprefixed + 2 prefixed), got %d", len(out))
+	}
+
+	entryMap := make(map[string]*ModelInfo, len(out))
+	for _, m := range out {
+		entryMap[m.ID] = m
+	}
+
+	if m := entryMap["1/gpt-6-astra"]; m == nil {
+		t.Fatal("missing 1/gpt-6-astra")
+	} else if m.MetadataModelID != "gpt-6-astra" {
+		t.Fatalf("1/gpt-6-astra MetadataModelID = %q, want gpt-6-astra", m.MetadataModelID)
+	}
+
+	if m := entryMap["1/codex-main"]; m == nil {
+		t.Fatal("missing 1/codex-main")
+	} else if m.MetadataModelID != "gpt-6-astra" {
+		t.Fatalf("1/codex-main MetadataModelID = %q, want gpt-6-astra", m.MetadataModelID)
 	}
 }

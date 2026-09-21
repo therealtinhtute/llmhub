@@ -819,6 +819,10 @@ func (m OpenAICompatibilityModel) GetAlias() string         { return m.Alias }
 func (m OpenAICompatibilityModel) GetDisplayName() string   { return m.DisplayName }
 func (m OpenAICompatibilityModel) GetMaxContextLength() int { return m.MaxContextLength }
 
+// GetThinking exposes the explicitly configured thinking support, if any.
+// Ported from upstream CLIProxyAPI commit 8f23ad029144 (config_types.go).
+func (m OpenAICompatibilityModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
+
 func (m OpenAICompatibilityModel) GetUseMaxCompletionTokens() bool { return m.UseMaxCompletionTokens }
 
 // LoadConfig reads a YAML configuration file from the given path,

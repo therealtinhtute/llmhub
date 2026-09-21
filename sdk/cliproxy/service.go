@@ -1819,6 +1819,13 @@ func applyModelPrefixes(models []*ModelInfo, prefix string, forceModelPrefix boo
 		}
 		clone := cloneModelInfoForCatalogRoute(model)
 		clone.ID = trimmedPrefix + "/" + baseID
+		// Ported from upstream CLIProxyAPI commit 8f23ad029144: prefixed catalog
+		// entries resolve client metadata through the canonical model ID.
+		if clone.MetadataModelID == "" {
+			clone.MetadataModelID = baseID
+		}
+		clone.ExplicitThinking = model.ExplicitThinking
+		clone.ExplicitInputModalities = model.ExplicitInputModalities
 		addModel(&clone)
 	}
 	return out
@@ -1885,6 +1892,13 @@ type modelCompatEntry interface {
 	GetIsCompat() bool
 }
 
+// modelThinkingEntry exposes explicit thinking/reasoning configuration on model
+// entries that support it. Ported from upstream CLIProxyAPI commit 8f23ad029144
+// (service_models.go modelEntry.GetThinking usage).
+type modelThinkingEntry interface {
+	GetThinking() *registry.ThinkingSupport
+}
+
 func buildConfiguredModelInfo(model modelEntry, ownedBy, modelType string, created int64, fallbackDisplayName string, userDefined bool) *ModelInfo {
 	name := strings.TrimSpace(model.GetName())
 	alias := strings.TrimSpace(model.GetAlias())
@@ -1901,14 +1915,21 @@ func buildConfiguredModelInfo(model modelEntry, ownedBy, modelType string, creat
 	if displayName == "" {
 		displayName = alias
 	}
+	// Ported from upstream CLIProxyAPI commit 8f23ad029144: configured aliases
+	// resolve client metadata through their upstream model name.
+	metadataModelID := name
+	if metadataModelID == "" {
+		metadataModelID = alias
+	}
 	info := &ModelInfo{
-		ID:          alias,
-		Object:      "model",
-		Created:     created,
-		OwnedBy:     ownedBy,
-		Type:        modelType,
-		DisplayName: displayName,
-		UserDefined: userDefined,
+		ID:              alias,
+		MetadataModelID: metadataModelID,
+		Object:          "model",
+		Created:         created,
+		OwnedBy:         ownedBy,
+		Type:            modelType,
+		DisplayName:     displayName,
+		UserDefined:     userDefined,
 	}
 	if maxContextModel, okMaxContext := any(model).(modelMaxContextLengthEntry); okMaxContext {
 		if maxContextLength := maxContextModel.GetMaxContextLength(); maxContextLength > 0 {
@@ -1943,10 +1964,44 @@ func buildOpenAICompatibilityConfigModels(compat *config.OpenAICompatibility) []
 		if thinking == nil && !model.Image {
 			thinking = &registry.ThinkingSupport{Levels: []string{"low", "medium", "high"}}
 		}
+		// Ported from upstream CLIProxyAPI commit 8f23ad029144: explicit config
+		// flags gate provider-capability constraints in Codex client metadata.
+		if model.Thinking != nil {
+			info.ExplicitThinking = true
+		}
+		if len(model.InputModalities) > 0 {
+			info.ExplicitInputModalities = true
+		}
 		info.Thinking = thinking
+		info.SupportedInputModalities = normalizeCompatConfigModalities(model.InputModalities)
 		models = append(models, info)
 	}
 	return models
+}
+
+// normalizeCompatConfigModalities lowercases, trims, and deduplicates configured
+// modality names. Ported from upstream CLIProxyAPI (sdk/cliproxy/service_models.go).
+func normalizeCompatConfigModalities(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, item := range raw {
+		modality := strings.ToLower(strings.TrimSpace(item))
+		if modality == "" {
+			continue
+		}
+		if _, exists := seen[modality]; exists {
+			continue
+		}
+		seen[modality] = struct{}{}
+		out = append(out, modality)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func buildConfigModels[T modelEntry](models []T, ownedBy, modelType, metadataChannel string) []*ModelInfo {
@@ -1974,6 +2029,15 @@ func buildConfigModels[T modelEntry](models []T, ownedBy, modelType, metadataCha
 			}
 			if staticInfo := registry.LookupStaticModelInfoByChannel(name, metadataChannel); staticInfo != nil && staticInfo.NativeCapabilities != nil {
 				info.NativeCapabilities = cloneModelInfoForCatalogRoute(staticInfo).NativeCapabilities
+			}
+		}
+		// Ported from upstream CLIProxyAPI commit 8f23ad029144: an explicit
+		// thinking configuration on the model entry marks the capability as
+		// user-defined and takes precedence over static registry metadata.
+		if thinkingModel, okThinking := any(model).(modelThinkingEntry); okThinking {
+			if configured := thinkingModel.GetThinking(); configured != nil {
+				info.ExplicitThinking = true
+				info.Thinking = configured
 			}
 		}
 		out = append(out, info)
@@ -2165,6 +2229,16 @@ func applyOAuthModelAlias(cfg *config.Config, provider, authKind string, models 
 			seen[aliasKey] = struct{}{}
 			clone := cloneModelInfoForCatalogRoute(model)
 			clone.ID = mappedID
+			// Ported from upstream CLIProxyAPI commit 8f23ad029144: aliased
+			// models keep (or gain) the canonical model ID used to resolve
+			// client-facing template metadata.
+			if model.MetadataModelID != "" {
+				clone.MetadataModelID = model.MetadataModelID
+			} else {
+				clone.MetadataModelID = id
+			}
+			clone.ExplicitThinking = model.ExplicitThinking
+			clone.ExplicitInputModalities = model.ExplicitInputModalities
 			if entry.displayName != "" {
 				clone.DisplayName = entry.displayName
 			}

@@ -36,6 +36,16 @@ func TestComputeOpenAICompatModelsHash_IncludesImageFlag(t *testing.T) {
 	}
 }
 
+// Ported from upstream CLIProxyAPI internal/watcher/diff/model_hash_test.go
+// (690f4f3116b6); local hash inputs are name|alias|image|use-max-completion-tokens.
+func TestComputeOpenAICompatModelsHashIncludesUseMaxCompletionTokens(t *testing.T) {
+	withoutMCT := ComputeOpenAICompatModelsHash([]config.OpenAICompatibilityModel{{Name: "m"}})
+	withMCT := ComputeOpenAICompatModelsHash([]config.OpenAICompatibilityModel{{Name: "m", UseMaxCompletionTokens: true}})
+	if withoutMCT == "" || withoutMCT == withMCT {
+		t.Fatalf("use-max-completion-tokens must change model hash: %q / %q", withoutMCT, withMCT)
+	}
+}
+
 func TestComputeOpenAICompatModelsHash_NormalizesAndDedups(t *testing.T) {
 	a := []config.OpenAICompatibilityModel{
 		{Name: "gpt-4", Alias: "gpt4"},

@@ -74,11 +74,15 @@ type DevinToolCall struct {
 }
 
 // DevinToolCallDelta represents a streaming tool call chunk from response Field 6.
+// Upstream 9e10db53 dropped the slot Index in favor of call-ID aggregation and
+// added the custom-tool-call fields (invalid_json_str/invalid_json_err/is_custom_tool_call).
 type DevinToolCallDelta struct {
-	ID        string
-	Name      string
-	Arguments string
-	Index     int
+	ID               string
+	Name             string
+	Arguments        string
+	InvalidJSONStr   string
+	InvalidJSONErr   string
+	IsCustomToolCall bool
 }
 
 // DevinImage represents an image attachment in a DevinPrompt (Prompt #10).
@@ -89,15 +93,17 @@ type DevinImage struct {
 
 // DevinPrompt represents a single turn in the request history (repeated Field 3).
 type DevinPrompt struct {
-	MessageID     string
-	Source        int // 1=user, 2=assistant, 4=tool
-	Content       string
-	Images        []DevinImage
-	ToolCalls     []DevinToolCall
-	ToolCallID    string // For source=4 (tool result)
-	Thinking      string
-	Signature     []byte
-	SignatureType string
+	MessageID          string
+	Source             int // 1=user, 2=assistant, 4=tool
+	Content            string
+	Images             []DevinImage
+	ToolCalls          []DevinToolCall
+	ToolCallID         string // For source=4 (tool result)
+	OriginalToolCallID string // Retained when downgraded from source=4 to source=1 (upstream b6fe4f20)
+	IsOrphanedTool     bool   // Explicit flag marking downgraded tool results (upstream b6fe4f20)
+	Thinking           string
+	Signature          []byte
+	SignatureType      string
 }
 
 // DevinUsage captures token accounting from response Field 7.
@@ -105,6 +111,7 @@ type DevinUsage struct {
 	PromptTokens     int64             `json:"prompt_tokens"`
 	CompletionTokens int64             `json:"completion_tokens"`
 	CachedTokens     int64             `json:"cached_tokens"`
+	CacheWriteTokens int64             `json:"cache_write_tokens,omitempty"` // usage field 4 (upstream 9e10db53)
 	StatusCode       uint64            `json:"status_code,omitempty"`
 	RequestID        string            `json:"request_id,omitempty"`
 	ModelName        string            `json:"model_name,omitempty"`
@@ -316,7 +323,7 @@ func BuildDevinClientMetadataBytes(sessionToken, deviceSeed, osName string) []by
 
 	var f1Bytes []byte
 	f1Bytes = protowire.AppendTag(f1Bytes, 1, protowire.BytesType)
-	f1Bytes = protowire.AppendString(f1Bytes, "devin-cli")
+	f1Bytes = protowire.AppendString(f1Bytes, DevinDefaultClientName)
 
 	f1Bytes = protowire.AppendTag(f1Bytes, 2, protowire.BytesType)
 	f1Bytes = protowire.AppendString(f1Bytes, DevinDefaultClientVersion)
@@ -336,8 +343,7 @@ func BuildDevinClientMetadataBytes(sessionToken, deviceSeed, osName string) []by
 	f1Bytes = protowire.AppendTag(f1Bytes, 12, protowire.BytesType)
 	f1Bytes = protowire.AppendString(f1Bytes, DevinDefaultClientName)
 
-	f1Bytes = protowire.AppendTag(f1Bytes, 28, protowire.BytesType)
-	f1Bytes = protowire.AppendString(f1Bytes, DevinDefaultClientName)
+	// Upstream 9e10db53 dropped deprecated tag 28 from client metadata.
 
 	f1Bytes = protowire.AppendTag(f1Bytes, 31, protowire.BytesType)
 	f1Bytes = protowire.AppendString(f1Bytes, deviceFingerprint)
@@ -737,8 +743,8 @@ func parseDevinToolCallDelta(data []byte) (DevinToolCallDelta, error) {
 				return tc, protowire.ParseError(vn)
 			}
 			pos += vn
-			if num == 4 {
-				tc.Index = int(v)
+			if num == 6 {
+				tc.IsCustomToolCall = (v != 0)
 			}
 		case protowire.BytesType:
 			val, bn := protowire.ConsumeBytes(data[pos:])
@@ -753,6 +759,10 @@ func parseDevinToolCallDelta(data []byte) (DevinToolCallDelta, error) {
 				tc.Name = string(val)
 			case 3:
 				tc.Arguments = string(val)
+			case 4:
+				tc.InvalidJSONStr = string(val)
+			case 5:
+				tc.InvalidJSONErr = string(val)
 			}
 		default:
 			nSkip := protowire.ConsumeFieldValue(num, typ, data[pos:])
@@ -848,8 +858,8 @@ func parseDevinUsageField(data []byte) *DevinUsage {
 				u.PromptTokens += int64(v)
 			case 3: // Output tokens
 				u.CompletionTokens = int64(v)
-			case 4: // Additional context/system prompt tokens in OpenAI-family models (total prompt = 2 + 4)
-				u.PromptTokens += int64(v)
+			case 4: // Cache write tokens (upstream 9e10db53; no longer folded into prompt tokens)
+				u.CacheWriteTokens += int64(v)
 			case 5: // Cache read tokens
 				u.CachedTokens = int64(v)
 			case 6: // Status code

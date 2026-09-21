@@ -1240,6 +1240,8 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 			"session-1",
 			nil,
 			nil,
+			nil,
+			nil,
 		)
 		if err != nil {
 			serverErrCh <- err
@@ -1323,6 +1325,8 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
 			errCh,
 			timelineLog,
 			"session-1",
+			nil,
+			nil,
 			nil,
 			nil,
 		)

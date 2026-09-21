@@ -24,6 +24,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/misc"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
+	openairesponses "github.com/therealtinhtute/llmhub/internal/translator/openai/openai/responses"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
@@ -399,6 +400,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
+	// Compat models keep reasoning content and IDs (upstream CLIProxyAPI commit 81d6ba774621).
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex websockets executor", body, isCompat)
 	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
 
 	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
@@ -585,6 +589,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		if declarationTable != nil {
 			payload = declarationTable.RestoreResponsesToolCalls(payload)
 		}
+		observeCodexTokenEvent(reporter, payload)
 		eventType := gjson.GetBytes(payload, "type").String()
 		if helps.HasMeaningfulCodexOutputDelta(payload) {
 			sawOutputDelta = true
@@ -629,51 +634,22 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	apiKey, baseURL := codexCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://chatgpt.com/backend-api/codex"
-	}
 
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
-	from := opts.SourceFormat
-	nativeRequest := helps.IsNativeCodexRequest(req.Payload, opts)
-	preserveNativeOutput := nativeRequest && from == sdktranslator.FormatOpenAIResponse
-	to := sdktranslator.FromString("codex")
-	originalPayload := req.Payload
-	if len(opts.OriginalRequest) > 0 {
-		originalPayload = opts.OriginalRequest
-	}
-	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
-	if declarationErr != nil {
-		return nil, codexToolDeclarationStatusErr(declarationErr)
-	}
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
-	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, true)
-
-	body, err = thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
+	prepared, err := e.prepareCodexWebsocketStream(ctx, auth, req, opts)
 	if err != nil {
 		return nil, err
 	}
-
-	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
-	requestPath := helps.PayloadRequestPath(opts)
-	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
-	body = normalizeCodexInstructions(body, nativeRequest)
-	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
-		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
-	}
-	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
-
-	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
-	wsURL, err := buildCodexResponsesWebsocketURL(httpURL)
-	if err != nil {
-		return nil, err
-	}
-
-	body, wsHeaders := applyCodexPromptCacheHeaders(from, req, body)
-	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, nativeRequest, opts.Headers)
+	from := prepared.from
+	preserveNativeOutput := prepared.preserveNativeOutput
+	to := prepared.to
+	originalPayload := prepared.originalPayload
+	declarationTable := prepared.declarationTable
+	body := prepared.upstreamBody
+	wsURL := prepared.wsURL
+	wsHeaders := prepared.wsHeaders
 
 	var authID, authLabel, authType, authValue string
 	authID = auth.ID
@@ -686,6 +662,13 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 		sess = e.getOrCreateSession(executionSessionID)
 		if sess != nil {
 			sess.reqMu.Lock()
+		}
+	}
+	streamSessionLocked := sess != nil
+	unlockStreamSession := func() {
+		if sess != nil && streamSessionLocked {
+			sess.reqMu.Unlock()
+			streamSessionLocked = false
 		}
 	}
 
@@ -802,6 +785,13 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			}
 			return nil, errSend
 		}
+	}
+
+	// Full-duplex mode owns the socket until the ordered event stream ends
+	// (upstream CLIProxyAPI commit 42c9680eee55). The input channel is attached
+	// by the downstream websocket handler only when codex-response-steering is on.
+	if input := cliproxyexecutor.WebsocketInputFromContext(ctx); input != nil && e.cfg != nil && e.cfg.CodexResponseSteering {
+		return e.streamCodexDuplex(ctx, auth, req, opts, readSess, conn, readCh, input, prepared, reporter, upstreamHeaders, unlockStreamSession), nil
 	}
 
 	buffering := e.cfg != nil && e.cfg.CodexStreamBootstrapBuffering
@@ -939,6 +929,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 				break
 			}
 
+			observeCodexTokenEvent(reporter, payload)
 			eventType := gjson.GetBytes(payload, "type").String()
 			isTerminalEvent := eventType == "response.completed" || eventType == "response.done" || eventType == "response.incomplete" || eventType == "response.failed" || eventType == "error"
 			if helps.HasMeaningfulCodexOutputDelta(payload) {
@@ -1133,6 +1124,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 				return
 			}
 
+			observeCodexTokenEvent(reporter, payload)
 			eventType := gjson.GetBytes(payload, "type").String()
 			isTerminalEvent := eventType == "response.completed" || eventType == "response.done" || eventType == "response.incomplete" || eventType == "response.failed" || eventType == "error"
 			if helps.HasMeaningfulCodexOutputDelta(payload) {
@@ -1188,6 +1180,92 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}()
 
 	return &cliproxyexecutor.StreamResult{Headers: upstreamHeaders, Chunks: out}, nil
+}
+
+// codexWebsocketPrepared is the immutable upstream submission shared by the
+// normal stream path and the duplex state machine. It deliberately stores
+// request fields separately so queue metadata cannot mutate submitted bytes.
+//
+// Ported from upstream CLIProxyAPI commit 42c9680eee55 (codex_websockets_stream.go).
+type codexWebsocketPrepared struct {
+	from                 sdktranslator.Format
+	to                   sdktranslator.Format
+	preserveNativeOutput bool
+	originalPayload      []byte
+	clientBody           []byte
+	upstreamBody         []byte
+	wsURL                string
+	wsHeaders            http.Header
+	declarationTable     *openairesponses.ResponsesToolDeclarationTable
+}
+
+// prepareCodexWebsocketStream translates and normalizes one request body for
+// the Codex Responses websocket endpoint without opening a socket.
+// A background continuation prepares the same body shape before submission.
+// The request payload may differ only in input content. The translated model
+// is always opts.RequestedModel → req.Model → upstream default.
+func (e *CodexWebsocketsExecutor) prepareCodexWebsocketStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*codexWebsocketPrepared, error) {
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+	apiKey, baseURL := codexCreds(auth)
+	if baseURL == "" {
+		baseURL = "https://chatgpt.com/backend-api/codex"
+	}
+
+	from := opts.SourceFormat
+	nativeRequest := helps.IsNativeCodexRequest(req.Payload, opts)
+	preserveNativeOutput := nativeRequest && from == sdktranslator.FormatOpenAIResponse
+	to := sdktranslator.FromString("codex")
+	originalPayload := req.Payload
+	if len(opts.OriginalRequest) > 0 {
+		originalPayload = opts.OriginalRequest
+	}
+	declarationTable, declarationErr := buildCodexResponsesDeclarationTable(from, originalPayload)
+	if declarationErr != nil {
+		return nil, codexToolDeclarationStatusErr(declarationErr)
+	}
+	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
+	clientBody := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, true)
+
+	var err error
+	clientBody, err = thinking.ApplyThinking(clientBody, req.Model, from.String(), to.String(), e.Identifier())
+	if err != nil {
+		return nil, err
+	}
+
+	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
+	requestPath := helps.PayloadRequestPath(opts)
+	body := helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", clientBody, originalTranslated, requestedModel, requestPath, opts.Headers)
+	body = normalizeCodexInstructions(body, nativeRequest)
+	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
+		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
+	}
+	// Compat models keep reasoning content and IDs; encrypted signatures are
+	// still sanitized unless the model runs the compat transport
+	// (upstream CLIProxyAPI commit 81d6ba774621).
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex websockets executor", body, isCompat)
+	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
+
+	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
+	wsURL, err := buildCodexResponsesWebsocketURL(httpURL)
+	if err != nil {
+		return nil, err
+	}
+
+	body, wsHeaders := applyCodexPromptCacheHeaders(from, req, body)
+	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, nativeRequest, opts.Headers)
+
+	return &codexWebsocketPrepared{
+		from:                 from,
+		to:                   to,
+		preserveNativeOutput: preserveNativeOutput,
+		originalPayload:      originalPayload,
+		clientBody:           clientBody,
+		upstreamBody:         body,
+		wsURL:                wsURL,
+		wsHeaders:            wsHeaders,
+		declarationTable:     declarationTable,
+	}, nil
 }
 
 func (e *CodexWebsocketsExecutor) dialCodexWebsocket(ctx context.Context, auth *cliproxyauth.Auth, wsURL string, headers http.Header) (*websocket.Conn, *http.Response, error) {

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +39,9 @@ const (
 	wsDoneMarker         = "[DONE]"
 	wsTurnStateHeader    = "x-codex-turn-state"
 	wsTimelineBodyKey    = "WEBSOCKET_TIMELINE_OVERRIDE"
+	// wsHTTPReplayRequiredCloseReason mirrors the upstream close reason sent when
+	// a duplex continuation must be replayed over HTTP (upstream 42c9680eee55).
+	wsHTTPReplayRequiredCloseReason = "upstream requires HTTP replay"
 )
 
 var responsesWebsocketUpgrader = websocket.Upgrader{
@@ -320,6 +324,17 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	// In duplex mode a single goroutine owns conn.ReadMessage and forwards frames
+	// through a bounded channel so the executor can keep consuming client input
+	// while an upstream response is still streaming (upstream CLIProxyAPI
+	// commit 42c9680eee55).
+	var duplexInput <-chan cliproxyexecutor.WebsocketInput
+	if h != nil && h.Cfg != nil && h.Cfg.CodexResponseSteering {
+		socketCtx, cancelSocket := context.WithCancel(c.Request.Context())
+		defer cancelSocket()
+		c.Request = c.Request.WithContext(socketCtx)
+		duplexInput = readResponsesWebsocketInput(socketCtx, cancelSocket, conn)
+	}
 	passthroughSessionID := uuid.NewString()
 	downstreamSessionKey := websocketDownstreamSessionKey(c.Request)
 	retainResponsesWebsocketToolCaches(downstreamSessionKey)
@@ -336,8 +351,15 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	// terminal error frame without racing the main goroutine's writes
 	// (upstream responsesWebsocketWriter.writeMu equivalent).
 	var wsWriteMu sync.Mutex
+	// wsForwardedErr records the last upstream failure already delivered as an
+	// error frame so the disconnect path below does not write it twice
+	// (upstream responsesWebsocketWriter.closing dedupe, commit 42c9680eee55).
+	var wsForwardedErr atomic.Value
 
-	if h != nil && h.AuthManager != nil {
+	// In duplex mode the executor owns the socket until its ordered event stream
+	// ends; an out-of-band disconnect close could discard an already received
+	// steering acknowledgement before it reaches the client (upstream 42c9680eee55).
+	if h != nil && h.AuthManager != nil && duplexInput == nil {
 		if exec, ok := h.AuthManager.Executor("codex"); ok && exec != nil {
 			type upstreamDisconnectSubscriber interface {
 				UpstreamDisconnectChan(sessionID string) <-chan error
@@ -353,22 +375,27 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 							if isRequestScopedResponsesWebsocketError(disconnectErr) {
 								return
 							}
-							// Ported from upstream CLIProxyAPI commit aedc9e6a3987:
-							// terminal upstream auth failures are exposed to the
-							// client as an error event instead of a silent close
+							// Upstream closeForUpstreamDisconnect: client-facing
+							// faults are exposed as an error event before the
+							// socket closes; anything else closes silently
 							// (upstream shouldExposeResponsesUpstreamError).
-							if coreauth.IsTerminalAuthError(disconnectErr) && wsWriteMu.TryLock() {
-								status := clienterror.HTTPStatusFromError(disconnectErr)
-								if status <= 0 {
-									status = http.StatusInternalServerError
-								}
-								_, _ = writeResponsesWebsocketError(conn, wsTimelineLog, &interfaces.ErrorMessage{
-									StatusCode: status,
-									Error:      disconnectErr,
-								})
-								wsWriteMu.Unlock()
+							status := clienterror.HTTPStatusFromError(disconnectErr)
+							if status <= 0 {
+								status = http.StatusInternalServerError
 							}
+							errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: disconnectErr}
+							unlockWebsocketWriter := lockWebsocketWriter(&wsWriteMu)
+							alreadyForwarded := false
+							if forwarded, ok := wsForwardedErr.Load().(*interfaces.ErrorMessage); ok && forwarded != nil && forwarded.Error != nil && disconnectErr != nil {
+								alreadyForwarded = forwarded.Error.Error() == disconnectErr.Error()
+							}
+							if !alreadyForwarded && shouldExposeResponsesUpstreamError(errMsg) {
+								_, _ = writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
+							}
+							// Hold the write lock across Close so no in-flight
+							// frame write can interleave with the teardown.
 							_ = conn.Close()
+							unlockWebsocketWriter()
 						}
 					}()
 				}
@@ -413,7 +440,22 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	forceTranscriptReplayNextRequest := false
 
 	for {
-		msgType, payload, errReadMessage := conn.ReadMessage()
+		var msgType int
+		var payload []byte
+		var errReadMessage error
+		if duplexInput == nil {
+			msgType, payload, errReadMessage = conn.ReadMessage()
+		} else {
+			select {
+			case message, ok := <-duplexInput:
+				if !ok {
+					return
+				}
+				msgType, payload, errReadMessage = websocket.TextMessage, message.Payload, message.Err
+			case <-c.Request.Context().Done():
+				return
+			}
+		}
 		if errReadMessage != nil {
 			wsTerminateErr = errReadMessage
 			if websocket.IsCloseError(errReadMessage, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
@@ -572,8 +614,18 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 
 		modelName := gjson.GetBytes(requestJSON, "model").String()
 		lastAttemptedAuthID := pinnedAuthID
+		var codexDuplexStream atomic.Bool
 		cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 		cliCtx = cliproxyexecutor.WithDownstreamWebsocket(cliCtx)
+		if duplexInput != nil {
+			cliCtx = cliproxyexecutor.WithWebsocketInput(cliCtx, duplexInput)
+			// Live account-state check: later frames must not be sent once the
+			// selected credential is disabled (upstream CLIProxyAPI commit 42c9680eee55).
+			cliCtx = cliproxyexecutor.WithWebsocketAuthCheck(cliCtx, func(authID string) bool {
+				current, ok := sessionAuthByID(authID)
+				return ok && current != nil && !current.Disabled && current.Status != coreauth.StatusDisabled
+			})
+		}
 		cliCtx = handlers.WithExecutionSessionID(cliCtx, passthroughSessionID)
 		executionAuthID := pinnedAuthID
 		if executionAuthID == "" {
@@ -583,6 +635,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, executionAuthID)
 		}
 		cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
+			codexDuplexStream.Store(false)
 			authID = strings.TrimSpace(authID)
 			if authID == "" || h == nil || h.AuthManager == nil {
 				return
@@ -594,11 +647,12 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			}
 			if websocketUpstreamSupportsIncrementalInput(selectedAuth.Attributes, selectedAuth.Metadata) {
 				pinnedAuthID = authID
+				codexDuplexStream.Store(duplexInput != nil && strings.EqualFold(strings.TrimSpace(selectedAuth.Provider), "codex"))
 			}
 		})
 		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
 
-		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID, toolCacheTransaction, &wsWriteMu)
+		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID, toolCacheTransaction, &wsWriteMu, codexDuplexStream.Load, &wsForwardedErr)
 		if errForward != nil {
 			wsTerminateErr = errForward
 			log.Warnf("responses websocket: forward failed id=%s error=%v", passthroughSessionID, errForward)
@@ -1358,6 +1412,8 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	sessionID string,
 	toolCacheTransaction *responsesWebsocketToolCacheTransaction,
 	writeMu *sync.Mutex,
+	duplexStream func() bool,
+	forwardedErr *atomic.Value,
 ) ([]byte, *interfaces.ErrorMessage, error) {
 	completed := false
 	completedOutput := []byte("[]")
@@ -1387,6 +1443,12 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 			markAPIResponseTimestamp(c)
 			unlockWebsocketWriter := lockWebsocketWriter(writeMu)
 			errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
+			if errWrite == nil && forwardedErr != nil {
+				// Stored while the write lock is held so a disconnect racing this
+				// frame cannot emit a duplicate terminal error
+				// (upstream responsesWebsocketWriter.closing, commit 42c9680eee55).
+				forwardedErr.Store(errMsg)
+			}
 			unlockWebsocketWriter()
 			log.Infof(
 				"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
@@ -1421,10 +1483,50 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				errs = nil
 				continue
 			}
+			if duplexStream != nil && duplexStream() {
+				// A duplex executor only reports errors at connection termination.
+				// A replay-required failure asks the client to continue over HTTP
+				// via a service-restart close frame (upstream
+				// websocketClosePayloadForUpstreamError, commit 42c9680eee55).
+				if errMsg != nil && cliproxyexecutor.IsUpstreamWebsocketReplayRequired(errMsg.Error) {
+					unlockWebsocketWriter := lockWebsocketWriter(writeMu)
+					_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseServiceRestart, wsHTTPReplayRequiredCloseReason), time.Time{})
+					unlockWebsocketWriter()
+					cancel(errMsg.Error)
+					return completedOutput, errMsg, websocket.ErrCloseSent
+				}
+				// Expose client-facing faults as an error frame, then end the
+				// socket either way (upstream writeResponsesWebsocketTerminalError,
+				// CLIProxyAPI commit 42c9680eee55).
+				if shouldExposeResponsesUpstreamError(errMsg) {
+					if errWrite := forwardError(errMsg); errWrite != nil {
+						return completedOutput, errMsg, errWrite
+					}
+				} else {
+					var cause error
+					if errMsg != nil {
+						cause = errMsg.Error
+					}
+					if wsTimelineLog != nil && cause != nil {
+						appendWebsocketTimelineDisconnect(wsTimelineLog, cause, time.Now())
+					}
+					cancel(cause)
+				}
+				return completedOutput, errMsg, websocket.ErrCloseSent
+			}
 			return completedOutput, errMsg, forwardError(errMsg)
 		case chunk, ok := <-data:
 			if !ok {
 				data = nil
+				if duplexStream != nil && duplexStream() {
+					// A duplex stream ends with its socket, not an individual
+					// response. The data channel may close before select observes
+					// its final error; report connection termination instead of
+					// "stream closed before response.completed"
+					// (upstream CLIProxyAPI commit 42c9680eee55).
+					cancel(nil)
+					return completedOutput, nil, websocket.ErrCloseSent
+				}
 				if !completed && errs != nil {
 					select {
 					case pendingErr, errOK := <-errs:
@@ -1453,6 +1555,12 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 
 			payloads := websocketJSONPayloadsFromChunk(chunk)
 			for i := range payloads {
+				if gjson.GetBytes(payloads[i], "type").String() == "response.created" {
+					// Each new response starts fresh per-response tracking; in
+					// duplex mode multiple responses share one stream
+					// (upstream CLIProxyAPI commit 42c9680eee55).
+					completed = false
+				}
 				if toolCacheTransaction != nil {
 					toolCacheTransaction.record(payloads[i])
 				} else {
@@ -1487,6 +1595,19 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 			}
 		}
 	}
+}
+
+// shouldExposeResponsesUpstreamError reports whether a terminal upstream
+// failure is written to the client as an error event; non-exposable failures
+// just close the socket (upstream CLIProxyAPI commit 42c9680eee55).
+func shouldExposeResponsesUpstreamError(errMsg *interfaces.ErrorMessage) bool {
+	if errMsg == nil {
+		return false
+	}
+	if coreauth.IsTerminalAuthError(errMsg.Error) {
+		return true
+	}
+	return clienterror.IsRequestFault(responsesWebsocketErrorStatus(errMsg), errMsg.Error)
 }
 
 func responsesWebsocketErrorStatus(errMsg *interfaces.ErrorMessage) int {

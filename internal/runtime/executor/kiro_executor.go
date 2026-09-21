@@ -449,7 +449,7 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 		return resp, err
 	}
 	toolNameMap := extractKiroToolNameMap(baseBody)
-	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
+	reporter := helps.NewExecutorUsageReporter(ctx, e, stripKiroModelSuffix(req.Model), auth)
 	body := applyKiroProfileARN(baseBody, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
 	if err != nil {
@@ -512,7 +512,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		return nil, err
 	}
 	toolNameMap := extractKiroToolNameMap(baseBody)
-	reporter := helps.NewUsageReporter(ctx, e.Identifier(), stripKiroModelSuffix(req.Model), auth)
+	reporter := helps.NewExecutorUsageReporter(ctx, e, stripKiroModelSuffix(req.Model), auth)
 	body := applyKiroProfileARN(baseBody, auth)
 	httpResp, err := e.doKiroRequest(ctx, auth, body)
 	if err != nil {

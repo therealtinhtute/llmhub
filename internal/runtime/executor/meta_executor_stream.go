@@ -34,7 +34,7 @@ func (e *MetaExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		return nil, errPrepare
 	}
 
-	reporter := helps.NewUsageReporter(ctx, e.Identifier(), prepared.baseModel, enriched)
+	reporter := helps.NewExecutorUsageReporter(ctx, e, prepared.baseModel, enriched)
 	defer reporter.TrackFailure(ctx, &err)
 	// reporter.SetTranslatedReasoningEffort has no local equivalent (recorded
 	// remainder — see meta_executor_execute.go).

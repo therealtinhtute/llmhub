@@ -258,7 +258,7 @@ func (e *DevinExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	ctx = helps.EnsureSessionContext(ctx, opts, req.Payload)
 	targetModel := thinking.ParseSuffix(req.Model).ModelName
 
-	reporter := helps.NewUsageReporter(ctx, e.Identifier(), targetModel, auth)
+	reporter := helps.NewExecutorUsageReporter(ctx, e, targetModel, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	httpReq, chatModelUID, logBody, errPrep := e.prepareDevinHTTPRequest(ctx, auth, req, opts)
@@ -330,7 +330,7 @@ func (e *DevinExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	ctx = helps.EnsureSessionContext(ctx, opts, req.Payload)
 	targetModel := thinking.ParseSuffix(req.Model).ModelName
 
-	reporter := helps.NewUsageReporter(ctx, e.Identifier(), targetModel, auth)
+	reporter := helps.NewExecutorUsageReporter(ctx, e, targetModel, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	httpReq, chatModelUID, logBody, errPrep := e.prepareDevinHTTPRequest(ctx, auth, req, opts)

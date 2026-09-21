@@ -103,7 +103,7 @@ func (e *MetaExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 		return resp, errPrepare
 	}
 
-	reporter := helps.NewUsageReporter(ctx, e.Identifier(), prepared.baseModel, enriched)
+	reporter := helps.NewExecutorUsageReporter(ctx, e, prepared.baseModel, enriched)
 	defer reporter.TrackFailure(ctx, &err)
 	// Upstream calls reporter.SetTranslatedReasoningEffort(prepared.body,
 	// prepared.to.String()); the local UsageReporter has no such hook (recorded

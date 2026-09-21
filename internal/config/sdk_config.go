@@ -61,6 +61,13 @@ type SDKConfig struct {
 	// have unpaired codex_app create_thread/send_message_to_thread function_call_output
 	// items rewritten into standard user messages (upstream 291cfb87efac).
 	CodexOrphanDelegationCompatibility bool `yaml:"codex-orphan-delegation-compatibility,omitempty" json:"codex-orphan-delegation-compatibility,omitempty"`
+
+	// CodexResponseSteering enables full-duplex Codex WebSockets, bound to one
+	// upstream model/account/socket for their entire lifetime. Default is false.
+	// Upstream CLIProxyAPI exposes this as codex.response-steering mirrored into a
+	// runtime-only SDKConfig field (42c9680eee55); locally this flat key serves both
+	// the user-facing config and the SDK handler surface via the embedded SDKConfig.
+	CodexResponseSteering bool `yaml:"codex-response-steering,omitempty" json:"codex-response-steering,omitempty"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.

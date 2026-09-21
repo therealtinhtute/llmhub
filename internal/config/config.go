@@ -191,6 +191,13 @@ type Config struct {
 	// These are used as fallbacks when the client does not send its own headers.
 	ClaudeHeaderDefaults ClaudeHeaderDefaults `yaml:"claude-header-defaults" json:"claude-header-defaults"`
 
+	// ClaudeModelLevelCooling scopes Claude quota cooldowns to the requested model
+	// rather than cooling down the entire credential across all sibling models.
+	// Upstream CLIProxyAPI nests this under claude.model-level-cooling (44eaef0009f8);
+	// this repository's flat schema keeps it as a top-level key. Default false keeps
+	// the credential-wide behavior.
+	ClaudeModelLevelCooling bool `yaml:"claude-model-level-cooling,omitempty" json:"claude-model-level-cooling,omitempty"`
+
 	// XAI holds xAI provider configuration settings.
 	XAI XAIConfig `yaml:"xai" json:"xai"`
 
@@ -797,6 +804,11 @@ type OpenAICompatibilityModel struct {
 	// MaxContextLength overrides the context window advertised to Codex clients.
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 
+	// UseMaxCompletionTokens emits max_completion_tokens instead of legacy max_tokens for this model.
+	// Default false preserves max_tokens for older compatible upstreams.
+	// Ported from upstream CLIProxyAPI commit 690f4f3116b6.
+	UseMaxCompletionTokens bool `yaml:"use-max-completion-tokens,omitempty" json:"use-max-completion-tokens,omitempty"`
+
 	// Thinking configures the thinking/reasoning capability for this model.
 	// If nil, the model defaults to level-based reasoning with levels ["low", "medium", "high"].
 	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
@@ -806,6 +818,8 @@ func (m OpenAICompatibilityModel) GetName() string          { return m.Name }
 func (m OpenAICompatibilityModel) GetAlias() string         { return m.Alias }
 func (m OpenAICompatibilityModel) GetDisplayName() string   { return m.DisplayName }
 func (m OpenAICompatibilityModel) GetMaxContextLength() int { return m.MaxContextLength }
+
+func (m OpenAICompatibilityModel) GetUseMaxCompletionTokens() bool { return m.UseMaxCompletionTokens }
 
 // LoadConfig reads a YAML configuration file from the given path,
 // unmarshals it into a Config struct, applies environment variable overrides,
@@ -1233,6 +1247,30 @@ func (cfg *Config) SanitizeMetaKeys() {
 	cfg.MetaKey = out
 }
 
+// NormalizeCloakConfig trims strings and removes blank sensitive words.
+func NormalizeCloakConfig(cloak *CloakConfig) *CloakConfig {
+	if cloak == nil {
+		return nil
+	}
+	cloak.Mode = strings.TrimSpace(cloak.Mode)
+	if len(cloak.SensitiveWords) > 0 {
+		normalizedWords := make([]string, 0, len(cloak.SensitiveWords))
+		for _, w := range cloak.SensitiveWords {
+			if trimmed := strings.TrimSpace(w); trimmed != "" {
+				normalizedWords = append(normalizedWords, trimmed)
+			}
+		}
+		if len(normalizedWords) > 0 {
+			cloak.SensitiveWords = normalizedWords
+		} else {
+			cloak.SensitiveWords = nil
+		}
+	} else {
+		cloak.SensitiveWords = nil
+	}
+	return cloak
+}
+
 // SanitizeClaudeKeys normalizes headers for Claude credentials.
 func (cfg *Config) SanitizeClaudeKeys() {
 	if cfg == nil || len(cfg.ClaudeKey) == 0 {
@@ -1243,6 +1281,7 @@ func (cfg *Config) SanitizeClaudeKeys() {
 		entry.Prefix = normalizeModelPrefix(entry.Prefix)
 		entry.Headers = NormalizeHeaders(entry.Headers)
 		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
+		entry.Cloak = NormalizeCloakConfig(entry.Cloak)
 	}
 }
 
@@ -1629,6 +1668,9 @@ func mergeNodePreserve(dst, src *yaml.Node, path ...[]string) {
 			copyNodeShallow(dst, src)
 		}
 		mergeMappingPreserve(dst, src, currentPath)
+		if shouldPruneNestedMappingKeys(currentPath) {
+			pruneMissingMapKeys(dst, src)
+		}
 	case yaml.SequenceNode:
 		// Preserve explicit null style if dst was null and src is empty sequence
 		if dst.Kind == yaml.ScalarNode && dst.Tag == "!!null" && len(src.Content) == 0 {
@@ -1708,6 +1750,12 @@ func appendPath(path []string, key string) []string {
 // represents a known default value that should not be written to the config file.
 // This prevents non-zero defaults from polluting the config.
 func isKnownDefaultValue(path []string, node *yaml.Node) bool {
+	// Pointer-backed booleans (such as cache-user-id and disable-cooling):
+	// explicit false is meaningful and must be preserved.
+	if len(path) > 0 && (path[len(path)-1] == "cache-user-id" || path[len(path)-1] == "disable-cooling") && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!bool" {
+		return false
+	}
+
 	// First check if it's a zero value
 	if isZeroValueNode(node) {
 		return true
@@ -2089,6 +2137,26 @@ func pruneMissingMapKeys(dstMap, srcMap *yaml.Node) {
 			continue
 		}
 		i += 2
+	}
+}
+
+// shouldPruneNestedMappingKeys reports whether keys missing from src should be pruned from dst.
+// This is strictly scoped to credential-nested mappings such as "cloak" and "headers" under
+// known credential sequence paths to prevent stale deleted keys from persisting while leaving
+// all other mappings and root sections unaffected.
+func shouldPruneNestedMappingKeys(path []string) bool {
+	if len(path) < 2 {
+		return false
+	}
+	parent := path[len(path)-2]
+	last := path[len(path)-1]
+	switch parent {
+	case "claude-api-key":
+		return last == "cloak" || last == "headers"
+	case "codex-api-key", "gemini-api-key", "interactions-api-key", "xai-api-key", "meta-api-key", "vertex-api-key", "openai-compatibility":
+		return last == "headers"
+	default:
+		return false
 	}
 }
 

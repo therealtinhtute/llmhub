@@ -205,8 +205,12 @@ func TestListAuthFiles_IncludesRuntimeQuotaState(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)
 
-	nextRecover := time.Date(2026, 6, 2, 12, 30, 0, 0, time.UTC)
-	modelRetry := time.Date(2026, 6, 2, 13, 0, 0, 0, time.UTC)
+	// Cooldown timestamps must be in the future: upstream commit b4ff581d
+	// reconciles expired credential/model cooldowns back to active in the
+	// listing projection, which would otherwise clear the runtime state this
+	// test asserts.
+	nextRecover := time.Date(2027, 6, 2, 12, 30, 0, 0, time.UTC)
+	modelRetry := time.Date(2027, 6, 2, 13, 0, 0, 0, time.UTC)
 	store := &pathlessMemoryAuthStore{}
 	manager := coreauth.NewManager(store, nil, nil)
 	if _, err := manager.Register(context.Background(), &coreauth.Auth{
@@ -242,8 +246,10 @@ func TestListAuthFiles_IncludesRuntimeQuotaState(t *testing.T) {
 	if got := entry["type"]; got != "kiro" {
 		t.Fatalf("expected Kiro auth type, got %#v", got)
 	}
-	if got := entry["status"]; got != string(coreauth.StatusActive) {
-		t.Fatalf("expected status active, got %#v", got)
+	// An active credential-level cooldown projects as status=error under the
+	// upstream b4ff581d reconciliation semantics.
+	if got := entry["status"]; got != string(coreauth.StatusError) {
+		t.Fatalf("expected status error, got %#v", got)
 	}
 	if got := entry["status_message"]; got != "cooling down" {
 		t.Fatalf("expected status message, got %#v", got)

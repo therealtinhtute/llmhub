@@ -1077,6 +1077,15 @@ func formatHomeCodexModel(entry homeModelEntry) map[string]any {
 	if entry.ownedBy != "" {
 		model["owned_by"] = entry.ownedBy
 	}
+	// Ported from upstream CLIProxyAPI commit 28743473c11a (server_routes.go):
+	// mark models served by the Devin provider so downstream Codex client
+	// formatting can append the (Devin) display-name suffix.
+	for _, p := range entry.providers {
+		if strings.EqualFold(p, "devin") {
+			model["type"] = "devin"
+			break
+		}
+	}
 	if entry.displayName != "" {
 		model["display_name"] = entry.displayName
 		model["description"] = entry.displayName

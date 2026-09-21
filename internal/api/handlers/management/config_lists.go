@@ -373,6 +373,7 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	type claudeKeyPatch struct {
 		APIKey              *string                          `json:"api-key"`
+		Priority            *int                             `json:"priority"` // Ported from upstream CLIProxyAPI commit 93b94d22a9bd.
 		Weight              *int64                           `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
 		BaseURL             *string                          `json:"base-url"`
@@ -430,6 +431,11 @@ func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	entry := h.cfg.ClaudeKey[targetIndex]
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
+	}
+	// Ported from upstream CLIProxyAPI commit 93b94d22a9bd: omitted priority
+	// preserves the existing value; an explicit value (including 0) replaces it.
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})

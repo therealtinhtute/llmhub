@@ -12,7 +12,9 @@ import (
 
 // Record contains the usage statistics captured for a single provider request.
 type Record struct {
-	Provider        string
+	Provider string
+	// ExecutorType records the concrete executor type name that served the request.
+	ExecutorType    string
 	Model           string
 	Alias           string
 	APIKey          string
@@ -26,6 +28,9 @@ type Record struct {
 	Source            string
 	// ReasoningEffort stores the client-requested thinking level for request event logs.
 	ReasoningEffort string
+	// ResponseModel preserves the model name the upstream actually served when the
+	// provider reports it, so silent substitutions stay visible in usage records.
+	ResponseModel string
 	// Stream reports whether the request was executed in streaming mode.
 	Stream      bool
 	RequestedAt time.Time
@@ -161,6 +166,7 @@ type Manager struct {
 
 	pluginsMu sync.RWMutex
 	plugins   []Plugin
+	named     map[string]int
 }
 
 // NewManager constructs a manager with a buffered queue.
@@ -208,6 +214,29 @@ func (m *Manager) Register(plugin Plugin) {
 	}
 	m.pluginsMu.Lock()
 	m.plugins = append(m.plugins, plugin)
+	m.pluginsMu.Unlock()
+}
+
+// RegisterNamed replaces the plugin registered under name, or appends a new entry.
+func (m *Manager) RegisterNamed(name string, plugin Plugin) {
+	if m == nil || plugin == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+
+	m.pluginsMu.Lock()
+	if m.named == nil {
+		m.named = make(map[string]int)
+	}
+	if idx, exists := m.named[name]; exists && idx >= 0 && idx < len(m.plugins) {
+		m.plugins[idx] = plugin
+	} else {
+		m.named[name] = len(m.plugins)
+		m.plugins = append(m.plugins, plugin)
+	}
 	m.pluginsMu.Unlock()
 }
 
@@ -278,6 +307,11 @@ func DefaultManager() *Manager { return defaultManager }
 
 // RegisterPlugin registers a plugin on the default manager.
 func RegisterPlugin(plugin Plugin) { DefaultManager().Register(plugin) }
+
+// RegisterNamedPlugin replaces the plugin registered under name on the default manager.
+func RegisterNamedPlugin(name string, plugin Plugin) {
+	DefaultManager().RegisterNamed(name, plugin)
+}
 
 // PublishRecord publishes a record using the default manager.
 func PublishRecord(ctx context.Context, record Record) { DefaultManager().Publish(ctx, record) }

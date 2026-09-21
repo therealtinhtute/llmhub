@@ -179,6 +179,7 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth,
 	if wsResp.Status < 200 || wsResp.Status >= 300 {
 		return resp, statusErr{code: wsResp.Status, msg: string(wsResp.Body)}
 	}
+	reporter.ObserveResponseModel(wsResp.Body)
 	reporter.Publish(ctx, helps.ParseGeminiUsage(wsResp.Body))
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, body.toFormat, opts.SourceFormat, req.Model, opts.OriginalRequest, translatedReq, wsResp.Body, &param)
@@ -308,6 +309,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			case wsrelay.MessageTypeStreamChunk:
 				if len(event.Payload) > 0 {
 					helps.AppendAPIResponseChunk(ctx, e.cfg, event.Payload)
+					reporter.ObserveResponseModel(event.Payload)
 					filtered := helps.FilterSSEUsageMetadata(event.Payload)
 					if detail, ok := helps.ParseGeminiStreamUsage(filtered); ok {
 						reporter.Publish(ctx, detail)
@@ -340,6 +342,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 						return false
 					}
 				}
+				reporter.ObserveResponseModel(event.Payload)
 				reporter.Publish(ctx, helps.ParseGeminiUsage(event.Payload))
 				return false
 			case wsrelay.MessageTypeError:

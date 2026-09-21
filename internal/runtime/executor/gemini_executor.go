@@ -214,6 +214,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		return resp, err
 	}
 	helps.AppendAPIResponseChunk(ctx, e.cfg, data)
+	reporter.ObserveResponseModel(data)
 	reporter.Publish(ctx, helps.ParseGeminiUsage(data))
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, body, data, &param)
@@ -331,6 +332,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
+			reporter.ObserveResponseModel(line)
 			filtered := helps.FilterSSEUsageMetadata(line)
 			payload := helps.JSONPayload(filtered)
 			if len(payload) == 0 {

@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,7 @@ import (
 
 type UsageReporter struct {
 	provider            string
+	executorType        string
 	model               string
 	alias               string
 	authID              string
@@ -41,6 +44,46 @@ type UsageReporter struct {
 	ttftStart           time.Time
 	ttftSet             bool
 	once                sync.Once
+
+	responseModelMu sync.RWMutex
+	// responseModel holds the latest model name reported by the upstream response.
+	responseModel string
+	// responseModelFinal marks that a terminal event already reported the served
+	// model, so later frames skip parsing entirely.
+	responseModelFinal atomic.Bool
+
+	upstreamModelMu sync.RWMutex
+	// upstreamModel holds the canonical upstream model expected to be served when
+	// it differs from the requested model (e.g. local Kimi model mappings).
+	upstreamModel string
+}
+
+type usageExecutor interface {
+	Identifier() string
+}
+
+// NewExecutorUsageReporter builds a reporter whose provider is taken from the
+// executor's Identifier, mirroring the upstream constructor (upstream 959067ed).
+func NewExecutorUsageReporter(ctx context.Context, executor usageExecutor, model string, auth *cliproxyauth.Auth) *UsageReporter {
+	provider := ""
+	if executor != nil {
+		provider = executor.Identifier()
+	}
+	reporter := NewUsageReporter(ctx, provider, model, auth)
+	reporter.executorType = ExecutorTypeName(executor)
+	return reporter
+}
+
+// ExecutorTypeName returns the concrete executor type name for usage records.
+func ExecutorTypeName(executor any) string {
+	if executor == nil {
+		return ""
+	}
+	executorType := reflect.TypeOf(executor)
+	for executorType.Kind() == reflect.Pointer {
+		executorType = executorType.Elem()
+	}
+	return strings.TrimSpace(executorType.Name())
 }
 
 func NewUsageReporter(ctx context.Context, provider, model string, auth *cliproxyauth.Auth) *UsageReporter {
@@ -301,6 +344,143 @@ func (r *UsageReporter) ttftDuration() time.Duration {
 	return 0
 }
 
+// ObserveResponseModel stores the model reported by an upstream response or event and
+// ignores payloads without one; the substitution warning is emitted at publish time.
+// Ported from upstream e9463ff5a795.
+func (r *UsageReporter) ObserveResponseModel(payload []byte) {
+	if r == nil || r.responseModelFinal.Load() {
+		return
+	}
+	provider := ""
+	if r != nil {
+		provider = r.provider
+	}
+	served, terminal := extractResponseModelEvent(payload, provider)
+	if served == "" {
+		if terminal {
+			r.responseModelFinal.Store(true)
+		}
+		return
+	}
+	r.responseModelMu.Lock()
+	r.responseModel = served
+	r.responseModelMu.Unlock()
+	if terminal {
+		r.responseModelFinal.Store(true)
+	}
+}
+
+// ObserveCodexResponseModel stores the model reported by a codex upstream event and
+// ignores payloads without one; the substitution warning is emitted at publish time.
+func (r *UsageReporter) ObserveCodexResponseModel(payload []byte) {
+	r.ObserveResponseModel(payload)
+}
+
+// SetResponseModel sets the reported model directly if valid and not already marked final.
+func (r *UsageReporter) SetResponseModel(model string) {
+	if r == nil || r.responseModelFinal.Load() {
+		return
+	}
+	model = strings.TrimSpace(model)
+	if model == "" || len(model) > maxResponseModelLength {
+		return
+	}
+	r.responseModelMu.Lock()
+	r.responseModel = model
+	r.responseModelMu.Unlock()
+}
+
+// SetUpstreamModel records the upstream model expected to be served when it differs
+// from the requested model (e.g. due to provider-specific mapping or canonicalization).
+// Model substitution detection compares the response against this upstream model,
+// while usage accounting preserves the client's requested model.
+func (r *UsageReporter) SetUpstreamModel(model string) {
+	if r == nil {
+		return
+	}
+	r.upstreamModelMu.Lock()
+	r.upstreamModel = strings.TrimSpace(model)
+	r.upstreamModelMu.Unlock()
+}
+
+// UpstreamModel returns the expected upstream model, or an empty string if not explicitly set.
+func (r *UsageReporter) UpstreamModel() string {
+	if r == nil {
+		return ""
+	}
+	r.upstreamModelMu.RLock()
+	defer r.upstreamModelMu.RUnlock()
+	return r.upstreamModel
+}
+
+// IsResponseModelFinal reports whether the response model was already finalized by a terminal event.
+func (r *UsageReporter) IsResponseModelFinal() bool {
+	return r != nil && r.responseModelFinal.Load()
+}
+
+// warnModelSubstitution warns about a silent upstream model swap, throttled per
+// credential and model pair, and labels the credential by index only, never by account.
+func (r *UsageReporter) warnModelSubstitution(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	served := r.ResponseModel()
+	expectedModel := r.UpstreamModel()
+	if expectedModel == "" {
+		expectedModel = r.model
+	}
+	if served == "" || !IsModelSubstituted(expectedModel, served) {
+		return
+	}
+	if r.model != "" && !IsModelSubstituted(r.model, served) {
+		return
+	}
+	// The throttle key uses the same normalized names as the substitution check, so
+	// aliases of one pair share a window instead of each warning on its own.
+	requested := normalizeModelName(expectedModel)
+	servedNormalized := normalizeModelName(served)
+	providerName := r.provider
+	if providerName == "" {
+		providerName = "codex"
+	}
+	if !codexModelSubstitutionWarns.allow(codexModelSubstitutionKey{
+		provider:  providerName,
+		authID:    r.authID,
+		requested: requested,
+		served:    servedNormalized,
+	}) {
+		return
+	}
+	LogWithRequestID(ctx).Warnf("%s executor: upstream served model %q for requested model %q (auth_index=%s)", providerName, served, r.model, r.authIndexForLog())
+}
+
+// warnCodexModelSubstitution warns about a silent upstream model swap, throttled per
+// credential and model pair, and labels the credential by index only, never by account.
+func (r *UsageReporter) warnCodexModelSubstitution(ctx context.Context) {
+	r.warnModelSubstitution(ctx)
+}
+
+// authIndexForLog labels the credential without exposing its file name or account.
+func (r *UsageReporter) authIndexForLog() string {
+	if r == nil {
+		return "nil"
+	}
+	if authIndex := strings.TrimSpace(r.authIndex); authIndex != "" {
+		return authIndex
+	}
+	return "nil"
+}
+
+// ResponseModel returns the latest model reported by the upstream response.
+func (r *UsageReporter) ResponseModel() string {
+	if r == nil {
+		return ""
+	}
+	r.responseModelMu.RLock()
+	defer r.responseModelMu.RUnlock()
+	return r.responseModel
+}
+
 func (r *UsageReporter) Publish(ctx context.Context, detail usage.Detail) {
 	r.publishWithOutcome(ctx, detail, false, usage.Failure{})
 }
@@ -347,7 +527,7 @@ func (r *UsageReporter) publishWithOutcome(ctx context.Context, detail usage.Det
 	}
 	detail = normalizeUsageDetailTotal(detail)
 	r.once.Do(func() {
-		r.publishRecord(ctx, r.buildRecord(detail, failed, fail))
+		r.publishAttemptRecord(ctx, r.buildRecord(detail, failed, fail))
 	})
 }
 
@@ -380,8 +560,15 @@ func (r *UsageReporter) EnsurePublished(ctx context.Context) {
 		return
 	}
 	r.once.Do(func() {
-		r.publishRecord(ctx, r.buildRecord(usage.Detail{}, false, usage.Failure{}))
+		r.publishAttemptRecord(ctx, r.buildRecord(usage.Detail{}, false, usage.Failure{}))
 	})
+}
+
+// publishAttemptRecord emits the record for one upstream attempt and the
+// observability warnings that belong to the attempt rather than to a single event.
+func (r *UsageReporter) publishAttemptRecord(ctx context.Context, record usage.Record) {
+	r.publishRecord(ctx, record)
+	r.warnModelSubstitution(ctx)
 }
 
 func (r *UsageReporter) publishRecord(ctx context.Context, record usage.Record) {
@@ -404,24 +591,34 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 	if r == nil {
 		return usage.Record{Model: model, Detail: detail, Failed: failed, Fail: fail}
 	}
+	// Additional-model records describe a side model (image generation tool usage) that
+	// the upstream response model never refers to, so they must stay empty.
+	responseModel := ""
+	if model == r.model {
+		responseModel = r.ResponseModel()
+	}
 	return usage.Record{
-		Provider:        r.provider,
-		Model:           model,
-		Alias:           r.alias,
-		Source:          r.source,
-		APIKey:          r.apiKey,
-		SessionID:       r.sessionID,
-		ParentSessionID: r.parentSessionID,
-		AuthID:          r.authID,
-		AuthIndex:       r.authIndex,
-		AuthType:        r.authType,
-		ReasoningEffort: r.reasoning,
-		Stream:          r.stream,
-		RequestedAt:     r.requestedAt,
-		Latency:         r.latency(),
-		TTFT:            r.ttftDuration(),
-		Failed:          failed,
-		Fail:            fail,
+		Provider:          r.provider,
+		ExecutorType:      r.executorType,
+		Model:             model,
+		Alias:             r.alias,
+		Source:            r.source,
+		APIKey:            r.apiKey,
+		SessionID:         r.sessionID,
+		ParentSessionID:   r.parentSessionID,
+		AuthID:            r.authID,
+		AuthIndex:         r.authIndex,
+		AccessTokenSHA256: r.accessToken,
+		AuthType:          r.authType,
+		ReasoningEffort:   r.reasoning,
+		ResponseModel:     responseModel,
+		Stream:            r.stream,
+		RequestedAt:       r.requestedAt,
+		Latency:           r.latency(),
+		TTFT:              r.ttftDuration(),
+		Failed:            failed,
+		Fail:              fail,
+		Detail:            detail,
 	}
 }
 

@@ -2253,7 +2253,10 @@ func TestRemapOAuthToolNames_TitleCase_NoReverseNeeded(t *testing.T) {
 	}
 
 	resp := []byte(`{"content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"cmd":"ls"}}]}`)
-	reversed := reverseRemapOAuthToolNames(resp, reverseMap)
+	reversed, err := reverseRemapOAuthToolNames(resp, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNames error: %v", err)
+	}
 	if got := gjson.GetBytes(reversed, "content.0.name").String(); got != "Bash" {
 		t.Fatalf("content.0.name = %q, want %q", got, "Bash")
 	}
@@ -2271,7 +2274,10 @@ func TestRemapOAuthToolNames_Lowercase_ReverseApplied(t *testing.T) {
 	}
 
 	resp := []byte(`{"content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"cmd":"ls"}}]}`)
-	reversed := reverseRemapOAuthToolNames(resp, reverseMap)
+	reversed, err := reverseRemapOAuthToolNames(resp, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNames error: %v", err)
+	}
 	if got := gjson.GetBytes(reversed, "content.0.name").String(); got != "bash" {
 		t.Fatalf("content.0.name = %q, want %q", got, "bash")
 	}
@@ -2309,7 +2315,10 @@ func TestRemapOAuthToolNames_MixedCase_OnlyRenamedToolsReversed(t *testing.T) {
 	// Upstream responds with a `Bash` tool_use. Since we never renamed `Bash`,
 	// reverseRemap MUST leave it alone.
 	bashResp := []byte(`{"content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"cmd":"ls"}}]}`)
-	reversed := reverseRemapOAuthToolNames(bashResp, reverseMap)
+	reversed, err := reverseRemapOAuthToolNames(bashResp, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNames error: %v", err)
+	}
 	if got := gjson.GetBytes(reversed, "content.0.name").String(); got != "Bash" {
 		t.Fatalf("content.0.name = %q, want %q (Bash must be preserved; was never forward-renamed)", got, "Bash")
 	}
@@ -2317,7 +2326,10 @@ func TestRemapOAuthToolNames_MixedCase_OnlyRenamedToolsReversed(t *testing.T) {
 	// Upstream responds with a `Glob` tool_use. Since we renamed `glob`→`Glob`,
 	// reverseRemap MUST restore the original `glob`.
 	globResp := []byte(`{"content":[{"type":"tool_use","id":"toolu_02","name":"Glob","input":{"filePattern":"**/*.go"}}]}`)
-	reversed = reverseRemapOAuthToolNames(globResp, reverseMap)
+	reversed, err = reverseRemapOAuthToolNames(globResp, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNames error: %v", err)
+	}
 	if got := gjson.GetBytes(reversed, "content.0.name").String(); got != "glob" {
 		t.Fatalf("content.0.name = %q, want %q (Glob must be restored to client's original `glob`)", got, "glob")
 	}
@@ -2330,7 +2342,10 @@ func TestReverseRemapOAuthToolNamesFromStreamLine_HonorsPerRequestMap(t *testing
 
 	// Bash block was never renamed, must pass through as-is.
 	bashLine := []byte(`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}}`)
-	out := reverseRemapOAuthToolNamesFromStreamLine(bashLine, reverseMap)
+	out, err := reverseRemapOAuthToolNamesFromStreamLine(bashLine, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNamesFromStreamLine error: %v", err)
+	}
 	if !bytes.Contains(out, []byte(`"name":"Bash"`)) {
 		t.Fatalf("Bash should be preserved, got: %s", string(out))
 	}
@@ -2340,7 +2355,10 @@ func TestReverseRemapOAuthToolNamesFromStreamLine_HonorsPerRequestMap(t *testing
 
 	// Glob block IS in the reverseMap, must be restored to `glob`.
 	globLine := []byte(`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_02","name":"Glob","input":{}}}`)
-	out = reverseRemapOAuthToolNamesFromStreamLine(globLine, reverseMap)
+	out, err = reverseRemapOAuthToolNamesFromStreamLine(globLine, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNamesFromStreamLine error: %v", err)
+	}
 	if !bytes.Contains(out, []byte(`"name":"glob"`)) {
 		t.Fatalf("Glob should be restored to glob, got: %s", string(out))
 	}
@@ -2381,7 +2399,10 @@ func TestRestoreClaudeOAuthToolNamesFromResponse_MixedCaseWithPrefix(t *testing.
 		`{"type":"tool_use","id":"toolu_02","name":"proxy_Glob","input":{}}` +
 		`]}`)
 
-	out := restoreClaudeOAuthToolNamesFromResponse(resp, "proxy_", false, reverseMap)
+	out, err := restoreClaudeOAuthToolNamesFromResponse(resp, "proxy_", false, reverseMap)
+	if err != nil {
+		t.Fatalf("restoreClaudeOAuthToolNamesFromResponse error: %v", err)
+	}
 
 	if got := gjson.GetBytes(out, "content.0.name").String(); got != "Bash" {
 		t.Fatalf("content.0.name = %q, want %q", got, "Bash")
@@ -2395,7 +2416,10 @@ func TestRestoreClaudeOAuthToolNamesFromStreamLine_MixedCaseWithPrefix(t *testin
 	reverseMap := map[string]string{"Glob": "glob"}
 
 	bashLine := []byte(`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"proxy_Bash","input":{}}}`)
-	out := restoreClaudeOAuthToolNamesFromStreamLine(bashLine, "proxy_", false, reverseMap)
+	out, err := restoreClaudeOAuthToolNamesFromStreamLine(bashLine, "proxy_", false, reverseMap)
+	if err != nil {
+		t.Fatalf("restoreClaudeOAuthToolNamesFromStreamLine error: %v", err)
+	}
 	if !bytes.Contains(out, []byte(`"name":"Bash"`)) {
 		t.Fatalf("Bash should be preserved, got: %s", string(out))
 	}
@@ -2404,7 +2428,10 @@ func TestRestoreClaudeOAuthToolNamesFromStreamLine_MixedCaseWithPrefix(t *testin
 	}
 
 	globLine := []byte(`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_02","name":"proxy_Glob","input":{}}}`)
-	out = restoreClaudeOAuthToolNamesFromStreamLine(globLine, "proxy_", false, reverseMap)
+	out, err = restoreClaudeOAuthToolNamesFromStreamLine(globLine, "proxy_", false, reverseMap)
+	if err != nil {
+		t.Fatalf("restoreClaudeOAuthToolNamesFromStreamLine error: %v", err)
+	}
 	if !bytes.Contains(out, []byte(`"name":"glob"`)) {
 		t.Fatalf("Glob should be restored to glob, got: %s", string(out))
 	}
@@ -2434,7 +2461,10 @@ func TestRemapOAuthToolNames_ThirdPartyToolsAliased(t *testing.T) {
 
 	// Reverse restore returns the original name to the client.
 	resp := []byte(`{"content":[{"type":"tool_use","id":"toolu_01","name":"` + alias + `","input":{"q":"x"}}]}`)
-	reversed := reverseRemapOAuthToolNames(resp, reverseMap)
+	reversed, err := reverseRemapOAuthToolNames(resp, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNames error: %v", err)
+	}
 	if got := gjson.GetBytes(reversed, "content.0.name").String(); got != "search_web" {
 		t.Fatalf("content.0.name = %q, want %q", got, "search_web")
 	}
@@ -2553,5 +2583,298 @@ func TestDecodeResponseBody_ZlibWrappedDeflate(t *testing.T) {
 	_ = decoded.Close()
 	if !bytes.Equal(got, payload) {
 		t.Fatalf("decoded = %q, want %q", got, payload)
+	}
+}
+
+// --- Hybrid passthrough MCP tool restore (upstream 22392c537d95) ---
+
+// TestRemapOAuthToolNames_RecordsPassthroughMCPTools covers the request-side
+// half of the hybrid fix: caller-owned mcp__ tools are forwarded untouched but
+// recorded into the reverse map so the resolver can recover hybrid names.
+func TestRemapOAuthToolNames_RecordsPassthroughMCPTools(t *testing.T) {
+	body := []byte(`{"tools":[` +
+		`{"name":"search_web","input_schema":{"type":"object","properties":{"q":{"type":"string"}}}},` +
+		`{"name":"mcp__acme__link_pull_request","input_schema":{"type":"object"}}` +
+		`],"messages":[{"role":"user","content":"hi"}]}`)
+
+	out, reverseMap := remapOAuthToolNames(body, context.Background())
+
+	// Third-party tool is aliased to a request-local MCP name.
+	alias := gjson.GetBytes(out, "tools.0.name").String()
+	if !helps.IsClaudeMCPToolName(alias) || !strings.HasSuffix(alias, "_search_web") {
+		t.Fatalf("tools.0.name = %q, want MCP-style alias ending in _search_web", alias)
+	}
+	// Caller-owned MCP tool is forwarded untouched.
+	if got := gjson.GetBytes(out, "tools.1.name").String(); got != "mcp__acme__link_pull_request" {
+		t.Fatalf("tools.1.name = %q, want passthrough MCP name untouched", got)
+	}
+	// ...but recorded so the response resolver can recognize the caller's server.
+	if got := reverseMap["mcp__acme__link_pull_request"]; got != "mcp__acme__link_pull_request" {
+		t.Fatalf("reverseMap = %v, want passthrough identity entry", reverseMap)
+	}
+}
+
+// TestRemapOAuthToolNames_PassthroughSkippedWhenNothingAliased mirrors upstream
+// recordPassthroughMCPTools: when no client tool was aliased the reverse map
+// stays free of passthrough entries and the restore path is a no-op.
+func TestRemapOAuthToolNames_PassthroughSkippedWhenNothingAliased(t *testing.T) {
+	body := []byte(`{"tools":[` +
+		`{"name":"Bash","input_schema":{"type":"object","properties":{"cmd":{"type":"string"}}}},` +
+		`{"name":"mcp__acme__link_pull_request","input_schema":{"type":"object"}}` +
+		`],"messages":[{"role":"user","content":"hi"}]}`)
+
+	_, reverseMap := remapOAuthToolNames(body, context.Background())
+	if len(reverseMap) != 0 {
+		t.Fatalf("reverseMap = %v, want empty (nothing aliased)", reverseMap)
+	}
+}
+
+// TestRestoreClaudeOAuthToolNames_HybridPassthroughMCP ports upstream
+// TestReverseRemapOAuthToolNamesRestoresHybridPassthroughMCPTools: the model
+// may emit a hybrid name that mixes the virtual server prefix with the
+// caller's real MCP tool name; both drifted shapes must restore exactly.
+func TestRestoreClaudeOAuthToolNames_HybridPassthroughMCP(t *testing.T) {
+	const virtual = "mcp__ripple_middle__"
+	reverseMap := map[string]string{
+		virtual + "blanket_Bash":       "Bash",
+		virtual + "brand_Read":         "Read",
+		"mcp__acme__link_pull_request": "mcp__acme__link_pull_request",
+		"mcp__acme__list_threads":      "mcp__acme__list_threads",
+	}
+
+	testCases := []struct {
+		name       string
+		hybridName string
+		wantName   string
+	}{
+		{
+			name:       "model replaced server with virtual prefix",
+			hybridName: "mcp__ripple_middle__link_pull_request",
+			wantName:   "mcp__acme__link_pull_request",
+		},
+		{
+			name:       "model prepended virtual prefix to full passthrough name",
+			hybridName: "mcp__ripple_middle__acme__link_pull_request",
+			wantName:   "mcp__acme__link_pull_request",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Non-stream response
+			resp := []byte(fmt.Sprintf(`{"content":[{"type":"tool_use","id":"toolu_1","name":%q,"input":{}}]}`, tc.hybridName))
+			restored, err := restoreClaudeOAuthToolNamesFromResponse(resp, "", false, reverseMap)
+			if err != nil {
+				t.Fatalf("restoreClaudeOAuthToolNamesFromResponse() error = %v, want %q", err, tc.wantName)
+			}
+			if got := gjson.GetBytes(restored, "content.0.name").String(); got != tc.wantName {
+				t.Fatalf("content.0.name = %q, want %q", got, tc.wantName)
+			}
+
+			// Streaming response
+			line := []byte(fmt.Sprintf(`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":%q,"input":{}}}`, tc.hybridName))
+			restoredLine, errStream := restoreClaudeOAuthToolNamesFromStreamLine(line, "", false, reverseMap)
+			if errStream != nil {
+				t.Fatalf("restoreClaudeOAuthToolNamesFromStreamLine() error = %v, want %q", errStream, tc.wantName)
+			}
+			if got := gjson.GetBytes(helps.JSONPayload(restoredLine), "content_block.name").String(); got != tc.wantName {
+				t.Fatalf("content_block.name = %q, want %q", got, tc.wantName)
+			}
+		})
+	}
+}
+
+// TestRestoreClaudeOAuthToolNames_HybridPassthroughPrecedenceAndAmbiguity ports
+// upstream TestReverseRemapOAuthToolNamesHybridPassthroughPrecedenceAndAmbiguity:
+// client-tool alias matches win over passthrough recovery, and a passthrough
+// suffix matching multiple declared tools is rejected as a request-scoped error.
+func TestRestoreClaudeOAuthToolNames_HybridPassthroughPrecedenceAndAmbiguity(t *testing.T) {
+	const virtual = "mcp__ripple_middle__"
+
+	t.Run("client tool takes precedence over passthrough with same suffix", func(t *testing.T) {
+		reverseMap := map[string]string{
+			virtual + "blanket_Bash": "Bash",
+			"mcp__shell__Bash":       "mcp__shell__Bash",
+		}
+		// mcp__<virtual>__Bash is a semantic suffix match for Bash, should restore
+		// to Bash, NOT mcp__shell__Bash.
+		resp := []byte(fmt.Sprintf(`{"content":[{"type":"tool_use","id":"toolu_1","name":%q,"input":{}}]}`, virtual+"Bash"))
+		restored, err := restoreClaudeOAuthToolNamesFromResponse(resp, "", false, reverseMap)
+		if err != nil {
+			t.Fatalf("restoreClaudeOAuthToolNamesFromResponse() error = %v", err)
+		}
+		if got := gjson.GetBytes(restored, "content.0.name").String(); got != "Bash" {
+			t.Fatalf("content.0.name = %q, want %q", got, "Bash")
+		}
+	})
+
+	t.Run("ambiguous passthrough tool rejected", func(t *testing.T) {
+		reverseMap := map[string]string{
+			virtual + "blanket_other": "other",
+			"mcp__srv1__query":        "mcp__srv1__query",
+			"mcp__srv2__query":        "mcp__srv2__query",
+		}
+		// mcp__<virtual>__query matches both srv1 and srv2; cannot disambiguate.
+		resp := []byte(fmt.Sprintf(`{"content":[{"type":"tool_use","id":"toolu_1","name":%q,"input":{}}]}`, virtual+"query"))
+		_, err := restoreClaudeOAuthToolNamesFromResponse(resp, "", false, reverseMap)
+		if err == nil {
+			t.Fatal("restoreClaudeOAuthToolNamesFromResponse() expected error for ambiguous passthrough, got nil")
+		}
+		requestScoped, ok := err.(interface{ IsRequestScoped() bool })
+		if !ok || !requestScoped.IsRequestScoped() {
+			t.Fatalf("ambiguous restore error should be request-scoped, got %T: %v", err, err)
+		}
+	})
+}
+
+// --- Advisor history detection (upstream 7c2f6ce0 end-state + f86a33f72175) ---
+
+// TestCheckSystemInstructionsWithMode_ServerToolUseAdvisorKeepsSystemTopLevel:
+// a real Anthropic advisor invocation is a server_tool_use block named
+// "advisor". Its encrypted result is bound to the conversation layout, so the
+// caller's system prompt must stay in top-level system and messages[] must not
+// be spliced.
+func TestCheckSystemInstructionsWithMode_ServerToolUseAdvisorKeepsSystemTopLevel(t *testing.T) {
+	payload := []byte(`{
+		"model": "claude-opus-5",
+		"system": [{"type": "text", "text": "caller guidance"}],
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [
+				{"type": "server_tool_use", "id": "srvtoolu_1", "name": "advisor", "input": {"query": "help"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "advisor_tool_result", "tool_use_id": "srvtoolu_1", "content": [{"type": "text", "text": "advice"}]}
+			]}
+		]
+	}`)
+
+	out := checkSystemInstructionsWithMode(payload, false)
+
+	blocks := gjson.GetBytes(out, "system").Array()
+	if len(blocks) != 4 {
+		t.Fatalf("system blocks count = %d, want 4 (cloak blocks + preserved caller block): %s", len(blocks), out)
+	}
+	if got := blocks[3].Get("text").String(); got != "caller guidance" {
+		t.Fatalf("system[3] = %q, want caller guidance preserved at top level", got)
+	}
+	// messages[] must be untouched: no system-reminder splice.
+	if got := gjson.GetBytes(out, "messages.0.content").String(); got != "hello" {
+		t.Fatalf("messages[0].content should be untouched, got %q", got)
+	}
+}
+
+// TestCheckSystemInstructionsWithMode_ClientToolUseNamedAdvisorRelocatesSystemPrompt
+// is the f86a33f72175 regression test: a client-side tool_use merely named
+// "advisor" is NOT an Anthropic advisor invocation, so the normal relocation
+// path still applies.
+func TestCheckSystemInstructionsWithMode_ClientToolUseNamedAdvisorRelocatesSystemPrompt(t *testing.T) {
+	payload := []byte(`{
+		"model": "claude-opus-5",
+		"system": [{"type": "text", "text": "caller guidance"}],
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_client1", "name": "advisor", "input": {"query": "help"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_client1", "content": "client advice text"}
+			]}
+		]
+	}`)
+
+	out := checkSystemInstructionsWithMode(payload, false)
+
+	blocks := gjson.GetBytes(out, "system").Array()
+	if len(blocks) != 3 {
+		t.Fatalf("system blocks count = %d, want 3 (caller prompt must be relocated): %s", len(blocks), out)
+	}
+	for i, b := range blocks {
+		if strings.Contains(b.Get("text").String(), "caller guidance") {
+			t.Fatalf("system[%d] unexpectedly contains caller guidance: %s", i, b.Raw)
+		}
+	}
+	if got := gjson.GetBytes(out, "messages.0.content").String(); got != expectedForwardedSystemReminder("caller guidance")+"hello" {
+		t.Fatalf("messages[0].content should include forwarded system prompt, got %q", got)
+	}
+}
+
+// TestCheckSystemInstructionsWithMode_AdvisorRedactedResultKeepsSystemTopLevel
+// covers advisor_redacted_result nested inside a tool_result, which is also
+// layout-bound (upstream 7c2f6ce0).
+func TestCheckSystemInstructionsWithMode_AdvisorRedactedResultKeepsSystemTopLevel(t *testing.T) {
+	payload := []byte(`{
+		"model": "claude-opus-5",
+		"system": "caller guidance",
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "srvtoolu_1", "content": [
+					{"type": "advisor_redacted_result", "data": "enc"}
+				]}
+			]}
+		]
+	}`)
+
+	out := checkSystemInstructionsWithMode(payload, false)
+
+	blocks := gjson.GetBytes(out, "system").Array()
+	if len(blocks) != 4 {
+		t.Fatalf("system blocks count = %d, want 4 (cloak blocks + preserved caller block): %s", len(blocks), out)
+	}
+	if got := blocks[3].Get("text").String(); got != "caller guidance" {
+		t.Fatalf("system[3] = %q, want caller guidance preserved at top level", got)
+	}
+	if got := gjson.GetBytes(out, "messages.0.content").String(); got != "hello" {
+		t.Fatalf("messages[0].content should be untouched, got %q", got)
+	}
+}
+
+// TestClaudeHistoryHasAdvisorCallOrResult exercises the detector directly,
+// including the f86a33f72175 restriction: client tool_use blocks named
+// "advisor" do not count.
+func TestClaudeHistoryHasAdvisorCallOrResult(t *testing.T) {
+	testCases := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{
+			name:    "server_tool_use advisor",
+			payload: `{"messages":[{"role":"assistant","content":[{"type":"server_tool_use","name":"advisor","id":"s1"}]}]}`,
+			want:    true,
+		},
+		{
+			name:    "client tool_use advisor is ignored",
+			payload: `{"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"advisor","id":"t1"}]}]}`,
+			want:    false,
+		},
+		{
+			name:    "advisor_tool_result",
+			payload: `{"messages":[{"role":"user","content":[{"type":"advisor_tool_result","tool_use_id":"s1"}]}]}`,
+			want:    true,
+		},
+		{
+			name:    "advisor_redacted_result nested in tool_result",
+			payload: `{"messages":[{"role":"user","content":[{"type":"tool_result","content":[{"type":"advisor_redacted_result"}]}]}]}`,
+			want:    true,
+		},
+		{
+			name:    "server_tool_use named something else",
+			payload: `{"messages":[{"role":"assistant","content":[{"type":"server_tool_use","name":"web_search","id":"s1"}]}]}`,
+			want:    false,
+		},
+		{
+			name:    "no advisor blocks",
+			payload: `{"messages":[{"role":"user","content":"hi"}]}`,
+			want:    false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeHistoryHasAdvisorCallOrResult([]byte(tc.payload)); got != tc.want {
+				t.Fatalf("claudeHistoryHasAdvisorCallOrResult = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

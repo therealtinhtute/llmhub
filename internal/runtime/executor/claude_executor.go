@@ -88,6 +88,14 @@ func NewClaudeExecutor(cfg *config.Config) *ClaudeExecutor { return &ClaudeExecu
 
 func (e *ClaudeExecutor) Identifier() string { return "claude" }
 
+// modelLevelCooling reports whether quota cooldowns are scoped to the requested
+// model rather than the whole credential. Upstream reads
+// cfg.Claude.ModelLevelCooling (44eaef0009f8); this repository's flat schema
+// exposes it as cfg.ClaudeModelLevelCooling.
+func (e *ClaudeExecutor) modelLevelCooling() bool {
+	return e != nil && e.cfg != nil && e.cfg.ClaudeModelLevelCooling
+}
+
 // PrepareRequest injects Claude credentials into the outgoing HTTP request.
 func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
@@ -373,7 +381,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 			helps.RecordAPIResponseError(ctx, e.cfg, decErr)
 			msg := fmt.Sprintf("failed to decode error response body: %v", decErr)
 			helps.LogWithRequestID(ctx).Warn(msg)
-			return resp, statusErr{code: httpResp.StatusCode, msg: msg}
+			return resp, classifyClaudeUpstreamErrorWithCooling(httpResp.StatusCode, httpResp.Header, []byte(msg), e.modelLevelCooling())
 		}
 		b, readErr := io.ReadAll(errBody)
 		if readErr != nil {
@@ -384,7 +392,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		}
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
-		err = statusErr{code: httpResp.StatusCode, msg: string(b)}
+		err = classifyClaudeUpstreamErrorWithCooling(httpResp.StatusCode, httpResp.Header, b, e.modelLevelCooling())
 		if errClose := errBody.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
 		}
@@ -421,16 +429,33 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 			commitClaudeContinuity(diagnosticsState, msgID, helps.HeaderValueCaseInsensitive(httpResp.Header, "request-id"))
 		}
 		lines := bytes.Split(data, []byte("\n"))
-		for _, line := range lines {
+		for i, line := range lines {
+			reporter.ObserveResponseModel(line)
 			if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
 				reporter.Publish(ctx, detail)
 			}
+			restoredLine, errRestore := restoreClaudeOAuthToolNamesFromStreamLine(line, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
+			if errRestore != nil {
+				errRestore = fmt.Errorf("restore Claude OAuth tool name from streaming response: %w", errRestore)
+				helps.RecordAPIResponseError(ctx, e.cfg, errRestore)
+				reporter.PublishFailure(ctx, errRestore)
+				return resp, errRestore
+			}
+			lines[i] = restoredLine
 		}
+		data = bytes.Join(lines, []byte("\n"))
 	} else {
 		commitClaudeContinuity(diagnosticsState, claudeMessageIDFromResponse(data), helps.HeaderValueCaseInsensitive(httpResp.Header, "request-id"))
+		reporter.ObserveResponseModel(data)
 		reporter.Publish(ctx, helps.ParseClaudeUsage(data))
+		var errRestore error
+		data, errRestore = restoreClaudeOAuthToolNamesFromResponse(data, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
+		if errRestore != nil {
+			errRestore = fmt.Errorf("restore Claude OAuth tool name from response: %w", errRestore)
+			helps.RecordAPIResponseError(ctx, e.cfg, errRestore)
+			return resp, errRestore
+		}
 	}
-	data = restoreClaudeOAuthToolNamesFromResponse(data, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
 	var param any
 	out := sdktranslator.TranslateNonStream(
 		ctx,
@@ -667,7 +692,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			helps.RecordAPIResponseError(ctx, e.cfg, decErr)
 			msg := fmt.Sprintf("failed to decode error response body: %v", decErr)
 			helps.LogWithRequestID(ctx).Warn(msg)
-			return nil, statusErr{code: httpResp.StatusCode, msg: msg}
+			return nil, classifyClaudeUpstreamErrorWithCooling(httpResp.StatusCode, httpResp.Header, []byte(msg), e.modelLevelCooling())
 		}
 		b, readErr := io.ReadAll(errBody)
 		if readErr != nil {
@@ -681,7 +706,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		if errClose := errBody.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
 		}
-		err = statusErr{code: httpResp.StatusCode, msg: string(b)}
+		err = classifyClaudeUpstreamErrorWithCooling(httpResp.StatusCode, httpResp.Header, b, e.modelLevelCooling())
 		return nil, err
 	}
 	decodedBody, err := decodeResponseBody(httpResp.Body, httpResp.Header.Get("Content-Encoding"))
@@ -711,10 +736,22 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				line := scanner.Bytes()
 				observeClaudeStreamLine(line, &upstreamMessageID, &upstreamCompleted)
 				helps.AppendAPIResponseChunk(ctx, e.cfg, line)
+				reporter.ObserveResponseModel(line)
 				if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
 					reporter.Publish(ctx, detail)
 				}
-				line = restoreClaudeOAuthToolNamesFromStreamLine(line, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
+				restoredLine, errRestore := restoreClaudeOAuthToolNamesFromStreamLine(line, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
+				if errRestore != nil {
+					errRestore = fmt.Errorf("restore Claude OAuth tool name from streaming response: %w", errRestore)
+					helps.RecordAPIResponseError(ctx, e.cfg, errRestore)
+					reporter.PublishFailure(ctx, errRestore)
+					select {
+					case out <- cliproxyexecutor.StreamChunk{Err: errRestore}:
+					case <-ctx.Done():
+					}
+					return
+				}
+				line = restoredLine
 				// Forward the line as-is to preserve SSE format
 				cloned := make([]byte, len(line)+1)
 				copy(cloned, line)
@@ -761,10 +798,22 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			line := scanner.Bytes()
 			observeClaudeStreamLine(line, &upstreamMessageID, &upstreamCompleted)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
+			reporter.ObserveResponseModel(line)
 			if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
 				reporter.Publish(ctx, detail)
 			}
-			line = restoreClaudeOAuthToolNamesFromStreamLine(line, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
+			restoredLine, errRestore := restoreClaudeOAuthToolNamesFromStreamLine(line, claudeToolPrefix, auth.ToolPrefixDisabled(), oauthToolNamesReverseMap)
+			if errRestore != nil {
+				errRestore = fmt.Errorf("restore Claude OAuth tool name from streaming response: %w", errRestore)
+				helps.RecordAPIResponseError(ctx, e.cfg, errRestore)
+				reporter.PublishFailure(ctx, errRestore)
+				select {
+				case out <- cliproxyexecutor.StreamChunk{Err: errRestore}:
+				case <-ctx.Done():
+				}
+				return
+			}
+			line = restoredLine
 			chunks := sdktranslator.TranslateStream(
 				ctx,
 				to,
@@ -940,7 +989,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 			helps.RecordAPIResponseError(ctx, e.cfg, decErr)
 			msg := fmt.Sprintf("failed to decode error response body: %v", decErr)
 			helps.LogWithRequestID(ctx).Warn(msg)
-			return cliproxyexecutor.Response{}, statusErr{code: resp.StatusCode, msg: msg}
+			return cliproxyexecutor.Response{}, classifyClaudeUpstreamErrorWithCooling(resp.StatusCode, resp.Header, []byte(msg), e.modelLevelCooling())
 		}
 		b, readErr := io.ReadAll(errBody)
 		if readErr != nil {
@@ -953,7 +1002,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 		if errClose := errBody.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
 		}
-		return cliproxyexecutor.Response{}, statusErr{code: resp.StatusCode, msg: string(b)}
+		return cliproxyexecutor.Response{}, classifyClaudeUpstreamErrorWithCooling(resp.StatusCode, resp.Header, b, e.modelLevelCooling())
 	}
 	decodedBody, err := decodeResponseBody(resp.Body, resp.Header.Get("Content-Encoding"))
 	if err != nil {
@@ -1501,6 +1550,91 @@ var claudeCountTokensBetas = []string{
 	claudeTokenCountingBeta,
 }
 
+// claudeEntitlementError marks an upstream refusal that is a property of the
+// request shape combined with the account's entitlements, not of the credential's
+// health. The auth manager must neither rotate nor cool down on these.
+// (ported from upstream claude_executor_request.go)
+type claudeEntitlementError struct {
+	statusErr
+}
+
+func (claudeEntitlementError) IsRequestScoped() bool {
+	return true
+}
+
+func (claudeEntitlementError) IsCredentialScoped() bool {
+	return false
+}
+
+// claudeRateLimitError carries the credential scope of an upstream 429:
+// credential-scoped rejections cool down every sibling model while
+// model-scoped ones only cool down the requested model state
+// (ported from upstream claude_executor_request.go).
+type claudeRateLimitError struct {
+	statusErr
+	credentialScoped bool
+}
+
+func (e claudeRateLimitError) IsCredentialScoped() bool {
+	return e.credentialScoped
+}
+
+func (e claudeRateLimitError) IsRequestScoped() bool {
+	return false
+}
+
+// classifyClaudeUpstreamError promotes upstream refusals that no other credential
+// can satisfy into request-scoped errors.
+//
+// Anthropic answers a fast-mode request from an account without the matching
+// usage credits with 429 rate_limit_error "Usage credits are required for fast
+// mode". The generic pipeline reads 429 as quota exhaustion: it marks the
+// credential Quota.Exceeded, applies an exponential cooldown and rotates to the
+// next one, which returns the same 429. A single speed:"fast" request would walk
+// the whole Claude pool and cool down every credential, all of which remain
+// perfectly healthy for ordinary traffic. The refusal belongs to the request.
+// (ported from upstream claude_executor_request.go)
+func classifyClaudeUpstreamError(statusCode int, headers http.Header, body []byte) error {
+	return classifyClaudeUpstreamErrorWithCooling(statusCode, headers, body, false)
+}
+
+// classifyClaudeUpstreamErrorWithCooling is classifyClaudeUpstreamError with an
+// explicit model-level cooling switch: when modelLevelCooling is true, even an
+// explicit shared-window (5h/7d) rate-limit rejection stays model-scoped so
+// sibling models on the same credential remain usable
+// (upstream 44eaef0009f8).
+func classifyClaudeUpstreamErrorWithCooling(statusCode int, headers http.Header, body []byte, modelLevelCooling bool) error {
+	var retryAfter *time.Duration
+	if statusCode == http.StatusTooManyRequests || (statusCode >= 400 && statusCode < 600) {
+		retryAfter = helps.ParseClaudeRateLimitReset(headers, time.Now())
+	}
+	err := statusErr{code: statusCode, msg: string(body), retryAfter: retryAfter}
+	if statusCode == http.StatusTooManyRequests {
+		if !modelLevelCooling && helps.ClaudeHeadersIndicateUnifiedRateLimitRejection(headers) {
+			return claudeRateLimitError{statusErr: err, credentialScoped: true}
+		}
+		if claudeBodyIndicatesFastModeCredits(body) {
+			return claudeEntitlementError{err}
+		}
+		// Ordinary model-level Claude 429 (not a unified 5h/7d rejection)
+		return claudeRateLimitError{statusErr: err, credentialScoped: false}
+	}
+	return err
+}
+
+// claudeBodyIndicatesFastModeCredits matches Anthropic's fast-mode entitlement
+// refusal without matching a genuine rate limit, which never mentions fast mode.
+// (ported from upstream claude_executor_request.go)
+func claudeBodyIndicatesFastModeCredits(body []byte) bool {
+	message := strings.ToLower(gjson.GetBytes(body, "error.message").String())
+	if message == "" {
+		message = strings.ToLower(string(body))
+	}
+	return strings.Contains(message, "fast request rejected") ||
+		(strings.Contains(message, "fast") &&
+			(strings.Contains(message, "usage credits") || strings.Contains(message, "credits are required")))
+}
+
 // claudeRequestedBetas collects every beta the caller asked for, from the
 // Anthropic-Beta header and from betas lifted out of the request body.
 func claudeRequestedBetas(incomingBetas string, extraBetas []string) map[string]bool {
@@ -1811,8 +1945,10 @@ func prepareClaudeOAuthToolNamesForUpstream(ctx context.Context, body []byte, pr
 }
 
 // restoreClaudeOAuthToolNamesFromResponse undoes the Claude OAuth tool-name
-// transforms for non-stream responses in reverse order.
-func restoreClaudeOAuthToolNamesFromResponse(body []byte, prefix string, prefixDisabled bool, reverseMap map[string]string) []byte {
+// transforms for non-stream responses in reverse order. A drifted or ambiguous
+// MCP alias that cannot be restored unambiguously is a request-scoped error
+// (upstream 22392c537d95).
+func restoreClaudeOAuthToolNamesFromResponse(body []byte, prefix string, prefixDisabled bool, reverseMap map[string]string) ([]byte, error) {
 	if !prefixDisabled {
 		body = stripClaudeToolPrefixFromResponse(body, prefix)
 	}
@@ -1821,7 +1957,7 @@ func restoreClaudeOAuthToolNamesFromResponse(body []byte, prefix string, prefixD
 
 // restoreClaudeOAuthToolNamesFromStreamLine undoes the Claude OAuth tool-name
 // transforms for SSE lines in reverse order.
-func restoreClaudeOAuthToolNamesFromStreamLine(line []byte, prefix string, prefixDisabled bool, reverseMap map[string]string) []byte {
+func restoreClaudeOAuthToolNamesFromStreamLine(line []byte, prefix string, prefixDisabled bool, reverseMap map[string]string) ([]byte, error) {
 	if !prefixDisabled {
 		line = stripClaudeToolPrefixFromStreamLine(line, prefix)
 	}
@@ -1900,12 +2036,24 @@ func remapOAuthToolNames(body []byte, ctx context.Context) ([]byte, map[string]s
 			}
 			return true
 		})
+		passthroughMCPTools := make([]string, 0, 4)
 		tools.ForEach(func(_, tool gjson.Result) bool {
 			if tool.Get("type").Exists() && tool.Get("type").String() != "" {
 				return true
 			}
 			name := tool.Get("name").String()
-			if name == "" || protectedNames[name] || helps.IsClaudeMCPToolName(name) {
+			if name == "" {
+				return true
+			}
+			if helps.IsClaudeMCPToolName(name) {
+				// Caller-owned MCP tool: forwarded untouched, but tracked so the
+				// response resolver can recover hybrid names when the model mixes
+				// the virtual server prefix with the caller's tool name
+				// (upstream 22392c537d95).
+				passthroughMCPTools = append(passthroughMCPTools, name)
+				return true
+			}
+			if protectedNames[name] {
 				return true
 			}
 			if _, exists := aliasMap[name]; exists {
@@ -1919,6 +2067,7 @@ func remapOAuthToolNames(body []byte, ctx context.Context) ([]byte, map[string]s
 			reservedNames[alias] = true
 			return true
 		})
+		recordPassthroughMCPTools(recordRename, aliasMap, passthroughMCPTools)
 	}
 
 	// 1. Rewrite tools array in a single pass (if present).
@@ -2034,54 +2183,364 @@ func remapOAuthToolNames(body []byte, ctx context.Context) ([]byte, map[string]s
 	return body, reverseMap
 }
 
+// The MCP alias resolver below is ported verbatim-adapted from upstream
+// claude_executor_request.go (end state incl. 22392c537d95 hybrid passthrough
+// recovery). It restores the exact caller-supplied tool name for aliases the
+// model may have mangled, while passing through names that were never remapped.
+
+type claudeMCPAliasParts struct {
+	server   string
+	toolID   string
+	semantic string
+}
+
+type claudeMCPAliasEntry struct {
+	alias    string
+	original string
+	parts    claudeMCPAliasParts
+}
+
+type claudeMCPAliasResolver struct {
+	exact        map[string]string
+	aliases      []claudeMCPAliasEntry
+	servers      map[string]struct{}
+	passthroughs []string
+}
+
+// claudeMCPAliasRestoreError fails the request when an upstream tool name
+// cannot be restored to exactly one caller-declared tool. Silently forwarding
+// a drifted alias would break the client's own tool dispatch, so the refusal
+// is request-scoped: the credential is not at fault (upstream 22392c537d95).
+type claudeMCPAliasRestoreError struct {
+	error
+}
+
+func (e claudeMCPAliasRestoreError) Unwrap() error {
+	return e.error
+}
+
+func (claudeMCPAliasRestoreError) IsRequestScoped() bool {
+	return true
+}
+
+func newClaudeMCPAliasResolver(reverseMap map[string]string) claudeMCPAliasResolver {
+	resolver := claudeMCPAliasResolver{
+		exact:        reverseMap,
+		aliases:      make([]claudeMCPAliasEntry, 0, len(reverseMap)),
+		servers:      make(map[string]struct{}),
+		passthroughs: make([]string, 0),
+	}
+	for alias, original := range reverseMap {
+		if alias == original {
+			// Caller-owned MCP tool recorded for exact passthrough and fallback hybrid
+			// recovery. It must not register a virtual server or take part in fuzzy
+			// client-tool alias recovery.
+			resolver.passthroughs = append(resolver.passthroughs, original)
+			continue
+		}
+		parts, ok := parseClaudeMCPAlias(alias)
+		if !ok {
+			continue
+		}
+		resolver.aliases = append(resolver.aliases, claudeMCPAliasEntry{
+			alias:    alias,
+			original: original,
+			parts:    parts,
+		})
+		resolver.servers[parts.server] = struct{}{}
+	}
+	return resolver
+}
+
+func parseClaudeMCPAlias(name string) (claudeMCPAliasParts, bool) {
+	if !helps.IsClaudeMCPToolName(name) {
+		return claudeMCPAliasParts{}, false
+	}
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return claudeMCPAliasParts{}, false
+	}
+	server, tool, ok := strings.Cut(rest, "__")
+	if !ok || server == "" {
+		return claudeMCPAliasParts{}, false
+	}
+	toolID, semantic, ok := strings.Cut(tool, "_")
+	if !ok || toolID == "" || semantic == "" {
+		return claudeMCPAliasParts{}, false
+	}
+	return claudeMCPAliasParts{server: server, toolID: toolID, semantic: semantic}, true
+}
+
+func claudeMCPAliasServer(name string) string {
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return ""
+	}
+	server, _, ok := strings.Cut(rest, "__")
+	if !ok {
+		return ""
+	}
+	return server
+}
+
+// recordPassthroughMCPTools remembers caller-owned MCP tool names that were left
+// untouched. Without this the response resolver would treat such a name as a
+// drifted alias whenever the derived two-word virtual server happens to equal a
+// real MCP server name, and would either restore the wrong tool or fail the
+// request. Recording is skipped when nothing was aliased so an untouched request
+// keeps an empty reverse map and the restore path stays a no-op.
+// (upstream 22392c537d95)
+func recordPassthroughMCPTools(recordRename func(original, renamed string), forwardMap map[string]string, passthrough []string) {
+	if len(forwardMap) == 0 {
+		return
+	}
+	for _, name := range passthrough {
+		recordRename(name, name)
+	}
+}
+
+func (resolver claudeMCPAliasResolver) resolve(name string) (string, bool, error) {
+	if original, ok := resolver.exact[name]; ok {
+		if original == name {
+			// Caller-owned MCP tool: forward it exactly as the client declared it.
+			return "", false, nil
+		}
+		return original, true, nil
+	}
+
+	server := claudeMCPAliasServer(name)
+	if _, known := resolver.servers[server]; !known {
+		return "", false, nil
+	}
+
+	canonicalServerPrefix := "mcp__" + server + "__"
+	normalizedName := name
+	suffix := strings.TrimPrefix(name, canonicalServerPrefix)
+	for {
+		strippedSuffix, repeatedServer := strings.CutPrefix(suffix, server+"__")
+		if !repeatedServer {
+			break
+		}
+		suffix = strippedSuffix
+		normalizedName = canonicalServerPrefix + suffix
+		if original, exact := resolver.exact[normalizedName]; exact {
+			return original, true, nil
+		}
+	}
+
+	matchedOriginal := ""
+	matchCount := 0
+	for _, entry := range resolver.aliases {
+		if entry.parts.server == server && strings.HasSuffix(name, entry.alias) {
+			matchedOriginal = entry.original
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return matchedOriginal, true, nil
+	}
+	if matchCount > 1 {
+		return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: matched multiple declared aliases", name)}
+	}
+
+	parts, validAlias := parseClaudeMCPAlias(normalizedName)
+	if validAlias {
+		for _, entry := range resolver.aliases {
+			if entry.parts.server == parts.server && entry.parts.semantic == parts.semantic {
+				matchedOriginal = entry.original
+				matchCount++
+			}
+		}
+	}
+	// Extra words in the tool component still parse, but the semantic field
+	// is then wrong. Fall through to an unambiguous suffix match so word-level
+	// repeats do not become restore 500s.
+	if matchCount == 0 {
+		var suffixMatches []claudeMCPAliasEntry
+		for _, entry := range resolver.aliases {
+			if entry.parts.server == server && strings.HasSuffix(normalizedName, "_"+entry.parts.semantic) {
+				suffixMatches = append(suffixMatches, entry)
+			}
+		}
+		if len(suffixMatches) == 1 {
+			matchedOriginal = suffixMatches[0].original
+			matchCount = 1
+		} else if len(suffixMatches) > 1 {
+			// If multiple candidates match (e.g. "_file" and "_read_file"),
+			// choose the strictly longest semantic match when unambiguous.
+			longest := suffixMatches[0]
+			tie := false
+			for _, candidate := range suffixMatches[1:] {
+				if len(candidate.parts.semantic) > len(longest.parts.semantic) {
+					longest = candidate
+					tie = false
+				} else if len(candidate.parts.semantic) == len(longest.parts.semantic) {
+					tie = true
+				}
+			}
+			if !tie {
+				matchedOriginal = longest.original
+				matchCount = 1
+			} else {
+				matchCount = len(suffixMatches)
+			}
+		}
+		if matchCount == 1 {
+			// This path guesses instead of failing, so leave a trace: it is the only
+			// way to tell a silent wrong-tool restore from a healthy request.
+			log.Debugf("claude oauth mcp alias: recovered drifted tool name %q as %q via semantic suffix", name, matchedOriginal)
+		}
+	}
+	if matchCount == 1 {
+		return matchedOriginal, true, nil
+	}
+	if matchCount > 1 {
+		return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: semantic suffix matches multiple declared tools", name)}
+	}
+
+	if len(resolver.passthroughs) > 0 {
+		// Recovery 1: The model prepended the virtual server to the full caller MCP tool name
+		// (e.g. "mcp__<virtual>__<real_server>__<tool>"). After stripping the virtual server prefix,
+		// re-prefixing suffix with "mcp__" produces the original caller tool name.
+		reprefixed := "mcp__" + suffix
+		if original, exact := resolver.exact[reprefixed]; exact && original == reprefixed {
+			log.Debugf("claude oauth mcp alias: recovered hybrid passthrough tool name %q as %q via exact prefix", name, original)
+			return original, true, nil
+		}
+
+		// Recovery 2: The model replaced the caller's server with the virtual server
+		// (e.g. "mcp__<virtual>__<tool>"). Match suffix against the tool component of
+		// declared passthrough tools. This runs strictly after client-tool alias recovery
+		// so that a client tool (e.g. "Bash") is never eclipsed by a passthrough tool
+		// with the same suffix (e.g. "mcp__shell__Bash").
+		matchedPassthrough := ""
+		passthroughMatches := 0
+		for _, pt := range resolver.passthroughs {
+			toolPart := pt
+			if rest, ok := strings.CutPrefix(pt, "mcp__"); ok {
+				if _, tool, ok := strings.Cut(rest, "__"); ok {
+					toolPart = tool
+				}
+			}
+			if toolPart == suffix {
+				matchedPassthrough = pt
+				passthroughMatches++
+			}
+		}
+		if passthroughMatches == 1 {
+			log.Debugf("claude oauth mcp alias: recovered hybrid passthrough tool name %q as %q via unique tool suffix", name, matchedPassthrough)
+			return matchedPassthrough, true, nil
+		}
+		if passthroughMatches > 1 {
+			return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: passthrough tool suffix matches multiple declared tools", name)}
+		}
+	}
+
+	return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: no unique request-local match", name)}
+}
+
 // reverseRemapOAuthToolNames reverses the tool name mapping for non-stream responses
-// using the per-request map produced by remapOAuthToolNames. Names the client sent
-// that were NOT forward-renamed are passed through unchanged.
-func reverseRemapOAuthToolNames(body []byte, reverseMap map[string]string) []byte {
+// using the per-request map produced by remapOAuthToolNames. Names outside the
+// request-local generated MCP server are passed through unchanged
+// (resolver ported from upstream claude_executor_request.go, incl. 22392c537d95).
+func reverseRemapOAuthToolNames(body []byte, reverseMap map[string]string) ([]byte, error) {
 	if len(reverseMap) == 0 {
-		return body
+		return body, nil
 	}
 	content := gjson.GetBytes(body, "content")
 	if !content.Exists() || !content.IsArray() {
-		return body
+		return body, nil
 	}
+	resolver := newClaudeMCPAliasResolver(reverseMap)
+	var resolveErr error
 	content.ForEach(func(index, part gjson.Result) bool {
 		partType := part.Get("type").String()
 		switch partType {
 		case "tool_use":
 			name := part.Get("name").String()
-			if origName, ok := reverseMap[name]; ok {
+			origName, matched, errResolve := resolver.resolve(name)
+			if errResolve != nil {
+				resolveErr = errResolve
+				return false
+			}
+			if matched {
 				path := fmt.Sprintf("content.%d.name", index.Int())
 				body, _ = sjson.SetBytes(body, path, origName)
 			}
 		case "tool_reference":
 			toolName := part.Get("tool_name").String()
-			if origName, ok := reverseMap[toolName]; ok {
+			origName, matched, errResolve := resolver.resolve(toolName)
+			if errResolve != nil {
+				resolveErr = errResolve
+				return false
+			}
+			if matched {
 				path := fmt.Sprintf("content.%d.tool_name", index.Int())
 				body, _ = sjson.SetBytes(body, path, origName)
 			}
+		case "tool_result":
+			nestedContent := part.Get("content")
+			if nestedContent.Exists() && nestedContent.IsArray() {
+				nestedContent.ForEach(func(nestedIndex, nestedPart gjson.Result) bool {
+					if nestedPart.Get("type").String() != "tool_reference" {
+						return true
+					}
+					toolName := nestedPart.Get("tool_name").String()
+					origName, matched, errResolve := resolver.resolve(toolName)
+					if errResolve != nil {
+						resolveErr = errResolve
+						return false
+					}
+					if matched {
+						path := fmt.Sprintf("content.%d.content.%d.tool_name", index.Int(), nestedIndex.Int())
+						body, _ = sjson.SetBytes(body, path, origName)
+					}
+					return true
+				})
+			}
+		case "tool_search_tool_result":
+			toolRefs := part.Get("content.tool_references")
+			if toolRefs.Exists() && toolRefs.IsArray() {
+				toolRefs.ForEach(func(refIndex, refPart gjson.Result) bool {
+					if refPart.Get("type").String() != "tool_reference" {
+						return true
+					}
+					toolName := refPart.Get("tool_name").String()
+					origName, matched, errResolve := resolver.resolve(toolName)
+					if errResolve != nil {
+						resolveErr = errResolve
+						return false
+					}
+					if matched {
+						path := fmt.Sprintf("content.%d.content.tool_references.%d.tool_name", index.Int(), refIndex.Int())
+						body, _ = sjson.SetBytes(body, path, origName)
+					}
+					return true
+				})
+			}
 		}
-		return true
+		return resolveErr == nil
 	})
-	return body
+	return body, resolveErr
 }
 
 // reverseRemapOAuthToolNamesFromStreamLine reverses the tool name mapping for SSE
 // stream lines, using the per-request reverseMap produced by remapOAuthToolNames.
-func reverseRemapOAuthToolNamesFromStreamLine(line []byte, reverseMap map[string]string) []byte {
+func reverseRemapOAuthToolNamesFromStreamLine(line []byte, reverseMap map[string]string) ([]byte, error) {
 	if len(reverseMap) == 0 {
-		return line
+		return line, nil
 	}
 	payload := helps.JSONPayload(line)
 	if len(payload) == 0 || !gjson.ValidBytes(payload) {
-		return line
+		return line, nil
 	}
 
 	contentBlock := gjson.GetBytes(payload, "content_block")
 	if !contentBlock.Exists() {
-		return line
+		return line, nil
 	}
 
+	resolver := newClaudeMCPAliasResolver(reverseMap)
 	blockType := contentBlock.Get("type").String()
 	var updated []byte
 	var err error
@@ -2089,33 +2548,74 @@ func reverseRemapOAuthToolNamesFromStreamLine(line []byte, reverseMap map[string
 	switch blockType {
 	case "tool_use":
 		name := contentBlock.Get("name").String()
-		if origName, ok := reverseMap[name]; ok {
-			updated, err = sjson.SetBytes(payload, "content_block.name", origName)
-			if err != nil {
-				return line
-			}
-		} else {
-			return line
+		origName, matched, errResolve := resolver.resolve(name)
+		if errResolve != nil {
+			return line, errResolve
 		}
+		if !matched {
+			return line, nil
+		}
+		updated, err = sjson.SetBytes(payload, "content_block.name", origName)
 	case "tool_reference":
 		toolName := contentBlock.Get("tool_name").String()
-		if origName, ok := reverseMap[toolName]; ok {
-			updated, err = sjson.SetBytes(payload, "content_block.tool_name", origName)
-			if err != nil {
-				return line
-			}
-		} else {
-			return line
+		origName, matched, errResolve := resolver.resolve(toolName)
+		if errResolve != nil {
+			return line, errResolve
 		}
+		if !matched {
+			return line, nil
+		}
+		updated, err = sjson.SetBytes(payload, "content_block.tool_name", origName)
+	case "tool_search_tool_result":
+		toolRefs := contentBlock.Get("content.tool_references")
+		if !toolRefs.Exists() || !toolRefs.IsArray() {
+			return line, nil
+		}
+		updatedPayload := payload
+		var resolveErr error
+		hasChange := false
+		toolRefs.ForEach(func(refIndex, refPart gjson.Result) bool {
+			if refPart.Get("type").String() != "tool_reference" {
+				return true
+			}
+			toolName := refPart.Get("tool_name").String()
+			origName, matched, errResolve := resolver.resolve(toolName)
+			if errResolve != nil {
+				resolveErr = errResolve
+				return false
+			}
+			if matched {
+				path := fmt.Sprintf("content_block.content.tool_references.%d.tool_name", refIndex.Int())
+				updatedPayload, err = sjson.SetBytes(updatedPayload, path, origName)
+				if err != nil {
+					return false
+				}
+				hasChange = true
+			}
+			return true
+		})
+		if resolveErr != nil {
+			return line, resolveErr
+		}
+		if err != nil {
+			return line, fmt.Errorf("rewrite Claude OAuth MCP tool alias: %w", err)
+		}
+		if !hasChange {
+			return line, nil
+		}
+		updated = updatedPayload
 	default:
-		return line
+		return line, nil
+	}
+	if err != nil {
+		return line, fmt.Errorf("rewrite Claude OAuth MCP tool alias: %w", err)
 	}
 
 	trimmed := bytes.TrimSpace(line)
 	if bytes.HasPrefix(trimmed, []byte("data:")) {
-		return append([]byte("data: "), updated...)
+		return append([]byte("data: "), updated...), nil
 	}
-	return updated
+	return updated, nil
 }
 
 func applyClaudeToolPrefix(body []byte, prefix string) []byte {
@@ -2678,12 +3178,12 @@ func checkSystemInstructionsWithSigningMode(payload []byte, strictMode bool, exp
 	}
 	systemBlocks = append(systemBlocks, staticBlock)
 
-	systemResult := "[" + strings.Join(systemBlocks, ",") + "]"
-	payload, _ = sjson.SetRawBytes(payload, "system", []byte(systemResult))
-
-	// Collect user system instructions and prepend to first user message
+	// Collect user system instructions before serializing system so histories
+	// bound to an advisor call/result keep them at top level instead of a
+	// mid-conversation splice (upstream 7c2f6ce0; advisor detection restricted
+	// to server_tool_use by f86a33f72175).
+	var userSystemParts []string
 	if !strictMode {
-		var userSystemParts []string
 		if system.IsArray() {
 			system.ForEach(func(_, part gjson.Result) bool {
 				if part.Get("type").String() == "text" {
@@ -2697,7 +3197,28 @@ func checkSystemInstructionsWithSigningMode(payload []byte, strictMode bool, exp
 		} else if system.Type == gjson.String && strings.TrimSpace(system.String()) != "" {
 			userSystemParts = append(userSystemParts, strings.TrimSpace(system.String()))
 		}
+	}
 
+	advisorHistory := len(userSystemParts) > 0 && claudeHistoryHasAdvisorCallOrResult(payload)
+	if advisorHistory {
+		// The encrypted advisor result is bound to the message layout; keep the
+		// caller's system blocks in top-level system so messages[] is untouched.
+		if oauthMode {
+			if combined := sanitizeForwardedSystemPrompt(strings.Join(userSystemParts, "\n\n")); combined != "" {
+				systemBlocks = append(systemBlocks, buildTextBlock(combined, nil))
+			}
+		} else {
+			for _, part := range userSystemParts {
+				systemBlocks = append(systemBlocks, buildTextBlock(part, nil))
+			}
+		}
+	}
+
+	systemResult := "[" + strings.Join(systemBlocks, ",") + "]"
+	payload, _ = sjson.SetRawBytes(payload, "system", []byte(systemResult))
+
+	// Move user system instructions into the first user message (non-strict mode)
+	if !strictMode && !advisorHistory {
 		if len(userSystemParts) > 0 {
 			combined := strings.Join(userSystemParts, "\n\n")
 			if oauthMode {
@@ -2710,6 +3231,58 @@ func checkSystemInstructionsWithSigningMode(payload []byte, strictMode bool, exp
 	}
 
 	return payload
+}
+
+// claudeHistoryHasAdvisorCallOrResult reports whether messages contains an
+// advisor tool invocation (server_tool_use) or advisor result
+// (advisor_tool_result / advisor_redacted_result). Anthropic cryptographically
+// binds the encrypted advisor result to the conversation layout; any
+// mid-conversation system splice shifts message indices and causes upstream
+// 400 errors.
+//
+// Ported in its upstream end state: only server_tool_use blocks count as
+// advisor invocations — a client-side tool_use merely named "advisor" must not
+// trigger advisor cloaking restrictions (upstream f86a33f72175).
+func claudeHistoryHasAdvisorCallOrResult(payload []byte) bool {
+	messages := gjson.GetBytes(payload, "messages")
+	if !messages.IsArray() {
+		return false
+	}
+	for _, msg := range messages.Array() {
+		content := msg.Get("content")
+		if content.IsArray() {
+			for _, block := range content.Array() {
+				blockType := block.Get("type").String()
+				switch blockType {
+				case "advisor_tool_result", "advisor_redacted_result":
+					return true
+				case "server_tool_use":
+					if block.Get("name").String() == "advisor" {
+						return true
+					}
+				case "tool_result":
+					inner := block.Get("content")
+					if inner.IsArray() {
+						for _, b := range inner.Array() {
+							if b.Get("type").String() == "advisor_redacted_result" {
+								return true
+							}
+						}
+					} else if inner.IsObject() {
+						if inner.Get("type").String() == "advisor_redacted_result" {
+							return true
+						}
+					}
+				}
+			}
+		} else if content.IsObject() {
+			blockType := content.Get("type").String()
+			if blockType == "advisor_tool_result" || blockType == "advisor_redacted_result" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sanitizeForwardedSystemPrompt reduces forwarded third-party system context to a

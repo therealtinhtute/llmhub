@@ -33,6 +33,9 @@ type liveHTTPExecutor struct {
 	requestBody    string
 	authorization  string
 	protocolHeader string
+	statusCode     int
+	responseBody   string
+	contentType    string
 }
 
 func (e *liveHTTPExecutor) Identifier() string { return "codex" }
@@ -57,6 +60,17 @@ func (e *liveHTTPExecutor) HttpRequest(_ context.Context, _ *coreauth.Auth, req 
 	e.requestBody = string(body)
 	e.authorization = req.Header.Get("Authorization")
 	e.protocolHeader = req.Header.Get("OpenAI-Alpha")
+	if e.statusCode != 0 {
+		header := http.Header{}
+		if e.contentType != "" {
+			header.Set("Content-Type", e.contentType)
+		}
+		return &http.Response{
+			StatusCode: e.statusCode,
+			Header:     header,
+			Body:       io.NopCloser(strings.NewReader(e.responseBody)),
+		}, nil
+	}
 	return &http.Response{
 		StatusCode: http.StatusCreated,
 		Header: http.Header{
@@ -388,5 +402,85 @@ func TestCreateCallCapturesSessionOwner(t *testing.T) {
 	}
 	if session.OwnerPrincipal != "principal-1" || session.OwnerProvider != "token" {
 		t.Fatalf("session owner = %q/%q, want principal-1/token", session.OwnerPrincipal, session.OwnerProvider)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 9a2201c36a0a semantics: a rejected
+// upstream bootstrap response is forwarded verbatim instead of being replaced
+// with a generic error.
+func TestCreateCallForwardsUpstreamUnauthorizedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	executor := &liveHTTPExecutor{
+		statusCode:   http.StatusUnauthorized,
+		responseBody: `{"error":{"message":"access token expired"}}`,
+		contentType:  "application/json",
+	}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	_, _ = manager.Register(context.Background(), &coreauth.Auth{ID: "codex-auth", Provider: "codex"})
+	settings := runtimecontrol.DefaultSettings()
+	settings.CodexLive.Enabled = true
+	handler := New(manager, &liveSettingsStore{settings: settings})
+
+	router := gin.New()
+	router.POST("/backend-api/codex/realtime/calls", handler.CreateCall)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/realtime/calls", strings.NewReader(`{"session":{"model":"gpt-live-1-codex"}}`))
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != `{"error":{"message":"access token expired"}}` {
+		t.Fatalf("body = %q, want exact upstream body", got)
+	}
+	if _, ok := handler.sessions.Peek("call-123"); ok {
+		t.Fatal("session stored for unauthorized upstream response")
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 9a2201c36a0a semantics: a rejected
+// sideband websocket handshake forwards the upstream 401 status and body.
+func TestSidebandForwardsRejectedHandshakeUnauthorizedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"access token expired"}}`))
+	}))
+	defer upstreamServer.Close()
+	oldBaseURL := sidebandBaseURL
+	sidebandBaseURL = func() string { return "ws" + strings.TrimPrefix(upstreamServer.URL, "http") }
+	defer func() { sidebandBaseURL = oldBaseURL }()
+
+	executor := &liveHTTPExecutor{}
+	manager := coreauth.NewManager(nil, nil, nil)
+	manager.RegisterExecutor(executor)
+	_, _ = manager.Register(context.Background(), &coreauth.Auth{ID: "codex-auth", Provider: "codex"})
+	settings := runtimecontrol.DefaultSettings()
+	settings.CodexLive.Enabled = true
+	handler := New(manager, &liveSettingsStore{settings: settings})
+	handler.sessions.Put("call-123", liveSession("codex-auth"))
+
+	router := gin.New()
+	router.GET("/backend-api/codex/live/:call_id", handler.Sideband)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	_, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/backend-api/codex/live/call-123", nil)
+	if err == nil {
+		t.Fatal("expected rejected downstream websocket handshake")
+	}
+	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		t.Fatalf("downstream handshake status = %d, want %d", status, http.StatusUnauthorized)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if got := string(body); got != `{"error":{"message":"access token expired"}}` {
+		t.Fatalf("body = %q, want exact upstream body", got)
 	}
 }

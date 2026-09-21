@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/therealtinhtute/llmhub/internal/clienterror"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/thinking"
@@ -668,19 +669,7 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
-		status := http.StatusInternalServerError
-		if se, ok := err.(interface{ StatusCode() int }); ok && se != nil {
-			if code := se.StatusCode(); code > 0 {
-				status = code
-			}
-		}
-		var addon http.Header
-		if he, ok := err.(interface{ Headers() http.Header }); ok && he != nil {
-			if hdr := he.Headers(); hdr != nil {
-				addon = hdr.Clone()
-			}
-		}
-		errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		errMsg := executionErrorMessage(err)
 		if plugin != nil {
 			_, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: false, Error: errMsg})
 			if hookErr != nil {
@@ -740,19 +729,7 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 	resp, err := h.AuthManager.ExecuteCount(ctx, providers, req, opts)
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
-		status := http.StatusInternalServerError
-		if se, ok := err.(interface{ StatusCode() int }); ok && se != nil {
-			if code := se.StatusCode(); code > 0 {
-				status = code
-			}
-		}
-		var addon http.Header
-		if he, ok := err.(interface{ Headers() http.Header }); ok && he != nil {
-			if hdr := he.Headers(); hdr != nil {
-				addon = hdr.Clone()
-			}
-		}
-		return nil, nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		return nil, nil, executionErrorMessage(err)
 	}
 	if !PassthroughHeadersEnabled(h.Cfg) {
 		return resp.Payload, nil, nil
@@ -877,19 +854,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 	if err != nil {
 		err = enrichAuthSelectionError(err, execProviders, normalizedModel)
 		errChan := make(chan *interfaces.ErrorMessage, 1)
-		status := http.StatusInternalServerError
-		if se, ok := err.(interface{ StatusCode() int }); ok && se != nil {
-			if code := se.StatusCode(); code > 0 {
-				status = code
-			}
-		}
-		var addon http.Header
-		if he, ok := err.(interface{ Headers() http.Header }); ok && he != nil {
-			if hdr := he.Headers(); hdr != nil {
-				addon = hdr.Clone()
-			}
-		}
-		errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		errMsg := executionErrorMessage(err)
 		if plugin != nil {
 			_, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: true, Error: errMsg})
 			if hookErr != nil {
@@ -1039,19 +1004,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 						}
 					}
 
-					status := http.StatusInternalServerError
-					if se, ok := streamErr.(interface{ StatusCode() int }); ok && se != nil {
-						if code := se.StatusCode(); code > 0 {
-							status = code
-						}
-					}
-					var addon http.Header
-					if he, ok := streamErr.(interface{ Headers() http.Header }); ok && he != nil {
-						if hdr := he.Headers(); hdr != nil {
-							addon = hdr.Clone()
-						}
-					}
-					errMsg := &interfaces.ErrorMessage{StatusCode: status, Error: streamErr, Addon: addon}
+					errMsg := executionErrorMessage(streamErr)
 					if plugin != nil {
 						decision, hookErr := plugin.InterceptAfter(ctx, lifecycleReq, &RequestLifecycleResponse{Stream: true, Headers: cloneHeader(upstreamHeaders), Error: errMsg})
 						if hookErr != nil {
@@ -1376,11 +1329,59 @@ func enrichAuthSelectionError(err error, providers []string, model string) error
 	return enriched
 }
 
+// ExecutionErrorMessage converts an execution error into an ErrorMessage,
+// preserving marked direct-response bodies supplied by trusted components.
+// Ported from upstream CLIProxyAPI sdk/api/handlers/handlers_execution.go.
+func ExecutionErrorMessage(err error) *interfaces.ErrorMessage {
+	return executionErrorMessage(err)
+}
+
+func executionErrorMessage(err error) *interfaces.ErrorMessage {
+	status := http.StatusInternalServerError
+	if code := clienterror.HTTPStatusFromError(err); code > 0 {
+		status = code
+	}
+	type directResponseError interface {
+		DirectResponse() bool
+		ResponseBody() []byte
+	}
+	var direct directResponseError
+	if errors.As(err, &direct) && direct != nil && direct.DirectResponse() {
+		body := direct.ResponseBody()
+		var headers http.Header
+		if len(body) > 0 {
+			contentType := http.DetectContentType(body)
+			if json.Valid(body) {
+				contentType = "application/json"
+			}
+			headers = http.Header{"Content-Type": []string{contentType}}
+		}
+		return &interfaces.ErrorMessage{
+			StatusCode:     status,
+			Error:          err,
+			DirectResponse: true,
+			Body:           body,
+			Headers:        headers,
+		}
+	}
+	var addon http.Header
+	if he, ok := err.(interface{ Headers() http.Header }); ok && he != nil {
+		if hdr := he.Headers(); hdr != nil {
+			addon = hdr.Clone()
+		}
+	}
+	return &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+}
+
 // WriteErrorResponse writes an error message to the response writer using the HTTP status embedded in the message.
 func (h *BaseAPIHandler) WriteErrorResponse(c *gin.Context, msg *interfaces.ErrorMessage) {
 	status := http.StatusInternalServerError
 	if msg != nil && msg.StatusCode > 0 {
 		status = msg.StatusCode
+	}
+	if msg != nil && msg.DirectResponse {
+		writeDirectErrorResponse(c, status, msg)
+		return
 	}
 	if msg != nil && msg.Error != nil {
 		for _, value := range coreauth.SafeResponseHeaders(msg.Error).Values("Retry-After") {
@@ -1432,6 +1433,28 @@ func (h *BaseAPIHandler) WriteErrorResponse(c *gin.Context, msg *interfaces.Erro
 	}
 
 	if !c.Writer.Written() {
+		c.Writer.Header().Set("Content-Type", "application/json")
+	}
+	c.Status(status)
+	_, _ = c.Writer.Write(body)
+}
+
+// writeDirectErrorResponse emits a preformatted downstream response supplied by
+// a trusted in-process component (e.g. a marked Home refresh upstream error).
+// Ported from upstream CLIProxyAPI sdk/api/handlers/handlers_errors.go.
+func writeDirectErrorResponse(c *gin.Context, status int, msg *interfaces.ErrorMessage) {
+	for key, values := range FilterUpstreamHeaders(msg.Headers) {
+		if len(values) == 0 {
+			continue
+		}
+		c.Writer.Header().Del(key)
+		for _, value := range values {
+			c.Writer.Header().Add(key, value)
+		}
+	}
+	body := bytes.Clone(msg.Body)
+	appendAPIResponse(c, body)
+	if !c.Writer.Written() && c.Writer.Header().Get("Content-Type") == "" {
 		c.Writer.Header().Set("Content-Type", "application/json")
 	}
 	c.Status(status)

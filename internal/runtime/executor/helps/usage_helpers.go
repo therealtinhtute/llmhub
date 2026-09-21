@@ -627,8 +627,20 @@ func failFromErrors(errs ...error) usage.Failure {
 		if err == nil {
 			continue
 		}
+		body := strings.TrimSpace(err.Error())
+		// Ported from upstream 9a2201c36a0a: prefer a marked upstream response
+		// body over the flattened error text for usage failure records.
+		type responseBodyProvider interface {
+			ResponseBody() []byte
+		}
+		var responseErr responseBodyProvider
+		if errors.As(err, &responseErr) && responseErr != nil {
+			if responseBody := responseErr.ResponseBody(); len(responseBody) > 0 {
+				body = string(responseBody)
+			}
+		}
 		fail := usage.Failure{
-			Body: strings.TrimSpace(err.Error()),
+			Body: body,
 		}
 		var se interface{ StatusCode() int }
 		if errors.As(err, &se) && se != nil {

@@ -10,15 +10,22 @@ import (
 
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/home"
+	"github.com/therealtinhtute/llmhub/internal/logging"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 type homeStatusErr struct {
-	code int
-	msg  string
+	code       int
+	msg        string
+	diagnostic string
+	errorType  string
+	upstream   bool
 }
 
 func (e homeStatusErr) Error() string {
+	if e.upstream {
+		return e.msg
+	}
 	if e.msg != "" {
 		return e.msg
 	}
@@ -27,14 +34,48 @@ func (e homeStatusErr) Error() string {
 
 func (e homeStatusErr) StatusCode() int { return e.code }
 
+func (e homeStatusErr) LogDiagnostic() string {
+	if strings.TrimSpace(e.diagnostic) != "" {
+		return logging.SafeDiagnosticForLog(e.diagnostic)
+	}
+	if e.upstream {
+		return fmt.Sprintf("Home refresh upstream response: status=%d", e.code)
+	}
+	if errorType := strings.ToLower(strings.TrimSpace(e.errorType)); errorType != "" {
+		return logging.SafeDiagnosticForLog("Home refresh failed: type=" + errorType)
+	}
+	return logging.SafeDiagnosticForLog(e.Error())
+}
+
+func (e homeStatusErr) DirectResponse() bool { return e.upstream }
+
+func (e homeStatusErr) ResponseBody() []byte {
+	if !e.upstream {
+		return nil
+	}
+	return []byte(e.msg)
+}
+
 type homeErrorEnvelope struct {
 	Error *homeErrorDetail `json:"error"`
 }
 
+type homeRefreshAuthEnvelope struct {
+	Auth      cliproxyauth.Auth `json:"auth"`
+	AuthIndex string            `json:"auth_index"`
+}
+
 type homeErrorDetail struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
+	Type       string                `json:"type"`
+	Message    string                `json:"message"`
+	Code       string                `json:"code,omitempty"`
+	Diagnostic string                `json:"diagnostic,omitempty"`
+	Upstream   *homeUpstreamResponse `json:"upstream,omitempty"`
+}
+
+type homeUpstreamResponse struct {
+	Status int    `json:"status"`
+	Body   []byte `json:"body"`
 }
 
 type homeRefreshClient interface {
@@ -77,11 +118,16 @@ func RefreshAuthViaHome(ctx context.Context, cfg *config.Config, auth *cliproxya
 	if err != nil {
 		// Preserve request-scoped context errors so cancellation and deadline
 		// propagate to the caller; redact everything else so transport details or
-		// provider secrets are never leaked into refresh results.
+		// provider secrets are never leaked into refresh results. The allowlisted
+		// diagnostic keeps the failure class visible to operators.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, true, err
 		}
-		return nil, true, homeStatusErr{code: http.StatusServiceUnavailable, msg: "home refresh temporarily unavailable"}
+		return nil, true, homeStatusErr{
+			code:       http.StatusServiceUnavailable,
+			msg:        "home refresh temporarily unavailable",
+			diagnostic: "Home refresh transport failed: " + logging.SafeErrorDiagnostic(err),
+		}
 	}
 
 	var env homeErrorEnvelope
@@ -89,6 +135,15 @@ func RefreshAuthViaHome(ctx context.Context, cfg *config.Config, auth *cliproxya
 		code := strings.TrimSpace(env.Error.Type)
 		if code == "" {
 			code = strings.TrimSpace(env.Error.Code)
+		}
+		if env.Error.Upstream != nil {
+			return nil, true, homeStatusErr{
+				code:       env.Error.Upstream.Status,
+				msg:        string(env.Error.Upstream.Body),
+				diagnostic: env.Error.Diagnostic,
+				errorType:  code,
+				upstream:   true,
+			}
 		}
 		// Never echo the upstream error.message: it may carry provider secrets.
 		// Map to a redacted, status-appropriate message instead.
@@ -100,23 +155,49 @@ func RefreshAuthViaHome(ctx context.Context, cfg *config.Config, auth *cliproxya
 		case http.StatusNotFound:
 			message = "credential refresh target not found"
 		}
-		return nil, true, homeStatusErr{code: statusCode, msg: message}
+		return nil, true, homeStatusErr{code: statusCode, msg: message, diagnostic: env.Error.Diagnostic, errorType: code}
 	}
 
-	var updated cliproxyauth.Auth
-	if errUnmarshal := json.Unmarshal(raw, &updated); errUnmarshal != nil {
-		return nil, true, homeStatusErr{code: http.StatusBadGateway, msg: "home returned invalid auth payload"}
+	updated, returnedIndex, errParse := parseHomeRefreshAuth(raw)
+	if errParse != nil {
+		return nil, true, homeStatusErr{
+			code:       http.StatusBadGateway,
+			msg:        "home returned invalid auth payload",
+			diagnostic: "Home refresh response decode failed: " + logging.SafeErrorDiagnostic(errParse),
+		}
 	}
 	if updated.Disabled || updated.Status == cliproxyauth.StatusDisabled {
 		return nil, true, homeStatusErr{code: http.StatusUnauthorized, msg: "credential unauthorized"}
 	}
+	if returnedIndex != "" {
+		authIndex = returnedIndex
+	}
 	updated.Index = authIndex
 	updated.EnsureIndex()
-	return &updated, true, nil
+	return updated, true, nil
 }
 
 func authAccessTokenSHA256(auth *cliproxyauth.Auth) string {
 	return cliproxyauth.AccessTokenSHA256(auth)
+}
+
+func parseHomeRefreshAuth(raw []byte) (*cliproxyauth.Auth, string, error) {
+	var rawObject map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(raw, &rawObject); errUnmarshal != nil {
+		return nil, "", errUnmarshal
+	}
+	if _, ok := rawObject["auth"]; ok {
+		var envelope homeRefreshAuthEnvelope
+		if errUnmarshal := json.Unmarshal(raw, &envelope); errUnmarshal != nil {
+			return nil, "", errUnmarshal
+		}
+		return &envelope.Auth, strings.TrimSpace(envelope.AuthIndex), nil
+	}
+	var updated cliproxyauth.Auth
+	if errUnmarshal := json.Unmarshal(raw, &updated); errUnmarshal != nil {
+		return nil, "", errUnmarshal
+	}
+	return &updated, "", nil
 }
 
 func statusFromHomeErrorCode(code string) int {

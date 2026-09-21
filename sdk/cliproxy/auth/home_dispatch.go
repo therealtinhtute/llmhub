@@ -352,18 +352,30 @@ func (m *Manager) prepareHomeRequestAuth(ctx context.Context, executor ProviderE
 		return updated, nil
 	}
 
+	var prepared *Auth
+	var errPrepare error
 	id := strings.TrimSpace(auth.ID)
 	if id == "" {
-		return prepare()
+		prepared, errPrepare = prepare()
+	} else {
+		lockValue, _ := m.requestPrepareLocks.LoadOrStore(id, &requestAuthPrepareLock{})
+		lock, ok := lockValue.(*requestAuthPrepareLock)
+		if !ok || lock == nil {
+			prepared, errPrepare = prepare()
+		} else {
+			func() {
+				lock.mu.Lock()
+				defer lock.mu.Unlock()
+				prepared, errPrepare = prepare()
+			}()
+		}
 	}
-	lockValue, _ := m.requestPrepareLocks.LoadOrStore(id, &requestAuthPrepareLock{})
-	lock, ok := lockValue.(*requestAuthPrepareLock)
-	if !ok || lock == nil {
-		return prepare()
+	// Ported from upstream 9a2201c36a0a: surface a sanitized credential
+	// diagnostic when Home request auth preparation fails.
+	if errPrepare != nil {
+		warnLogHomeCredentialFailure(ctx, "request_auth_preparation", selection.Provider, auth, errPrepare)
 	}
-	lock.mu.Lock()
-	defer lock.mu.Unlock()
-	return prepare()
+	return prepared, errPrepare
 }
 
 func (m *Manager) reportHomeResult(ctx context.Context, result Result, auth *Auth) {

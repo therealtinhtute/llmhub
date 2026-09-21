@@ -50,16 +50,22 @@ func ReadBody(body io.Reader) ([]byte, error) {
 	return payload, nil
 }
 
+// ReadLimitedBody reads at most MaxBodySize bytes, returning the truncated
+// payload alongside the error so callers can still preserve partial upstream
+// responses for diagnostics and direct forwarding (upstream 9a2201c36a0a).
 func ReadLimitedBody(body io.Reader) ([]byte, error) {
 	if body == nil {
 		return nil, nil
 	}
 	payload, err := io.ReadAll(io.LimitReader(body, MaxBodySize+1))
 	if err != nil {
-		return nil, err
+		if len(payload) > MaxBodySize {
+			payload = payload[:MaxBodySize]
+		}
+		return payload, err
 	}
 	if len(payload) > MaxBodySize {
-		return nil, ErrBodyTooLarge
+		return payload[:MaxBodySize], ErrBodyTooLarge
 	}
 	return payload, nil
 }

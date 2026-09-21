@@ -11,6 +11,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
@@ -74,17 +75,46 @@ func formatAuthIdentity(auth *Auth, provider string) string {
 	}
 }
 
-func summarizeErrorForLog(err error) string {
+// warnLogHomeCredentialFailure emits a warn-level diagnostic when a Home-owned
+// credential operation (e.g. request auth preparation) fails.
+// Ported from upstream CLIProxyAPI commits 9a2201c36a0a and e4a8f9891344.
+func warnLogHomeCredentialFailure(ctx context.Context, operation, provider string, auth *Auth, err error) {
+	if err == nil {
+		return
+	}
+	provider = strings.TrimSpace(provider)
+	if provider == "" && auth != nil {
+		provider = strings.TrimSpace(auth.Provider)
+	}
+	fields := log.Fields{
+		"auth":      formatAuthIdentity(auth, provider),
+		"operation": operation,
+		"provider":  provider,
+	}
+	if statusCode := statusCodeFromError(err); statusCode != 0 {
+		fields["status"] = statusCode
+	}
+	logEntryWithRequestID(ctx).WithFields(fields).Warnf("Home credential operation failed: err=%s", safeErrorDiagnosticForLog(err))
+}
+
+// safeErrorDiagnosticForLog prefers a marked LogDiagnostic() payload (already
+// sanitized by the producer) and otherwise redacts the free-form error text.
+// Ported from upstream CLIProxyAPI commit e4a8f9891344.
+func safeErrorDiagnosticForLog(err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := strings.TrimSpace(err.Error())
-	const maxRunes = 300
-	runes := []rune(msg)
-	if len(runes) > maxRunes {
-		return string(runes[:maxRunes]) + "..."
+	diagnostic := err.Error()
+	type logDiagnosticError interface {
+		LogDiagnostic() string
 	}
-	return msg
+	var diagnosticErr logDiagnosticError
+	if errors.As(err, &diagnosticErr) && diagnosticErr != nil {
+		if markedDiagnostic := strings.TrimSpace(diagnosticErr.LogDiagnostic()); markedDiagnostic != "" {
+			diagnostic = markedDiagnostic
+		}
+	}
+	return logging.SafeDiagnosticForLog(diagnostic)
 }
 
 func warnLogUpstreamFailure(ctx context.Context, entry *log.Entry, provider, model string, auth *Auth, duration time.Duration, err error) {
@@ -108,8 +138,13 @@ func warnLogUpstreamFailure(ctx context.Context, entry *log.Entry, provider, mod
 		}
 	}
 	authIdent := formatAuthIdentity(auth, provider)
-	errSummary := summarizeErrorForLog(err)
-	entry.Warnf("upstream execution failed: provider=%s model=%s auth=%s duration=%s err=%s", provider, model, authIdent, duration.Round(time.Millisecond), errSummary)
+	errSummary := safeErrorDiagnosticForLog(err)
+	duration = duration.Round(time.Millisecond)
+	if statusCode := statusCodeFromError(err); statusCode != 0 {
+		entry.Warnf("%3d | %13v | upstream execution failed: provider=%s model=%s auth=%s err=%s", statusCode, duration, provider, model, authIdent, errSummary)
+		return
+	}
+	entry.Warnf("upstream execution failed: provider=%s model=%s auth=%s duration=%s err=%s", provider, model, authIdent, duration, errSummary)
 }
 
 func authCoolingSummary(auth *Auth, model string, next time.Time, now time.Time) string {

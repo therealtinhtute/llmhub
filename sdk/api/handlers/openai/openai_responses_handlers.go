@@ -974,6 +974,12 @@ func (e *responsesStreamSanitizedError) Error() string { return e.message }
 func (e *responsesStreamSanitizedError) Unwrap() error { return e.cause }
 
 func sanitizeResponsesInitialErrorMessage(errMsg *interfaces.ErrorMessage) *interfaces.ErrorMessage {
+	// Marked direct responses carry a trusted preformatted body; forward them
+	// untouched instead of collapsing them into a sanitized envelope (upstream
+	// 9a2201c36a0a).
+	if errMsg != nil && errMsg.DirectResponse {
+		return errMsg
+	}
 	return sanitizeResponsesStreamErrorMessage(errMsg)
 }
 
@@ -988,6 +994,8 @@ func sanitizeResponsesStreamErrorMessage(errMsg *interfaces.ErrorMessage) *inter
 	safe := *errMsg
 	safe.StatusCode = status
 	safe.Error = &responsesStreamSanitizedError{message: responsesStreamErrorText(errMsg, status), cause: errMsg.Error}
+	safe.DirectResponse = false
+	safe.Body = nil
 	return &safe
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/client/codex/live"
+	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxysession "github.com/therealtinhtute/llmhub/sdk/cliproxy/session"
@@ -100,11 +101,23 @@ func (h *Handler) CreateCall(c *gin.Context) {
 	defer resp.Body.Close()
 
 	responseHeaders := live.CallResponseHeaders(resp.Header)
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := live.ReadLimitedBody(resp.Body)
 	if err != nil {
+		// Preserve a safe single-line diagnostic for the truncated/failed read;
+		// the client still receives a generic gateway error (upstream 9a2201c36a0a).
+		if resp.StatusCode == http.StatusUnauthorized {
+			diagnosticBody := responseBody
+			if len(diagnosticBody) == 0 {
+				diagnosticBody = []byte(err.Error())
+			}
+			log.WithField("status", resp.StatusCode).Warnf("codex live upstream request failed: %s", logging.SafeDiagnosticForLog(string(diagnosticBody)))
+		}
 		closeMediaSession(mediaSession)
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to read Codex live response"})
 		return
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		log.WithField("status", resp.StatusCode).Warnf("codex live upstream request failed: %s", logging.SafeDiagnosticForLog(string(responseBody)))
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && mediaSession != nil {
 		responseBody, responseHeaders, err = acceptMediaAnswer(c.Request.Context(), mediaSession, responseBody, resp.Header, responseHeaders)
@@ -200,11 +213,39 @@ func (h *Handler) Sideband(c *gin.Context) {
 	upstream, handshake, err := dialer.DialContext(c.Request.Context(), upstreamURL, req.Header)
 	if err != nil {
 		status := http.StatusBadGateway
-		if handshake != nil && handshake.StatusCode > 0 {
-			status = handshake.StatusCode
+		var responseBody []byte
+		if handshake != nil {
+			if handshake.StatusCode > 0 {
+				status = handshake.StatusCode
+			}
+			copyRealtimeHandshakeHeaders(c.Writer.Header(), handshake.Header)
 			if handshake.Body != nil {
+				var errRead error
+				responseBody, errRead = live.ReadLimitedBody(handshake.Body)
+				if errRead != nil {
+					log.Errorf("codex live sideband: read rejected handshake body error: %v", errRead)
+				}
 				_ = handshake.Body.Close()
 			}
+		}
+		// Ported from upstream CLIProxyAPI commit 9a2201c36a0a: forward the
+		// upstream 401 handshake body verbatim instead of a generic error.
+		if handshake != nil && handshake.StatusCode == http.StatusUnauthorized {
+			diagnosticBody := responseBody
+			if len(diagnosticBody) == 0 {
+				diagnosticBody = []byte(err.Error())
+			}
+			log.WithField("status", status).Warnf("codex live sideband upstream handshake failed: %s", logging.SafeDiagnosticForLog(string(diagnosticBody)))
+			if contentType := handshake.Header.Get("Content-Type"); contentType != "" {
+				c.Header("Content-Type", contentType)
+			}
+			c.Status(handshake.StatusCode)
+			if len(responseBody) > 0 {
+				if _, errWrite := c.Writer.Write(responseBody); errWrite != nil {
+					log.WithError(errWrite).Warn("codex live sideband: write rejected handshake body failed")
+				}
+			}
+			return
 		}
 		c.JSON(status, gin.H{"error": "Codex Live sideband upstream unavailable"})
 		return
@@ -299,10 +340,22 @@ func (h *Handler) HandleHangup(c *gin.Context) {
 			log.Warnf("codex realtime hangup: close response body error: %v", errClose)
 		}
 	}()
-	responseBody, errRead := live.ReadBody(resp.Body)
+	responseBody, errRead := live.ReadLimitedBody(resp.Body)
 	if errRead != nil {
+		// Ported from upstream CLIProxyAPI commit 9a2201c36a0a: keep a safe
+		// diagnostic for unauthorized reads even when the body is truncated.
+		if resp.StatusCode == http.StatusUnauthorized {
+			diagnosticBody := responseBody
+			if len(diagnosticBody) == 0 {
+				diagnosticBody = []byte(errRead.Error())
+			}
+			log.WithField("status", resp.StatusCode).Warnf("codex realtime hangup upstream request failed: %s", logging.SafeDiagnosticForLog(string(diagnosticBody)))
+		}
 		writeRealtimeError(c, http.StatusBadGateway, "Failed to read Realtime hangup response", "api_error", "realtime_upstream_unavailable")
 		return
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		log.WithField("status", resp.StatusCode).Warnf("codex realtime hangup upstream request failed: %s", logging.SafeDiagnosticForLog(string(responseBody)))
 	}
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		h.sessions.Complete(session)

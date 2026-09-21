@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	. "github.com/therealtinhtute/llmhub/internal/constant"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	"github.com/therealtinhtute/llmhub/sdk/api/handlers"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -355,6 +355,27 @@ func (h *ClaudeCodeAPIHandler) WriteErrorResponse(c *gin.Context, msg *interface
 	status := http.StatusInternalServerError
 	if msg != nil && msg.StatusCode > 0 {
 		status = msg.StatusCode
+	}
+	// Ported from upstream CLIProxyAPI sdk/api/handlers/claude/code_handlers.go:
+	// marked direct responses carry a preformatted upstream body verbatim.
+	if msg != nil && msg.DirectResponse {
+		for key, values := range handlers.FilterUpstreamHeaders(msg.Headers) {
+			if len(values) == 0 {
+				continue
+			}
+			c.Writer.Header().Del(key)
+			for _, value := range values {
+				c.Writer.Header().Add(key, value)
+			}
+		}
+		body := bytes.Clone(msg.Body)
+		appendClaudeAPIResponse(c, body)
+		if !c.Writer.Written() && c.Writer.Header().Get("Content-Type") == "" {
+			c.Writer.Header().Set("Content-Type", "application/json")
+		}
+		c.Status(status)
+		_, _ = c.Writer.Write(body)
+		return
 	}
 	if msg != nil && msg.Addon != nil && handlers.PassthroughHeadersEnabled(h.Cfg) {
 		for key, values := range msg.Addon {

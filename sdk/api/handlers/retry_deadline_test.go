@@ -10,29 +10,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/therealtinhtute/llmhub/internal/clienterror"
-	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 )
-
-// executionErrorMessage mirrors the upstream helper of the same name
-// (sdk/api/handlers/handlers_execution.go) for the paths exercised here:
-// locally the same status/header extraction is inlined at the
-// execute*WithAuthManager call sites.
-func executionErrorMessage(err error) *interfaces.ErrorMessage {
-	status := http.StatusInternalServerError
-	if code := clienterror.HTTPStatusFromError(err); code > 0 {
-		status = code
-	}
-	var addon http.Header
-	if he, ok := err.(interface{ Headers() http.Header }); ok && he != nil {
-		if hdr := he.Headers(); hdr != nil {
-			addon = hdr.Clone()
-		}
-	}
-	return &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
-}
 
 // Ported from upstream CLIProxyAPI commit 6724a95851f9
 // (sdk/api/handlers/retry_deadline_test.go). Local adaptation: model-scoped

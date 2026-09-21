@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +16,27 @@ import (
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	sdkconfig "github.com/therealtinhtute/llmhub/sdk/config"
 )
+
+// Ported from upstream CLIProxyAPI commit 9a2201c36a0a.
+type directResponseTestError struct {
+	status int
+	body   []byte
+	direct bool
+}
+
+func (e directResponseTestError) Error() string        { return string(e.body) }
+func (e directResponseTestError) StatusCode() int      { return e.status }
+func (e directResponseTestError) DirectResponse() bool { return e.direct }
+func (e directResponseTestError) ResponseBody() []byte { return e.body }
+
+type responseBodyOnlyTestError struct {
+	status int
+	body   []byte
+}
+
+func (e responseBodyOnlyTestError) Error() string        { return string(e.body) }
+func (e responseBodyOnlyTestError) StatusCode() int      { return e.status }
+func (e responseBodyOnlyTestError) ResponseBody() []byte { return e.body }
 
 func TestWriteErrorResponse_AddonHeadersDisabledByDefault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -85,6 +107,94 @@ func TestWriteErrorResponse_TrustedHomeBusyRetryAfter(t *testing.T) {
 
 	if got := recorder.Header().Get("Retry-After"); got != "1" {
 		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+}
+
+// Ported from upstream CLIProxyAPI sdk/api/handlers/handlers_error_response_test.go,
+// adapted: CPA-reserved response header assertions (x-cpa-trace-id, CORS) are
+// omitted because the local header filter has no cpaReservedResponseHeaders.
+func TestWriteErrorResponseDirectResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	handler := NewBaseAPIHandlers(nil, nil)
+	handler.WriteErrorResponse(c, &interfaces.ErrorMessage{
+		StatusCode:     http.StatusForbidden,
+		DirectResponse: true,
+		Body:           []byte(`{"error":"blocked"}`),
+		Headers: http.Header{
+			"Content-Type":    {"application/problem+json"},
+			"X-Plugin-Policy": {"blocked"},
+		},
+	})
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+	if got := recorder.Body.String(); got != `{"error":"blocked"}` {
+		t.Fatalf("body = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := recorder.Header().Get("X-Plugin-Policy"); got != "blocked" {
+		t.Fatalf("X-Plugin-Policy = %q", got)
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 9a2201c36a0a.
+func TestExecutionErrorMessagePreservesMarkedResponseBodyExactly(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		body        []byte
+		contentType string
+	}{
+		{name: "json", status: http.StatusBadRequest, body: []byte(`{"error":"invalid_request"}`), contentType: "application/json"},
+		{name: "text", status: http.StatusBadGateway, body: []byte("provider unavailable"), contentType: "text/plain; charset=utf-8"},
+		{name: "multiline", status: http.StatusTooManyRequests, body: []byte("first line\r\nsecond line\n"), contentType: "text/plain; charset=utf-8"},
+		{name: "empty", status: http.StatusUnauthorized, body: []byte{}, contentType: "application/json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+			errUpstream := directResponseTestError{status: tt.status, body: tt.body, direct: true}
+			msg := executionErrorMessage(errUpstream)
+			if msg == nil || !msg.DirectResponse {
+				t.Fatalf("executionErrorMessage() direct response = %#v, want true", msg)
+			}
+			NewBaseAPIHandlers(nil, nil).WriteErrorResponse(c, msg)
+			if recorder.Code != tt.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, tt.status)
+			}
+			if got := recorder.Body.Bytes(); !bytes.Equal(got, tt.body) {
+				t.Fatalf("body = %q, want exact body %q", got, tt.body)
+			}
+			if got := recorder.Header().Get("Content-Type"); got != tt.contentType {
+				t.Fatalf("Content-Type = %q, want %q", got, tt.contentType)
+			}
+		})
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit 9a2201c36a0a.
+func TestExecutionErrorMessageDoesNotTrustResponseBodyWithoutMarker(t *testing.T) {
+	errUnmarked := responseBodyOnlyTestError{
+		status: http.StatusBadGateway,
+		body:   []byte("unmarked upstream body"),
+	}
+	msg := executionErrorMessage(errUnmarked)
+	if msg == nil {
+		t.Fatal("executionErrorMessage() returned nil")
+	}
+	if msg.DirectResponse {
+		t.Fatal("executionErrorMessage() trusted an unmarked response body")
 	}
 }
 

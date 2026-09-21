@@ -111,7 +111,7 @@ func RecordAPIResponseMetadata(ctx context.Context, cfg *config.Config, status i
 		return
 	}
 	attempts, attempt := ensureAttempt(ginCtx)
-	ensureResponseIntro(attempt)
+	ensureResponseIntro(ginCtx, attempt)
 
 	if status > 0 && !attempt.statusWritten {
 		attempt.response.WriteString(fmt.Sprintf("Status: %d\n", status))
@@ -137,7 +137,7 @@ func RecordAPIResponseError(ctx context.Context, cfg *config.Config, err error) 
 		return
 	}
 	attempts, attempt := ensureAttempt(ginCtx)
-	ensureResponseIntro(attempt)
+	ensureResponseIntro(ginCtx, attempt)
 
 	if attempt.bodyStarted && !attempt.bodyHasContent {
 		// Ensure body does not stay empty marker if error arrives first.
@@ -166,7 +166,7 @@ func AppendAPIResponseChunk(ctx context.Context, cfg *config.Config, chunk []byt
 		return
 	}
 	attempts, attempt := ensureAttempt(ginCtx)
-	ensureResponseIntro(attempt)
+	ensureResponseIntro(ginCtx, attempt)
 
 	if !attempt.headersWritten {
 		attempt.response.WriteString("Headers:\n")
@@ -370,9 +370,33 @@ func ensureAttempt(ginCtx *gin.Context) ([]*upstreamAttempt, *upstreamAttempt) {
 	return attempts, attempts[len(attempts)-1]
 }
 
-func ensureResponseIntro(attempt *upstreamAttempt) {
+// ensureResponseIntro writes the response banner for an attempt. Ported from
+// upstream e4a8f9891344: before starting a new attempt's response, pad the
+// previous attempt so consecutive attempts are separated by one blank line.
+// Upstream tracks trailing newlines incrementally because responses may stream
+// to a file source; the local generation aggregates in-memory builders, so the
+// trailing newline count is derived from the previous attempt's buffer.
+func ensureResponseIntro(ginCtx *gin.Context, attempt *upstreamAttempt) {
 	if attempt == nil || attempt.response == nil || attempt.responseIntroWritten {
 		return
+	}
+	attempts := getAttempts(ginCtx)
+	for i := len(attempts) - 1; i >= 0; i-- {
+		previousAttempt := attempts[i]
+		if previousAttempt == nil || previousAttempt == attempt || !previousAttempt.responseIntroWritten {
+			continue
+		}
+		if previousAttempt.response != nil {
+			previousText := previousAttempt.response.String()
+			trailingNewlines := 0
+			for j := len(previousText) - 1; j >= 0 && previousText[j] == '\n'; j-- {
+				trailingNewlines++
+			}
+			if missingNewlines := 2 - trailingNewlines; missingNewlines > 0 {
+				attempt.response.WriteString(strings.Repeat("\n", missingNewlines))
+			}
+		}
+		break
 	}
 	attempt.response.WriteString(fmt.Sprintf("=== API RESPONSE %d ===\n", attempt.index))
 	attempt.response.WriteString(fmt.Sprintf("Timestamp: %s\n", time.Now().Format(time.RFC3339Nano)))
@@ -396,7 +420,7 @@ func updateAggregatedResponse(ginCtx *gin.Context, attempts []*upstreamAttempt) 
 		return
 	}
 	var builder strings.Builder
-	for idx, attempt := range attempts {
+	for _, attempt := range attempts {
 		if attempt == nil || attempt.response == nil {
 			continue
 		}
@@ -405,12 +429,9 @@ func updateAggregatedResponse(ginCtx *gin.Context, attempts []*upstreamAttempt) 
 			continue
 		}
 		builder.WriteString(responseText)
-		if !strings.HasSuffix(responseText, "\n") {
-			builder.WriteString("\n")
-		}
-		if idx < len(attempts)-1 {
-			builder.WriteString("\n")
-		}
+	}
+	if responseText := builder.String(); responseText != "" && !strings.HasSuffix(responseText, "\n") {
+		builder.WriteString("\n")
 	}
 	ginCtx.Set(apiResponseKey, []byte(builder.String()))
 }

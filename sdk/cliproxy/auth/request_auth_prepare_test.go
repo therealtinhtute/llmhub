@@ -39,6 +39,7 @@ func (s *requestPrepareStore) lastAuth() *Auth {
 type requestPrepareExecutor struct {
 	prepareCalls atomic.Int32
 	executeCalls atomic.Int32
+	prepareErr   error
 }
 
 func (e *requestPrepareExecutor) Identifier() string { return "antigravity" }
@@ -49,6 +50,9 @@ func (e *requestPrepareExecutor) ShouldPrepareRequestAuth(auth *Auth) bool {
 
 func (e *requestPrepareExecutor) PrepareRequestAuth(_ context.Context, auth *Auth) (*Auth, error) {
 	e.prepareCalls.Add(1)
+	if e.prepareErr != nil {
+		return nil, e.prepareErr
+	}
 	updated := auth.Clone()
 	if updated.Metadata == nil {
 		updated.Metadata = make(map[string]any)

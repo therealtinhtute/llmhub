@@ -2,6 +2,7 @@ package helps
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -160,6 +161,18 @@ func TestUsageReporterBuildRecordIncludesRequestedModelAlias(t *testing.T) {
 	}
 	if record.Alias != "client-gpt" {
 		t.Fatalf("alias = %q, want %q", record.Alias, "client-gpt")
+	}
+}
+
+func TestNewExecutorUsageReporterIncludesExecutorType(t *testing.T) {
+	reporter := NewExecutorUsageReporter(context.Background(), &TestUsageExecutor{}, "gpt-5.4", nil)
+
+	record := reporter.buildRecord(usage.Detail{TotalTokens: 3}, false)
+	if record.Provider != "test-provider" {
+		t.Fatalf("provider = %q, want %q", record.Provider, "test-provider")
+	}
+	if record.ExecutorType != "TestUsageExecutor" {
+		t.Fatalf("executor type = %q, want %q", record.ExecutorType, "TestUsageExecutor")
 	}
 }
 
@@ -526,6 +539,57 @@ func TestParseInteractionsUsage_CacheSemantics(t *testing.T) {
 			}
 			if detail.CachedTokens != tt.wantCachedAggregate {
 				t.Errorf("CachedTokens = %d, want %d", detail.CachedTokens, tt.wantCachedAggregate)
+			}
+		})
+	}
+}
+
+type TestUsageExecutor struct{}
+
+func (TestUsageExecutor) Identifier() string {
+	return "test-provider"
+}
+
+// Ported from upstream CLIProxyAPI commit 9a2201c36a0a.
+type usageResponseBodyError struct {
+	status  int
+	message string
+	body    []byte
+}
+
+func (e usageResponseBodyError) Error() string {
+	return e.message
+}
+
+func (e usageResponseBodyError) StatusCode() int {
+	return e.status
+}
+
+func (e usageResponseBodyError) ResponseBody() []byte {
+	return e.body
+}
+
+func TestFailFromErrorsPrefersResponseBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "original response body", body: []byte(" \n{\"error\":\"upstream rejected request\"}\r\n")},
+		{name: "empty response body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errExecute := fmt.Errorf("execute failed: %w", usageResponseBodyError{
+				status:  http.StatusUnauthorized,
+				message: "generic upstream error",
+				body:    tc.body,
+			})
+			failure := failFromErrors(errExecute)
+			wantBody := errExecute.Error()
+			if len(tc.body) > 0 {
+				wantBody = string(tc.body)
+			}
+			if failure.StatusCode != http.StatusUnauthorized || failure.Body != wantBody {
+				t.Fatalf("failure = %#v, want status %d body %q", failure, http.StatusUnauthorized, wantBody)
 			}
 		})
 	}

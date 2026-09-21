@@ -17,4 +17,13 @@ type ErrorMessage struct {
 
 	// Addon contains additional headers to be added to the response.
 	Addon http.Header
+
+	// DirectResponse reports that Body and Headers were explicitly supplied by a trusted in-process component.
+	DirectResponse bool
+
+	// Body contains a preformatted downstream response when DirectResponse is true.
+	Body []byte
+
+	// Headers contains downstream response headers when DirectResponse is true.
+	Headers http.Header
 }

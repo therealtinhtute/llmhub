@@ -28,14 +28,15 @@
    "branding-docs",
    "ci-infra"
   ],
-  "defer": [
-   "home-401-refresh-revert",
-   "home-401-diagnostics",
-   "home-port-normalize",
-   "gitstore-recovery",
-   "namespace-responses-tools",
-   "claude-allowed-warning"
-  ]
+  "defer": [],
+  "defer_resolved": {
+   "claude-allowed-warning": "closed: helps/claude_ratelimit.go ported in v7.3.9 cycle already contains isClaudeWindowAllowed with allowed_warning",
+   "home-port-normalize": "closed: not applicable — llmhub has no Home-provided server listen port (Postgres config + LLMHUB_PORT override); internal/home client already guards Port <= 0",
+   "home-401-refresh-revert": "closed: upstream revert a63da8ae removed PR #4687 recovery wiring that never existed locally; RefreshAuthViaHome retained upstream-side too",
+   "namespace-responses-tools": "closed: 03a054e3 + 37411842 covered by local ResponsesToolDeclarationTable (resolveChatCallName candidate loop, SetResponsesToolCallIdentity); ea37d13a custom_tool_call claude<->responses ported in this batch",
+   "gitstore-recovery": "closed: GITSTORE_GIT_URL rejected by legacyRuntimeModeError — gitstore is disabled dead code; Postgres is authoritative runtime store",
+   "home-401-diagnostics": "ported in this batch (SafeDiagnosticForLog, homeStatusErr diagnostics, DirectResponse consumers)"
+  }
  },
  "checkpoint": {
   "tag": "v7.3.9",

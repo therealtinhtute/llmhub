@@ -10,6 +10,8 @@ export type OAuthProvider =
   | 'antigravity'
   | 'gemini-cli'
   | 'kimi'
+  | 'xai'
+  | 'meta'
   | 'devin';
 
 // OAuth 流程状态

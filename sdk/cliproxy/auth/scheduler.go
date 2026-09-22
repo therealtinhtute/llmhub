@@ -318,7 +318,7 @@ func (s *authScheduler) pickSingle(ctx context.Context, provider, model string, 
 	if s == nil {
 		return nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	providerKey := strings.ToLower(strings.TrimSpace(provider))
+	providerKey := canonicalSchedulingProvider(provider)
 	modelKey := canonicalModelKey(model)
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	preferWebsocket := cliproxyexecutor.DownstreamWebsocket(ctx) && providerKey == "codex" && pinnedAuthID == ""
@@ -642,7 +642,7 @@ func normalizeProviderKeys(providers []string) []string {
 	seen := make(map[string]struct{}, len(providers))
 	out := make([]string, 0, len(providers))
 	for _, provider := range providers {
-		providerKey := strings.ToLower(strings.TrimSpace(provider))
+		providerKey := canonicalSchedulingProvider(provider)
 		if providerKey == "" {
 			continue
 		}
@@ -684,7 +684,7 @@ func (s *authScheduler) upsertAuthLocked(auth *Auth, now time.Time) {
 		updatedAt:  auth.UpdatedAt,
 	}
 
-	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
+	providerKey := canonicalSchedulingProvider(auth.Provider)
 	if providerKey == "" || auth.Disabled || auth.Status == StatusDisabled {
 		s.removeAuthFromProvidersLocked(authID)
 		return
@@ -740,7 +740,7 @@ func (s *authScheduler) ensureProviderLocked(providerKey string) *providerSchedu
 
 // buildScheduledAuthMeta extracts the scheduling metadata needed for shard bookkeeping.
 func buildScheduledAuthMeta(auth *Auth) *scheduledAuthMeta {
-	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
+	providerKey := canonicalSchedulingProvider(auth.Provider)
 	virtualParent := ""
 	if auth.Attributes != nil {
 		virtualParent = strings.TrimSpace(auth.Attributes["gemini_virtual_parent"])

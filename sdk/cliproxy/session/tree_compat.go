@@ -15,6 +15,9 @@ type SessionTreeNode struct {
 	TreePath        string         `json:"tree_path"`
 	TreeDepth       int            `json:"tree_depth"`
 	AgentName       string         `json:"agent_name,omitempty"`
+	NodeKind        string         `json:"node_kind,omitempty"`
+	IsFork          bool           `json:"is_fork,omitempty"`
+	IsCompaction    bool           `json:"is_compaction,omitempty"`
 	ClientType      string         `json:"client_type,omitempty"`
 	CallerScope     string         `json:"caller_scope,omitempty"`
 	LastAuthID      string         `json:"last_auth_id,omitempty"`
@@ -87,6 +90,9 @@ func (s *InMemorySessionTreeStore) RecordNode(info SessionTreeInfo) *SessionTree
 		TreePath:        info.SessionID,
 		TreeDepth:       0,
 		AgentName:       info.AgentName,
+		NodeKind:        info.NodeKind,
+		IsFork:          info.IsFork,
+		IsCompaction:    info.IsCompaction,
 		ClientType:      info.ClientType,
 		CallerScope:     info.CallerScope,
 		LastAuthID:      info.AuthID,

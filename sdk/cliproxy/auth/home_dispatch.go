@@ -383,6 +383,7 @@ func (m *Manager) reportHomeResult(ctx context.Context, result Result, auth *Aut
 		return
 	}
 	m.hook.OnResult(ctx, result)
+	m.updateSessionAffinity(result)
 }
 
 func (m *Manager) endHomeSelectionBeforeRedispatch(ctx context.Context, selection *HomeDispatchSelection, reason string) error {
@@ -447,6 +448,11 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 		return nil, &Error{Code: "home_unavailable", Message: "home execution registry unavailable", Retryable: true, HTTPStatus: http.StatusServiceUnavailable}
 	}
 
+	if opts.Metadata != nil {
+		if opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] == nil && requestedModel != "" {
+			opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = requestedModel
+		}
+	}
 	sessionID, parentSessionID := m.homeDispatchSessionIDs(opts)
 	if sessionID != "" && opts.Metadata != nil {
 		opts.Metadata[cliproxyexecutor.CanonicalSessionIDMetadataKey] = sessionID
@@ -456,7 +462,16 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 			delete(opts.Metadata, cliproxyexecutor.ParentSessionIDMetadataKey)
 		}
 	}
-	raw, errRPop := client.RPopAuth(ctx, requestedModel, sessionID, homeDispatchHeaders(ctx, opts.Headers), homeAuthCountFromMetadata(opts.Metadata))
+	dispatchHeaders := homeDispatchHeaders(ctx, opts.Headers)
+	if opts.Metadata != nil {
+		if nodeKind, ok := opts.Metadata[cliproxyexecutor.NodeKindMetadataKey].(string); ok && strings.TrimSpace(nodeKind) != "" {
+			if dispatchHeaders == nil {
+				dispatchHeaders = make(http.Header)
+			}
+			dispatchHeaders.Set("X-Node-Kind", strings.TrimSpace(nodeKind))
+		}
+	}
+	raw, errRPop := client.RPopAuth(ctx, requestedModel, sessionID, dispatchHeaders, homeAuthCountFromMetadata(opts.Metadata))
 	if errRPop != nil {
 		if home.IsAmbiguousDispatchError(errRPop) {
 			client.AbortAmbiguousDispatch()

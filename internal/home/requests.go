@@ -8,6 +8,7 @@ type authDispatchRequest struct {
 	Count               int               `json:"count"`
 	ConcurrencyProtocol int               `json:"concurrency_protocol,omitempty"`
 	SessionID           string            `json:"session_id,omitempty"`
+	NodeKind            string            `json:"node_kind,omitempty"`
 	Headers             map[string]string `json:"headers,omitempty"`
 }
 

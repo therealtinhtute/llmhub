@@ -185,7 +185,7 @@ func (m *Manager) warnLogAuthUnavailable(ctx context.Context, providers []string
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	providerSet := make(map[string]struct{}, len(providers))
 	for _, p := range providers {
-		if norm := strings.TrimSpace(strings.ToLower(p)); norm != "" && norm != "mixed" {
+		if norm := canonicalSchedulingProvider(p); norm != "" && norm != "mixed" {
 			providerSet[norm] = struct{}{}
 		}
 	}
@@ -203,7 +203,7 @@ func (m *Manager) warnLogAuthUnavailable(ctx context.Context, providers []string
 				continue
 			}
 		}
-		if _, ok := m.executors[providerKey]; !ok {
+		if _, ok := m.executorLocked(providerKey); !ok {
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {

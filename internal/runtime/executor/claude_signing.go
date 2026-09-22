@@ -92,3 +92,22 @@ func isClaudeCCHApprovedOrigin(origin string) bool {
 	port := parsed.Port()
 	return port == "" || port == "443"
 }
+
+func isKimiAPIEndpoint(endpoint string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	return strings.EqualFold(host, "api.kimi.com") || strings.EqualFold(host, "api.kimi.ai")
+}
+
+func isKimiMessagesUpstream(auth *cliproxyauth.Auth, endpoint string) bool {
+	if auth != nil {
+		provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+		if provider == "kimi" || provider == "kimi-ai" || provider == "kimi.ai" || provider == "kimi.com" {
+			return true
+		}
+	}
+	return isKimiAPIEndpoint(endpoint)
+}

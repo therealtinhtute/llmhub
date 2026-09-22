@@ -897,12 +897,17 @@ func newAuthDispatchRequest(requestedModel string, sessionID string, headers htt
 	if count <= 0 {
 		count = 1
 	}
+	nodeKind := strings.TrimSpace(headers.Get("X-Node-Kind"))
+	if nodeKind == "" {
+		nodeKind = strings.TrimSpace(headers.Get("x-node-kind"))
+	}
 	return authDispatchRequest{
 		Type:                "auth",
 		Model:               requestedModel,
 		Count:               count,
 		ConcurrencyProtocol: 1,
 		SessionID:           strings.TrimSpace(sessionID),
+		NodeKind:            nodeKind,
 		Headers:             headersToLowerMap(headers),
 	}
 }

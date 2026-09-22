@@ -24,7 +24,8 @@ var oauthProviders = []oauthProvider{
 	{"Claude (Anthropic)", "anthropic-auth-url", "🟧", false},
 	{"Codex (OpenAI)", "codex-auth-url", "🟩", false},
 	{"Antigravity", "antigravity-auth-url", "🟪", false},
-	{"Kimi", "kimi-auth-url", "🟫", true},
+	{"Kimi (kimi.com)", "kimi-auth-url", "🟫", true},
+	{"Kimi (kimi.ai)", "kimi-ai-auth-url", "🟫", true},
 	// Local divergence: upstream v7.3.4 flags xAI deviceFlow=true, but the
 	// upstream xAI device-flow refactor (6e819ab62257 non-cancel share) is a
 	// recorded follow-up (plan NG6) — local xAI is still auth-code + callback.
@@ -379,6 +380,8 @@ func (m oauthTabModel) submitCallback(callbackURL string) tea.Cmd {
 					providerKey = "antigravity"
 				case "kimi-auth-url":
 					providerKey = "kimi"
+				case "kimi-ai-auth-url":
+					providerKey = "kimi-ai"
 				case "xai-auth-url":
 					providerKey = "xai"
 				case "meta-auth-url":

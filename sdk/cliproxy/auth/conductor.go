@@ -3391,7 +3391,7 @@ func (m *Manager) closestCooldownWaitWithAttempted(providers []string, model str
 	}
 	providerSet := make(map[string]struct{}, len(providers))
 	for i := range providers {
-		key := strings.TrimSpace(strings.ToLower(providers[i]))
+		key := canonicalSchedulingProvider(providers[i])
 		if key == "" {
 			continue
 		}
@@ -3407,7 +3407,7 @@ func (m *Manager) closestCooldownWaitWithAttempted(providers []string, model str
 		if auth == nil {
 			continue
 		}
-		providerKey := strings.TrimSpace(strings.ToLower(auth.Provider))
+		providerKey := canonicalSchedulingProvider(auth.Provider)
 		if _, ok := providerSet[providerKey]; !ok {
 			continue
 		}
@@ -3474,7 +3474,7 @@ func (m *Manager) retryAllowed(attempt int, providers []string) bool {
 	}
 	providerSet := make(map[string]struct{}, len(providers))
 	for i := range providers {
-		key := strings.TrimSpace(strings.ToLower(providers[i]))
+		key := canonicalSchedulingProvider(providers[i])
 		if key == "" {
 			continue
 		}
@@ -3490,7 +3490,7 @@ func (m *Manager) retryAllowed(attempt int, providers []string) bool {
 		if auth == nil {
 			continue
 		}
-		providerKey := strings.TrimSpace(strings.ToLower(auth.Provider))
+		providerKey := canonicalSchedulingProvider(auth.Provider)
 		if _, ok := providerSet[providerKey]; !ok {
 			continue
 		}
@@ -5321,17 +5321,30 @@ func (m *Manager) GetExecutionSessionAuthByID(sessionID string, authID string) (
 	return auth.Clone(), true
 }
 
-// Executor returns the registered provider executor for a provider key.
-func (m *Manager) Executor(provider string) (ProviderExecutor, bool) {
-	if m == nil {
-		return nil, false
+// canonicalSchedulingProvider normalizes provider spellings to their canonical
+// scheduling key. kimi.com credentials schedule under "kimi" and kimi.ai
+// credentials under "kimi-ai" so the two OAuth domains stay isolated while
+// dotted aliases resolve to their canonical forms.
+func canonicalSchedulingProvider(key string) string {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	switch lower {
+	case "kimi.com":
+		return "kimi"
+	case "kimi.ai":
+		return "kimi-ai"
+	default:
+		return lower
 	}
+}
+
+// executorLocked resolves the executor for a provider key while the caller holds
+// m.mu (read or write). It tolerates case differences and maps the kimi domain
+// aliases onto the shared "kimi" executor registration.
+func (m *Manager) executorLocked(provider string) (ProviderExecutor, bool) {
 	provider = strings.TrimSpace(provider)
 	if provider == "" {
 		return nil, false
 	}
-
-	m.mu.RLock()
 	executor, okExecutor := m.executors[provider]
 	if !okExecutor {
 		lowerProvider := strings.ToLower(provider)
@@ -5339,12 +5352,81 @@ func (m *Manager) Executor(provider string) (ProviderExecutor, bool) {
 			executor, okExecutor = m.executors[lowerProvider]
 		}
 	}
-	m.mu.RUnlock()
-
+	if !okExecutor {
+		switch strings.ToLower(provider) {
+		case "kimi-ai", "kimi.ai", "kimi.com":
+			executor, okExecutor = m.executors["kimi"]
+		}
+	}
 	if !okExecutor || executor == nil {
 		return nil, false
 	}
 	return executor, true
+}
+
+// Executor returns the registered provider executor for a provider key.
+func (m *Manager) Executor(provider string) (ProviderExecutor, bool) {
+	if m == nil {
+		return nil, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.executorLocked(provider)
+}
+
+// AvailableProviders returns the set of provider keys that currently have at least one
+// registered auth record that is not disabled. It is a best-effort snapshot for routing
+// decisions and does not account for per-model cooldowns or transient runtime availability.
+// Disabled auths (Disabled flag or StatusDisabled) are excluded so routing does not target
+// providers that auth selection would refuse to use, which would otherwise cause execution
+// failures instead of falling back to lower-priority routers.
+func (m *Manager) AvailableProviders() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	seen := make(map[string]struct{}, len(m.auths))
+	out := make([]string, 0, len(m.auths))
+	for _, auth := range m.auths {
+		if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+			continue
+		}
+		provider := canonicalSchedulingProvider(auth.Provider)
+		if provider == "" {
+			continue
+		}
+		if _, ok := seen[provider]; !ok {
+			seen[provider] = struct{}{}
+			out = append(out, provider)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// HasProviderAuth reports whether at least one non-disabled auth record is registered for
+// the provider. Disabled auths (Disabled flag or StatusDisabled) are excluded to match the
+// behavior of auth selection, which refuses to pick disabled credentials.
+func (m *Manager) HasProviderAuth(provider string) bool {
+	if m == nil {
+		return false
+	}
+	targetKey := canonicalSchedulingProvider(provider)
+	if targetKey == "" {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, auth := range m.auths {
+		if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+			continue
+		}
+		if canonicalSchedulingProvider(auth.Provider) == targetKey {
+			return true
+		}
+	}
+	return false
 }
 
 // CloseExecutionSession asks all registered executors to release the supplied execution session.
@@ -5443,7 +5525,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 
 	m.mu.RLock()
-	executor, okExecutor := m.executors[provider]
+	executor, okExecutor := m.executorLocked(provider)
 	if !okExecutor {
 		m.mu.RUnlock()
 		return nil, nil, &Error{Code: "executor_not_found", Message: "executor not registered"}
@@ -5458,8 +5540,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		}
 	}
 	registryRef := registry.GetGlobalRegistry()
+	targetKey := canonicalSchedulingProvider(provider)
 	for _, candidate := range m.auths {
-		if candidate.Provider != provider || candidate.Disabled {
+		if candidate == nil || canonicalSchedulingProvider(candidate.Provider) != targetKey || candidate.Disabled {
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
@@ -5527,8 +5610,9 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 	}
 	if strings.TrimSpace(model) != "" {
 		m.mu.RLock()
+		targetKey := canonicalSchedulingProvider(provider)
 		for _, candidate := range m.auths {
-			if candidate == nil || candidate.Provider != provider || candidate.Disabled {
+			if candidate == nil || canonicalSchedulingProvider(candidate.Provider) != targetKey || candidate.Disabled {
 				continue
 			}
 			if _, used := tried[candidate.ID]; used {
@@ -5593,7 +5677,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 
 	providerSet := make(map[string]struct{}, len(providers))
 	for _, provider := range providers {
-		p := strings.TrimSpace(strings.ToLower(provider))
+		p := canonicalSchedulingProvider(provider)
 		if p == "" {
 			continue
 		}
@@ -5627,7 +5711,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		if codexAlphaSearchRequired(opts) && !authSupportsCodexAlphaSearch(candidate) {
 			continue
 		}
-		providerKey := strings.TrimSpace(strings.ToLower(candidate.Provider))
+		providerKey := canonicalSchedulingProvider(candidate.Provider)
 		if providerKey == "" {
 			continue
 		}
@@ -5637,7 +5721,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		if _, used := tried[candidate.ID]; used {
 			continue
 		}
-		if _, ok := m.executors[providerKey]; !ok {
+		if _, ok := m.executorLocked(providerKey); !ok {
 			continue
 		}
 		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
@@ -5665,8 +5749,8 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		m.mu.RUnlock()
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "selector returned no auth"}
 	}
-	providerKey := strings.TrimSpace(strings.ToLower(selected.Provider))
-	executor, okExecutor := m.executors[providerKey]
+	providerKey := canonicalSchedulingProvider(selected.Provider)
+	executor, okExecutor := m.executorLocked(providerKey)
 	if !okExecutor {
 		m.mu.RUnlock()
 		return nil, nil, "", &Error{Code: "executor_not_found", Message: "executor not registered"}
@@ -5700,7 +5784,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	eligibleProviders := make([]string, 0, len(providers))
 	seenProviders := make(map[string]struct{}, len(providers))
 	for _, provider := range providers {
-		providerKey := strings.TrimSpace(strings.ToLower(provider))
+		providerKey := canonicalSchedulingProvider(provider)
 		if providerKey == "" {
 			continue
 		}
@@ -5726,7 +5810,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 			if candidate == nil || candidate.Disabled {
 				continue
 			}
-			if _, ok := providerSet[strings.TrimSpace(strings.ToLower(candidate.Provider))]; !ok {
+			if _, ok := providerSet[canonicalSchedulingProvider(candidate.Provider)]; !ok {
 				continue
 			}
 			if _, used := tried[candidate.ID]; used {
@@ -6215,7 +6299,7 @@ func (m *Manager) findAllAntigravityCreditsCandidateAuths(routeModel string, opt
 			continue
 		}
 		providerKey := strings.TrimSpace(strings.ToLower(auth.Provider))
-		executor, ok := m.executors[providerKey]
+		executor, ok := m.executorLocked(providerKey)
 		if !ok {
 			continue
 		}
@@ -6775,7 +6859,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 	if auth != nil {
 		// Use the same effective provider key as request execution so OpenAI-compat
 		// auths registered under namespaced keys still resolve for refresh.
-		exec = m.executors[executorKeyFromAuth(auth)]
+		exec, _ = m.executorLocked(executorKeyFromAuth(auth))
 	}
 	m.mu.RUnlock()
 	if auth == nil || exec == nil {
@@ -6997,7 +7081,8 @@ func (m *Manager) ForceRefreshAll(ctx context.Context) []ForceRefreshResult {
 func (m *Manager) executorFor(provider string) ProviderExecutor {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.executors[provider]
+	exec, _ := m.executorLocked(provider)
+	return exec
 }
 
 // roundTripperContextKey is an unexported context key type to avoid collisions.
@@ -7039,7 +7124,15 @@ func executorKeyFromAuth(auth *Auth) string {
 			return strings.ToLower(providerKey)
 		}
 	}
-	return strings.ToLower(strings.TrimSpace(auth.Provider))
+	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	switch provider {
+	case "kimi.com":
+		return "kimi"
+	case "kimi.ai":
+		return "kimi-ai"
+	default:
+		return provider
+	}
 }
 
 // logEntryWithRequestID returns a logrus entry with request_id field if available in context.
@@ -7117,7 +7210,7 @@ func (m *Manager) InjectCredentials(req *http.Request, authID string) error {
 	a := m.auths[authID]
 	var exec ProviderExecutor
 	if a != nil {
-		exec = m.executors[executorKeyFromAuth(a)]
+		exec, _ = m.executorLocked(executorKeyFromAuth(a))
 	}
 	m.mu.RUnlock()
 	if a == nil || exec == nil {
@@ -7245,12 +7338,15 @@ func syncMetadataSessionToContext(ctx context.Context, metadata map[string]any) 
 	canonicalID = strings.TrimSpace(canonicalID)
 	if canonicalID == "" {
 		clientMeta := logging.GetClientRequestMetadata(ctx)
-		if clientMeta.SessionID != "" || clientMeta.ParentSessionID != "" {
+		if clientMeta.SessionID != "" || clientMeta.ParentSessionID != "" || clientMeta.NodeKind != "" || clientMeta.IsFork || clientMeta.IsCompaction {
 			clientMeta.SessionID = ""
 			clientMeta.ParentSessionID = ""
-			return logging.WithClientRequestMetadata(ctx, clientMeta)
+			clientMeta.NodeKind = ""
+			clientMeta.IsFork = false
+			clientMeta.IsCompaction = false
+			ctx = logging.WithClientRequestMetadata(ctx, clientMeta)
 		}
-		return ctx
+		return util.WithSessionID(ctx, "")
 	}
 	clientMeta := logging.GetClientRequestMetadata(ctx)
 	clientMeta.SessionID = cliproxysession.BoundSessionIdentity(canonicalID)
@@ -7262,5 +7358,21 @@ func syncMetadataSessionToContext(ctx context.Context, metadata map[string]any) 
 	if clientMeta.SessionID == clientMeta.ParentSessionID {
 		clientMeta.ParentSessionID = ""
 	}
-	return logging.WithClientRequestMetadata(ctx, clientMeta)
+	if nodeKind, ok := metadata[cliproxyexecutor.NodeKindMetadataKey].(string); ok && strings.TrimSpace(nodeKind) != "" {
+		clientMeta.NodeKind = strings.TrimSpace(nodeKind)
+	} else {
+		clientMeta.NodeKind = ""
+	}
+	if isFork, ok := metadata[cliproxyexecutor.IsForkMetadataKey].(bool); ok {
+		clientMeta.IsFork = isFork
+	} else {
+		clientMeta.IsFork = false
+	}
+	if isCompaction, ok := metadata[cliproxyexecutor.IsCompactionMetadataKey].(bool); ok {
+		clientMeta.IsCompaction = isCompaction
+	} else {
+		clientMeta.IsCompaction = false
+	}
+	ctx = logging.WithClientRequestMetadata(ctx, clientMeta)
+	return util.WithSessionID(ctx, clientMeta.SessionID)
 }

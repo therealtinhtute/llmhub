@@ -149,7 +149,7 @@ func TestGuardOAuthSessionPendingForSave(t *testing.T) {
 	// Provider coverage mirrors upstream oauth_sessions_test.go (e475807a96c9
 	// added "meta" to this list at v7.3.4); the local store is the package
 	// global rather than a replaced fixture.
-	providers := []string{"anthropic", "codex", "antigravity", "xai", "kimi", "meta"}
+	providers := []string{"anthropic", "codex", "antigravity", "xai", "kimi", "kimi-ai", "kimi.ai", "meta"}
 	for _, provider := range providers {
 		state := provider + "-save-guard"
 		RegisterOAuthSession(state, provider)

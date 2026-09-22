@@ -303,7 +303,7 @@ func OAuthModelAliasChannel(provider, authKind string) string {
 			return ""
 		}
 		return "meta"
-	case "gemini-cli", "aistudio", "antigravity", "kimi", "kiro":
+	case "gemini-cli", "aistudio", "antigravity", "kimi", "kimi-ai", "kimi.ai", "kimi.com", "kiro":
 		return provider
 	default:
 		return ""

@@ -265,3 +265,12 @@ func TestValidateModelsCatalog_Meta(t *testing.T) {
 		t.Fatal("expected error for Meta section with duplicate model id, got nil")
 	}
 }
+
+func TestGetStaticModelDefinitionsByChannelSupportsKimiAndKimiAI(t *testing.T) {
+	for _, channel := range []string{"kimi", "kimi-ai", "kimi.ai", "kimi.com"} {
+		models := GetStaticModelDefinitionsByChannel(channel)
+		if len(models) == 0 {
+			t.Fatalf("GetStaticModelDefinitionsByChannel(%s) returned no models", channel)
+		}
+	}
+}

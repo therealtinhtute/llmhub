@@ -256,7 +256,7 @@ func (l *authAutoRefreshLoop) handleDueAuth(ctx context.Context, now time.Time, 
 	shouldRefresh := manager.shouldRefresh(auth, now)
 	// Use the effective executor key so namespaced (compat) providers refresh
 	// through their registered executor (upstream 60e5b8bd432e).
-	exec := manager.executors[executorKeyFromAuth(auth)]
+	exec, _ := manager.executorLocked(executorKeyFromAuth(auth))
 	manager.mu.RUnlock()
 
 	if !shouldSchedule {

@@ -181,8 +181,10 @@ func createAuthForChannel(channel string) *Auth {
 func TestOAuthModelAliasChannel_Kimi(t *testing.T) {
 	t.Parallel()
 
-	if got := OAuthModelAliasChannel("kimi", "oauth"); got != "kimi" {
-		t.Fatalf("OAuthModelAliasChannel() = %q, want %q", got, "kimi")
+	for _, provider := range []string{"kimi", "kimi-ai", "kimi.ai", "kimi.com"} {
+		if got := OAuthModelAliasChannel(provider, "oauth"); got != provider {
+			t.Fatalf("OAuthModelAliasChannel(%q) = %q, want %q", provider, got, provider)
+		}
 	}
 }
 

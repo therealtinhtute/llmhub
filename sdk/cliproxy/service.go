@@ -142,6 +142,10 @@ func newDefaultAuthManager() *sdkAuth.Manager {
 		sdkAuth.NewGeminiAuthenticator(),
 		sdkAuth.NewCodexAuthenticator(),
 		sdkAuth.NewClaudeAuthenticator(),
+		sdkAuth.NewAntigravityAuthenticator(),
+		sdkAuth.NewKimiAuthenticator(),
+		sdkAuth.NewKimiAIAuthenticator(),
+		sdkAuth.NewKimiAIDotAuthenticator(),
 		sdkAuth.NewXAIAuthenticator(),
 		// Ported from upstream CLIProxyAPI commit 54d4f4c0.
 		sdkAuth.NewMetaAuthenticator(),
@@ -456,7 +460,7 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 	case "claude":
 		s.coreManager.RegisterExecutor(executor.NewClaudeExecutor(s.cfg))
-	case "kimi":
+	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
 		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
 	case "xai":
 		s.coreManager.RegisterExecutor(executor.NewXAIExecutor(s.cfg))
@@ -1065,7 +1069,17 @@ func (s *Service) Run(ctx context.Context) error {
 
 		providerSet := make(map[string]bool, len(changedProviders))
 		for _, p := range changedProviders {
-			providerSet[strings.ToLower(strings.TrimSpace(p))] = true
+			norm := strings.ToLower(strings.TrimSpace(p))
+			if norm != "" {
+				providerSet[norm] = true
+				switch norm {
+				case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
+					providerSet["kimi"] = true
+					providerSet["kimi-ai"] = true
+					providerSet["kimi.ai"] = true
+					providerSet["kimi.com"] = true
+				}
+			}
 		}
 
 		auths := s.coreManager.List()
@@ -1082,6 +1096,7 @@ func (s *Service) Run(ctx context.Context) error {
 			if !providerSet[provider] {
 				continue
 			}
+
 			if s.refreshModelRegistrationForAuth(auth) {
 				refreshed++
 			}
@@ -1367,7 +1382,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 			}
 		}
 		models = applyExcludedModels(models, excluded)
-	case "kimi":
+	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
 		models = registry.GetKimiModels()
 		models = applyExcludedModels(models, excluded)
 	case "xai":

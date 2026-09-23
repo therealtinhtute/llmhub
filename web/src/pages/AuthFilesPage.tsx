@@ -35,8 +35,12 @@ import {
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
 import { AuthFileCard } from '@/features/authFiles/components/AuthFileCard';
+import { AuthFileModelsModal } from '@/features/authFiles/components/AuthFileModelsModal';
 import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
+import { useAuthFilesModels } from '@/features/authFiles/hooks/useAuthFilesModels';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
+import { copyToClipboard } from '@/utils/clipboard';
+import { toast } from 'sonner';
 import {
   isAuthFilesSortMode,
   readAuthFilesUiState,
@@ -123,6 +127,29 @@ export function AuthFilesPage() {
   } = useAuthFilesData();
 
   const statusBarCache = useAuthFilesStatusBarCache(files);
+  const {
+    modelsModalOpen,
+    modelsLoading,
+    modelsList,
+    modelsFileName,
+    modelsFileType,
+    modelsError,
+    excluded: modelsExcluded,
+    showModels,
+    closeModelsModal,
+  } = useAuthFilesModels();
+
+  const copyModelId = useCallback(
+    async (text: string) => {
+      const copied = await copyToClipboard(text);
+      if (copied) {
+        toast.success(t('notification.link_copied'));
+      } else {
+        toast.error(t('notification.copy_failed'));
+      }
+    },
+    [t]
+  );
 
   const disableControls = connectionStatus !== 'connected';
   const normalizedFilter = normalizeProviderKey(String(filter));
@@ -788,6 +815,7 @@ export function AuthFilesPage() {
                       statusUpdating={statusUpdating}
                       statusBarCache={statusBarCache}
                       onDownload={handleDownload}
+                      onShowModels={showModels}
                       onDelete={handleDelete}
                       onToggleStatus={handleStatusToggle}
                       onToggleSelect={toggleSelect}
@@ -905,6 +933,18 @@ export function AuthFilesPage() {
             document.body
           )
         : null}
+
+      <AuthFileModelsModal
+        open={modelsModalOpen}
+        fileName={modelsFileName}
+        fileType={modelsFileType}
+        loading={modelsLoading}
+        error={modelsError}
+        models={modelsList}
+        excluded={modelsExcluded}
+        onClose={closeModelsModal}
+        onCopyText={(text) => void copyModelId(text)}
+      />
     </div>
   );
 }

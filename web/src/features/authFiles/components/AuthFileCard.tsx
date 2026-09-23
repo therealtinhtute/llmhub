@@ -6,6 +6,7 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconDownload,
   IconInfo,
+  IconModelCluster,
   IconTrash2,
 } from '@/components/ui/icons';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
@@ -41,6 +42,7 @@ export type AuthFileCardProps = {
   statusUpdating: Record<string, boolean>;
   statusBarCache: Map<string, AuthFileStatusBarData>;
   onDownload: (name: string) => void;
+  onShowModels: (file: AuthFileItem) => void;
   onDelete: (name: string) => void;
   onToggleStatus: (file: AuthFileItem, enabled: boolean) => void;
   onToggleSelect: (name: string) => void;
@@ -58,6 +60,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
     statusUpdating,
     statusBarCache,
     onDownload,
+    onShowModels,
     onDelete,
     onToggleStatus,
     onToggleSelect,
@@ -299,6 +302,16 @@ export function AuthFileCard(props: AuthFileCardProps) {
             className={`flex items-center justify-between gap-2 mt-auto pt-2 border-t border-border/50 max-md:flex-wrap`}
           >
             <div className="flex items-center gap-[6px] min-w-0 flex-1 max-md:flex-wrap max-md:w-full">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onShowModels(file)}
+                className="w-8 h-8 min-w-[32px] p-0 box-border gap-0"
+                title={t('auth_files.models_button')}
+                disabled={disableControls}
+              >
+                <IconModelCluster className="block" size={16} />
+              </Button>
               {!isRuntimeOnly && (
                 <Button
                   variant="secondary"

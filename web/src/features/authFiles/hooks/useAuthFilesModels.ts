@@ -14,6 +14,7 @@ export type UseAuthFilesModelsResult = {
   modelsFileName: string;
   modelsFileType: string;
   modelsError: ModelsError;
+  excluded: Record<string, string[]>;
   showModels: (item: AuthFileItem) => Promise<void>;
   closeModelsModal: () => void;
 };
@@ -27,7 +28,9 @@ export function useAuthFilesModels(): UseAuthFilesModelsResult {
   const [modelsFileName, setModelsFileName] = useState('');
   const [modelsFileType, setModelsFileType] = useState('');
   const [modelsError, setModelsError] = useState<ModelsError>(null);
+  const [excluded, setExcluded] = useState<Record<string, string[]>>({});
   const modelsCacheRef = useRef<Map<string, AuthFileModelItem[]>>(new Map());
+  const excludedLoadedRef = useRef(false);
 
   const closeModelsModal = useCallback(() => {
     setModelsModalOpen(false);
@@ -40,6 +43,14 @@ export function useAuthFilesModels(): UseAuthFilesModelsResult {
       setModelsList([]);
       setModelsError(null);
       setModelsModalOpen(true);
+
+      if (!excludedLoadedRef.current) {
+        excludedLoadedRef.current = true;
+        authFilesApi
+          .getOauthExcludedModels()
+          .then((data) => setExcluded(data))
+          .catch(() => setExcluded({}));
+      }
 
       const cached = modelsCacheRef.current.get(item.name);
       if (cached) {
@@ -78,6 +89,7 @@ export function useAuthFilesModels(): UseAuthFilesModelsResult {
     modelsFileName,
     modelsFileType,
     modelsError,
+    excluded,
     showModels,
     closeModelsModal
   };

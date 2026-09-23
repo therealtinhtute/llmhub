@@ -11,6 +11,8 @@ import iconIflow from '@/assets/icons/iflow.svg';
 import iconKiro from '@/assets/icons/kiro.svg';
 import iconKimiDark from '@/assets/icons/kimi-dark.svg';
 import iconKimiLight from '@/assets/icons/kimi-light.svg';
+import iconMeta from '@/assets/icons/meta.svg';
+import iconMetaDark from '@/assets/icons/meta-dark.svg';
 import iconQwen from '@/assets/icons/qwen.svg';
 import iconVertex from '@/assets/icons/vertex.svg';
 import type { AuthFileItem } from '@/types';
@@ -143,6 +145,7 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   iflow: iconIflow,
   kiro: iconKiro,
   kimi: { light: iconKimiLight, dark: iconKimiDark },
+  meta: { light: iconMeta, dark: iconMetaDark },
   qwen: iconQwen,
   vertex: iconVertex,
 };

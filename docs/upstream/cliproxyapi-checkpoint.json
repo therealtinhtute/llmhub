@@ -1,142 +1,173 @@
 {
- "schema_version": 1,
- "upstream": {
-  "repository": "https://github.com/router-for-me/CLIProxyAPI",
-  "remote": "upstream"
- },
- "scope_policy": {
-  "strategy": "targeted-semantic-ports",
-  "include": [
-   "kimi-ai-domain",
-   "lcp-context-compaction",
-   "reasoning-tool-turn-preservation"
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/router-for-me/CLIProxyAPI",
+    "remote": "upstream"
+  },
+  "scope_policy": {
+    "strategy": "targeted-parity",
+    "include": [
+      "quota-double-count-fix",
+      "claude-2.1.280-betas",
+      "model-catalog-sync",
+      "codex-client-catalog-compact",
+      "priority-patch-endpoints",
+      "per-credential-cloaking-disable",
+      "trusted-proxies",
+      "video-input-responses",
+      "string-input-responses-claude",
+      "gemini-uppercase-array-fix",
+      "octal-nul-pattern-strip"
+    ],
+    "exclude": [
+      "request-proxy-overrides",
+      "perf-batch",
+      "upstream-docs-gofmt"
+    ],
+    "defer": [],
+    "defer_resolved": {
+      "claude-allowed-warning": "closed: helps/claude_ratelimit.go ported in v7.3.9 cycle already contains isClaudeWindowAllowed with allowed_warning",
+      "home-port-normalize": "closed: not applicable \u2014 llmhub has no Home-provided server listen port (Postgres config + LLMHUB_PORT override); internal/home client already guards Port <= 0",
+      "home-401-refresh-revert": "closed: upstream revert a63da8ae removed PR #4687 recovery wiring that never existed locally; RefreshAuthViaHome retained upstream-side too",
+      "namespace-responses-tools": "closed: 03a054e3 + 37411842 covered by local ResponsesToolDeclarationTable (resolveChatCallName candidate loop, SetResponsesToolCallIdentity); ea37d13a custom_tool_call claude<->responses ported in this batch",
+      "gitstore-recovery": "closed: GITSTORE_GIT_URL rejected by legacyRuntimeModeError \u2014 gitstore is disabled dead code; Postgres is authoritative runtime store",
+      "home-401-diagnostics": "ported in this batch (SafeDiagnosticForLog, homeStatusErr diagnostics, DirectResponse consumers)"
+    }
+  },
+  "checkpoint": {
+    "tag": "v7.3.15",
+    "commit": "673131f57484517c3a1eae7e36c4cfa7b9bb4efc",
+    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.15",
+    "published_at": "2026-09-23T00:55:44Z",
+    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.15",
+    "target_commitish": "main",
+    "checked_at": "2026-09-23T03:22:43Z"
+  },
+  "local_baseline": {
+    "commit": "1e16cf32d9f281ff9da96cb5ab6bf8fb0c9dcbc7",
+    "branch": "master"
+  },
+  "prior_checkpoints": [
+    {
+      "tag": "v7.2.93",
+      "commit": "01f387f44754af09783ac52a2051cb2c66a7bf44",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.93",
+      "role": "prior-approved-targeted-parity"
+    },
+    {
+      "tag": "v7.2.96",
+      "commit": "285322cd97add6b21f60c267debec44fbec74060",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.96",
+      "role": "selective-concurrency-token-estimation-source"
+    },
+    {
+      "tag": "v7.2.112",
+      "commit": "a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.112",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.2.113",
+      "commit": "bc71c77f5cc42f3fbe1bf040cf14d4f166894835",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.113",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.2.135",
+      "commit": "856ddd8df746a38a6033dbbf6c140974bf5aea0f",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.135",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.2.137",
+      "commit": "85d2faddd17e6f4f8675a84ee28b131f702e8eaa",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.137",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.2.139",
+      "commit": "0a14eb70ce19fac1d114bcdb4a476d61adc819e2",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.139",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.2.140",
+      "commit": "a7e3596b7e351d800e58ed29529fbca3d1c18737",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.140",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.2.147",
+      "commit": "17a65ee5470fbaf0e22fc219381e6a4ae9e07624",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.147",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.3.3",
+      "commit": "7bbfeaf8a7acf2cd5a834dcb0842539fe6aabc2b",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.3",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.3.4",
+      "commit": "8335eac731946bd4eff18f500653f93736df53d6",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.4",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.3.6",
+      "commit": "8c664b2fede5c83b919be1df9b01057ec4e4c950",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.6",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.3.9",
+      "commit": "61fdfc341b96178a8dcb53f2efc46cbc341d267c",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.9",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.3.10",
+      "commit": "a5ab69521f7b4e0f244836d0419da8fcd89408ea",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.10",
+      "role": "parity-completed-targeted-semantic-ports"
+    },
+    {
+      "tag": "v7.3.11",
+      "commit": "ffe6ad3c5fcf0a5eedd2198cd2e04b0249dc5063",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.11",
+      "role": "prior-checkpoint"
+    }
   ],
-  "exclude": [
-   "gemini-antigravity-interactions-builtin-tools",
-   "claude-patch-floor-passthrough",
-   "docs-test-churn",
-   "scheduler-rebuild-epoch-guard-deferred-until-profiling"
+  "source_range": {
+    "from_exclusive": "v7.3.11",
+    "to_inclusive": "v7.3.15"
+  },
+  "releases": [
+    {
+      "tag": "v7.3.12",
+      "commit": "2eb8dd11d2480c5fd8bc8f2796cec6af534bc3b6",
+      "published_at": "2026-09-22T02:25:45Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.12"
+    },
+    {
+      "tag": "v7.3.13",
+      "commit": "2430354330af80b645f9ffb1a51e1e7c72c4cc8e",
+      "published_at": "2026-09-22T18:43:11Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.13"
+    },
+    {
+      "tag": "v7.3.14",
+      "commit": "937ebb8f11f798e241565ed78f26884b80698e8e",
+      "published_at": "2026-09-22T20:39:13Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.14"
+    },
+    {
+      "tag": "v7.3.15",
+      "commit": "673131f57484517c3a1eae7e36c4cfa7b9bb4efc",
+      "published_at": "2026-09-23T00:55:44Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.15"
+    }
   ],
-  "defer": [],
-  "defer_resolved": {
-   "claude-allowed-warning": "closed: helps/claude_ratelimit.go ported in v7.3.9 cycle already contains isClaudeWindowAllowed with allowed_warning",
-   "home-port-normalize": "closed: not applicable — llmhub has no Home-provided server listen port (Postgres config + LLMHUB_PORT override); internal/home client already guards Port <= 0",
-   "home-401-refresh-revert": "closed: upstream revert a63da8ae removed PR #4687 recovery wiring that never existed locally; RefreshAuthViaHome retained upstream-side too",
-   "namespace-responses-tools": "closed: 03a054e3 + 37411842 covered by local ResponsesToolDeclarationTable (resolveChatCallName candidate loop, SetResponsesToolCallIdentity); ea37d13a custom_tool_call claude<->responses ported in this batch",
-   "gitstore-recovery": "closed: GITSTORE_GIT_URL rejected by legacyRuntimeModeError — gitstore is disabled dead code; Postgres is authoritative runtime store",
-   "home-401-diagnostics": "ported in this batch (SafeDiagnosticForLog, homeStatusErr diagnostics, DirectResponse consumers)"
-  }
- },
- "checkpoint": {
-  "tag": "v7.3.11",
-  "commit": "ffe6ad3c5fcf0a5eedd2198cd2e04b0249dc5063",
-  "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.11",
-  "published_at": "2026-09-21T14:43:42Z",
-  "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.11",
-  "target_commitish": "main",
-  "checked_at": "2026-09-21T16:53:10Z"
- },
- "local_baseline": {
-  "commit": "1ccfcecdb77375f508fb69194097650b980c66cc",
-  "branch": "master"
- },
- "prior_checkpoints": [
-  {
-   "tag": "v7.2.93",
-   "commit": "01f387f44754af09783ac52a2051cb2c66a7bf44",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.93",
-   "role": "prior-approved-targeted-parity"
-  },
-  {
-   "tag": "v7.2.96",
-   "commit": "285322cd97add6b21f60c267debec44fbec74060",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.96",
-   "role": "selective-concurrency-token-estimation-source"
-  },
-  {
-   "tag": "v7.2.112",
-   "commit": "a63da8ae76b1a4e0c0486c3eb0fb7ccf8f33e69d",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.112",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.2.113",
-   "commit": "bc71c77f5cc42f3fbe1bf040cf14d4f166894835",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.113",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.2.135",
-   "commit": "856ddd8df746a38a6033dbbf6c140974bf5aea0f",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.135",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.2.137",
-   "commit": "85d2faddd17e6f4f8675a84ee28b131f702e8eaa",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.137",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.2.139",
-   "commit": "0a14eb70ce19fac1d114bcdb4a476d61adc819e2",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.139",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.2.140",
-   "commit": "a7e3596b7e351d800e58ed29529fbca3d1c18737",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.140",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.2.147",
-   "commit": "17a65ee5470fbaf0e22fc219381e6a4ae9e07624",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.2.147",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.3.3",
-   "commit": "7bbfeaf8a7acf2cd5a834dcb0842539fe6aabc2b",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.3",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.3.4",
-   "commit": "8335eac731946bd4eff18f500653f93736df53d6",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.4",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.3.6",
-   "commit": "8c664b2fede5c83b919be1df9b01057ec4e4c950",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.6",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.3.9",
-   "commit": "61fdfc341b96178a8dcb53f2efc46cbc341d267c",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.9",
-   "role": "prior-checkpoint"
-  },
-  {
-   "tag": "v7.3.10",
-   "commit": "a5ab69521f7b4e0f244836d0419da8fcd89408ea",
-   "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.10",
-   "role": "parity-completed-targeted-semantic-ports"
-  }
- ],
- "source_range": {
-  "from_exclusive": "v7.3.10",
-  "to_inclusive": "v7.3.11"
- },
- "releases": [
-  {
-   "tag": "v7.3.11",
-   "commit": "ffe6ad3c5fcf0a5eedd2198cd2e04b0249dc5063",
-   "published_at": "2026-09-21T14:43:42Z",
-   "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.11"
-  }
- ],
- "generated_at": "2026-09-21T16:53:11Z"
+  "generated_at": "2026-09-23T06:17:41Z"
 }

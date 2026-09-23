@@ -367,9 +367,10 @@ func TestUsageQueuePluginPayloadIncludesExplicitSessionHierarchy(t *testing.T) {
 		ctx := internallogging.WithRequestID(context.Background(), "ctx-session-req-1")
 		ctx = internallogging.WithEndpoint(ctx, "POST /v1/chat/completions")
 		ctx = internallogging.WithClientRequestMetadata(ctx, internallogging.ClientRequestMetadata{
-			ClientIP:        "192.0.2.10",
-			SessionID:       "slot:pi-worker-1",
-			ParentSessionID: "slot:pi-main-root",
+			ClientIP:         "192.0.2.10",
+			ResolvedClientIP: "203.0.113.5",
+			SessionID:        "slot:pi-worker-1",
+			ParentSessionID:  "slot:pi-main-root",
 		})
 		ctx = internallogging.WithResponseStatusHolder(ctx)
 		internallogging.SetResponseStatus(ctx, http.StatusOK)
@@ -387,6 +388,7 @@ func TestUsageQueuePluginPayloadIncludesExplicitSessionHierarchy(t *testing.T) {
 
 		payload := popSinglePayload(t)
 		requireStringField(t, payload, "request_id", "ctx-session-req-1")
+		requireStringField(t, payload, "resolved_client_ip", "203.0.113.5")
 		wantSession := coresession.NormalizeToCanonicalUUID("slot:pi-worker-1")
 		wantParent := coresession.NormalizeToCanonicalUUID("slot:pi-main-root")
 		requireStringField(t, payload, "session_id", wantSession)

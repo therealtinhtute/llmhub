@@ -788,7 +788,10 @@ func (m *Manager) EarliestComboReset(candidates []ComboCandidate, now time.Time)
 }
 
 func cooldownAuthRestorable(auth *Auth, now time.Time) bool {
-	return auth != nil && len(auth.ModelStates) == 0 && auth.Unavailable && auth.NextRetryAfter.After(now)
+	// An auth-level record is saved even when per-model states exist, so
+	// credential-scoped cooldowns (e.g. credential_quota) survive restarts
+	// alongside their model records (upstream ed70aeaa1627 parity).
+	return auth != nil && auth.Unavailable && auth.NextRetryAfter.After(now)
 }
 
 func cooldownModelRestorable(state *ModelState, now time.Time) bool {

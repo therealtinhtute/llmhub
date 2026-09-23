@@ -221,6 +221,9 @@ func (s *ConfigSynthesizer) synthesizeCodexStyleKeys(ctx *SynthesisContext, entr
 		if provider == "codex" && ck.AlphaSearch {
 			attrs["alpha_search"] = "true"
 		}
+		if provider == "codex" && ck.DisableCodexCloaking != nil {
+			attrs[coreauth.AttributeCodexDisableCloaking] = strconv.FormatBool(*ck.DisableCodexCloaking)
+		}
 		if hash := diff.ComputeCodexModelsHash(ck.Models); hash != "" {
 			attrs["models_hash"] = hash
 		}

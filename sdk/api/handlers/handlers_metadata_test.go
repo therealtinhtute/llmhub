@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/therealtinhtute/llmhub/internal/logging"
 	coreexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	"github.com/therealtinhtute/llmhub/sdk/config"
 	"golang.org/x/net/context"
 )
 
@@ -36,5 +41,26 @@ func TestSetReasoningEffortMetadataSupportsOpenAIResponses(t *testing.T) {
 
 	if got := meta[coreexecutor.ReasoningEffortMetadataKey]; got != "medium" {
 		t.Fatalf("ReasoningEffortMetadataKey = %v, want %q", got, "medium")
+	}
+}
+
+// Ported from upstream CLIProxyAPI commit a962b77d4383.
+func TestGetContextWithCancelCapturesResolvedClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ginCtx, engine := gin.CreateTestContext(httptest.NewRecorder())
+	if errSetTrustedProxies := engine.SetTrustedProxies([]string{"192.0.2.0/24"}); errSetTrustedProxies != nil {
+		t.Fatalf("SetTrustedProxies: %v", errSetTrustedProxies)
+	}
+	ginCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ginCtx.Request.RemoteAddr = "192.0.2.10:43123"
+	ginCtx.Request.Header.Set("X-Forwarded-For", "203.0.113.5")
+
+	handler := &BaseAPIHandler{Cfg: &config.SDKConfig{}}
+	ctx, cancel := handler.GetContextWithCancel(nil, ginCtx, context.Background())
+	defer cancel()
+
+	metadata := logging.GetClientRequestMetadata(ctx)
+	if metadata.ResolvedClientIP != "203.0.113.5" {
+		t.Fatalf("ResolvedClientIP = %q, want %q", metadata.ResolvedClientIP, "203.0.113.5")
 	}
 }

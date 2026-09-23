@@ -174,6 +174,7 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	type geminiKeyPatch struct {
 		APIKey              *string                          `json:"api-key"`
+		Priority            *int                             `json:"priority"`
 		Weight              *int64                           `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
 		BaseURL             *string                          `json:"base-url"`
@@ -239,6 +240,9 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 			return
 		}
 		entry.APIKey = trimmed
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -583,6 +587,7 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	type openAICompatPatch struct {
 		Name                  *string                             `json:"name"`
+		Priority              *int                                `json:"priority"`
 		Weight                *int64                              `json:"weight"`
 		Prefix                *string                             `json:"prefix"`
 		Disabled              *bool                               `json:"disabled"`
@@ -641,6 +646,9 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	entry := h.cfg.OpenAICompatibility[targetIndex]
 	if body.Value.Name != nil {
 		entry.Name = strings.TrimSpace(*body.Value.Name)
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -767,6 +775,7 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	type vertexCompatPatch struct {
 		APIKey         *string                     `json:"api-key"`
+		Priority       *int                        `json:"priority"`
 		Weight         *int64                      `json:"weight"`
 		Prefix         *string                     `json:"prefix"`
 		BaseURL        *string                     `json:"base-url"`
@@ -832,6 +841,9 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 			return
 		}
 		entry.APIKey = trimmed
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -1258,18 +1270,20 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 }
 func (h *Handler) PatchCodexKey(c *gin.Context) {
 	type codexKeyPatch struct {
-		APIKey              *string                          `json:"api-key"`
-		Weight              *int64                           `json:"weight"`
-		Prefix              *string                          `json:"prefix"`
-		BaseURL             *string                          `json:"base-url"`
-		AlphaSearch         *bool                            `json:"alpha-search"`
-		ProxyURL            *string                          `json:"proxy-url"`
-		Models              *[]config.CodexModel             `json:"models"`
-		Headers             *map[string]string               `json:"headers"`
-		ExcludedModels      *[]string                        `json:"excluded-models"`
-		DisableCooling      json.RawMessage                  `json:"disable-cooling"`
-		RequestRetry        *int                             `json:"request-retry"`
-		RequestScopedErrors *[]config.RequestScopedErrorRule `json:"request-scoped-errors"`
+		APIKey               *string                          `json:"api-key"`
+		Priority             *int                             `json:"priority"`
+		Weight               *int64                           `json:"weight"`
+		Prefix               *string                          `json:"prefix"`
+		BaseURL              *string                          `json:"base-url"`
+		AlphaSearch          *bool                            `json:"alpha-search"`
+		ProxyURL             *string                          `json:"proxy-url"`
+		Models               *[]config.CodexModel             `json:"models"`
+		Headers              *map[string]string               `json:"headers"`
+		ExcludedModels       *[]string                        `json:"excluded-models"`
+		DisableCooling       json.RawMessage                  `json:"disable-cooling"`
+		DisableCodexCloaking json.RawMessage                  `json:"disable-codex-cloaking"`
+		RequestRetry         *int                             `json:"request-retry"`
+		RequestScopedErrors  *[]config.RequestScopedErrorRule `json:"request-scoped-errors"`
 	}
 	var body struct {
 		Index *int           `json:"index"`
@@ -1318,6 +1332,9 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
+	}
 	if err := applyConfigCredentialWeight(&entry.Weight, body.Value.Weight); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -1351,6 +1368,9 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 		entry.ExcludedModels = config.NormalizeExcludedModels(*body.Value.ExcludedModels)
 	}
 	if !applyDisableCoolingPatch(c, body.Value.DisableCooling, &entry.DisableCooling) {
+		return
+	}
+	if !applyDisableCodexCloakingPatch(c, body.Value.DisableCodexCloaking, &entry.DisableCodexCloaking) {
 		return
 	}
 	if body.Value.RequestRetry != nil {
@@ -1438,6 +1458,24 @@ func applyDisableCoolingPatch(c *gin.Context, raw json.RawMessage, target **bool
 	var value bool
 	if errUnmarshal := json.Unmarshal(raw, &value); errUnmarshal != nil {
 		c.JSON(400, gin.H{"error": "disable-cooling must be a boolean or null"})
+		return false
+	}
+	*target = &value
+	return true
+}
+
+// Ported from upstream CLIProxyAPI commit f351924f42cb.
+func applyDisableCodexCloakingPatch(c *gin.Context, raw json.RawMessage, target **bool) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		*target = nil
+		return true
+	}
+	var value bool
+	if errUnmarshal := json.Unmarshal(raw, &value); errUnmarshal != nil {
+		c.JSON(400, gin.H{"error": "disable-codex-cloaking must be a boolean or null"})
 		return false
 	}
 	*target = &value

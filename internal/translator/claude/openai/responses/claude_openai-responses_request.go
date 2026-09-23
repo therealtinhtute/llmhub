@@ -242,6 +242,13 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 		pendingToolUseParts = append(pendingToolUseParts, toolUse)
 	}
 
+	if input := root.Get("input"); input.Exists() && input.Type == gjson.String {
+		// Responses API allows `input` as a plain string (upstream b989e34881c7):
+		// translate it into a single user text message.
+		contentPart := []byte(`{"type":"text","text":""}`)
+		contentPart, _ = sjson.SetBytes(contentPart, "text", input.String())
+		appendParts("user", contentPart)
+	}
 	if input := root.Get("input"); input.Exists() && input.IsArray() {
 		input.ForEach(func(_, item gjson.Result) bool {
 			if extractedFromSystem && strings.EqualFold(item.Get("role").String(), "system") {

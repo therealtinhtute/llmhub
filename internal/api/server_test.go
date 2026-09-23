@@ -54,6 +54,19 @@ func (s *runtimeControlContextStore) SaveRuntimeSettings(context.Context, int64,
 
 func newTestServerWithAuthManagerAndOptions(t *testing.T, authManager *auth.Manager, options ...ServerOption) *Server {
 	t.Helper()
+	cfg := &proxyconfig.Config{
+		SDKConfig: sdkconfig.SDKConfig{
+			APIKeys: []string{"test-key"},
+		},
+	}
+	return newTestServerWithConfig(t, authManager, cfg, options...)
+}
+
+// newTestServerWithConfig mirrors upstream CLIProxyAPI commit a962b77d4383's
+// harness: the caller supplies the base config and this helper fills in the
+// operational test fields.
+func newTestServerWithConfig(t *testing.T, authManager *auth.Manager, cfg *proxyconfig.Config, options ...ServerOption) *Server {
+	t.Helper()
 
 	gin.SetMode(gin.TestMode)
 
@@ -63,21 +76,61 @@ func newTestServerWithAuthManagerAndOptions(t *testing.T, authManager *auth.Mana
 		t.Fatalf("failed to create auth dir: %v", err)
 	}
 
-	cfg := &proxyconfig.Config{
-		SDKConfig: sdkconfig.SDKConfig{
-			APIKeys: []string{"test-key"},
-		},
-		Port:                   0,
-		AuthDir:                authDir,
-		Debug:                  true,
-		LoggingToFile:          false,
-		UsageStatisticsEnabled: false,
-	}
+	cfg.Port = 0
+	cfg.AuthDir = authDir
+	cfg.Debug = true
+	cfg.LoggingToFile = false
+	cfg.UsageStatisticsEnabled = false
 
 	accessManager := sdkaccess.NewManager()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	return NewServer(cfg, authManager, accessManager, configPath, options...)
+}
+
+// Ported from upstream CLIProxyAPI commit a962b77d4383.
+func TestNewServerAppliesTrustedProxyConfiguration(t *testing.T) {
+	server := newTestServerWithConfig(t, auth.NewManager(nil, nil, nil), &proxyconfig.Config{
+		SDKConfig:      sdkconfig.SDKConfig{APIKeys: []string{"test-key"}},
+		TrustedProxies: []string{"192.0.2.0/24"},
+	})
+	server.engine.GET("/test-client-ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		wantIP     string
+	}{
+		{name: "trusted proxy", remoteAddr: "192.0.2.10:43123", wantIP: "203.0.113.5"},
+		{name: "untrusted peer", remoteAddr: "198.51.100.20:43123", wantIP: "198.51.100.20"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test-client-ip", nil)
+			req.RemoteAddr = test.remoteAddr
+			req.Header.Set("X-Forwarded-For", "203.0.113.5")
+			recorder := httptest.NewRecorder()
+			server.engine.ServeHTTP(recorder, req)
+			if got := recorder.Body.String(); got != test.wantIP {
+				t.Fatalf("client IP = %q, want %q", got, test.wantIP)
+			}
+		})
+	}
+
+	defaultServer := newTestServer(t)
+	defaultServer.engine.GET("/test-client-ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+	request := httptest.NewRequest(http.MethodGet, "/test-client-ip", nil)
+	request.RemoteAddr = "198.51.100.20:43123"
+	request.Header.Set("X-Forwarded-For", "203.0.113.5")
+	recorder := httptest.NewRecorder()
+	defaultServer.engine.ServeHTTP(recorder, request)
+	if got := recorder.Body.String(); got != "198.51.100.20" {
+		t.Fatalf("default client IP = %q, want direct peer IP", got)
+	}
 }
 
 func TestHealthz(t *testing.T) {
@@ -352,8 +405,10 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 		t.Fatalf("custom context_window = %v, want 123456", custom["context_window"])
 	}
 	assertCodexSupportedReasoningLevels(t, custom, []string{"none", "minimal", "low", "medium", "high", "xhigh"})
-	if custom["base_instructions"] != gpt55["base_instructions"] {
-		t.Fatal("expected custom model to use gpt-5.5 base_instructions fallback")
+	// Upstream 673131f57484: non-template models carry the compact literal
+	// fallback instead of cloning the template's full base_instructions.
+	if got, _ := custom["base_instructions"].(string); got != "You are Codex, a coding agent. You and the user share one workspace." {
+		t.Fatalf("custom base_instructions = %q, want compact fallback", got)
 	}
 	if _, ok := custom["available_in_plans"].([]any); !ok {
 		t.Fatalf("expected custom model to use gpt-5.5 available_in_plans fallback, got %#v", custom["available_in_plans"])
@@ -361,14 +416,16 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 	if got, _ := custom["prefer_websockets"].(bool); got {
 		t.Fatalf("custom prefer_websockets = %v, want false", custom["prefer_websockets"])
 	}
-	if _, ok := custom["apply_patch_tool_type"]; ok {
-		t.Fatal("expected custom model to omit apply_patch_tool_type")
-	}
-	if _, ok := custom["upgrade"]; ok {
-		t.Fatal("expected custom model to omit upgrade")
-	}
-	if _, ok := custom["availability_nux"]; ok {
-		t.Fatal("expected custom model to omit availability_nux")
+	// Upstream 673131f57484: these keys must be present and null for Codex
+	// catalog decoding; omitting them rejects the entire catalog.
+	for _, key := range []string{"apply_patch_tool_type", "upgrade", "availability_nux"} {
+		value, exists := custom[key]
+		if !exists {
+			t.Fatalf("expected custom model to carry null %s", key)
+		}
+		if value != nil {
+			t.Fatalf("custom %s = %#v, want null", key, value)
+		}
 	}
 
 	hiddenModels := map[string]bool{

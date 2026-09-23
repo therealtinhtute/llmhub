@@ -2474,7 +2474,7 @@ func TestApplyClaudeHeaders_BetaAssemblyPerRequest(t *testing.T) {
 	apiKeyAuth := &cliproxyauth.Auth{ID: "auth-1", Attributes: map[string]string{"api_key": "key-1"}}
 	// advanced-tool-use-2025-11-20 requires a real advanced tool-use feature
 	// (tool search, defer_loading, input_examples, allowed_callers) in
-	// 2.1.258 — a plain tools array alone does not emit it (upstream d7052c96af78).
+	// 2.1.280 — a plain tools array alone does not emit it (upstream d7052c96af78).
 	body := []byte(`{"model":"claude-opus-5","tools":[{"name":"search_web","input_schema":{"type":"object"},"defer_loading":true}]}`)
 
 	// API-key mode with tools: conditional betas present, OAuth betas absent,
@@ -2520,8 +2520,9 @@ func TestApplyClaudeHeaders_BetaAssemblyPerRequest(t *testing.T) {
 		t.Fatalf("count_tokens must omit X-Stainless-Timeout, got %q", ctReq.Header.Get("X-Stainless-Timeout"))
 	}
 
-	// Known caller betas land at captured positions; unknown ones are dropped
-	// on direct Anthropic (their combination never occurs in real traffic).
+	// Known (managed) caller betas land at captured positions; unmanaged caller
+	// betas are newer-client features and forwarded verbatim so their features
+	// keep working (upstream #5738, bd584a752329).
 	callerIncoming := http.Header{"Anthropic-Beta": []string{"context-1m-2025-08-07,my-custom-beta"}}
 	callerReq := newClaudeHeaderTestRequest(t, callerIncoming)
 	applyClaudeHeaders(callerReq, apiKeyAuth, "key-1", false, nil, body, nil)
@@ -2529,8 +2530,8 @@ func TestApplyClaudeHeaders_BetaAssemblyPerRequest(t *testing.T) {
 	if !strings.Contains(got, "context-1m-2025-08-07") {
 		t.Fatalf("Anthropic-Beta = %q, known caller beta context-1m must be placed", got)
 	}
-	if strings.Contains(got, "my-custom-beta") {
-		t.Fatalf("Anthropic-Beta = %q, unknown caller beta must be dropped on Anthropic", got)
+	if !strings.HasSuffix(got, ",my-custom-beta") {
+		t.Fatalf("Anthropic-Beta = %q, unmanaged caller beta must be forwarded on Anthropic", got)
 	}
 }
 

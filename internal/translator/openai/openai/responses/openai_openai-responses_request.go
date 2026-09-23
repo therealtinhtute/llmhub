@@ -271,10 +271,27 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 							contentPart := []byte(`{"type":"text","text":""}`)
 							contentPart, _ = sjson.SetBytes(contentPart, "text", text)
 							message, _ = sjson.SetRawBytes(message, "content.-1", contentPart)
+						case "input_video", "video_url":
+							contentPart := []byte(`{"type":"video_url","video_url":{}}`)
+							videoURL := contentItem.Get("video_url")
+							if videoURL.IsObject() {
+								contentPart, _ = sjson.SetRawBytes(contentPart, "video_url", []byte(videoURL.Raw))
+							} else if videoURL.Exists() {
+								contentPart, _ = sjson.SetRawBytes(contentPart, "video_url.url", []byte(videoURL.Raw))
+							}
+							if processing := contentItem.Get("processing"); processing.Exists() {
+								contentPart, _ = sjson.SetRawBytes(contentPart, "video_url.processing", []byte(processing.Raw))
+							}
+							// Preserve malformed video parts for upstream validation instead of
+							// silently turning a video request into a text-only request.
+							message, _ = sjson.SetRawBytes(message, "content.-1", contentPart)
 						case "input_image":
 							imageURL := contentItem.Get("image_url").String()
 							contentPart := []byte(`{"type":"image_url","image_url":{"url":""}}`)
 							contentPart, _ = sjson.SetBytes(contentPart, "image_url.url", imageURL)
+							if detail, ok := normalizeChatImageDetail(contentItem.Get("detail")); ok && detail != "" {
+								contentPart, _ = sjson.SetBytes(contentPart, "image_url.detail", detail)
+							}
 							message, _ = sjson.SetRawBytes(message, "content.-1", contentPart)
 						}
 						return true

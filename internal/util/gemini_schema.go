@@ -296,11 +296,11 @@ func isKnownSchemaKeywordOrExtension(key string) bool {
 
 func isNonObjectDeclaredType(t any) bool {
 	if s, ok := t.(string); ok {
-		return s != "" && s != "object"
+		return s != "" && !strings.EqualFold(s, "object")
 	}
 	if arr, ok := t.([]any); ok {
 		for _, item := range arr {
-			if s, ok := item.(string); ok && s == "object" {
+			if s, ok := item.(string); ok && strings.EqualFold(s, "object") {
 				return false
 			}
 		}
@@ -312,10 +312,10 @@ func isNonObjectDeclaredType(t any) bool {
 func isArrayDeclaredType(t any) bool {
 	switch typeValue := t.(type) {
 	case string:
-		return typeValue == "array"
+		return strings.EqualFold(typeValue, "array")
 	case []any:
 		for _, item := range typeValue {
-			if itemType, ok := item.(string); ok && itemType == "array" {
+			if itemType, ok := item.(string); ok && strings.EqualFold(itemType, "array") {
 				return true
 			}
 		}

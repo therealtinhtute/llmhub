@@ -217,6 +217,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("codex[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("codex[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalBoolChange(changes, fmt.Sprintf("codex[%d].disable-codex-cloaking", i), o.DisableCodexCloaking, n.DisableCodexCloaking)
 			if o.Weight != n.Weight {
 				changes = append(changes, fmt.Sprintf("codex[%d].weight: %d -> %d", i, o.Weight, n.Weight))
 			}

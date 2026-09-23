@@ -500,6 +500,16 @@ func TestTrimStrings(t *testing.T) {
 	}
 }
 
+// Ported from upstream CLIProxyAPI commit f351924f42cb.
+func TestBuildConfigChangeDetails_CodexKey_DisableCodexCloaking(t *testing.T) {
+	disabled := true
+	oldCfg := &config.Config{CodexKey: []config.CodexKey{{APIKey: "key", BaseURL: "https://codex.example.com"}}}
+	newCfg := &config.Config{CodexKey: []config.CodexKey{{APIKey: "key", BaseURL: "https://codex.example.com", DisableCodexCloaking: &disabled}}}
+
+	changes := BuildConfigChangeDetails(oldCfg, newCfg)
+	expectContains(t, changes, "codex[0].disable-codex-cloaking: inherit -> true")
+}
+
 // Ported from upstream CLIProxyAPI commits 54d4f4c0 + cee799f6
 // (internal/watcher/diff/config_diff_test.go meta-api-key diff coverage).
 func TestBuildConfigChangeDetails_Meta(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	codexmodels "github.com/therealtinhtute/llmhub/internal/client/codex/models"
 	. "github.com/therealtinhtute/llmhub/internal/constant"
 	"github.com/therealtinhtute/llmhub/internal/interfaces"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -60,7 +61,17 @@ func (h *OpenAIAPIHandler) Models() []map[string]any {
 // and specifications in OpenAI-compatible format.
 func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 	if _, ok := c.Request.URL.Query()["client_version"]; ok {
-		c.JSON(http.StatusOK, h.codexClientModelsResponse(c.Query("client_version")))
+		body, errMarshal := codexmodels.MarshalCompact(h.codexClientModelsResponse(c.Query("client_version")))
+		if errMarshal != nil {
+			c.JSON(http.StatusInternalServerError, handlers.ErrorResponse{
+				Error: handlers.ErrorDetail{
+					Message: fmt.Sprintf("Failed to encode model list: %v", errMarshal),
+					Type:    "server_error",
+				},
+			})
+			return
+		}
+		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 		return
 	}
 

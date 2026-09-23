@@ -315,6 +315,12 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 
 	// Create gin engine
 	engine := gin.New()
+	if errSetTrustedProxies := engine.SetTrustedProxies(cfg.TrustedProxies); errSetTrustedProxies != nil {
+		log.WithError(errSetTrustedProxies).Error("invalid trusted-proxies configuration; forwarded client IP headers will be ignored")
+		if errDisableTrustedProxies := engine.SetTrustedProxies(nil); errDisableTrustedProxies != nil {
+			log.WithError(errDisableTrustedProxies).Error("failed to disable trusted proxy handling")
+		}
+	}
 	if optionState.engineConfigurator != nil {
 		optionState.engineConfigurator(engine)
 	}
@@ -1054,7 +1060,13 @@ func (s *Server) handleHomeCodexClientModels(c *gin.Context, clientVersion strin
 		webSearchCapabilityForModel = homeWebSearchCapabilityForModel(entries)
 	}
 	optimizeMultiAgentV2 := s != nil && s.cfg != nil && s.cfg.CodexOptimizeMultiAgentV2
-	c.JSON(http.StatusOK, codexmodels.BuildResponseForClientWithCPACapabilities(models, nil, webSearchCapabilityForModel, optimizeMultiAgentV2, clientVersion))
+	payload := codexmodels.BuildResponseForClientWithCPACapabilities(models, nil, webSearchCapabilityForModel, optimizeMultiAgentV2, clientVersion)
+	body, errMarshal := codexmodels.MarshalCompact(payload)
+	if errMarshal != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errMarshal.Error()})
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 }
 
 func homeWebSearchCapabilityForModel(entries []homeModelEntry) codexmodels.WebSearchCapabilityForModelFunc {

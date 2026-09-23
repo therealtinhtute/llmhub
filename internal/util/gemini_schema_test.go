@@ -2190,3 +2190,87 @@ func TestCleanJSONSchema_RootAndWrappedTrue(t *testing.T) {
 		}
 	}
 }
+
+// Ported from upstream 2eb8dd11d248 (issue #6011 class): uppercase schema type
+// declarations must behave like their lowercase forms. The local rewrite never
+// stripped `items`, but the case-sensitive helpers skipped repair for
+// "ARRAY"/"OBJECT" — missing items were not added and bare property maps were
+// not folded.
+func TestCleanJSONSchema_UppercaseTypeRepair(t *testing.T) {
+	t.Run("UppercaseArrayGetsMissingItems", func(t *testing.T) {
+		input := `{
+			"type": "OBJECT",
+			"properties": {
+				"brands": {"type": "ARRAY"}
+			}
+		}`
+		for name, clean := range map[string]func(string) string{
+			"Antigravity": CleanJSONSchemaForAntigravity,
+			"Gemini":      CleanJSONSchemaForGemini,
+		} {
+			got := clean(input)
+			items := gjson.Parse(got).Get("properties.brands.items")
+			if !items.Exists() {
+				t.Fatalf("[%s] uppercase ARRAY without items was not repaired: %s", name, got)
+			}
+		}
+	})
+
+	t.Run("UppercaseArrayPreservesItems", func(t *testing.T) {
+		input := `{
+			"type": "OBJECT",
+			"properties": {
+				"summary": {"type": "STRING"},
+				"brands": {
+					"type": "ARRAY",
+					"items": {"type": "STRING"}
+				},
+				"catalog": {
+					"type": "OBJECT",
+					"properties": {
+						"items": {
+							"type": "ARRAY",
+							"items": {
+								"type": "OBJECT",
+								"properties": {"id": {"type": "STRING"}}
+							}
+						}
+					}
+				}
+			}
+		}`
+		cleaners := map[string]func(string) string{
+			"AntigravityResponse": CleanJSONSchemaForAntigravityResponse,
+			"Antigravity":         CleanJSONSchemaForAntigravity,
+			"Gemini":              CleanJSONSchemaForGemini,
+			"GeminiJSONSchema":    CleanJSONSchemaForGeminiJSONSchema,
+		}
+		for name, clean := range cleaners {
+			got := clean(input)
+			parsed := gjson.Parse(got)
+			if !parsed.Get("properties.brands.items").Exists() {
+				t.Fatalf("[%s] properties.brands.items was lost for uppercase ARRAY: %s", name, got)
+			}
+			if typeStr := parsed.Get("properties.brands.type").String(); !strings.EqualFold(typeStr, "array") {
+				t.Fatalf("[%s] properties.brands.type corrupted: %s", name, got)
+			}
+			if !parsed.Get("properties.catalog.properties.items.items").Exists() {
+				t.Fatalf("[%s] properties.catalog.properties.items.items was lost: %s", name, got)
+			}
+		}
+	})
+
+	t.Run("UppercaseObjectFoldsBareProperties", func(t *testing.T) {
+		// A node declared "OBJECT" with a bare property map child must fold the
+		// child into "properties" exactly like lowercase "object".
+		input := `{
+			"type": "OBJECT",
+			"nested": {"kind": {"type": "STRING"}}
+		}`
+		got := CleanJSONSchemaForGemini(input)
+		parsed := gjson.Parse(got)
+		if !parsed.Get("properties.nested.properties.kind").Exists() && !parsed.Get("properties.nested.kind").Exists() {
+			t.Fatalf("uppercase OBJECT bare property map was not folded: %s", got)
+		}
+	})
+}

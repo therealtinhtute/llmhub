@@ -13,22 +13,22 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Focused parity tests for the Claude Code 2.1.258 fingerprint chain ported
+// Focused parity tests for the Claude Code 2.1.280 fingerprint chain ported
 // from upstream CLIProxyAPI. Each test cites the upstream SHA it verifies and
 // names the local symbols it exercises.
 
 // TestClaudeFingerprintBaseline_2_1_258 verifies the default software
 // fingerprint tuple emitted by applyClaudeHeaders when the caller supplies no
 // Claude Code headers (upstream df7e04ea2850).
-func TestClaudeFingerprintBaseline_2_1_258(t *testing.T) {
+func TestClaudeFingerprintBaseline_2_1_280(t *testing.T) {
 	resetClaudeDeviceProfileCache()
 	req := newClaudeHeaderTestRequest(t, http.Header{})
 	auth := &cliproxyauth.Auth{ID: "auth-fp", Attributes: map[string]string{"api_key": "key-1"}}
 	body := []byte(`{"model":"claude-opus-5"}`)
 	applyClaudeHeaders(req, auth, "key-1", false, nil, body, nil)
 
-	if got := req.Header.Get("User-Agent"); got != "claude-cli/2.1.258 (external, cli)" {
-		t.Fatalf("User-Agent = %q, want claude-cli/2.1.258 (external, cli)", got)
+	if got := req.Header.Get("User-Agent"); got != "claude-cli/2.1.280 (external, cli)" {
+		t.Fatalf("User-Agent = %q, want claude-cli/2.1.280 (external, cli)", got)
 	}
 	if got := req.Header.Get("X-Stainless-Package-Version"); got != "0.112.1" {
 		t.Fatalf("X-Stainless-Package-Version = %q, want 0.112.1", got)
@@ -133,9 +133,9 @@ func TestClaudeCodeCLIBetas_DynamicGating(t *testing.T) {
 // order and conditional tags (upstream 086ad91bd970).
 func TestGenerateBillingHeader_ContinuityChain(t *testing.T) {
 	payload := []byte(`{"messages":[{"role":"user","content":"hello world this is a long message"}]}`)
-	header := generateBillingHeader(payload, true, "2.1.258", "fingerprint-source-text", "cli", "main", true, "req_01abc", "3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f")
+	header := generateBillingHeader(payload, true, "2.1.280", "fingerprint-source-text", "cli", "main", true, "req_01abc", "3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f")
 
-	wantOrder := []string{"cc_version=2.1.258.", "cc_entrypoint=cli;", "cch=00000;", "cc_workload=main;", "cc_is_subagent=true;", "cc_prev_req=req_01abc;", "cc_prompt_id=3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f;"}
+	wantOrder := []string{"cc_version=2.1.280.", "cc_entrypoint=cli;", "cch=00000;", "cc_workload=main;", "cc_is_subagent=true;", "cc_prev_req=req_01abc;", "cc_prompt_id=3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f;"}
 	if !strings.HasPrefix(header, "x-anthropic-billing-header: ") {
 		t.Fatalf("billing header %q missing prefix", header)
 	}
@@ -153,7 +153,7 @@ func TestGenerateBillingHeader_ContinuityChain(t *testing.T) {
 
 	// Unsigned path emits no cch and no continuity tags; non-subagent emits no
 	// cc_is_subagent (upstream 086ad91bd970).
-	unsigned := generateBillingHeader(payload, false, "2.1.258", "text", "cli", "main", false, "req_01abc", "3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f")
+	unsigned := generateBillingHeader(payload, false, "2.1.280", "text", "cli", "main", false, "req_01abc", "3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f")
 	for _, absent := range []string{"cch=", "cc_is_subagent", "cc_prev_req", "cc_prompt_id"} {
 		if strings.Contains(unsigned, absent) {
 			t.Fatalf("unsigned billing header %q must not contain %q", unsigned, absent)
@@ -167,7 +167,7 @@ func TestGenerateBillingHeader_ContinuityChain(t *testing.T) {
 // TestClaudeBillingTags_StripInjectExtract exercises the billing tag helpers
 // used for post-payload probe reclassification (upstream 4a5ab534f827).
 func TestClaudeBillingTags_StripInjectExtract(t *testing.T) {
-	body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.258.abc; cc_entrypoint=cli; cch=00000; cc_prev_req=req_01x; cc_prompt_id=3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f;"}]}`)
+	body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.280.abc; cc_entrypoint=cli; cch=00000; cc_prev_req=req_01x; cc_prompt_id=3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f;"}]}`)
 
 	prevReq, promptID := helps.ExtractClaudeBillingTags(body)
 	if prevReq != "req_01x" || promptID != "3f3f3f3f-3f3f-43f3-83f3-3f3f3f3f3f3f" {
@@ -444,8 +444,8 @@ func TestApplyCloaking_BillingContinuityTags(t *testing.T) {
 		t.Fatal("expected cloaking to run for cloak_mode=always")
 	}
 	billing := gjson.GetBytes(out, "system.0.text").String()
-	if !strings.HasPrefix(billing, "x-anthropic-billing-header: cc_version=2.1.258.") {
-		t.Fatalf("billing header = %q, want 2.1.258 chain", billing)
+	if !strings.HasPrefix(billing, "x-anthropic-billing-header: cc_version=2.1.280.") {
+		t.Fatalf("billing header = %q, want 2.1.280 chain", billing)
 	}
 	if !strings.Contains(billing, "cch=00000;") {
 		t.Fatalf("oauth cloaked billing must carry cch placeholder: %q", billing)
@@ -479,5 +479,127 @@ func TestApplyCloaking_BillingContinuityTags(t *testing.T) {
 	}
 	if continuityCtx3.Initialized {
 		t.Fatal("probe request must not initialize continuity")
+	}
+}
+
+// TestClaudeCodeCLIBetas_21280GatedBetas verifies the Claude Code 2.1.280
+// feature-gated betas and their wire positions (upstream bd584a752329 and
+// 779bf317e030).
+func TestClaudeCodeCLIBetas_21280GatedBetas(t *testing.T) {
+	constants := "claude-code-20250219,interleaved-thinking-2025-05-14," +
+		"redact-thinking-2026-02-12,thinking-token-count-2026-05-13," +
+		"context-management-2025-06-27,prompt-caching-scope-2026-01-05"
+
+	cases := []struct {
+		name      string
+		body      string
+		requested map[string]bool
+		want      string
+	}{
+		{
+			name: "plain non-legacy model keeps mid-conversation pair",
+			body: `{"model":"claude-fable-5"}`,
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01",
+		},
+		{
+			name: "opus-5-5 carries per-turn-control between mid-conversation betas",
+			body: `{"model":"claude-opus-5-5"}`,
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01",
+		},
+		{
+			name: "fable-5-1 carries per-turn-control but not timing unless the body asks",
+			body: `{"model":"claude-fable-5-1"}`,
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01",
+		},
+		{
+			name: "opus-5-5 timing and the other 2.1.280 gated betas keep wire order",
+			body: `{"model":"claude-opus-5-5","safeguards":[{}],"thinking":{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"omit"}},"messages":[{"role":"system","clear_at":"next_user_message","content":[{"type":"tool_addition","tool":{"definition":{"name":"bash"}}}]},{"role":"user","content":"x","output_config":{"timing":{"now":"2026-09-23T00:00:00Z"}}}],"cache_control":{"type":"ephemeral","evict_on_complete":true}}`,
+			requested: map[string]bool{
+				claudeThinkingResumptionBeta: true,
+			},
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,timing-2026-09-09," +
+				"mid-conversation-tool-changes-2026-07-01,inline-tools-2026-09-15," +
+				"mid-conversation-system-clear-at-2026-08-21,dangerous-tool-use-2026-09-03," +
+				"thinking-binding-controls-2026-08-01,thinking-resumption-2026-07-17,prompt-caching-evict-2026-05-12",
+		},
+		{
+			name: "legacy model still honors requested per-turn betas ahead of effort position",
+			body: `{"model":"claude-opus-4-7"}`,
+			requested: map[string]bool{
+				claudePerTurnControlBeta: true,
+				claudePerTurnTimingBeta:  true,
+			},
+			want: constants + ",per-turn-control-2026-07-01,timing-2026-09-09",
+		},
+		{
+			name: "legacy model does not emit mid-conversation betas",
+			body: `{"model":"claude-opus-4-7"}`,
+			want: constants,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := claudeCodeCLIBetas([]byte(tc.body), tc.requested, false)
+			for _, want := range strings.Split(tc.want, ",") {
+				if !strings.Contains(got, want) {
+					t.Fatalf("betas %q missing %q", got, want)
+				}
+			}
+			// Exact-order assertion: the emitted list must match the measured
+			// relative order in tc.want (effort/fallback betas may trail).
+			wantParts := strings.Split(tc.want, ",")
+			gotParts := strings.Split(got, ",")
+			idx := 0
+			for _, wp := range wantParts {
+				found := false
+				for ; idx < len(gotParts); idx++ {
+					if gotParts[idx] == wp {
+						found = true
+						idx++
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("betas %q missing %q in wire order", got, wp)
+				}
+			}
+			// New betas must not appear unless the case asks for them.
+			unwanted := []string{
+				claudePerTurnControlBeta, claudePerTurnTimingBeta, claudeInlineToolsBeta,
+				claudeMidConvSystemClearAtBeta, claudeDangerousToolUseBeta,
+				claudeThinkingBindingBeta, claudeThinkingResumptionBeta, claudePromptCachingEvictBeta,
+			}
+			for _, u := range unwanted {
+				if !strings.Contains(tc.want, u) && strings.Contains(got, u) {
+					t.Fatalf("betas %q unexpectedly contains %q", got, u)
+				}
+			}
+		})
+	}
+}
+
+// TestApplyClaudeHeaders_ForwardsUnmanagedCallerBetas verifies that caller
+// betas the proxy does not manage survive on direct Anthropic while managed
+// caller betas are emitted at their assembled positions (upstream #5738,
+// bd584a752329).
+func TestApplyClaudeHeaders_ForwardsUnmanagedCallerBetas(t *testing.T) {
+	resetClaudeDeviceProfileCache()
+	req := newClaudeHeaderTestRequest(t, http.Header{})
+	auth := &cliproxyauth.Auth{ID: "auth-beta", Attributes: map[string]string{"api_key": "key-1"}}
+	incoming := http.Header{}
+	incoming.Set("Anthropic-Beta", "message-threads-2026-08-12,per-turn-control-2026-07-01")
+	body := []byte(`{"model":"claude-fable-5-1"}`)
+	applyClaudeHeaders(req, auth, "key-1", false, nil, body, nil, incoming)
+
+	betas := req.Header.Get("Anthropic-Beta")
+	if !strings.Contains(betas, "message-threads-2026-08-12") {
+		t.Fatalf("Anthropic-Beta = %q, want unmanaged caller beta forwarded", betas)
+	}
+	if !strings.Contains(betas, "mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01") {
+		t.Fatalf("Anthropic-Beta = %q, want managed per-turn-control at its assembled position", betas)
+	}
+	if strings.Count(betas, "per-turn-control-2026-07-01") != 1 {
+		t.Fatalf("Anthropic-Beta = %q, managed caller beta must not duplicate", betas)
 	}
 }

@@ -29,8 +29,26 @@ func TestManagerCooldownStatePersistsAndRestoresRestart(t *testing.T) {
 		Error:    &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota exhausted"},
 	})
 
-	if got := store.snapshot(); len(got) != 1 || got[0].AuthID != authID || got[0].Model != model || !got[0].Quota.Exceeded || got[0].NextRetryAfter.IsZero() {
-		t.Fatalf("persisted cooldown snapshot = %#v, want one quota model record", got)
+	// Upstream snapshot shape (ed70aeaa1627): when every model is cooling, the
+	// auth aggregate is also unavailable, so the store carries one auth-level
+	// record plus the model-level record.
+	snap := store.snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("persisted cooldown snapshot = %#v, want auth + model records", snap)
+	}
+	var authRecord, modelRecord *CooldownStateRecord
+	for i := range snap {
+		if snap[i].Model == "" {
+			authRecord = &snap[i]
+		} else {
+			modelRecord = &snap[i]
+		}
+	}
+	if authRecord == nil || authRecord.AuthID != authID || !authRecord.Quota.Exceeded || authRecord.NextRetryAfter.IsZero() {
+		t.Fatalf("persisted auth-level record = %#v, want active quota cooldown", authRecord)
+	}
+	if modelRecord == nil || modelRecord.AuthID != authID || modelRecord.Model != model || !modelRecord.Quota.Exceeded || modelRecord.NextRetryAfter.IsZero() {
+		t.Fatalf("persisted model record = %#v, want quota model record", modelRecord)
 	}
 
 	reg := registry.GetGlobalRegistry()
@@ -48,8 +66,8 @@ func TestManagerCooldownStatePersistsAndRestoresRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RestoreCooldownState() error = %v", err)
 	}
-	if restored != 1 {
-		t.Fatalf("RestoreCooldownState() restored = %d, want 1", restored)
+	if restored != 2 {
+		t.Fatalf("RestoreCooldownState() restored = %d, want 2", restored)
 	}
 
 	updated, ok := restarted.GetByID(authID)
@@ -77,8 +95,9 @@ func TestManagerCooldownStateSuccessClearsSnapshot(t *testing.T) {
 		t.Fatalf("Register() error = %v", err)
 	}
 	manager.MarkResult(ctx, Result{AuthID: authID, Provider: "gemini", Model: model, Success: false, Error: &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota exhausted"}})
-	if got := store.snapshot(); len(got) != 1 {
-		t.Fatalf("snapshot after failure len = %d, want 1", len(got))
+	// Auth-level + model-level records once the whole credential is unavailable.
+	if got := store.snapshot(); len(got) != 2 {
+		t.Fatalf("snapshot after failure len = %d, want 2", len(got))
 	}
 
 	manager.MarkResult(ctx, Result{AuthID: authID, Provider: "gemini", Model: model, Success: true})

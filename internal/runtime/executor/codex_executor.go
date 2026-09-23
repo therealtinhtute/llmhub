@@ -310,6 +310,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	// reasoning.content and reasoning ids; others get the standard sanitize.
 	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
+	body = helps.NormalizeCodexToolSchemas(body)
 	// Optimize official Codex multi_agent v2 requests: refresh spawn_agent model
 	// details, strip message encryption, and (for is-compat models) convert
 	// agent_message input into portable message/user items.
@@ -554,6 +555,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	// Ported from upstream CLIProxyAPI commit 81d6ba774621 (compact flow).
 	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
+	body = helps.NormalizeCodexToolSchemas(body)
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses/compact"
@@ -676,6 +678,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	// Ported from upstream CLIProxyAPI commit 81d6ba774621 (streaming flow).
 	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
+	body = helps.NormalizeCodexToolSchemas(body)
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
@@ -1274,7 +1277,7 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 	misc.EnsureHeader(r.Header, ginHeaders, "Thread-Id", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "Session-Id", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Openai-Internal-Codex-Responses-Lite", "")
-	disableCloaking := cliproxyexecutor.CodexCloakingDisabled(r.Context())
+	disableCloaking := isCodexCloakingDisabled(r.Context(), cfg, auth)
 	cfgUserAgent := ""
 	if !disableCloaking {
 		cfgUserAgent, _ = codexHeaderDefaults(cfg, auth)
@@ -1606,7 +1609,14 @@ func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
 }
 
 func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.CodexKey {
-	if auth == nil || e.cfg == nil {
+	if e == nil {
+		return nil
+	}
+	return resolveCodexKeyConfig(e.cfg, auth)
+}
+
+func resolveCodexKeyConfig(cfg *config.Config, auth *cliproxyauth.Auth) *config.CodexKey {
+	if auth == nil || cfg == nil {
 		return nil
 	}
 	var attrKey, attrBase string
@@ -1617,8 +1627,8 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 		// (codex_executor_auth.go): the auth may carry the index of the config
 		// entry it was synthesized from ("config_index"; upstream
 		// cliproxyauth.AttributeConfigIndex — the fork uses the literal key).
-		if index, errIndex := strconv.Atoi(strings.TrimSpace(auth.Attributes["config_index"])); errIndex == nil && index >= 0 && index < len(e.cfg.CodexKey) {
-			entry := &e.cfg.CodexKey[index]
+		if index, errIndex := strconv.Atoi(strings.TrimSpace(auth.Attributes["config_index"])); errIndex == nil && index >= 0 && index < len(cfg.CodexKey) {
+			entry := &cfg.CodexKey[index]
 			cfgKey := strings.TrimSpace(entry.APIKey)
 			cfgBase := strings.TrimSpace(entry.BaseURL)
 			if (attrKey == "" || strings.EqualFold(cfgKey, attrKey)) && (attrBase == "" || strings.EqualFold(cfgBase, attrBase)) {
@@ -1626,8 +1636,8 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 			}
 		}
 	}
-	for i := range e.cfg.CodexKey {
-		entry := &e.cfg.CodexKey[i]
+	for i := range cfg.CodexKey {
+		entry := &cfg.CodexKey[i]
 		cfgKey := strings.TrimSpace(entry.APIKey)
 		cfgBase := strings.TrimSpace(entry.BaseURL)
 		if attrKey != "" && attrBase != "" {
@@ -1646,14 +1656,33 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 		}
 	}
 	if attrKey != "" {
-		for i := range e.cfg.CodexKey {
-			entry := &e.cfg.CodexKey[i]
+		for i := range cfg.CodexKey {
+			entry := &cfg.CodexKey[i]
 			if strings.EqualFold(strings.TrimSpace(entry.APIKey), attrKey) {
 				return entry
 			}
 		}
 	}
 	return nil
+}
+
+// isCodexCloakingDisabled resolves the cloaking override for a credential in
+// precedence order: auth attribute (synthesized from config or set on the auth
+// file), then the matching credential's disable-codex-cloaking entry, then the
+// global cloaking runtime control carried on the request context.
+// Ported from upstream CLIProxyAPI commit f351924f42cb.
+func isCodexCloakingDisabled(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) bool {
+	if auth != nil && len(auth.Attributes) > 0 {
+		if val, ok := auth.Attributes[cliproxyauth.AttributeCodexDisableCloaking]; ok {
+			if parsed, errParse := strconv.ParseBool(strings.TrimSpace(val)); errParse == nil {
+				return parsed
+			}
+		}
+	}
+	if entry := resolveCodexKeyConfig(cfg, auth); entry != nil && entry.DisableCodexCloaking != nil {
+		return *entry.DisableCodexCloaking
+	}
+	return cliproxyexecutor.CodexCloakingDisabled(ctx)
 }
 
 // resolveCodexModelIsCompat reports whether the requested model runs against a

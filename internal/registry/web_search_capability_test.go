@@ -193,9 +193,9 @@ func TestVerifiedNativeSearchCatalogMetadata(t *testing.T) {
 		{name: "codex-free auto-review", models: GetCodexFreeModels(), id: "codex-auto-review"},
 		{name: "codex-team astra", models: GetCodexTeamModels(), id: "gpt-6-astra"},
 		{name: "codex-team sol", models: GetCodexTeamModels(), id: "gpt-5.6-sol"},
-		{name: "codex-plus spark", models: GetCodexPlusModels(), id: "gpt-5.3-codex-spark"},
+		{name: "codex-plus gpt-6-sol", models: GetCodexPlusModels(), id: "gpt-6-sol"},
 		{name: "codex-plus astra", models: GetCodexPlusModels(), id: "gpt-6-astra"},
-		{name: "codex-pro spark", models: GetCodexProModels(), id: "gpt-5.3-codex-spark"},
+		{name: "codex-pro gpt-6-luna", models: GetCodexProModels(), id: "gpt-6-luna"},
 		{name: "codex-pro astra", models: GetCodexProModels(), id: "gpt-6-astra"},
 	}
 	for _, tt := range tests {

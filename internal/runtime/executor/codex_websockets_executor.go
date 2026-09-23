@@ -404,6 +404,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex websockets executor", body, isCompat)
 	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
+	body = helps.NormalizeCodexToolSchemas(body)
 
 	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
 	wsURL, err := buildCodexResponsesWebsocketURL(httpURL)
@@ -1245,6 +1246,7 @@ func (e *CodexWebsocketsExecutor) prepareCodexWebsocketStream(ctx context.Contex
 	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex websockets executor", body, isCompat)
 	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
+	body = helps.NormalizeCodexToolSchemas(body)
 
 	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
 	wsURL, err := buildCodexResponsesWebsocketURL(httpURL)
@@ -1545,7 +1547,7 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 	}
 
 	isAPIKey := codexAuthUsesAPIKey(auth)
-	disableCloaking := cliproxyexecutor.CodexCloakingDisabled(ctx)
+	disableCloaking := isCodexCloakingDisabled(ctx, cfg, auth)
 	cfgUserAgent, cfgBetaFeatures := "", ""
 	if !disableCloaking {
 		cfgUserAgent, cfgBetaFeatures = codexHeaderDefaults(cfg, auth)

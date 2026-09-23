@@ -50,6 +50,10 @@ type Config struct {
 	// Port is the network port on which the API server will listen.
 	Port int `yaml:"port" json:"-"`
 
+	// TrustedProxies lists the IPs or CIDRs allowed to provide forwarded client IP headers.
+	// The server applies this list at startup; changing it requires a restart.
+	TrustedProxies []string `yaml:"trusted-proxies" json:"trusted-proxies"`
+
 	// TLS config controls HTTPS server settings.
 	TLS TLSConfig `yaml:"tls" json:"tls"`
 
@@ -594,6 +598,11 @@ type CodexKey struct {
 	// True disables auth/model cooldowns; false explicitly enables them.
 	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
 
+	// DisableCodexCloaking optionally overrides the global cloaking runtime control for
+	// this credential. True disables cloaking; false explicitly enables cloaking;
+	// omitted inherits the global runtime-control cloaking.disable_codex setting.
+	DisableCodexCloaking *bool `yaml:"disable-codex-cloaking,omitempty" json:"disable-codex-cloaking,omitempty"`
+
 	// RequestRetry optionally overrides the global request-retry for this credential.
 	// Nil or a negative value means "use the global request-retry". 0 disables retries.
 	RequestRetry *int `yaml:"request-retry,omitempty" json:"request-retry,omitempty"`
@@ -883,6 +892,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 			return &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}, nil
 		}
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	if errValidate := validateTrustedProxies(cfg.TrustedProxies); errValidate != nil {
+		return nil, errValidate
 	}
 	cfg.CredentialConcurrency = cfg.CredentialConcurrency.WithDefaults()
 	cfg.CredentialInFlight = cfg.CredentialInFlight.WithDefaults()

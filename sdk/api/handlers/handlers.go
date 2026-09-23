@@ -454,6 +454,11 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 	if endpoint != "" {
 		newCtx = logging.WithEndpoint(newCtx, endpoint)
 	}
+	if c != nil && c.Request != nil {
+		clientMeta := logging.GetClientRequestMetadata(newCtx)
+		clientMeta.ResolvedClientIP = strings.TrimSpace(c.ClientIP())
+		newCtx = logging.WithClientRequestMetadata(newCtx, clientMeta)
+	}
 	newCtx = logging.WithResponseStatusHolder(newCtx)
 	newCtx = logging.WithResponseHeadersHolder(newCtx)
 

@@ -44,6 +44,12 @@ func GetRequestInfo(ctx context.Context) *RequestInfo {
 	return nil
 }
 
+// AttributeCodexDisableCloaking stores the per-credential Codex cloaking override
+// ("true"/"false") on Auth.Attributes. It takes precedence over the credential's
+// disable-codex-cloaking config entry, which itself overrides the global cloaking
+// runtime control. Ported from upstream CLIProxyAPI commit f351924f42cb.
+const AttributeCodexDisableCloaking = "disable_codex_cloaking"
+
 // Auth encapsulates the runtime state and metadata associated with a single credential.
 type Auth struct {
 	// ID uniquely identifies the auth record across restarts.

@@ -60,7 +60,7 @@ func TestCodexClientModelsIncludesCheckpointTemplates(t *testing.T) {
 		{"id": "gpt-5.6-sol"},
 		{"id": "gpt-5.6-terra"},
 		{"id": "gpt-5.6-luna"},
-		{"id": "gpt-5.3-codex-spark"},
+		{"id": "gpt-6-sol"},
 	})
 
 	tests := []struct {
@@ -70,7 +70,7 @@ func TestCodexClientModelsIncludesCheckpointTemplates(t *testing.T) {
 		{slug: "gpt-5.6-sol", displayName: "GPT-5.6-Sol"},
 		{slug: "gpt-5.6-terra", displayName: "GPT-5.6-Terra"},
 		{slug: "gpt-5.6-luna", displayName: "GPT-5.6-Luna"},
-		{slug: "gpt-5.3-codex-spark", displayName: "GPT-5.3-Codex-Spark"},
+		{slug: "gpt-6-sol", displayName: "GPT-6-Sol"},
 	}
 
 	for _, tt := range tests {

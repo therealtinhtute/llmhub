@@ -3,6 +3,7 @@ package cliproxy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -22,6 +23,20 @@ type RuntimeStorage interface {
 	CurrentVersion(ctx context.Context) (int64, error)
 	AuthVersion(ctx context.Context) (string, error)
 	List(ctx context.Context) ([]*coreauth.Auth, error)
+}
+
+// revisionProber is implemented by stores that can fetch every
+// watcher-visible revision in one round-trip (PostgresStore). Stores without
+// it keep the legacy per-source poll.
+type revisionProber interface {
+	StorageRevisions(ctx context.Context) (configVersion int64, authCount int64, authMaxUpdate time.Time, authIDsHash string, runtimeRevision int64, nativeMaxUpdate time.Time, err error)
+}
+
+// revisionObserver is implemented by stores that keep revision-keyed read
+// caches (PostgresStore): the watcher feeds each probe's revisions back so
+// remotely produced changes invalidate the cached values.
+type revisionObserver interface {
+	ObserveRevisions(configVersion, runtimeRevision int64)
 }
 
 func NewStorageWatcherFactory(store RuntimeStorage) WatcherFactory {
@@ -59,14 +74,24 @@ type storageWatcher struct {
 	store  RuntimeStorage
 	reload func(*config.Config)
 
-	mu            sync.Mutex
-	cfg           *config.Config
-	queue         chan<- watcher.AuthUpdate
-	currentAuth   map[string]*coreauth.Auth
-	synthAuths    map[string]*coreauth.Auth
-	configVersion int64
-	authVersion   string
-	cancel        context.CancelFunc
+	mu              sync.Mutex
+	cfg             *config.Config
+	queue           chan<- watcher.AuthUpdate
+	currentAuth     map[string]*coreauth.Auth
+	synthAuths      map[string]*coreauth.Auth
+	configVersion   int64
+	authVersion     string
+	runtimeRevision int64
+	nativeMaxUpdate time.Time
+	cancel          context.CancelFunc
+
+	// probeMode is set once the store answers a StorageRevisions probe; the
+	// hydrated* fields then gate native-provider hydration so unchanged
+	// revisions skip the per-tick content reads.
+	probeMode             bool
+	hydrated              bool
+	hydratedConfigVersion int64
+	hydratedNativeMax     time.Time
 }
 
 func (w *storageWatcher) start(ctx context.Context) error {
@@ -149,6 +174,28 @@ func (w *storageWatcher) dispatch(update watcher.AuthUpdate) bool {
 }
 
 func (w *storageWatcher) poll(ctx context.Context) error {
+	if prober, ok := w.store.(revisionProber); ok {
+		configVersion, authCount, authMaxUpdate, authIDsHash, runtimeRevision, nativeMaxUpdate, err := prober.StorageRevisions(ctx)
+		if err != nil {
+			return err
+		}
+		w.mu.Lock()
+		w.probeMode = true
+		w.runtimeRevision = runtimeRevision
+		w.nativeMaxUpdate = nativeMaxUpdate
+		w.mu.Unlock()
+		if observer, okObs := w.store.(revisionObserver); okObs {
+			observer.ObserveRevisions(configVersion, runtimeRevision)
+		}
+		if err := w.pollConfigVersion(ctx, configVersion); err != nil {
+			return err
+		}
+		authVersion := fmt.Sprintf("%d:%s:%s", authCount, authMaxUpdate.UTC().Format(time.RFC3339Nano), authIDsHash)
+		if err := w.pollAuthVersion(ctx, authVersion); err != nil {
+			return err
+		}
+		return w.pollSynthAuths(ctx)
+	}
 	if err := w.pollConfig(ctx); err != nil {
 		return err
 	}
@@ -163,6 +210,10 @@ func (w *storageWatcher) pollConfig(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return w.pollConfigVersion(ctx, version)
+}
+
+func (w *storageWatcher) pollConfigVersion(ctx context.Context, version int64) error {
 	w.mu.Lock()
 	changed := w.configVersion != 0 && version != 0 && version != w.configVersion
 	if w.configVersion == 0 {
@@ -195,6 +246,10 @@ func (w *storageWatcher) pollAuth(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return w.pollAuthVersion(ctx, version)
+}
+
+func (w *storageWatcher) pollAuthVersion(ctx context.Context, version string) error {
 	w.mu.Lock()
 	if w.authVersion == version {
 		w.mu.Unlock()
@@ -285,13 +340,26 @@ func (w *storageWatcher) pollSynthAuths(ctx context.Context) error {
 func (w *storageWatcher) synthConfigAuths(ctx context.Context) map[string]*coreauth.Auth {
 	w.mu.Lock()
 	cfg := w.cfg
+	probeMode := w.probeMode
+	configVersion := w.configVersion
+	nativeMax := w.nativeMaxUpdate
+	needHydrate := true
+	if probeMode {
+		needHydrate = !w.hydrated || configVersion != w.hydratedConfigVersion || !nativeMax.Equal(w.hydratedNativeMax)
+	}
 	w.mu.Unlock()
 	if cfg == nil {
 		return nil
 	}
-	if ns, ok := w.store.(nativeproviders.Store); ok {
+	if ns, ok := w.store.(nativeproviders.Store); ok && needHydrate {
 		if err := nativeproviders.HydrateConfig(ctx, cfg, ns); err != nil {
 			log.WithError(err).Warn("storage watcher: failed to hydrate native provider resources")
+		} else {
+			w.mu.Lock()
+			w.hydrated = true
+			w.hydratedConfigVersion = configVersion
+			w.hydratedNativeMax = nativeMax
+			w.mu.Unlock()
 		}
 	}
 	out := make(map[string]*coreauth.Auth)

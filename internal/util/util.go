@@ -105,6 +105,16 @@ func CountAuthFiles[T any](ctx context.Context, store interface {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if counter, ok := any(store).(interface {
+		CountAuths(context.Context) (int, error)
+	}); ok {
+		count, err := counter.CountAuths(ctx)
+		if err != nil {
+			log.Debugf("countAuthFiles: failed to count auth records: %v", err)
+			return 0
+		}
+		return count
+	}
 	entries, err := store.List(ctx)
 	if err != nil {
 		log.Debugf("countAuthFiles: failed to list auth records: %v", err)

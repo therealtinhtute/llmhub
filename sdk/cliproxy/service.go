@@ -1191,6 +1191,7 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		if s.quotaAlertService != nil {
 			s.quotaAlertService.Stop()
 		}
+		redisqueue.FlushUsage(ctx)
 
 		// legacy refresh loop removed; only stopping core auth manager below
 

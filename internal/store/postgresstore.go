@@ -15,6 +15,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	log "github.com/sirupsen/logrus"
+	"github.com/therealtinhtute/llmhub/internal/runtimecontrol"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
@@ -44,6 +45,37 @@ type PostgresStore struct {
 
 	mu            sync.Mutex
 	cooldownStore *postgresCooldownStateStore
+
+	// Revision-keyed read caches. The storage watcher calls ObserveRevisions
+	// every poll with the probe's revisions; a mismatch invalidates the entry.
+	// Local writes update entries write-through so the writing process never
+	// serves its own pre-write value.
+	cacheMu     sync.RWMutex
+	configCache struct {
+		version int64
+		content []byte
+		valid   bool
+	}
+	rtCache struct {
+		revision int64
+		settings runtimecontrol.Settings
+		valid    bool
+	}
+}
+
+// ObserveRevisions feeds the storage watcher's probe results back into the
+// read caches: a revision produced elsewhere (another instance, a management
+// write on a different process) invalidates the matching cached value so the
+// next read refetches. Staleness bound: one watcher poll interval.
+func (s *PostgresStore) ObserveRevisions(configVersion, runtimeRevision int64) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.configCache.valid && s.configCache.version != configVersion {
+		s.configCache.valid = false
+	}
+	if s.rtCache.valid && s.rtCache.revision != runtimeRevision {
+		s.rtCache.valid = false
+	}
 }
 
 type ConfigSnapshot struct {
@@ -78,6 +110,14 @@ func NewPostgresStore(ctx context.Context, cfg PostgresStoreConfig) (*PostgresSt
 	if err != nil {
 		return nil, fmt.Errorf("postgres store: open database connection: %w", err)
 	}
+	// Bound the pool for remote deployments: idle connections past
+	// ConnMaxIdleTime are closed instead of going stale against NAT/pooler
+	// timeouts, and MaxIdleConns keeps a warm set above the default of 2 so
+	// bursty management reads do not pay a fresh TCP+TLS+auth handshake.
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(8)
+	db.SetConnMaxIdleTime(2 * time.Minute)
+	db.SetConnMaxLifetime(10 * time.Minute)
 	if err = db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, postgresPingError(cfg.DSN, err)
@@ -100,7 +140,7 @@ func postgresPingError(dsn string, err error) error {
 	if strings.Contains(dsnLower, ".supabase.co") &&
 		strings.Contains(dsnLower, "db.") &&
 		(strings.Contains(message, "no route to host") || strings.Contains(message, "network is unreachable")) {
-		return fmt.Errorf("postgres store: ping database: %w; Supabase direct database hosts often require IPv6. Use the Supabase pooler DSN, for example postgres://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require", err)
+		return fmt.Errorf("postgres store: ping database: %w; Supabase direct database hosts often require IPv6. Use the Supabase session-mode pooler DSN, for example postgres://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require (transaction mode :6543 does not support the session advisory locks used by quota collection)", err)
 	}
 	return fmt.Errorf("postgres store: ping database: %w", err)
 }
@@ -287,11 +327,26 @@ func (s *PostgresStore) LoadConfig(ctx context.Context) (*ConfigSnapshot, error)
 }
 
 // LoadConfigBytes returns the current config payload for management handlers.
+// The payload is cached keyed by config version; the watcher probe invalidates
+// on remote change, SaveConfig writes through on local change.
 func (s *PostgresStore) LoadConfigBytes(ctx context.Context) ([]byte, error) {
+	s.cacheMu.RLock()
+	if s.configCache.valid {
+		content := append([]byte(nil), s.configCache.content...)
+		s.cacheMu.RUnlock()
+		return content, nil
+	}
+	s.cacheMu.RUnlock()
+
 	snapshot, err := s.LoadConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
+	s.cacheMu.Lock()
+	s.configCache.version = snapshot.Version
+	s.configCache.content = append([]byte(nil), snapshot.Content...)
+	s.configCache.valid = true
+	s.cacheMu.Unlock()
 	return append([]byte(nil), snapshot.Content...), nil
 }
 
@@ -309,6 +364,11 @@ func (s *PostgresStore) SaveConfig(ctx context.Context, data []byte) (int64, err
 	if err := s.db.QueryRowContext(ctx, query, defaultConfigKey, normalized).Scan(&version); err != nil {
 		return 0, fmt.Errorf("postgres store: save config: %w", err)
 	}
+	s.cacheMu.Lock()
+	s.configCache.version = version
+	s.configCache.content = append([]byte(nil), normalized...)
+	s.configCache.valid = true
+	s.cacheMu.Unlock()
 	return version, nil
 }
 
@@ -353,6 +413,16 @@ func (s *PostgresStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (stri
 		return "", err
 	}
 	return id, nil
+}
+
+// CountAuths returns the number of auth records without reading content payloads.
+func (s *PostgresStore) CountAuths(ctx context.Context) (int, error) {
+	query := fmt.Sprintf("SELECT count(*) FROM %s", s.fullTableName(s.cfg.AuthTable))
+	var count int
+	if err := s.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("postgres store: count auths: %w", err)
+	}
+	return count, nil
 }
 
 // List enumerates all auth records stored in PostgreSQL.
@@ -471,6 +541,62 @@ func (s *PostgresStore) AuthVersion(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%d:%s:%s", snapshot.Count, snapshot.MaxUpdate.UTC().Format(time.RFC3339Nano), strings.Join(snapshot.IDs, ",")), nil
+}
+
+// StorageRevisions fetches every watcher-visible revision in a single
+// round-trip so the storage watcher costs one small query per poll instead of
+// three (and the auth probe returns a constant-size hash instead of the full
+// ID list). All subqueries are NULL-tolerant: absent rows yield zero values.
+func (s *PostgresStore) StorageRevisions(ctx context.Context) (configVersion int64, authCount int64, authMaxUpdate time.Time, authIDsHash string, runtimeRevision int64, nativeMaxUpdate time.Time, err error) {
+	query := fmt.Sprintf(`SELECT
+		(SELECT version FROM %s WHERE id = $1),
+		(SELECT count(*) FROM %s),
+		(SELECT max(updated_at) FROM %s),
+		(SELECT COALESCE(md5(string_agg(id, ',' ORDER BY id)), '') FROM %s),
+		(SELECT revision FROM %s WHERE id = $2),
+		(SELECT max(updated_at) FROM %s)`,
+		s.fullTableName(s.cfg.ConfigTable),
+		s.fullTableName(s.cfg.AuthTable),
+		s.fullTableName(s.cfg.AuthTable),
+		s.fullTableName(s.cfg.AuthTable),
+		s.fullTableName(runtimeControlSettingsTable),
+		s.fullTableName(nativeProviderTable))
+	var (
+		cfgVer    sql.NullInt64
+		aCount    int64
+		aMax      sql.NullTime
+		aHash     sql.NullString
+		rtRev     sql.NullInt64
+		nativeMax sql.NullTime
+	)
+	if err = s.db.QueryRowContext(ctx, query, defaultConfigKey, runtimeControlSettingsID).Scan(
+		&cfgVer, &aCount, &aMax, &aHash, &rtRev, &nativeMax,
+	); err != nil {
+		return 0, 0, time.Time{}, "", 0, time.Time{}, fmt.Errorf("postgres store: storage revisions: %w", err)
+	}
+	return cfgVer.Int64, aCount, aMax.Time, aHash.String, rtRev.Int64, nativeMax.Time, nil
+}
+
+// AppendUsageBatch inserts multiple usage payloads in one round-trip,
+// preserving (requested_at, id) pop order via unnest's ordinality-free bulk
+// insert (ids stay insertion-ordered within the batch).
+func (s *PostgresStore) AppendUsageBatch(ctx context.Context, payloads [][]byte, requestedAts []time.Time) error {
+	if len(payloads) == 0 {
+		return nil
+	}
+	if len(payloads) != len(requestedAts) {
+		return fmt.Errorf("postgres store: append usage batch: payloads/requestedAts length mismatch (%d != %d)", len(payloads), len(requestedAts))
+	}
+	texts := make([]string, len(payloads))
+	for i, payload := range payloads {
+		texts[i] = string(payload)
+	}
+	query := fmt.Sprintf(`INSERT INTO %s (payload, requested_at)
+		SELECT p::jsonb, ts FROM unnest($1::text[], $2::timestamptz[]) AS u(p, ts)`, s.fullTableName(s.cfg.UsageTable))
+	if _, err := s.db.ExecContext(ctx, query, texts, requestedAts); err != nil {
+		return fmt.Errorf("postgres store: append usage batch: %w", err)
+	}
+	return nil
 }
 
 // AppendUsage stores a recent management usage payload.

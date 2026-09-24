@@ -53,6 +53,14 @@ func (s *PostgresStore) LoadRuntimeSettings(ctx context.Context) (runtimecontrol
 	if s == nil || s.db == nil {
 		return runtimecontrol.Settings{}, fmt.Errorf("postgres store: not initialized")
 	}
+	s.cacheMu.RLock()
+	if s.rtCache.valid {
+		cached := s.rtCache.settings.Clone()
+		s.cacheMu.RUnlock()
+		return cached, nil
+	}
+	s.cacheMu.RUnlock()
+
 	query := fmt.Sprintf("SELECT settings, revision FROM %s WHERE id = $1", s.fullTableName(runtimeControlSettingsTable))
 	var payload []byte
 	var revision int64
@@ -71,6 +79,11 @@ func (s *PostgresStore) LoadRuntimeSettings(ctx context.Context) (runtimecontrol
 	if err != nil {
 		return runtimecontrol.Settings{}, fmt.Errorf("postgres store: invalid stored runtime control settings: %w", err)
 	}
+	s.cacheMu.Lock()
+	s.rtCache.revision = revision
+	s.rtCache.settings = normalized.Clone()
+	s.rtCache.valid = true
+	s.cacheMu.Unlock()
 	return normalized, nil
 }
 
@@ -119,6 +132,11 @@ func (s *PostgresStore) SaveRuntimeSettings(ctx context.Context, expectedRevisio
 	if err = tx.Commit(); err != nil {
 		return runtimecontrol.Settings{}, fmt.Errorf("postgres store: commit runtime control settings update: %w", err)
 	}
+	s.cacheMu.Lock()
+	s.rtCache.revision = normalized.Revision
+	s.rtCache.settings = normalized.Clone()
+	s.rtCache.valid = true
+	s.cacheMu.Unlock()
 	return normalized.Clone(), nil
 }
 

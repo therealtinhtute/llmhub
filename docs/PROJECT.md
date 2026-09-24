@@ -26,4 +26,4 @@
 - entrypoints: `cmd/server`, `sdk/cliproxy.Service`
 
 ## What are we working on right now?
-- plan: docs/plans/active/cliproxyapi-v7.3.3-parity.md (active)
+- plan: docs/plans/completed/postgres-remote-caching.md (completed 2026-09-24 — waves 1–4 gated APPROVED)

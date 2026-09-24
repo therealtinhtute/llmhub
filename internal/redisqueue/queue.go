@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -69,11 +71,39 @@ func SetUsageStore(store UsageStore) {
 	usageStoreMu.Lock()
 	usageStore = store
 	usageStoreMu.Unlock()
+	ensureUsageFlusher()
 }
 
 func Enqueue(payload []byte) {
 	EnqueueUsage(payload, time.Now())
 }
+
+// Buffered usage persistence: EnqueueUsage never blocks the request path on a
+// durable write. Rows flush when the buffer reaches usageFlushBatchSize or the
+// usageFlushInterval ticker fires, whichever comes first. A crash loses at
+// most the buffered window.
+const (
+	usageFlushBatchSize = 100
+	usageFlushInterval  = 5 * time.Second
+	usageBufferCap      = 10000
+)
+
+type usageRow struct {
+	payload     []byte
+	requestedAt time.Time
+}
+
+// usageBatcher is implemented by stores that can insert usage rows in one
+// round-trip (PostgresStore). Other stores flush row-by-row via AppendUsage.
+type usageBatcher interface {
+	AppendUsageBatch(ctx context.Context, payloads [][]byte, requestedAts []time.Time) error
+}
+
+var usageBuffer = struct {
+	mu      sync.Mutex
+	rows    []usageRow
+	started bool
+}{}
 
 func EnqueueUsage(payload []byte, requestedAt time.Time) {
 	if !Enabled() {
@@ -82,15 +112,113 @@ func EnqueueUsage(payload []byte, requestedAt time.Time) {
 	if len(payload) == 0 {
 		return
 	}
-	if store := usageStoreSnapshot(); store != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = store.AppendUsage(ctx, payload, requestedAt)
+	if usageStoreSnapshot() != nil {
+		bufferUsageRow(payload, requestedAt)
 	}
 	if global.publishToSubscribers(payload) {
 		return
 	}
 	global.enqueue(payload)
+}
+
+func ensureUsageFlusher() {
+	usageBuffer.mu.Lock()
+	defer usageBuffer.mu.Unlock()
+	if usageBuffer.started {
+		return
+	}
+	usageBuffer.started = true
+	go usageFlusherLoop()
+}
+
+// usageFlushSignal wakes the flusher when the buffer crosses the batch size;
+// sends are non-blocking so the request path never waits on a durable write.
+var usageFlushSignal = make(chan struct{}, 1)
+
+func usageFlusherLoop() {
+	ticker := time.NewTicker(usageFlushInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+		case <-usageFlushSignal:
+		}
+		if store := usageStoreSnapshot(); store != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			flushUsageBuffer(ctx, store)
+			cancel()
+		}
+	}
+}
+
+func bufferUsageRow(payload []byte, requestedAt time.Time) {
+	usageBuffer.mu.Lock()
+	if len(usageBuffer.rows) >= usageBufferCap {
+		// Shed the oldest rows rather than grow unbounded when the durable
+		// store is down; usage stats tolerate the loss window.
+		usageBuffer.rows = usageBuffer.rows[len(usageBuffer.rows)-usageBufferCap+1:]
+	}
+	usageBuffer.rows = append(usageBuffer.rows, usageRow{payload: payload, requestedAt: requestedAt})
+	pending := len(usageBuffer.rows)
+	usageBuffer.mu.Unlock()
+	if pending >= usageFlushBatchSize {
+		select {
+		case usageFlushSignal <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// FlushUsage forces any buffered usage rows to the durable store. Called on
+// service shutdown so the loss window does not stretch past process exit.
+func FlushUsage(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if store := usageStoreSnapshot(); store != nil {
+		flushUsageBuffer(ctx, store)
+	}
+}
+
+func flushUsageBuffer(ctx context.Context, store UsageStore) {
+	usageBuffer.mu.Lock()
+	if len(usageBuffer.rows) == 0 {
+		usageBuffer.mu.Unlock()
+		return
+	}
+	rows := usageBuffer.rows
+	usageBuffer.rows = nil
+	usageBuffer.mu.Unlock()
+
+	payloads := make([][]byte, len(rows))
+	requestedAts := make([]time.Time, len(rows))
+	for i, row := range rows {
+		payloads[i] = row.payload
+		requestedAts[i] = row.requestedAt
+	}
+
+	var err error
+	if batcher, ok := store.(usageBatcher); ok {
+		err = batcher.AppendUsageBatch(ctx, payloads, requestedAts)
+	} else {
+		for i := range rows {
+			if err = store.AppendUsage(ctx, rows[i].payload, rows[i].requestedAt); err != nil {
+				// Requeue the unwritten tail ahead of newer buffered rows.
+				rows = rows[i:]
+				break
+			}
+		}
+	}
+	if err != nil {
+		log.WithError(err).Warn("redisqueue: usage flush failed; rows requeued")
+		usageBuffer.mu.Lock()
+		combined := append(rows, usageBuffer.rows...)
+		if len(combined) > usageBufferCap {
+			combined = combined[len(combined)-usageBufferCap:]
+		}
+		usageBuffer.rows = combined
+		usageBuffer.mu.Unlock()
+	}
 }
 
 func PopOldest(count int) [][]byte {

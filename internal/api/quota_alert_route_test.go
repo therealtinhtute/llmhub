@@ -41,6 +41,10 @@ func (s *apiQuotaAlertRouteStore) CommitCollection(context.Context, quotaalert.C
 	return nil
 }
 
+func (s *apiQuotaAlertRouteStore) ListCollectionHealth(context.Context) ([]quotaalert.CollectionHealthRecord, error) {
+	return nil, nil
+}
+
 func (s *apiQuotaAlertRouteStore) ListStates(context.Context, quotaalert.PageRequest) (quotaalert.Page[quotaalert.CurrentState], error) {
 	return quotaalert.Page[quotaalert.CurrentState]{}, nil
 }

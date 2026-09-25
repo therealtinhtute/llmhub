@@ -10,11 +10,13 @@ import (
 )
 
 const (
-	codexCollectorBaseURL    = "https://chatgpt.com"
-	codexUsagePath           = "/backend-api/wham/usage"
-	codexResetCreditsPath    = "/backend-api/wham/rate-limit-reset-credits"
-	codexFiveHourSeconds     = 18000
-	codexWeeklyWindowSeconds = 604800
+	codexCollectorBaseURL        = "https://chatgpt.com"
+	codexUsagePath               = "/backend-api/wham/usage"
+	codexResetCreditsPath        = "/backend-api/wham/rate-limit-reset-credits"
+	codexFiveHourSeconds         = 18000
+	codexWeeklyWindowSeconds     = 604800
+	codexMonthlyWindowMinSeconds = 2419200
+	codexMonthlyWindowMaxSeconds = 2678400
 )
 
 type CodexCollector struct {
@@ -88,33 +90,37 @@ func (c *CodexCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obse
 	if c == nil || c.httpClient == nil {
 		return nil, fmt.Errorf("codex quota collector is not configured")
 	}
-	cloned, err := CloneAuthSnapshot(auth, []string{"access_token", "id_token", "account_id"}, []string{"account_id"})
+	cloned, err := CloneAuthSnapshot(auth, []string{"access_token", "id_token", "account_id"}, []string{"access_token", "id_token", "account_id"})
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := cloned.Attribute("access_token")
+	accessToken, ok := snapshotString(cloned, "access_token")
 	if !ok || accessToken == "" {
 		return nil, fmt.Errorf("codex quota collector access token is missing")
 	}
 
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-		"Content-Type":  "application/json",
-		"User-Agent":    "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal",
-	}
-	if accountID, ok := snapshotString(cloned, "account_id"); ok {
-		headers["Chatgpt-Account-Id"] = accountID
+	headersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		headers := map[string]string{
+			"Authorization": "Bearer " + token,
+			"Content-Type":  "application/json",
+			"User-Agent":    "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal",
+		}
+		if accountID, ok := snapshotString(a, "account_id"); ok {
+			headers["Chatgpt-Account-Id"] = accountID
+		}
+		return headers
 	}
 
 	var payload codexUsagePayload
-	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, codexUsagePath, headers, &payload, c.refresh); err != nil {
+	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, codexUsagePath, headersFor, &payload, c.refresh); err != nil {
 		return nil, fmt.Errorf("codex quota usage request failed: %s", RedactCollectorError(err, cloned))
 	}
 
 	observedAt := c.now().UTC()
 	observations := make([]Observation, 0, 6)
-	observations = appendCodexWindows(observations, cloned, observedAt, "code", firstRateLimit(payload.RateLimit, payload.RateLimitCamel), true)
-	observations = appendCodexWindows(observations, cloned, observedAt, "code-review", firstRateLimit(payload.CodeReviewRateLimit, payload.CodeReviewLimitCamel), true)
+	observations = appendCodexWindows(observations, cloned, observedAt, "code", firstRateLimit(payload.RateLimit, payload.RateLimitCamel))
+	observations = appendCodexWindows(observations, cloned, observedAt, "code-review", firstRateLimit(payload.CodeReviewRateLimit, payload.CodeReviewLimitCamel))
 
 	additional := payload.AdditionalRateLimits
 	if len(additional) == 0 {
@@ -133,7 +139,7 @@ func (c *CodexCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obse
 		if slug == "" {
 			slug = fmt.Sprintf("additional-%d", index+1)
 		}
-		observations = appendCodexWindows(observations, cloned, observedAt, "additional-"+slug, limit, false)
+		observations = appendCodexWindows(observations, cloned, observedAt, "additional-"+slug, limit)
 	}
 
 	if len(observations) == 0 {
@@ -141,27 +147,22 @@ func (c *CodexCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obse
 	}
 
 	var resetCredits json.RawMessage
-	_ = c.httpClient.JSON(ctx, cloned, http.MethodGet, codexResetCreditsPath, headers, &resetCredits, c.refresh)
+	_ = c.httpClient.JSON(ctx, cloned, http.MethodGet, codexResetCreditsPath, headersFor, &resetCredits, c.refresh)
 	return observations, nil
 }
 
-func appendCodexWindows(observations []Observation, auth AuthSnapshot, observedAt time.Time, resource string, limit *codexRateLimitInfo, classify bool) []Observation {
+type namedCodexWindow struct {
+	name   string
+	window *codexUsageWindow
+}
+
+func appendCodexWindows(observations []Observation, auth AuthSnapshot, observedAt time.Time, resource string, limit *codexRateLimitInfo) []Observation {
 	if limit == nil {
 		return observations
 	}
 	primary := firstWindow(limit.PrimaryWindow, limit.PrimaryCamel)
 	secondary := firstWindow(limit.SecondaryWindow, limit.SecondaryCamel)
-	windows := []struct {
-		window *codexUsageWindow
-		name   string
-	}{
-		{window: primary, name: "five-hour"},
-		{window: secondary, name: "weekly"},
-	}
-	if classify {
-		windows[0].window, windows[1].window = classifyCodexWindows(primary, secondary)
-	}
-	for _, item := range windows {
+	for _, item := range classifyCodexWindows(primary, secondary) {
 		if item.window == nil {
 			continue
 		}
@@ -173,8 +174,13 @@ func appendCodexWindows(observations []Observation, auth AuthSnapshot, observedA
 	return observations
 }
 
-func classifyCodexWindows(primary, secondary *codexUsageWindow) (*codexUsageWindow, *codexUsageWindow) {
-	var fiveHour, weekly *codexUsageWindow
+// classifyCodexWindows names primary/secondary windows by duration:
+// 5h → five-hour, 7d → weekly, 28–31d → monthly (mirrors isMonthlyWindow in
+// quotaConfigs.ts). Windows with unrecognized or absent durations fall back
+// to positional naming (primary→five-hour, secondary→weekly), and the
+// fallback never relabels a window already claimed by duration.
+func classifyCodexWindows(primary, secondary *codexUsageWindow) []namedCodexWindow {
+	var fiveHour, weekly, monthly *codexUsageWindow
 	for _, window := range []*codexUsageWindow{primary, secondary} {
 		if window == nil {
 			continue
@@ -183,24 +189,32 @@ func classifyCodexWindows(primary, secondary *codexUsageWindow) (*codexUsageWind
 		if !ok {
 			continue
 		}
-		switch int(seconds) {
-		case codexFiveHourSeconds:
+		switch {
+		case int(seconds) == codexFiveHourSeconds:
 			if fiveHour == nil {
 				fiveHour = window
 			}
-		case codexWeeklyWindowSeconds:
+		case int(seconds) == codexWeeklyWindowSeconds:
 			if weekly == nil {
 				weekly = window
 			}
+		case seconds >= codexMonthlyWindowMinSeconds && seconds <= codexMonthlyWindowMaxSeconds:
+			if monthly == nil {
+				monthly = window
+			}
 		}
 	}
-	if fiveHour == nil && primary != weekly {
+	if fiveHour == nil && primary != nil && primary != weekly && primary != monthly {
 		fiveHour = primary
 	}
-	if weekly == nil && secondary != fiveHour {
+	if weekly == nil && secondary != nil && secondary != fiveHour && secondary != monthly {
 		weekly = secondary
 	}
-	return fiveHour, weekly
+	return []namedCodexWindow{
+		{name: "five-hour", window: fiveHour},
+		{name: "weekly", window: weekly},
+		{name: "monthly", window: monthly},
+	}
 }
 
 func buildCodexObservation(auth AuthSnapshot, observedAt time.Time, resource, window string, usageWindow *codexUsageWindow, limit *codexRateLimitInfo) (Observation, bool) {

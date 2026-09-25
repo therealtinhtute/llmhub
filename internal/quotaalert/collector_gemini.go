@@ -113,8 +113,7 @@ func (c *GeminiCLICollector) Collect(ctx context.Context, auth AuthSnapshot) ([]
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := snapshotString(cloned, "access_token")
-	if !ok {
+	if _, ok := snapshotString(cloned, "access_token"); !ok {
 		return nil, fmt.Errorf("gemini CLI quota collector access token is missing")
 	}
 	projectID, ok := snapshotString(cloned, "project_id")
@@ -122,12 +121,15 @@ func (c *GeminiCLICollector) Collect(ctx context.Context, auth AuthSnapshot) ([]
 		return nil, fmt.Errorf("gemini CLI quota collector project ID is missing")
 	}
 
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-		"Content-Type":  "application/json",
+	headersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		return map[string]string{
+			"Authorization": "Bearer " + token,
+			"Content-Type":  "application/json",
+		}
 	}
 	var payload geminiCLIQuotaPayload
-	if err = c.httpClient.JSONBody(ctx, cloned, http.MethodPost, geminiCLIQuotaPath, headers, map[string]string{"project": projectID}, &payload, c.refresh); err != nil {
+	if err = c.httpClient.JSONBody(ctx, cloned, http.MethodPost, geminiCLIQuotaPath, headersFor, map[string]string{"project": projectID}, &payload, c.refresh); err != nil {
 		return nil, fmt.Errorf("gemini CLI quota request failed: %s", RedactCollectorError(err, cloned))
 	}
 	observedAt := c.now().UTC()
@@ -137,7 +139,7 @@ func (c *GeminiCLICollector) Collect(ctx context.Context, auth AuthSnapshot) ([]
 	}
 
 	var ignored geminiCLICodeAssistPayload
-	_ = c.httpClient.JSONBody(ctx, cloned, http.MethodPost, geminiCLICodeAssistPath, headers, map[string]any{
+	_ = c.httpClient.JSONBody(ctx, cloned, http.MethodPost, geminiCLICodeAssistPath, headersFor, map[string]any{
 		"cloudaicompanionProject": projectID,
 		"metadata": map[string]string{
 			"ideType":     "IDE_UNSPECIFIED",

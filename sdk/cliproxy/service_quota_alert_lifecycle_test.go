@@ -56,6 +56,7 @@ func TestQuotaAlertAuthSourceListsSupportedCoreAuths(t *testing.T) {
 	manager.Register(context.Background(), &coreauth.Auth{ID: "auth-2", Provider: "claude", FileName: "claude.json"})
 	manager.Register(context.Background(), &coreauth.Auth{ID: "disabled", Provider: "codex", Disabled: true})
 	manager.Register(context.Background(), &coreauth.Auth{ID: "unsupported", Provider: "openai"})
+	manager.Register(context.Background(), &coreauth.Auth{ID: "runtime-only", Provider: "gemini-cli", Attributes: map[string]string{"runtime_only": "TRUE", "gemini_virtual_project": "proj-1"}})
 
 	source := NewQuotaAlertAuthSource(manager)
 	auths, err := source.ListQuotaAlertAuths(context.Background())

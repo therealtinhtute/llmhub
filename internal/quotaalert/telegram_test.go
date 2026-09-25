@@ -75,6 +75,34 @@ func TestTelegramRecoveryBatchUsesRecoveredHeader(t *testing.T) {
 	}
 }
 
+func TestTelegramMonitorDegradedMessageSkipsQuotaFields(t *testing.T) {
+	now := time.Date(2026, time.July, 29, 5, 0, 0, 0, time.UTC)
+	event := TransitionEvent{
+		ID:         "event-degraded",
+		AuthLabel:  "Primary",
+		Kind:       TransitionMonitorDegraded,
+		Identity:   StateIdentity{AuthID: "auth-1", Provider: ProviderClaude, Resource: "collection", Window: "latest"},
+		From:       AlertUnknown,
+		To:         AlertUnknown,
+		OccurredAt: now,
+	}
+	batch, err := NewNotificationBatch(ProviderClaude, []TransitionEvent{event}, now)
+	if err != nil {
+		t.Fatalf("NewNotificationBatch() error = %v", err)
+	}
+	message := RenderTelegramMessage(batch)
+	for _, want := range []string{"🛠️", "Monitoring degraded: repeated collection failures"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("degraded message missing %q: %s", want, message)
+		}
+	}
+	for _, forbidden := range []string{"Remaining:", "Transition:"} {
+		if strings.Contains(message, forbidden) {
+			t.Fatalf("degraded message contains quota field %q: %s", forbidden, message)
+		}
+	}
+}
+
 func TestTelegramTestSendCreatesNoAlertTransitionPayload(t *testing.T) {
 	var got struct {
 		Text string `json:"text"`
@@ -210,6 +238,82 @@ func TestTelegramStoreSenderUnavailableWithoutMatchingCipher(t *testing.T) {
 			err = sender.Send(context.Background(), telegramTestBatch(t, time.Now(), []TransitionEvent{telegramTestEvent("event-"+name, ProviderClaude, TransitionWarning, AlertHealthy, AlertWarning, 5, time.Now())}))
 			if !errors.Is(err, ErrTelegramUnavailable) {
 				t.Fatalf("Send() error = %v, want ErrTelegramUnavailable", err)
+			}
+		})
+	}
+}
+
+func TestTelegramStoreSenderClassifiesFailures(t *testing.T) {
+	now := time.Date(2026, time.July, 29, 7, 30, 0, 0, time.UTC)
+	cipher, err := NewSecretCipher("runtime", bytes.Repeat([]byte{1}, SecretKeySize))
+	if err != nil {
+		t.Fatalf("NewSecretCipher() error = %v", err)
+	}
+	batch := telegramTestBatch(t, now, []TransitionEvent{telegramTestEvent("event-1", ProviderClaude, TransitionWarning, AlertHealthy, AlertWarning, 5, now)})
+
+	configuredStore := func() *serviceTestStore {
+		store := newServiceTestStore()
+		store.settings.Telegram.Enabled = true
+		store.settings.Telegram.ChatID = "123"
+		store.settings.Telegram.TokenConfigured = true
+		return store
+	}
+
+	cases := []struct {
+		name    string
+		sender  *TelegramStoreSender
+		wantErr error
+	}{
+		{
+			name:    "sender unavailable",
+			sender:  &TelegramStoreSender{},
+			wantErr: ErrSenderUnavailable,
+		},
+		{
+			name: "disabled",
+			sender: func() *TelegramStoreSender {
+				store := newServiceTestStore()
+				s, _ := NewTelegramStoreSender(TelegramStoreSenderConfig{Store: store, Cipher: cipher})
+				return s
+			}(),
+			wantErr: ErrTelegramUnconfigured,
+		},
+		{
+			name: "missing chat id",
+			sender: func() *TelegramStoreSender {
+				store := configuredStore()
+				store.settings.Telegram.ChatID = ""
+				s, _ := NewTelegramStoreSender(TelegramStoreSenderConfig{Store: store, Cipher: cipher})
+				return s
+			}(),
+			wantErr: ErrTelegramUnconfigured,
+		},
+		{
+			name: "missing token",
+			sender: func() *TelegramStoreSender {
+				store := configuredStore()
+				s, _ := NewTelegramStoreSender(TelegramStoreSenderConfig{Store: store, Cipher: cipher})
+				return s
+			}(),
+			wantErr: ErrTelegramUnconfigured,
+		},
+		{
+			name: "missing cipher",
+			sender: func() *TelegramStoreSender {
+				store := configuredStore()
+				secret, _ := cipher.Encrypt(telegramSecretPurpose, []byte("secret-token"))
+				store.secret = &secret
+				s, _ := NewTelegramStoreSender(TelegramStoreSenderConfig{Store: store})
+				return s
+			}(),
+			wantErr: ErrTelegramUnavailable,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.sender.Send(context.Background(), batch)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Send() error = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}

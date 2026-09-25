@@ -2,8 +2,10 @@ package quotaalert
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -33,11 +35,58 @@ type ClaudeCollector struct {
 	now        func() time.Time
 }
 
-type claudeUsagePayload map[string]claudeUsageWindow
+// claudeUsagePayload decodes the usage response key-by-key so the top-level
+// `limits` array (fable plan limits) cannot fail the whole unmarshal — it did
+// when the payload was map[string]claudeUsageWindow. Unknown future keys
+// (e.g. the 2026-07-05 rate_limit_info drift) decode-tolerantly: a payload
+// with no recognized windows still errors downstream rather than reporting
+// silent healthy data.
+type claudeUsagePayload struct {
+	windows map[string]claudeUsageWindow
+	limits  []claudeUsageLimit
+}
+
+func (p *claudeUsagePayload) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	p.windows = make(map[string]claudeUsageWindow, len(raw))
+	for key, value := range raw {
+		if key == "limits" {
+			var limits []claudeUsageLimit
+			if err := json.Unmarshal(value, &limits); err != nil {
+				return fmt.Errorf("decode claude usage limits: %w", err)
+			}
+			p.limits = limits
+			continue
+		}
+		var window claudeUsageWindow
+		if err := json.Unmarshal(value, &window); err != nil {
+			continue
+		}
+		p.windows[key] = window
+	}
+	return nil
+}
 
 type claudeUsageWindow struct {
 	Utilization any    `json:"utilization"`
 	ResetsAt    string `json:"resets_at"`
+}
+
+// claudeUsageLimit mirrors the limits[] entries consumed by findFableUsageLimit
+// in web/src/components/quota/quotaConfigs.ts (fable weekly-scoped limits).
+type claudeUsageLimit struct {
+	Kind     any `json:"kind"`
+	IsActive any `json:"is_active"`
+	Percent  any `json:"percent"`
+	ResetsAt any `json:"resets_at"`
+	Scope    struct {
+		Model struct {
+			DisplayName any `json:"display_name"`
+		} `json:"model"`
+	} `json:"scope"`
 }
 
 func NewClaudeCollector(deps CollectorDependencies) (Collector, error) {
@@ -59,29 +108,39 @@ func (c *ClaudeCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obs
 	if c == nil || c.httpClient == nil {
 		return nil, fmt.Errorf("claude quota collector is not configured")
 	}
-	cloned, err := CloneAuthSnapshot(auth, []string{"access_token"}, nil)
+	cloned, err := CloneAuthSnapshot(auth, []string{"access_token"}, []string{"access_token"})
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := cloned.Attribute("access_token")
+	accessToken, ok := snapshotString(cloned, "access_token")
 	if !ok || accessToken == "" {
 		return nil, fmt.Errorf("claude quota collector access token is missing")
 	}
 
-	headers := map[string]string{
-		"Authorization":  "Bearer " + accessToken,
-		"Content-Type":   "application/json",
-		"anthropic-beta": "oauth-2025-04-20",
+	headersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		return map[string]string{
+			"Authorization":  "Bearer " + token,
+			"Content-Type":   "application/json",
+			"anthropic-beta": "oauth-2025-04-20",
+		}
 	}
 	var payload claudeUsagePayload
-	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, claudeUsagePath, headers, &payload, c.refresh); err != nil {
+	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, claudeUsagePath, headersFor, &payload, c.refresh); err != nil {
 		return nil, fmt.Errorf("claude quota usage request failed: %s", RedactCollectorError(err, cloned))
 	}
 
 	observedAt := c.now().UTC()
-	observations := make([]Observation, 0, len(claudeUsageWindows))
+	fableLimit := findClaudeFableLimit(payload.limits)
+	observations := make([]Observation, 0, len(claudeUsageWindows)+1)
 	for _, meta := range claudeUsageWindows {
-		window, exists := payload[meta.key]
+		// The quota cards treat iguana_necktie as the legacy alias for the
+		// fable weekly limit — skip it when the limits[] entry exists so both
+		// screens render the same single fable window.
+		if meta.key == "iguana_necktie" && fableLimit != nil {
+			continue
+		}
+		window, exists := payload.windows[meta.key]
 		if !exists {
 			continue
 		}
@@ -89,29 +148,18 @@ func (c *ClaudeCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obs
 		if !ok {
 			continue
 		}
-		remaining, err := NormalizePercentage(100 - usedPercent)
-		if err != nil {
-			return nil, err
+		observation, ok := buildClaudeObservation(cloned, observedAt, meta.resource, meta.window, usedPercent, window.ResetsAt)
+		if !ok {
+			return nil, fmt.Errorf("claude quota usage window %q is malformed", meta.key)
 		}
-		resetAt, resetKnown := parseProviderTime(window.ResetsAt, observedAt)
-		observation, err := (Observation{
-			Identity: StateIdentity{
-				AuthID:   cloned.AuthID(),
-				Provider: ProviderClaude,
-				Resource: meta.resource,
-				Window:   meta.window,
-			},
-			AuthLabel:           cloned.RedactedLabel(),
-			Health:              CollectionReliable,
-			Remaining:           remaining,
-			RemainingKnown:      true,
-			ExplicitlyExhausted: remaining == 0,
-			ResetAt:             resetAt,
-			ResetKnown:          resetKnown,
-			ObservedAt:          observedAt,
-		}).Normalize()
-		if err != nil {
-			return nil, err
+		observations = append(observations, observation)
+	}
+	if fableLimit != nil {
+		usedPercent, _ := numberFromAny(fableLimit.Percent)
+		resetsAt, _ := stringFromAny(fableLimit.ResetsAt)
+		observation, ok := buildClaudeObservation(cloned, observedAt, "fable", "seven-day", usedPercent, resetsAt)
+		if !ok {
+			return nil, fmt.Errorf("claude quota usage fable limit is malformed")
 		}
 		observations = append(observations, observation)
 	}
@@ -120,6 +168,64 @@ func (c *ClaudeCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obs
 	}
 
 	var ignored map[string]any
-	_ = c.httpClient.JSON(ctx, cloned, http.MethodGet, claudeProfilePath, headers, &ignored, c.refresh)
+	_ = c.httpClient.JSON(ctx, cloned, http.MethodGet, claudeProfilePath, headersFor, &ignored, c.refresh)
 	return observations, nil
+}
+
+// findClaudeFableLimit mirrors findFableUsageLimit (quotaConfigs.ts): a fable
+// limit is weekly_scoped, scoped to model display_name "fable"/"fable 5", and
+// carries a percent. The first is_active==true candidate wins; otherwise the
+// first candidate is used.
+func findClaudeFableLimit(limits []claudeUsageLimit) *claudeUsageLimit {
+	var first *claudeUsageLimit
+	for index := range limits {
+		limit := &limits[index]
+		kind, _ := stringFromAny(limit.Kind)
+		if !strings.EqualFold(strings.TrimSpace(kind), "weekly_scoped") {
+			continue
+		}
+		name, _ := stringFromAny(limit.Scope.Model.DisplayName)
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "fable" && name != "fable 5" {
+			continue
+		}
+		if _, ok := numberFromAny(limit.Percent); !ok {
+			continue
+		}
+		if first == nil {
+			first = limit
+		}
+		if active, ok := boolFromAny(limit.IsActive); ok && active {
+			return limit
+		}
+	}
+	return first
+}
+
+func buildClaudeObservation(auth AuthSnapshot, observedAt time.Time, resource, window string, usedPercent float64, resetsAt string) (Observation, bool) {
+	remaining, err := NormalizePercentage(100 - usedPercent)
+	if err != nil {
+		return Observation{}, false
+	}
+	resetAt, resetKnown := parseProviderTime(resetsAt, observedAt)
+	observation, err := (Observation{
+		Identity: StateIdentity{
+			AuthID:   auth.AuthID(),
+			Provider: ProviderClaude,
+			Resource: resource,
+			Window:   window,
+		},
+		AuthLabel:           auth.RedactedLabel(),
+		Health:              CollectionReliable,
+		Remaining:           remaining,
+		RemainingKnown:      true,
+		ExplicitlyExhausted: remaining == 0,
+		ResetAt:             resetAt,
+		ResetKnown:          resetKnown,
+		ObservedAt:          observedAt,
+	}).Normalize()
+	if err != nil {
+		return Observation{}, false
+	}
+	return observation, true
 }

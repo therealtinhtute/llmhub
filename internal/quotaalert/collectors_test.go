@@ -133,10 +133,12 @@ func TestCollectorHTTP(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 	var attempts atomic.Int32
+	var seenToken atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/quota" {
 			t.Fatalf("request path = %q, want /quota", r.URL.Path)
 		}
+		seenToken.Store(r.Header.Get("Authorization"))
 		if attempts.Add(1) == 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -163,20 +165,26 @@ func TestCollectorHTTP(t *testing.T) {
 	}
 	if err = client.JSON(
 		context.Background(),
-		collectorTestAuth{},
+		collectorTestAuth{attributes: map[string]string{"access_token": "stale-token"}},
 		http.MethodGet,
 		"/quota",
-		map[string]string{"Authorization": "Bearer secret"},
+		func(a AuthSnapshot) map[string]string {
+			token, _ := snapshotString(a, "access_token")
+			return map[string]string{"Authorization": "Bearer " + token}
+		},
 		&payload,
-		func(context.Context, AuthSnapshot) error {
+		func(context.Context, AuthSnapshot) (AuthSnapshot, error) {
 			refreshed.Add(1)
-			return nil
+			return collectorTestAuth{attributes: map[string]string{"access_token": "renewed-token"}}, nil
 		},
 	); err != nil {
 		t.Fatalf("JSON() error = %v", err)
 	}
 	if attempts.Load() != 2 || refreshed.Load() != 1 {
 		t.Fatalf("attempts = %d refreshes = %d, want 2 and 1", attempts.Load(), refreshed.Load())
+	}
+	if got, _ := seenToken.Load().(string); got != "Bearer renewed-token" {
+		t.Fatalf("retry Authorization = %q, want Bearer renewed-token", got)
 	}
 	if payload.Remaining != 42 || payload.ResetAt.IsZero() {
 		t.Fatalf("payload = %#v", payload)

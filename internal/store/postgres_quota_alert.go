@@ -22,6 +22,7 @@ const (
 	quotaAlertProviderSettingsTable   = "quota_alert_provider_settings"
 	quotaAlertStateTable              = "quota_alert_state"
 	quotaAlertEventsTable             = "quota_alert_events"
+	quotaAlertCollectionHealthTable   = "quota_alert_collection_health"
 	quotaNotificationBatchesTable     = "quota_notification_batches"
 	quotaNotificationBatchEventsTable = "quota_notification_batch_events"
 	quotaAlertSettingsID              = 1
@@ -52,6 +53,9 @@ func (s *PostgresStore) ensureQuotaAlertSchema(ctx context.Context) error {
 					warning_threshold DOUBLE PRECISION NOT NULL DEFAULT 10 CHECK (warning_threshold >= 0 AND warning_threshold <= 100),
 					notify_recovery BOOLEAN NOT NULL DEFAULT FALSE,
 					reminder_interval_seconds BIGINT NOT NULL DEFAULT 0 CHECK (reminder_interval_seconds >= 0 AND (reminder_interval_seconds = 0 OR reminder_interval_seconds >= poll_interval_seconds)),
+					confirmation_samples BIGINT NOT NULL DEFAULT 1 CHECK (confirmation_samples BETWEEN 1 AND 10),
+					recovery_margin DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (recovery_margin >= 0 AND recovery_margin <= 100),
+					degraded_failure_threshold BIGINT NOT NULL DEFAULT 3 CHECK (degraded_failure_threshold BETWEEN 0 AND 100),
 					telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE,
 					telegram_chat_id TEXT NOT NULL DEFAULT '' CHECK (octet_length(telegram_chat_id) <= %d),
 					telegram_secret_version SMALLINT CHECK (telegram_secret_version IS NULL OR telegram_secret_version = %d),
@@ -101,6 +105,8 @@ func (s *PostgresStore) ensureQuotaAlertSchema(ctx context.Context) error {
 					auth_label TEXT NOT NULL CHECK (octet_length(auth_label) BETWEEN 1 AND %d),
 					alert_state TEXT NOT NULL CHECK (alert_state IN ('healthy', 'warning', 'exhausted', 'unknown')),
 					collection_health TEXT NOT NULL CHECK (collection_health IN ('reliable', 'unknown')),
+					failure_code TEXT NOT NULL DEFAULT '',
+					last_reliable_observed_at TIMESTAMPTZ,
 					remaining DOUBLE PRECISION CHECK (remaining >= 0 AND remaining <= 100),
 					reset_at TIMESTAMPTZ,
 					observed_at TIMESTAMPTZ NOT NULL,
@@ -119,6 +125,65 @@ func (s *PostgresStore) ensureQuotaAlertSchema(ctx context.Context) error {
 			),
 		},
 		{
+			name: "state failure code column",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+				ADD COLUMN IF NOT EXISTS failure_code TEXT NOT NULL DEFAULT ''
+			`, s.fullTableName(quotaAlertStateTable)),
+		},
+		{
+			name: "state last reliable observation column",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+				ADD COLUMN IF NOT EXISTS last_reliable_observed_at TIMESTAMPTZ
+			`, s.fullTableName(quotaAlertStateTable)),
+		},
+		{
+			name: "state consecutive below counter column",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+				ADD COLUMN IF NOT EXISTS consecutive_below BIGINT NOT NULL DEFAULT 0
+			`, s.fullTableName(quotaAlertStateTable)),
+		},
+		{
+			name: "settings confirmation samples column",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+				ADD COLUMN IF NOT EXISTS confirmation_samples BIGINT NOT NULL DEFAULT 1
+			`, s.fullTableName(quotaAlertSettingsTable)),
+		},
+		{
+			name: "settings recovery margin column",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+				ADD COLUMN IF NOT EXISTS recovery_margin DOUBLE PRECISION NOT NULL DEFAULT 0
+			`, s.fullTableName(quotaAlertSettingsTable)),
+		},
+		{
+			name: "settings degraded failure threshold column",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+				ADD COLUMN IF NOT EXISTS degraded_failure_threshold BIGINT NOT NULL DEFAULT 3
+			`, s.fullTableName(quotaAlertSettingsTable)),
+		},
+		{
+			name: "collection health table",
+			query: fmt.Sprintf(`
+				CREATE TABLE IF NOT EXISTS %s (
+					auth_id TEXT NOT NULL CHECK (octet_length(auth_id) BETWEEN 1 AND %d),
+					provider TEXT NOT NULL CHECK (provider IN (%s)),
+					consecutive_failures BIGINT NOT NULL CHECK (consecutive_failures > 0),
+					last_failure_code TEXT NOT NULL,
+					updated_at TIMESTAMPTZ NOT NULL,
+					PRIMARY KEY (auth_id, provider)
+				)
+			`,
+				s.fullTableName(quotaAlertCollectionHealthTable),
+				quotaalert.MaxIdentityFieldLength,
+				providers,
+			),
+		},
+		{
 			name: "events table",
 			query: fmt.Sprintf(`
 				CREATE TABLE IF NOT EXISTS %s (
@@ -128,7 +193,7 @@ func (s *PostgresStore) ensureQuotaAlertSchema(ctx context.Context) error {
 					resource TEXT NOT NULL CHECK (octet_length(resource) BETWEEN 1 AND %d),
 					window_key TEXT NOT NULL CHECK (octet_length(window_key) BETWEEN 1 AND %d),
 					auth_label TEXT NOT NULL CHECK (octet_length(auth_label) BETWEEN 1 AND %d),
-					kind TEXT NOT NULL CHECK (kind IN ('warning', 'exhausted', 'recovery', 'reminder')),
+					kind TEXT NOT NULL CHECK (kind IN ('warning', 'exhausted', 'recovery', 'reminder', 'monitor_degraded')),
 					from_state TEXT NOT NULL CHECK (from_state IN ('healthy', 'warning', 'exhausted', 'unknown')),
 					to_state TEXT NOT NULL CHECK (to_state IN ('healthy', 'warning', 'exhausted', 'unknown')),
 					remaining DOUBLE PRECISION CHECK (remaining >= 0 AND remaining <= 100),
@@ -145,6 +210,18 @@ func (s *PostgresStore) ensureQuotaAlertSchema(ctx context.Context) error {
 				quotaalert.MaxIdentityFieldLength,
 				quotaalert.MaxIdentityFieldLength,
 				quotaalert.MaxAuthLabelLength,
+			),
+		},
+		{
+			name: "events kind monitor degraded constraint",
+			query: fmt.Sprintf(`
+				ALTER TABLE %s
+					DROP CONSTRAINT IF EXISTS %s,
+					ADD CONSTRAINT %s CHECK (kind IN ('warning', 'exhausted', 'recovery', 'reminder', 'monitor_degraded'))
+			`,
+				s.fullTableName(quotaAlertEventsTable),
+				quoteIdentifier(quotaAlertEventsTable+"_kind_check"),
+				quoteIdentifier(quotaAlertEventsTable+"_kind_check"),
 			),
 		},
 		{
@@ -270,7 +347,8 @@ func (s *PostgresStore) LoadSettingsWithSecret(ctx context.Context) (quotaalert.
 
 	query := fmt.Sprintf(`
 		SELECT enabled, poll_interval_seconds, warning_threshold, notify_recovery,
-		       reminder_interval_seconds, telegram_enabled, telegram_chat_id,
+		       reminder_interval_seconds, confirmation_samples, recovery_margin,
+		       degraded_failure_threshold, telegram_enabled, telegram_chat_id,
 		       telegram_secret_version, telegram_secret_key_id,
 		       telegram_secret_nonce, telegram_secret_ciphertext, revision
 		FROM %s WHERE id = $1
@@ -286,6 +364,9 @@ func (s *PostgresStore) LoadSettingsWithSecret(ctx context.Context) (quotaalert.
 		&settings.WarningThreshold,
 		&settings.NotifyRecovery,
 		&reminderSeconds,
+		&settings.ConfirmationSamples,
+		&settings.RecoveryMargin,
+		&settings.DegradedFailureThreshold,
 		&settings.Telegram.Enabled,
 		&settings.Telegram.ChatID,
 		&secretVersion,
@@ -397,15 +478,18 @@ func (s *PostgresStore) SaveSettingsWithSecret(
 		    warning_threshold = $3,
 		    notify_recovery = $4,
 		    reminder_interval_seconds = $5,
-		    telegram_enabled = $6,
-		    telegram_chat_id = $7,
-		    telegram_secret_version = $8,
-		    telegram_secret_key_id = $9,
-		    telegram_secret_nonce = $10,
-		    telegram_secret_ciphertext = $11,
-		    revision = $12,
+		    confirmation_samples = $6,
+		    recovery_margin = $7,
+		    degraded_failure_threshold = $8,
+		    telegram_enabled = $9,
+		    telegram_chat_id = $10,
+		    telegram_secret_version = $11,
+		    telegram_secret_key_id = $12,
+		    telegram_secret_nonce = $13,
+		    telegram_secret_ciphertext = $14,
+		    revision = $15,
 		    updated_at = NOW()
-		WHERE id = $13
+		WHERE id = $16
 	`, s.fullTableName(quotaAlertSettingsTable))
 	if _, err = tx.ExecContext(
 		ctx,
@@ -415,6 +499,9 @@ func (s *PostgresStore) SaveSettingsWithSecret(
 		float64(settings.WarningThreshold),
 		settings.NotifyRecovery,
 		int64(settings.ReminderInterval/time.Second),
+		settings.ConfirmationSamples,
+		float64(settings.RecoveryMargin),
+		settings.DegradedFailureThreshold,
 		settings.Telegram.Enabled,
 		strings.TrimSpace(settings.Telegram.ChatID),
 		secretVersion,
@@ -634,7 +721,7 @@ func (s *PostgresStore) loadQuotaAlertStateChunk(ctx context.Context, identities
 	}
 	query := fmt.Sprintf(`
 		SELECT auth_id, provider, resource, window_key, auth_label, alert_state,
-		       collection_health, remaining, reset_at, observed_at, transitioned_at,
+		       collection_health, failure_code, last_reliable_observed_at, consecutive_below, remaining, reset_at, observed_at, transitioned_at,
 		       updated_at, revision
 		FROM %s
 		WHERE (auth_id, provider, resource, window_key) IN (%s)
@@ -671,7 +758,8 @@ func (s *PostgresStore) CommitCollection(ctx context.Context, lease quotaalert.C
 		return fmt.Errorf("postgres store: quota alert collection lease is not active")
 	}
 	itemCount := len(commit.States) + len(commit.RemovedStates) +
-		len(commit.Events) + len(commit.Batches)
+		len(commit.Events) + len(commit.Batches) +
+		len(commit.HealthUpserts) + len(commit.HealthDeletes)
 	if itemCount > maxCollectionCommitItems {
 		return fmt.Errorf(
 			"postgres store: quota alert collection commit exceeds %d items",
@@ -758,6 +846,32 @@ func (s *PostgresStore) CommitCollection(ctx context.Context, lease quotaalert.C
 			assignments = append(assignments, batchEventAssignment{batchID: batch.ID(), eventID: event.ID, position: position})
 		}
 	}
+	normalizedHealthUpserts := make([]quotaalert.CollectionHealthRecord, len(commit.HealthUpserts))
+	normalizedHealthDeletes := make([]quotaalert.CollectionHealthKey, len(commit.HealthDeletes))
+	healthUpsertKeys := make(map[quotaalert.CollectionHealthKey]struct{}, len(commit.HealthUpserts))
+	healthDeleteKeys := make(map[quotaalert.CollectionHealthKey]struct{}, len(commit.HealthDeletes))
+	for index, key := range commit.HealthDeletes {
+		key, err := key.Normalize()
+		if err != nil {
+			return fmt.Errorf("postgres store: invalid collection health delete key: %w", err)
+		}
+		healthDeleteKeys[key] = struct{}{}
+		normalizedHealthDeletes[index] = key
+	}
+	for index, record := range commit.HealthUpserts {
+		record, err := record.Normalize()
+		if err != nil {
+			return fmt.Errorf("postgres store: invalid collection health row: %w", err)
+		}
+		if _, exists := healthUpsertKeys[record.Key]; exists {
+			return fmt.Errorf("postgres store: duplicate collection health row in collection commit")
+		}
+		if _, deleted := healthDeleteKeys[record.Key]; deleted {
+			return fmt.Errorf("postgres store: collection health row cannot be upserted and deleted in one collection commit")
+		}
+		normalizedHealthUpserts[index] = record
+		healthUpsertKeys[record.Key] = struct{}{}
+	}
 	if commit.SettingsRevision <= 0 {
 		return fmt.Errorf("postgres store: quota alert collection settings revision must be positive")
 	}
@@ -799,6 +913,14 @@ func (s *PostgresStore) CommitCollection(ctx context.Context, lease quotaalert.C
 			return err
 		}
 	}
+	if err = s.deleteCollectionHealth(ctx, tx, normalizedHealthDeletes); err != nil {
+		return err
+	}
+	for _, record := range normalizedHealthUpserts {
+		if err = s.upsertCollectionHealth(ctx, tx, record); err != nil {
+			return err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("postgres store: commit quota alert collection: %w", err)
 	}
@@ -825,7 +947,7 @@ func (s *PostgresStore) validateQuotaAlertTransitionHistory(
 ) error {
 	stateQuery := fmt.Sprintf(`
 		SELECT auth_id, provider, resource, window_key, auth_label, alert_state,
-		       collection_health, remaining, reset_at, observed_at, transitioned_at,
+		       collection_health, failure_code, last_reliable_observed_at, consecutive_below, remaining, reset_at, observed_at, transitioned_at,
 		       updated_at, revision
 		FROM %s
 		WHERE auth_id = $1 AND provider = $2 AND resource = $3 AND window_key = $4
@@ -849,7 +971,8 @@ func (s *PostgresStore) validateQuotaAlertTransitionHistory(
 		if err == sql.ErrNoRows {
 			if event.From != quotaalert.AlertUnknown ||
 				(event.Kind != quotaalert.TransitionWarning &&
-					event.Kind != quotaalert.TransitionExhausted) {
+					event.Kind != quotaalert.TransitionExhausted &&
+					event.Kind != quotaalert.TransitionMonitorDegraded) {
 				return fmt.Errorf(
 					"postgres store: quota alert event %q requires persisted transition history",
 					event.ID,
@@ -905,7 +1028,11 @@ func quotaAlertEventContentEqual(left, right quotaalert.TransitionEvent) bool {
 }
 
 func validateQuotaAlertEventState(event quotaalert.TransitionEvent, state quotaalert.CurrentState) error {
-	if state.Health != quotaalert.CollectionReliable {
+	if event.Kind == quotaalert.TransitionMonitorDegraded {
+		if state.Health != quotaalert.CollectionUnknown {
+			return fmt.Errorf("monitor degraded event requires unknown collection state")
+		}
+	} else if state.Health != quotaalert.CollectionReliable {
 		return fmt.Errorf("event requires reliable collection state")
 	}
 	if state.AuthLabel != event.AuthLabel || state.Alert != event.To {
@@ -920,8 +1047,84 @@ func validateQuotaAlertEventState(event quotaalert.TransitionEvent, state quotaa
 	if event.OccurredAt.After(state.UpdatedAt) {
 		return fmt.Errorf("event occurs after its collection state")
 	}
-	if event.Kind != quotaalert.TransitionReminder && !state.TransitionedAt.Equal(event.OccurredAt) {
+	if event.Kind != quotaalert.TransitionReminder &&
+		event.Kind != quotaalert.TransitionMonitorDegraded &&
+		!state.TransitionedAt.Equal(event.OccurredAt) {
 		return fmt.Errorf("event transition time differs")
+	}
+	return nil
+}
+
+// ListCollectionHealth returns every persisted per-auth failure streak.
+// The row set is bounded by the number of monitored auths, so no pagination.
+func (s *PostgresStore) ListCollectionHealth(ctx context.Context) ([]quotaalert.CollectionHealthRecord, error) {
+	query := fmt.Sprintf(`
+		SELECT auth_id, provider, consecutive_failures, last_failure_code, updated_at
+		FROM %s
+		ORDER BY auth_id, provider
+	`, s.fullTableName(quotaAlertCollectionHealthTable))
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("postgres store: list quota alert collection health: %w", err)
+	}
+	defer rows.Close()
+	records := make([]quotaalert.CollectionHealthRecord, 0)
+	for rows.Next() {
+		var record quotaalert.CollectionHealthRecord
+		if err := rows.Scan(
+			&record.Key.AuthID,
+			&record.Key.Provider,
+			&record.ConsecutiveFailures,
+			&record.LastFailureCode,
+			&record.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("postgres store: scan quota alert collection health: %w", err)
+		}
+		normalized, err := record.Normalize()
+		if err != nil {
+			return nil, fmt.Errorf("postgres store: invalid persisted collection health row: %w", err)
+		}
+		records = append(records, normalized)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres store: list quota alert collection health: %w", err)
+	}
+	return records, nil
+}
+
+func (s *PostgresStore) upsertCollectionHealth(ctx context.Context, tx *sql.Tx, record quotaalert.CollectionHealthRecord) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (auth_id, provider, consecutive_failures, last_failure_code, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (auth_id, provider)
+		DO UPDATE SET
+			consecutive_failures = EXCLUDED.consecutive_failures,
+			last_failure_code = EXCLUDED.last_failure_code,
+			updated_at = EXCLUDED.updated_at
+	`, s.fullTableName(quotaAlertCollectionHealthTable))
+	if _, err := tx.ExecContext(
+		ctx,
+		query,
+		record.Key.AuthID,
+		record.Key.Provider,
+		record.ConsecutiveFailures,
+		string(record.LastFailureCode),
+		record.UpdatedAt,
+	); err != nil {
+		return fmt.Errorf("postgres store: upsert quota alert collection health: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) deleteCollectionHealth(ctx context.Context, tx *sql.Tx, keys []quotaalert.CollectionHealthKey) error {
+	for _, key := range keys {
+		query := fmt.Sprintf(
+			"DELETE FROM %s WHERE auth_id = $1 AND provider = $2",
+			s.fullTableName(quotaAlertCollectionHealthTable),
+		)
+		if _, err := tx.ExecContext(ctx, query, key.AuthID, key.Provider); err != nil {
+			return fmt.Errorf("postgres store: delete quota alert collection health: %w", err)
+		}
 	}
 	return nil
 }
@@ -952,25 +1155,31 @@ func (s *PostgresStore) upsertQuotaAlertState(ctx context.Context, tx *sql.Tx, s
 	if err != nil {
 		return fmt.Errorf("postgres store: invalid quota alert state: %w", err)
 	}
-	var remaining, resetAt any
+	var remaining, resetAt, lastReliableObservedAt any
 	if state.RemainingKnown {
 		remaining = float64(state.Remaining)
 	}
 	if state.ResetKnown {
 		resetAt = state.ResetAt
 	}
+	if !state.LastReliableObservedAt.IsZero() {
+		lastReliableObservedAt = state.LastReliableObservedAt
+	}
 	query := fmt.Sprintf(`
 		INSERT INTO %s AS current_state (
 			auth_id, provider, resource, window_key, auth_label, alert_state,
-			collection_health, remaining, reset_at, observed_at, transitioned_at,
+			collection_health, failure_code, last_reliable_observed_at, consecutive_below, remaining, reset_at, observed_at, transitioned_at,
 			updated_at, revision
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 1)
 		ON CONFLICT (auth_id, provider, resource, window_key)
 		DO UPDATE SET
 			auth_label = EXCLUDED.auth_label,
 			alert_state = EXCLUDED.alert_state,
 			collection_health = EXCLUDED.collection_health,
+			failure_code = EXCLUDED.failure_code,
+			last_reliable_observed_at = EXCLUDED.last_reliable_observed_at,
+			consecutive_below = EXCLUDED.consecutive_below,
 			remaining = EXCLUDED.remaining,
 			reset_at = EXCLUDED.reset_at,
 			observed_at = EXCLUDED.observed_at,
@@ -986,6 +1195,9 @@ func (s *PostgresStore) upsertQuotaAlertState(ctx context.Context, tx *sql.Tx, s
 			AND current_state.auth_label = EXCLUDED.auth_label
 			AND current_state.alert_state = EXCLUDED.alert_state
 			AND current_state.collection_health = EXCLUDED.collection_health
+			AND current_state.failure_code = EXCLUDED.failure_code
+			AND current_state.last_reliable_observed_at IS NOT DISTINCT FROM EXCLUDED.last_reliable_observed_at
+			AND current_state.consecutive_below = EXCLUDED.consecutive_below
 			AND current_state.remaining IS NOT DISTINCT FROM EXCLUDED.remaining
 			AND current_state.reset_at IS NOT DISTINCT FROM EXCLUDED.reset_at
 			AND current_state.transitioned_at = EXCLUDED.transitioned_at
@@ -1002,6 +1214,9 @@ func (s *PostgresStore) upsertQuotaAlertState(ctx context.Context, tx *sql.Tx, s
 		state.AuthLabel,
 		state.Alert,
 		state.Health,
+		string(state.FailureCode),
+		lastReliableObservedAt,
+		state.ConsecutiveBelow,
 		remaining,
 		resetAt,
 		state.ObservedAt,
@@ -1176,7 +1391,7 @@ func (s *PostgresStore) ListStates(ctx context.Context, page quotaalert.PageRequ
 	}
 	baseSelect := fmt.Sprintf(`
 		SELECT auth_id, provider, resource, window_key, auth_label, alert_state,
-		       collection_health, remaining, reset_at, observed_at, transitioned_at,
+		       collection_health, failure_code, last_reliable_observed_at, consecutive_below, remaining, reset_at, observed_at, transitioned_at,
 		       updated_at, revision
 		FROM %s
 	`, s.fullTableName(quotaAlertStateTable))
@@ -1233,6 +1448,8 @@ type rowScanner interface {
 
 func scanQuotaAlertState(scanner rowScanner) (quotaalert.CurrentState, error) {
 	var state quotaalert.CurrentState
+	var failureCode string
+	var lastReliableObservedAt sql.NullTime
 	var remaining sql.NullFloat64
 	var resetAt sql.NullTime
 	if err := scanner.Scan(
@@ -1243,6 +1460,9 @@ func scanQuotaAlertState(scanner rowScanner) (quotaalert.CurrentState, error) {
 		&state.AuthLabel,
 		&state.Alert,
 		&state.Health,
+		&failureCode,
+		&lastReliableObservedAt,
+		&state.ConsecutiveBelow,
 		&remaining,
 		&resetAt,
 		&state.ObservedAt,
@@ -1251,6 +1471,10 @@ func scanQuotaAlertState(scanner rowScanner) (quotaalert.CurrentState, error) {
 		&state.Revision,
 	); err != nil {
 		return quotaalert.CurrentState{}, err
+	}
+	state.FailureCode = quotaalert.CollectionFailureCode(failureCode)
+	if lastReliableObservedAt.Valid {
+		state.LastReliableObservedAt = lastReliableObservedAt.Time
 	}
 	if remaining.Valid {
 		state.RemainingKnown = true

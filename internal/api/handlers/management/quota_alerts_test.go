@@ -111,6 +111,10 @@ func (s *quotaAlertMemoryStore) ListStates(_ context.Context, page quotaalert.Pa
 	return quotaalert.Page[quotaalert.CurrentState]{Items: s.states, NextCursor: "next-state"}, nil
 }
 
+func (s *quotaAlertMemoryStore) ListCollectionHealth(context.Context) ([]quotaalert.CollectionHealthRecord, error) {
+	return nil, nil
+}
+
 func (s *quotaAlertMemoryStore) ListEvents(_ context.Context, page quotaalert.PageRequest) (quotaalert.Page[quotaalert.TransitionEvent], error) {
 	if _, err := page.Normalize(); err != nil {
 		return quotaalert.Page[quotaalert.TransitionEvent]{}, err

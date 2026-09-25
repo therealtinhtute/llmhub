@@ -91,8 +91,7 @@ func (c *AntigravityCollector) Collect(ctx context.Context, auth AuthSnapshot) (
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := snapshotString(cloned, "access_token")
-	if !ok {
+	if _, ok := snapshotString(cloned, "access_token"); !ok {
 		return nil, fmt.Errorf("antigravity quota collector access token is missing")
 	}
 	projectID, ok := snapshotString(cloned, "project_id")
@@ -100,16 +99,19 @@ func (c *AntigravityCollector) Collect(ctx context.Context, auth AuthSnapshot) (
 		return nil, fmt.Errorf("antigravity quota collector project ID is missing")
 	}
 
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-		"Content-Type":  "application/json",
-		"User-Agent":    "antigravity/1.11.5 windows/amd64",
+	headersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		return map[string]string{
+			"Authorization": "Bearer " + token,
+			"Content-Type":  "application/json",
+			"User-Agent":    "antigravity/1.11.5 windows/amd64",
+		}
 	}
 	body := map[string]string{"project": projectID}
 	var lastErr error
 	for _, client := range c.httpClients {
 		var payload antigravityQuotaPayload
-		err = client.JSONBody(ctx, cloned, http.MethodPost, antigravityQuotaPath, headers, body, &payload, c.refresh)
+		err = client.JSONBody(ctx, cloned, http.MethodPost, antigravityQuotaPath, headersFor, body, &payload, c.refresh)
 		if err != nil {
 			lastErr = err
 			continue

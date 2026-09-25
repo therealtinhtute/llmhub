@@ -162,6 +162,55 @@ func TestValidateSettings(t *testing.T) {
 			valid: true,
 		},
 		{
+			name: "confirmation samples below range",
+			mutate: func(settings *Settings) {
+				settings.ConfirmationSamples = 0
+			},
+		},
+		{
+			name: "confirmation samples above range",
+			mutate: func(settings *Settings) {
+				settings.ConfirmationSamples = MaxConfirmationSamples + 1
+			},
+		},
+		{
+			name: "confirmation samples at bound",
+			mutate: func(settings *Settings) {
+				settings.ConfirmationSamples = MaxConfirmationSamples
+			},
+			valid: true,
+		},
+		{
+			name: "negative recovery margin",
+			mutate: func(settings *Settings) {
+				settings.RecoveryMargin = -1
+			},
+		},
+		{
+			name: "threshold plus recovery margin over 100",
+			mutate: func(settings *Settings) {
+				settings.WarningThreshold = 90
+				settings.RecoveryMargin = 15
+			},
+		},
+		{
+			name: "provider override threshold plus margin over 100",
+			mutate: func(settings *Settings) {
+				settings.RecoveryMargin = 15
+				threshold := Percentage(90)
+				settings.ProviderOverrides = []ProviderOverride{
+					{Provider: ProviderClaude, Enabled: true, WarningThreshold: &threshold},
+				}
+			},
+		},
+		{
+			name: "recovery margin within bound",
+			mutate: func(settings *Settings) {
+				settings.RecoveryMargin = 5
+			},
+			valid: true,
+		},
+		{
 			name: "telegram chat ID over limit",
 			mutate: func(settings *Settings) {
 				settings.Telegram = TelegramDestination{ChatID: strings.Repeat("1", MaxTelegramChatIDLength+1)}

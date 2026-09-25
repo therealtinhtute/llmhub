@@ -69,13 +69,15 @@ func (c *KimiCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obser
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := snapshotString(cloned, "access_token")
-	if !ok {
+	if _, ok := snapshotString(cloned, "access_token"); !ok {
 		return nil, fmt.Errorf("kimi quota collector access token is missing")
 	}
-	headers := map[string]string{"Authorization": "Bearer " + accessToken}
+	headersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		return map[string]string{"Authorization": "Bearer " + token}
+	}
 	var payload kimiUsagePayload
-	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, kimiUsagePath, headers, &payload, c.refresh); err != nil {
+	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, kimiUsagePath, headersFor, &payload, c.refresh); err != nil {
 		return nil, fmt.Errorf("kimi quota request failed: %s", RedactCollectorError(err, cloned))
 	}
 	observations := buildKimiObservations(cloned, payload, c.now().UTC())

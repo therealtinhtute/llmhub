@@ -120,11 +120,16 @@ func TestServiceCollectionIsolatesProviderFailure(t *testing.T) {
 		t.Fatalf("states = %#v", store.lastCommit.States)
 	}
 	alerts := map[Provider]AlertState{}
+	codes := map[Provider]CollectionFailureCode{}
 	for _, state := range store.lastCommit.States {
 		alerts[state.Identity.Provider] = state.Alert
+		codes[state.Identity.Provider] = state.FailureCode
 	}
 	if alerts[ProviderClaude] != AlertUnknown || alerts[ProviderCodex] != AlertHealthy {
 		t.Fatalf("alerts = %#v", alerts)
+	}
+	if codes[ProviderClaude] != FailureInternal || codes[ProviderCodex] != FailureNone {
+		t.Fatalf("failure codes = %#v", codes)
 	}
 }
 
@@ -222,6 +227,167 @@ func TestServiceRunCollectionOnceRemovesStaleStates(t *testing.T) {
 	}
 }
 
+func TestServiceMonitorDegradedSignalCrossesThresholdOncePerStreak(t *testing.T) {
+	now := time.Date(2026, time.July, 29, 7, 0, 0, 0, time.UTC)
+	store := newServiceTestStore()
+	store.settings.Enabled = true
+	store.settings.DegradedFailureThreshold = 3
+	clock := &serviceTestClock{now: now}
+	reliable := false
+	registry := NewCollectorRegistry()
+	if err := registry.Register(ProviderClaude, func(CollectorDependencies) (Collector, error) {
+		return CollectFunc(func(context.Context, AuthSnapshot) ([]Observation, error) {
+			if reliable {
+				return []Observation{serviceTestObservation("auth-1", ProviderClaude, 80, clock.Now())}, nil
+			}
+			return nil, errors.New("http 500: upstream exploded")
+		}), nil
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	service, err := NewService(ServiceConfig{
+		Store:             store,
+		AuthSource:        serviceTestAuthSource{auths: []AuthSnapshot{serviceTestAuth{id: "auth-1", provider: ProviderClaude, label: "Primary"}}},
+		CollectorRegistry: registry,
+		Clock:             clock,
+		CollectionTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	runCycle := func() CollectionCommit {
+		clock.now = clock.now.Add(time.Minute)
+		if err := service.RunCollectionOnce(context.Background()); err != nil {
+			t.Fatalf("RunCollectionOnce() error = %v", err)
+		}
+		return store.lastCommit
+	}
+	degradedCount := func(commit CollectionCommit) int {
+		count := 0
+		for _, event := range commit.Events {
+			if event.Kind == TransitionMonitorDegraded {
+				count++
+			}
+		}
+		return count
+	}
+	healthOf := func() int {
+		for _, record := range store.health {
+			if record.Key.AuthID == "auth-1" && record.Key.Provider == ProviderClaude {
+				return record.ConsecutiveFailures
+			}
+		}
+		return 0
+	}
+
+	if commit := runCycle(); degradedCount(commit) != 0 || healthOf() != 1 {
+		t.Fatalf("cycle 1: degraded=%d health=%d, want 0/1", degradedCount(commit), healthOf())
+	}
+	if commit := runCycle(); degradedCount(commit) != 0 || healthOf() != 2 {
+		t.Fatalf("cycle 2: degraded=%d health=%d, want 0/2", degradedCount(commit), healthOf())
+	}
+	commit3 := runCycle()
+	if degradedCount(commit3) != 1 || healthOf() != 3 {
+		t.Fatalf("cycle 3: degraded=%d health=%d, want 1/3", degradedCount(commit3), healthOf())
+	}
+	var degradedEvent TransitionEvent
+	for _, event := range commit3.Events {
+		if event.Kind == TransitionMonitorDegraded {
+			degradedEvent = event
+		}
+	}
+	if degradedEvent.Identity.Resource != "collection" || degradedEvent.Identity.Window != "latest" ||
+		degradedEvent.From != AlertUnknown || degradedEvent.To != AlertUnknown {
+		t.Fatalf("degraded event identity = %#v", degradedEvent)
+	}
+	stateMatch := false
+	for _, state := range commit3.States {
+		if state.Identity == degradedEvent.Identity {
+			stateMatch = true
+		}
+	}
+	if !stateMatch {
+		t.Fatalf("degraded event has no matching committed state: %#v", commit3.States)
+	}
+	batched := false
+	for _, batch := range commit3.Batches {
+		for _, event := range batch.Events() {
+			if event.ID == degradedEvent.ID {
+				batched = true
+			}
+		}
+	}
+	if !batched {
+		t.Fatalf("degraded event missing from notification batches: %#v", commit3.Batches)
+	}
+	if commit := runCycle(); degradedCount(commit) != 0 || healthOf() != 4 {
+		t.Fatalf("cycle 4 repeated the one-shot: degraded=%d health=%d", degradedCount(commit), healthOf())
+	}
+
+	reliable = true
+	commit5 := runCycle()
+	if healthOf() != 0 {
+		t.Fatalf("reliable cycle did not reset the streak: health=%d", healthOf())
+	}
+	deleteMatch := false
+	for _, key := range commit5.HealthDeletes {
+		if key.AuthID == "auth-1" && key.Provider == ProviderClaude {
+			deleteMatch = true
+		}
+	}
+	if !deleteMatch {
+		t.Fatalf("reliable cycle missing health delete: %#v", commit5.HealthDeletes)
+	}
+
+	reliable = false
+	runCycle()
+	runCycle()
+	if commit := runCycle(); degradedCount(commit) != 1 {
+		t.Fatalf("re-armed streak did not fire again: degraded=%d health=%d", degradedCount(commit), healthOf())
+	}
+}
+
+func TestServiceMonitorDegradedDisabledNeverFires(t *testing.T) {
+	now := time.Date(2026, time.July, 29, 7, 30, 0, 0, time.UTC)
+	store := newServiceTestStore()
+	store.settings.Enabled = true
+	store.settings.DegradedFailureThreshold = 0
+	clock := &serviceTestClock{now: now}
+	registry := NewCollectorRegistry()
+	if err := registry.Register(ProviderClaude, func(CollectorDependencies) (Collector, error) {
+		return CollectFunc(func(context.Context, AuthSnapshot) ([]Observation, error) {
+			return nil, errors.New("http 500")
+		}), nil
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	service, err := NewService(ServiceConfig{
+		Store:             store,
+		AuthSource:        serviceTestAuthSource{auths: []AuthSnapshot{serviceTestAuth{id: "auth-1", provider: ProviderClaude, label: "Primary"}}},
+		CollectorRegistry: registry,
+		Clock:             clock,
+		CollectionTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	for cycle := 0; cycle < 5; cycle++ {
+		clock.now = clock.now.Add(time.Minute)
+		if err := service.RunCollectionOnce(context.Background()); err != nil {
+			t.Fatalf("cycle %d RunCollectionOnce() error = %v", cycle, err)
+		}
+		for _, event := range store.lastCommit.Events {
+			if event.Kind == TransitionMonitorDegraded {
+				t.Fatalf("monitor_degraded fired with threshold=0 on cycle %d: %#v", cycle, event)
+			}
+		}
+	}
+	if len(store.health) != 1 || store.health[0].ConsecutiveFailures != 5 {
+		t.Fatalf("streak counter wrong with signal disabled: %#v", store.health)
+	}
+}
+
 func TestServiceDeliverNotificationsResolvesSentRetryAndPermanentFailure(t *testing.T) {
 	now := time.Date(2026, time.July, 29, 6, 20, 0, 0, time.UTC)
 	batch := telegramTestBatch(t, now, []TransitionEvent{telegramTestEvent("event-1", ProviderClaude, TransitionWarning, AlertHealthy, AlertWarning, 5, now)})
@@ -261,17 +427,35 @@ func TestServiceDeliverNotificationsResolvesSentRetryAndPermanentFailure(t *test
 	if err = service.DeliverNotificationsOnce(context.Background()); err != nil {
 		t.Fatalf("DeliverNotificationsOnce(unavailable) error = %v", err)
 	}
-	if len(store.results) != 4 || store.results[3].RetryAt.IsZero() || store.results[3].PermanentFailure {
+	if len(store.results) != 4 || !store.results[3].PermanentFailure || store.results[3].FailureCode != "telegram_unavailable" {
 		t.Fatalf("unavailable result = %#v", store.results[3])
 	}
 
 	store.claims = []NotificationClaim{{Batch: batch, LeaseID: "lease-5", Attempt: 1}}
+	sender.err = ErrTelegramUnconfigured
+	if err = service.DeliverNotificationsOnce(context.Background()); err != nil {
+		t.Fatalf("DeliverNotificationsOnce(unconfigured) error = %v", err)
+	}
+	if len(store.results) != 5 || !store.results[4].PermanentFailure || store.results[4].FailureCode != "telegram_unconfigured" {
+		t.Fatalf("unconfigured result = %#v", store.results[4])
+	}
+
+	store.claims = []NotificationClaim{{Batch: batch, LeaseID: "lease-6", Attempt: 1}}
+	sender.err = ErrSenderUnavailable
+	if err = service.DeliverNotificationsOnce(context.Background()); err != nil {
+		t.Fatalf("DeliverNotificationsOnce(sender unavailable) error = %v", err)
+	}
+	if len(store.results) != 6 || !store.results[5].PermanentFailure || store.results[5].FailureCode != "sender_unavailable" {
+		t.Fatalf("sender unavailable result = %#v", store.results[5])
+	}
+
+	store.claims = []NotificationClaim{{Batch: batch, LeaseID: "lease-7", Attempt: 1}}
 	sender.err = context.DeadlineExceeded
 	if err = service.DeliverNotificationsOnce(context.Background()); err != nil {
 		t.Fatalf("DeliverNotificationsOnce(timeout) error = %v", err)
 	}
-	if len(store.results) != 5 || store.results[4].RetryAt.IsZero() || store.results[4].PermanentFailure {
-		t.Fatalf("timeout result = %#v", store.results[4])
+	if len(store.results) != 7 || store.results[6].RetryAt.IsZero() || store.results[6].PermanentFailure || store.results[6].FailureCode != "send_failed" {
+		t.Fatalf("timeout result = %#v", store.results[6])
 	}
 }
 
@@ -321,6 +505,7 @@ type serviceTestStore struct {
 	releaseCount     int
 	lastCommit       CollectionCommit
 	states           []CurrentState
+	health           []CollectionHealthRecord
 	claims           []NotificationClaim
 	results          []NotificationResult
 	secret           *EncryptedSecret
@@ -354,11 +539,41 @@ func (s *serviceTestStore) TryAcquireCollection(context.Context) (CollectionLeas
 func (s *serviceTestStore) LoadStates(context.Context, []StateIdentity) ([]CurrentState, error) {
 	return nil, nil
 }
+func (s *serviceTestStore) ListCollectionHealth(context.Context) ([]CollectionHealthRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]CollectionHealthRecord(nil), s.health...), nil
+}
 func (s *serviceTestStore) CommitCollection(_ context.Context, _ CollectionLease, commit CollectionCommit) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.commitCount++
 	s.lastCommit = commit
+	s.states = commit.States
+	deleteKeys := make(map[CollectionHealthKey]struct{}, len(commit.HealthDeletes))
+	for _, key := range commit.HealthDeletes {
+		deleteKeys[key] = struct{}{}
+	}
+	kept := s.health[:0]
+	for _, record := range s.health {
+		if _, deleted := deleteKeys[record.Key]; !deleted {
+			kept = append(kept, record)
+		}
+	}
+	s.health = kept
+	for _, record := range commit.HealthUpserts {
+		replaced := false
+		for index, existing := range s.health {
+			if existing.Key == record.Key {
+				s.health[index] = record
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			s.health = append(s.health, record)
+		}
+	}
 	return nil
 }
 func (s *serviceTestStore) ListStates(context.Context, PageRequest) (Page[CurrentState], error) {
@@ -458,3 +673,66 @@ func serviceTestState(authID string, provider Provider, resource string, window 
 	}
 	return state
 }
+
+func TestAdaptivePollIntervalShortensNearThresholdAndReset(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	base := 5 * time.Minute
+	fast := time.Minute // base/5 = 1m, equals MinPollInterval floor
+	settings := Settings{WarningThreshold: 10}
+
+	hot := serviceTestState("a1", ProviderClaude, "messages", "weekly", AlertHealthy, now)
+	hot.Remaining = 18 // within threshold 10 + headroom 10
+	if got := adaptivePollInterval(now, []CurrentState{hot}, settings, base, MinPollInterval); got != fast {
+		t.Fatalf("near-threshold interval = %s, want %s", got, fast)
+	}
+
+	cool := serviceTestState("a1", ProviderClaude, "messages", "weekly", AlertHealthy, now)
+	cool.Remaining = 21 // just outside headroom
+	if got := adaptivePollInterval(now, []CurrentState{cool}, settings, base, MinPollInterval); got != base {
+		t.Fatalf("cool interval = %s, want base %s", got, base)
+	}
+
+	nearReset := cool
+	nearReset.ResetAt = now.Add(4 * time.Minute)
+	nearReset.ResetKnown = true
+	if got := adaptivePollInterval(now, []CurrentState{nearReset}, settings, base, MinPollInterval); got != fast {
+		t.Fatalf("near-reset interval = %s, want %s", got, fast)
+	}
+
+	farReset := cool
+	farReset.ResetAt = now.Add(6 * time.Minute)
+	farReset.ResetKnown = true
+	if got := adaptivePollInterval(now, []CurrentState{farReset}, settings, base, MinPollInterval); got != base {
+		t.Fatalf("far-reset interval = %s, want base %s", got, base)
+	}
+
+	staleReset := cool
+	staleReset.ResetAt = now.Add(-2 * base)
+	staleReset.ResetKnown = true
+	if got := adaptivePollInterval(now, []CurrentState{staleReset}, settings, base, MinPollInterval); got != base {
+		t.Fatalf("stale-reset interval = %s, want base %s", got, base)
+	}
+
+	unknown := hot
+	unknown.Health = CollectionUnknown
+	if got := adaptivePollInterval(now, []CurrentState{unknown}, settings, base, MinPollInterval); got != base {
+		t.Fatalf("unknown-health interval = %s, want base %s", got, base)
+	}
+
+	disabled := Settings{WarningThreshold: 10, ProviderOverrides: []ProviderOverride{{Provider: ProviderClaude, Enabled: false}}}
+	if got := adaptivePollInterval(now, []CurrentState{hot}, disabled, base, MinPollInterval); got != base {
+		t.Fatalf("disabled-provider interval = %s, want base %s", got, base)
+	}
+
+	override := Settings{WarningThreshold: 10, ProviderOverrides: []ProviderOverride{{Provider: ProviderClaude, Enabled: true, WarningThreshold: percentagePtr(50)}}}
+	borderline := serviceTestState("a1", ProviderClaude, "messages", "weekly", AlertHealthy, now)
+	borderline.Remaining = 55 // within override threshold 50 + headroom 10, outside global 10 + 10
+	if got := adaptivePollInterval(now, []CurrentState{borderline}, override, base, MinPollInterval); got != fast {
+		t.Fatalf("override-threshold interval = %s, want %s", got, fast)
+	}
+	if got := adaptivePollInterval(now, []CurrentState{borderline}, settings, base, MinPollInterval); got != base {
+		t.Fatalf("global-threshold interval = %s, want base %s", got, base)
+	}
+}
+
+func percentagePtr(p Percentage) *Percentage { return &p }

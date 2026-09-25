@@ -256,7 +256,12 @@ func (b *Builder) Build() (*Service, error) {
 	configaccess.Register(&b.cfg.SDKConfig)
 	accessManager.SetProviders(sdkaccess.RegisteredProviders())
 
+	quotaAlertHook := newQuotaAlertResultHook()
 	coreManager := b.coreManager
+	if coreManager != nil {
+		// Custom manager: compose the wake hook with the embedder's own hook.
+		coreManager.AddHook(quotaAlertHook)
+	}
 	if coreManager == nil {
 		tokenStore := sdkAuth.GetTokenStore()
 		if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok && b.cfg != nil {
@@ -292,7 +297,7 @@ func (b *Builder) Build() (*Service, error) {
 			})
 		}
 
-		coreManager = coreauth.NewManager(tokenStore, selector, nil)
+		coreManager = coreauth.NewManager(tokenStore, selector, quotaAlertHook)
 	}
 	cooldownStateStore := b.cooldownStateStore
 	if cooldownStateStore == nil {
@@ -324,10 +329,14 @@ func (b *Builder) Build() (*Service, error) {
 			AuthSource:        NewQuotaAlertAuthSource(coreManager),
 			CollectorRegistry: collectorRegistry,
 			Sender:            sender,
+			CollectorDeps:     quotaalert.CollectorDependencies{Refresh: NewQuotaAlertAuthRefresher(coreManager)},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("cliproxy: create quota alert service: %w", err)
 		}
+	}
+	if quotaAlertHook != nil {
+		quotaAlertHook.SetTarget(quotaService)
 	}
 
 	service := &Service{

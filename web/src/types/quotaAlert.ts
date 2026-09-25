@@ -9,7 +9,7 @@ export type QuotaAlertProvider =
 
 export type QuotaAlertLevel = 'healthy' | 'warning' | 'exhausted' | 'unknown';
 export type QuotaAlertHealth = 'reliable' | 'unknown';
-export type QuotaAlertEventKind = 'warning' | 'exhausted' | 'recovery' | 'reminder';
+export type QuotaAlertEventKind = 'warning' | 'exhausted' | 'recovery' | 'reminder' | 'monitor_degraded';
 
 export interface QuotaAlertProviderOverride {
   provider: QuotaAlertProvider;
@@ -31,6 +31,9 @@ export interface QuotaAlertSettings {
   warningThreshold: number;
   notifyRecovery: boolean;
   reminderIntervalSeconds: number;
+  confirmationSamples: number;
+  recoveryMargin: number;
+  degradedFailureThreshold: number;
   providers: QuotaAlertProviderOverride[];
   telegram: QuotaAlertTelegramRead;
 }
@@ -48,6 +51,9 @@ export interface QuotaAlertSettingsUpdate {
   warningThreshold: number;
   notifyRecovery: boolean;
   reminderIntervalSeconds: number;
+  confirmationSamples: number;
+  recoveryMargin: number;
+  degradedFailureThreshold: number;
   providers: QuotaAlertProviderOverrideUpdate[];
 }
 
@@ -67,6 +73,9 @@ export interface QuotaAlertState {
   authLabel: string;
   alert: QuotaAlertLevel;
   health: QuotaAlertHealth;
+  failureCode?: string;
+  lastReliableObservedAt?: string;
+  consecutiveBelow: number;
   remaining?: number;
   resetAt?: string;
   observedAt: string;

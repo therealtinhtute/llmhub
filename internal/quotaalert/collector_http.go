@@ -18,8 +18,9 @@ const (
 	DefaultCollectorMaxResponseBytes = 1 << 20
 )
 
-// CollectorRefreshFunc refreshes an auth snapshot after an authentication challenge.
-type CollectorRefreshFunc func(context.Context, AuthSnapshot) error
+// CollectorRefreshFunc refreshes an auth after an authentication challenge and
+// returns a fresh snapshot so the retried request carries renewed credentials.
+type CollectorRefreshFunc func(context.Context, AuthSnapshot) (AuthSnapshot, error)
 
 // CollectorHTTPConfig describes one fixed-host collector HTTP boundary.
 type CollectorHTTPConfig struct {
@@ -93,12 +94,14 @@ func NewCollectorHTTPClient(config CollectorHTTPConfig) (*CollectorHTTPClient, e
 }
 
 // JSON sends one relative-path request and decodes a bounded JSON response.
-func (c *CollectorHTTPClient) JSON(ctx context.Context, auth AuthSnapshot, method, path string, headers map[string]string, out any, refresh CollectorRefreshFunc) error {
-	return c.JSONBody(ctx, auth, method, path, headers, nil, out, refresh)
+// headersFor rebuilds headers per attempt so a refreshed snapshot supplies its
+// renewed credential on retry.
+func (c *CollectorHTTPClient) JSON(ctx context.Context, auth AuthSnapshot, method, path string, headersFor func(AuthSnapshot) map[string]string, out any, refresh CollectorRefreshFunc) error {
+	return c.JSONBody(ctx, auth, method, path, headersFor, nil, out, refresh)
 }
 
 // JSONBody sends one relative-path request with an optional JSON body and decodes a bounded JSON response.
-func (c *CollectorHTTPClient) JSONBody(ctx context.Context, auth AuthSnapshot, method, path string, headers map[string]string, body any, out any, refresh CollectorRefreshFunc) error {
+func (c *CollectorHTTPClient) JSONBody(ctx context.Context, auth AuthSnapshot, method, path string, headersFor func(AuthSnapshot) map[string]string, body any, out any, refresh CollectorRefreshFunc) error {
 	if c == nil {
 		return fmt.Errorf("quota collector HTTP client is nil")
 	}
@@ -117,6 +120,10 @@ func (c *CollectorHTTPClient) JSONBody(ctx context.Context, auth AuthSnapshot, m
 		}
 	}
 	for attempt := 0; attempt < 2; attempt++ {
+		var headers map[string]string
+		if headersFor != nil {
+			headers = headersFor(auth)
+		}
 		status, err := c.doJSON(ctx, auth, method, path, headers, bodyBytes, out)
 		if err == nil {
 			return nil
@@ -124,9 +131,14 @@ func (c *CollectorHTTPClient) JSONBody(ctx context.Context, auth AuthSnapshot, m
 		if status != http.StatusUnauthorized || attempt == 1 || refresh == nil {
 			return err
 		}
-		if refreshErr := refresh(ctx, auth); refreshErr != nil {
+		refreshed, refreshErr := refresh(ctx, auth)
+		if refreshErr != nil {
 			return fmt.Errorf("quota collector refresh failed: %s", RedactCollectorError(refreshErr, auth))
 		}
+		if refreshed == nil {
+			return fmt.Errorf("quota collector refresh returned no auth")
+		}
+		auth = refreshed
 	}
 	return nil
 }

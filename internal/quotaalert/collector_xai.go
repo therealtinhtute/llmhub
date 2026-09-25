@@ -57,13 +57,15 @@ func (c *XAICollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Observ
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := snapshotString(cloned, "access_token")
-	if !ok {
+	if _, ok := snapshotString(cloned, "access_token"); !ok {
 		return nil, fmt.Errorf("xAI quota collector access token is missing")
 	}
-	headers := map[string]string{"Authorization": "Bearer " + accessToken}
+	headersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		return map[string]string{"Authorization": "Bearer " + token}
+	}
 	var payload xaiBillingPayload
-	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, xaiBillingPath, headers, &payload, c.refresh); err != nil {
+	if err = c.httpClient.JSON(ctx, cloned, http.MethodGet, xaiBillingPath, headersFor, &payload, c.refresh); err != nil {
 		return nil, fmt.Errorf("xAI quota request failed: %s", RedactCollectorError(err, cloned))
 	}
 	observation, ok := buildXAIObservation(cloned, payload.Config, c.now().UTC())

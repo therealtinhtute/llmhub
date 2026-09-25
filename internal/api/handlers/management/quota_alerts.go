@@ -25,14 +25,17 @@ var quotaAlertSendTelegramTest = func(ctx context.Context, botToken, chatID stri
 }
 
 type quotaAlertSettingsResponse struct {
-	Revision         int64                          `json:"revision"`
-	Enabled          bool                           `json:"enabled"`
-	PollIntervalSec  int64                          `json:"poll_interval_seconds"`
-	WarningThreshold float64                        `json:"warning_threshold"`
-	NotifyRecovery   bool                           `json:"notify_recovery"`
-	ReminderSec      int64                          `json:"reminder_interval_seconds"`
-	Providers        []quotaAlertProviderResponse   `json:"providers"`
-	Telegram         quotaAlertTelegramReadResponse `json:"telegram"`
+	Revision            int64                          `json:"revision"`
+	Enabled             bool                           `json:"enabled"`
+	PollIntervalSec     int64                          `json:"poll_interval_seconds"`
+	WarningThreshold    float64                        `json:"warning_threshold"`
+	NotifyRecovery      bool                           `json:"notify_recovery"`
+	ReminderSec         int64                          `json:"reminder_interval_seconds"`
+	ConfirmationSamples int64                          `json:"confirmation_samples"`
+	RecoveryMargin      float64                        `json:"recovery_margin"`
+	DegradedThreshold   int64                          `json:"degraded_failure_threshold"`
+	Providers           []quotaAlertProviderResponse   `json:"providers"`
+	Telegram            quotaAlertTelegramReadResponse `json:"telegram"`
 }
 
 type quotaAlertProviderResponse struct {
@@ -49,13 +52,16 @@ type quotaAlertTelegramReadResponse struct {
 }
 
 type quotaAlertSettingsRequest struct {
-	Revision         int64                       `json:"revision"`
-	Enabled          bool                        `json:"enabled"`
-	PollIntervalSec  int64                       `json:"poll_interval_seconds"`
-	WarningThreshold float64                     `json:"warning_threshold"`
-	NotifyRecovery   bool                        `json:"notify_recovery"`
-	ReminderSec      int64                       `json:"reminder_interval_seconds"`
-	Providers        []quotaAlertProviderRequest `json:"providers"`
+	Revision            int64                       `json:"revision"`
+	Enabled             bool                        `json:"enabled"`
+	PollIntervalSec     int64                       `json:"poll_interval_seconds"`
+	WarningThreshold    float64                     `json:"warning_threshold"`
+	NotifyRecovery      bool                        `json:"notify_recovery"`
+	ReminderSec         int64                       `json:"reminder_interval_seconds"`
+	ConfirmationSamples *int64                      `json:"confirmation_samples"`
+	RecoveryMargin      *float64                    `json:"recovery_margin"`
+	DegradedThreshold   *int64                      `json:"degraded_failure_threshold"`
+	Providers           []quotaAlertProviderRequest `json:"providers"`
 }
 
 type quotaAlertProviderRequest struct {
@@ -78,19 +84,22 @@ type quotaAlertPageResponse[T any] struct {
 }
 
 type quotaAlertStateResponse struct {
-	AuthID         string   `json:"auth_id"`
-	Provider       string   `json:"provider"`
-	Resource       string   `json:"resource"`
-	Window         string   `json:"window"`
-	AuthLabel      string   `json:"auth_label"`
-	Alert          string   `json:"alert"`
-	Health         string   `json:"health"`
-	Remaining      *float64 `json:"remaining,omitempty"`
-	ResetAt        *string  `json:"reset_at,omitempty"`
-	ObservedAt     string   `json:"observed_at"`
-	TransitionedAt string   `json:"transitioned_at"`
-	UpdatedAt      string   `json:"updated_at"`
-	Revision       int64    `json:"revision"`
+	AuthID                 string   `json:"auth_id"`
+	Provider               string   `json:"provider"`
+	Resource               string   `json:"resource"`
+	Window                 string   `json:"window"`
+	AuthLabel              string   `json:"auth_label"`
+	Alert                  string   `json:"alert"`
+	Health                 string   `json:"health"`
+	FailureCode            string   `json:"failure_code,omitempty"`
+	LastReliableObservedAt *string  `json:"last_reliable_observed_at,omitempty"`
+	ConsecutiveBelow       int64    `json:"consecutive_below"`
+	Remaining              *float64 `json:"remaining,omitempty"`
+	ResetAt                *string  `json:"reset_at,omitempty"`
+	ObservedAt             string   `json:"observed_at"`
+	TransitionedAt         string   `json:"transitioned_at"`
+	UpdatedAt              string   `json:"updated_at"`
+	Revision               int64    `json:"revision"`
 }
 
 type quotaAlertEventResponse struct {
@@ -364,13 +373,16 @@ func (h *Handler) quotaAlertSettingsDTO(settings quotaalert.Settings) quotaAlert
 		providers = append(providers, quotaAlertProviderResponse{Provider: string(override.Provider), Enabled: override.Enabled, WarningThreshold: threshold})
 	}
 	return quotaAlertSettingsResponse{
-		Revision:         settings.Revision,
-		Enabled:          settings.Enabled,
-		PollIntervalSec:  int64(settings.PollInterval / time.Second),
-		WarningThreshold: float64(settings.WarningThreshold),
-		NotifyRecovery:   settings.NotifyRecovery,
-		ReminderSec:      int64(settings.ReminderInterval / time.Second),
-		Providers:        providers,
+		Revision:            settings.Revision,
+		Enabled:             settings.Enabled,
+		PollIntervalSec:     int64(settings.PollInterval / time.Second),
+		WarningThreshold:    float64(settings.WarningThreshold),
+		NotifyRecovery:      settings.NotifyRecovery,
+		ReminderSec:         int64(settings.ReminderInterval / time.Second),
+		ConfirmationSamples: int64(settings.ConfirmationSamples),
+		RecoveryMargin:      float64(settings.RecoveryMargin),
+		DegradedThreshold:   int64(settings.DegradedFailureThreshold),
+		Providers:           providers,
 		Telegram: quotaAlertTelegramReadResponse{
 			Enabled:             settings.Telegram.Enabled,
 			ChatID:              settings.Telegram.ChatID,
@@ -382,13 +394,25 @@ func (h *Handler) quotaAlertSettingsDTO(settings quotaalert.Settings) quotaAlert
 
 func settingsFromRequest(req quotaAlertSettingsRequest, telegram quotaalert.TelegramDestination) (quotaalert.Settings, error) {
 	settings := quotaalert.Settings{
-		Revision:         req.Revision,
-		Enabled:          req.Enabled,
-		PollInterval:     time.Duration(req.PollIntervalSec) * time.Second,
-		WarningThreshold: quotaalert.Percentage(req.WarningThreshold),
-		NotifyRecovery:   req.NotifyRecovery,
-		ReminderInterval: time.Duration(req.ReminderSec) * time.Second,
-		Telegram:         telegram,
+		Revision:                 req.Revision,
+		Enabled:                  req.Enabled,
+		PollInterval:             time.Duration(req.PollIntervalSec) * time.Second,
+		WarningThreshold:         quotaalert.Percentage(req.WarningThreshold),
+		NotifyRecovery:           req.NotifyRecovery,
+		ReminderInterval:         time.Duration(req.ReminderSec) * time.Second,
+		ConfirmationSamples:      quotaalert.DefaultConfirmationSamples,
+		RecoveryMargin:           quotaalert.DefaultRecoveryMargin,
+		DegradedFailureThreshold: quotaalert.DefaultDegradedFailureThreshold,
+		Telegram:                 telegram,
+	}
+	if req.ConfirmationSamples != nil {
+		settings.ConfirmationSamples = int(*req.ConfirmationSamples)
+	}
+	if req.RecoveryMargin != nil {
+		settings.RecoveryMargin = quotaalert.Percentage(*req.RecoveryMargin)
+	}
+	if req.DegradedThreshold != nil {
+		settings.DegradedFailureThreshold = int(*req.DegradedThreshold)
 	}
 	settings.ProviderOverrides = make([]quotaalert.ProviderOverride, 0, len(req.Providers))
 	for _, provider := range req.Providers {
@@ -412,19 +436,22 @@ func quotaAlertStateDTO(state quotaalert.CurrentState) quotaAlertStateResponse {
 		remaining = &value
 	}
 	return quotaAlertStateResponse{
-		AuthID:         state.Identity.AuthID,
-		Provider:       string(state.Identity.Provider),
-		Resource:       state.Identity.Resource,
-		Window:         state.Identity.Window,
-		AuthLabel:      state.AuthLabel,
-		Alert:          string(state.Alert),
-		Health:         string(state.Health),
-		Remaining:      remaining,
-		ResetAt:        timePtr(state.ResetKnown, state.ResetAt),
-		ObservedAt:     formatQuotaAlertTime(state.ObservedAt),
-		TransitionedAt: formatQuotaAlertTime(state.TransitionedAt),
-		UpdatedAt:      formatQuotaAlertTime(state.UpdatedAt),
-		Revision:       state.Revision,
+		AuthID:                 state.Identity.AuthID,
+		Provider:               string(state.Identity.Provider),
+		Resource:               state.Identity.Resource,
+		Window:                 state.Identity.Window,
+		AuthLabel:              state.AuthLabel,
+		Alert:                  string(state.Alert),
+		Health:                 string(state.Health),
+		FailureCode:            string(state.FailureCode),
+		LastReliableObservedAt: timePtr(!state.LastReliableObservedAt.IsZero(), state.LastReliableObservedAt),
+		ConsecutiveBelow:       int64(state.ConsecutiveBelow),
+		Remaining:              remaining,
+		ResetAt:                timePtr(state.ResetKnown, state.ResetAt),
+		ObservedAt:             formatQuotaAlertTime(state.ObservedAt),
+		TransitionedAt:         formatQuotaAlertTime(state.TransitionedAt),
+		UpdatedAt:              formatQuotaAlertTime(state.UpdatedAt),
+		Revision:               state.Revision,
 	}
 }
 

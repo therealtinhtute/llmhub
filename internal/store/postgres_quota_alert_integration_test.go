@@ -535,6 +535,84 @@ func TestPostgresQuotaAlertAtomicCommitDeduplicationPaginationAndAcknowledgement
 	}
 }
 
+func TestPostgresQuotaAlertCollectionHealthRoundTrip(t *testing.T) {
+	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
+	now := time.Date(2026, time.July, 29, 8, 0, 0, 0, time.UTC)
+	health := []quotaalert.CollectionHealthRecord{
+		{Key: quotaalert.CollectionHealthKey{AuthID: "auth-2", Provider: quotaalert.ProviderClaude}, ConsecutiveFailures: 2, LastFailureCode: quotaalert.FailureUpstreamHTTP, UpdatedAt: now},
+		{Key: quotaalert.CollectionHealthKey{AuthID: "auth-1", Provider: quotaalert.ProviderClaude}, ConsecutiveFailures: 1, LastFailureCode: quotaalert.FailureTimeout, UpdatedAt: now.Add(-time.Minute)},
+	}
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{HealthUpserts: health})
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{
+		HealthUpserts: []quotaalert.CollectionHealthRecord{
+			{Key: health[1].Key, ConsecutiveFailures: 3, LastFailureCode: quotaalert.FailureDecode, UpdatedAt: now.Add(time.Minute)},
+		},
+	})
+	records, err := store.ListCollectionHealth(ctx)
+	if err != nil {
+		t.Fatalf("ListCollectionHealth() error = %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("health records = %#v", records)
+	}
+	if records[0].Key.AuthID != "auth-1" || records[0].ConsecutiveFailures != 3 || records[0].LastFailureCode != quotaalert.FailureDecode {
+		t.Fatalf("first health record = %#v", records[0])
+	}
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{HealthDeletes: []quotaalert.CollectionHealthKey{health[0].Key}})
+	records, err = store.ListCollectionHealth(ctx)
+	if err != nil {
+		t.Fatalf("ListCollectionHealth() after delete error = %v", err)
+	}
+	if len(records) != 1 || records[0].Key.AuthID != "auth-1" {
+		t.Fatalf("health after delete = %#v", records)
+	}
+}
+
+func TestPostgresQuotaAlertMonitorDegradedEventCommitsWithoutPriorHistory(t *testing.T) {
+	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
+	now := time.Date(2026, time.July, 29, 9, 0, 0, 0, time.UTC)
+	identity := quotaalert.StateIdentity{
+		AuthID:   "auth-degraded",
+		Provider: quotaalert.ProviderClaude,
+		Resource: "collection",
+		Window:   "latest",
+	}
+	state := quotaalert.CurrentState{
+		Identity:       identity,
+		AuthLabel:      "Account degraded",
+		Alert:          quotaalert.AlertUnknown,
+		Health:         quotaalert.CollectionUnknown,
+		ObservedAt:     now,
+		TransitionedAt: now,
+		UpdatedAt:      now,
+	}
+	event := quotaalert.TransitionEvent{
+		ID:         "event-degraded",
+		Identity:   identity,
+		AuthLabel:  state.AuthLabel,
+		Kind:       quotaalert.TransitionMonitorDegraded,
+		From:       quotaalert.AlertUnknown,
+		To:         quotaalert.AlertUnknown,
+		OccurredAt: now,
+	}
+	batch, err := quotaalert.NewNotificationBatch(quotaalert.ProviderClaude, []quotaalert.TransitionEvent{event}, now)
+	if err != nil {
+		t.Fatalf("NewNotificationBatch() error = %v", err)
+	}
+	commitPostgresQuotaAlertTestCollection(t, ctx, store, quotaalert.CollectionCommit{
+		States:  []quotaalert.CurrentState{state},
+		Events:  []quotaalert.TransitionEvent{event},
+		Batches: []quotaalert.NotificationBatch{batch},
+	})
+	page, err := store.ListEvents(ctx, quotaalert.PageRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListEvents() error = %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Kind != quotaalert.TransitionMonitorDegraded {
+		t.Fatalf("stored events = %#v", page.Items)
+	}
+}
+
 func TestPostgresQuotaAlertStatePaginationSeeksAcrossEqualTimestamps(t *testing.T) {
 	ctx, store, _, _ := newPostgresQuotaAlertTestStore(t)
 	updatedAt := time.Date(2026, time.July, 28, 11, 0, 0, 0, time.UTC)

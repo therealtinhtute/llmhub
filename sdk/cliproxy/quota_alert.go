@@ -2,6 +2,7 @@ package cliproxy
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/therealtinhtute/llmhub/internal/quotaalert"
@@ -11,6 +12,29 @@ import (
 // NewQuotaAlertAuthSource adapts the core auth manager to quota-alert runtime snapshots.
 func NewQuotaAlertAuthSource(manager *coreauth.Manager) quotaalert.AuthSource {
 	return quotaAlertAuthSource{manager: manager}
+}
+
+// NewQuotaAlertAuthRefresher adapts the core auth manager to the collector
+// refresh contract: force-refresh the auth, then re-snapshot it so the retried
+// collector request carries the renewed credentials.
+func NewQuotaAlertAuthRefresher(manager *coreauth.Manager) quotaalert.CollectorRefreshFunc {
+	return func(ctx context.Context, snapshot quotaalert.AuthSnapshot) (quotaalert.AuthSnapshot, error) {
+		if manager == nil {
+			return nil, fmt.Errorf("quota alert auth refresher has no manager")
+		}
+		if snapshot == nil {
+			return nil, fmt.Errorf("quota alert refresh requires an auth snapshot")
+		}
+		refreshed, err := manager.ForceRefreshAuth(ctx, snapshot.AuthID())
+		if err != nil {
+			return nil, err
+		}
+		next, ok := newQuotaAlertAuthSnapshot(refreshed)
+		if !ok {
+			return nil, fmt.Errorf("refreshed auth %q is no longer monitorable", snapshot.AuthID())
+		}
+		return next, nil
+	}
 }
 
 type quotaAlertAuthSource struct {
@@ -43,6 +67,9 @@ type quotaAlertAuthSnapshot struct {
 
 func newQuotaAlertAuthSnapshot(auth *coreauth.Auth) (quotaAlertAuthSnapshot, bool) {
 	if auth == nil || strings.TrimSpace(auth.ID) == "" || auth.Disabled {
+		return quotaAlertAuthSnapshot{}, false
+	}
+	if strings.EqualFold(strings.TrimSpace(auth.Attributes["runtime_only"]), "true") {
 		return quotaAlertAuthSnapshot{}, false
 	}
 	provider, ok := quotaAlertProvider(auth.Provider)

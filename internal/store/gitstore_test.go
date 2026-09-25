@@ -1,10 +1,14 @@
 package store
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -21,12 +25,12 @@ type testBranchSpec struct {
 
 func TestEnsureRepositoryUsesRemoteDefaultBranchWhenBranchNotConfigured(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "trunk",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "trunk",
 		testBranchSpec{name: "trunk", contents: "remote default branch\n"},
 		testBranchSpec{name: "release/2026", contents: "release branch\n"},
 	)
 
-	store := NewGitTokenStore(remoteDir, "", "", "")
+	store := NewGitTokenStore(remoteURL, "", "", "")
 	store.SetBaseDir(filepath.Join(root, "workspace", "auths"))
 
 	if err := store.EnsureRepository(); err != nil {
@@ -34,8 +38,8 @@ func TestEnsureRepositoryUsesRemoteDefaultBranchWhenBranchNotConfigured(t *testi
 	}
 
 	assertRepositoryBranchAndContents(t, filepath.Join(root, "workspace"), "trunk", "remote default branch\n")
-	advanceRemoteBranch(t, filepath.Join(root, "seed"), remoteDir, "trunk", "remote default branch updated\n", "advance trunk")
-	advanceRemoteBranch(t, filepath.Join(root, "seed"), remoteDir, "release/2026", "release branch updated\n", "advance release")
+	advanceRemoteBranch(t, filepath.Join(root, "seed"), "trunk", "remote default branch updated\n", "advance trunk")
+	advanceRemoteBranch(t, filepath.Join(root, "seed"), "release/2026", "release branch updated\n", "advance release")
 
 	if err := store.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository second call: %v", err)
@@ -47,12 +51,12 @@ func TestEnsureRepositoryUsesRemoteDefaultBranchWhenBranchNotConfigured(t *testi
 
 func TestEnsureRepositoryUsesConfiguredBranchWhenExplicitlySet(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "trunk",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "trunk",
 		testBranchSpec{name: "trunk", contents: "remote default branch\n"},
 		testBranchSpec{name: "release/2026", contents: "release branch\n"},
 	)
 
-	store := NewGitTokenStore(remoteDir, "", "", "release/2026")
+	store := NewGitTokenStore(remoteURL, "", "", "release/2026")
 	store.SetBaseDir(filepath.Join(root, "workspace", "auths"))
 
 	if err := store.EnsureRepository(); err != nil {
@@ -60,8 +64,8 @@ func TestEnsureRepositoryUsesConfiguredBranchWhenExplicitlySet(t *testing.T) {
 	}
 
 	assertRepositoryBranchAndContents(t, filepath.Join(root, "workspace"), "release/2026", "release branch\n")
-	advanceRemoteBranch(t, filepath.Join(root, "seed"), remoteDir, "trunk", "remote default branch updated\n", "advance trunk")
-	advanceRemoteBranch(t, filepath.Join(root, "seed"), remoteDir, "release/2026", "release branch updated\n", "advance release")
+	advanceRemoteBranch(t, filepath.Join(root, "seed"), "trunk", "remote default branch updated\n", "advance trunk")
+	advanceRemoteBranch(t, filepath.Join(root, "seed"), "release/2026", "release branch updated\n", "advance release")
 
 	if err := store.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository second call: %v", err)
@@ -73,11 +77,11 @@ func TestEnsureRepositoryUsesConfiguredBranchWhenExplicitlySet(t *testing.T) {
 
 func TestEnsureRepositoryReturnsErrorForMissingConfiguredBranch(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "trunk",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "trunk",
 		testBranchSpec{name: "trunk", contents: "remote default branch\n"},
 	)
 
-	store := NewGitTokenStore(remoteDir, "", "", "missing-branch")
+	store := NewGitTokenStore(remoteURL, "", "", "missing-branch")
 	store.SetBaseDir(filepath.Join(root, "workspace", "auths"))
 
 	err := store.EnsureRepository()
@@ -89,19 +93,19 @@ func TestEnsureRepositoryReturnsErrorForMissingConfiguredBranch(t *testing.T) {
 
 func TestEnsureRepositoryReturnsErrorForMissingConfiguredBranchOnExistingRepositoryPull(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "trunk",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "trunk",
 		testBranchSpec{name: "trunk", contents: "remote default branch\n"},
 	)
 
 	baseDir := filepath.Join(root, "workspace", "auths")
-	store := NewGitTokenStore(remoteDir, "", "", "")
+	store := NewGitTokenStore(remoteURL, "", "", "")
 	store.SetBaseDir(baseDir)
 
 	if err := store.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository initial clone: %v", err)
 	}
 
-	reopened := NewGitTokenStore(remoteDir, "", "", "missing-branch")
+	reopened := NewGitTokenStore(remoteURL, "", "", "missing-branch")
 	reopened.SetBaseDir(baseDir)
 
 	err := reopened.EnsureRepository()
@@ -120,7 +124,8 @@ func TestEnsureRepositoryInitializesEmptyRemoteUsingConfiguredBranch(t *testing.
 	}
 
 	branch := "feature/gemini-fix"
-	store := NewGitTokenStore(remoteDir, "", "", branch)
+	remoteURL := gitDaemonURL(t, root) + "/remote.git"
+	store := NewGitTokenStore(remoteURL, "", "", branch)
 	store.SetBaseDir(filepath.Join(root, "workspace", "auths"))
 
 	if err := store.EnsureRepository(); err != nil {
@@ -134,13 +139,13 @@ func TestEnsureRepositoryInitializesEmptyRemoteUsingConfiguredBranch(t *testing.
 
 func TestEnsureRepositoryExistingRepoSwitchesToConfiguredBranch(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "master",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "master",
 		testBranchSpec{name: "master", contents: "remote master branch\n"},
 		testBranchSpec{name: "develop", contents: "remote develop branch\n"},
 	)
 
 	baseDir := filepath.Join(root, "workspace", "auths")
-	store := NewGitTokenStore(remoteDir, "", "", "")
+	store := NewGitTokenStore(remoteURL, "", "", "")
 	store.SetBaseDir(baseDir)
 
 	if err := store.EnsureRepository(); err != nil {
@@ -148,7 +153,7 @@ func TestEnsureRepositoryExistingRepoSwitchesToConfiguredBranch(t *testing.T) {
 	}
 	assertRepositoryBranchAndContents(t, filepath.Join(root, "workspace"), "master", "remote master branch\n")
 
-	reopened := NewGitTokenStore(remoteDir, "", "", "develop")
+	reopened := NewGitTokenStore(remoteURL, "", "", "develop")
 	reopened.SetBaseDir(baseDir)
 
 	if err := reopened.EnsureRepository(); err != nil {
@@ -175,12 +180,12 @@ func TestEnsureRepositoryExistingRepoSwitchesToConfiguredBranch(t *testing.T) {
 
 func TestEnsureRepositoryExistingRepoSwitchesToConfiguredBranchCreatedAfterClone(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "master",
+	remoteURL, _ := setupGitRemoteRepository(t, root, "master",
 		testBranchSpec{name: "master", contents: "remote master branch\n"},
 	)
 
 	baseDir := filepath.Join(root, "workspace", "auths")
-	store := NewGitTokenStore(remoteDir, "", "", "")
+	store := NewGitTokenStore(remoteURL, "", "", "")
 	store.SetBaseDir(baseDir)
 
 	if err := store.EnsureRepository(); err != nil {
@@ -188,9 +193,9 @@ func TestEnsureRepositoryExistingRepoSwitchesToConfiguredBranchCreatedAfterClone
 	}
 	assertRepositoryBranchAndContents(t, filepath.Join(root, "workspace"), "master", "remote master branch\n")
 
-	advanceRemoteBranchFromNewBranch(t, filepath.Join(root, "seed"), remoteDir, "release/2026", "release branch\n", "create release")
+	advanceRemoteBranchFromNewBranch(t, filepath.Join(root, "seed"), "release/2026", "release branch\n", "create release")
 
-	reopened := NewGitTokenStore(remoteDir, "", "", "release/2026")
+	reopened := NewGitTokenStore(remoteURL, "", "", "release/2026")
 	reopened.SetBaseDir(baseDir)
 
 	if err := reopened.EnsureRepository(); err != nil {
@@ -201,14 +206,14 @@ func TestEnsureRepositoryExistingRepoSwitchesToConfiguredBranchCreatedAfterClone
 
 func TestEnsureRepositoryResetsToRemoteDefaultWhenBranchUnset(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "master",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "master",
 		testBranchSpec{name: "master", contents: "remote master branch\n"},
 		testBranchSpec{name: "develop", contents: "remote develop branch\n"},
 	)
 
 	baseDir := filepath.Join(root, "workspace", "auths")
 	// First store pins to develop and prepares local workspace
-	storePinned := NewGitTokenStore(remoteDir, "", "", "develop")
+	storePinned := NewGitTokenStore(remoteURL, "", "", "develop")
 	storePinned.SetBaseDir(baseDir)
 	if err := storePinned.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository pinned: %v", err)
@@ -216,7 +221,7 @@ func TestEnsureRepositoryResetsToRemoteDefaultWhenBranchUnset(t *testing.T) {
 	assertRepositoryBranchAndContents(t, filepath.Join(root, "workspace"), "develop", "remote develop branch\n")
 
 	// Second store has branch unset and should reset local workspace to remote default (master)
-	storeDefault := NewGitTokenStore(remoteDir, "", "", "")
+	storeDefault := NewGitTokenStore(remoteURL, "", "", "")
 	storeDefault.SetBaseDir(baseDir)
 	if err := storeDefault.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository default: %v", err)
@@ -241,11 +246,11 @@ func TestEnsureRepositoryResetsToRemoteDefaultWhenBranchUnset(t *testing.T) {
 
 func TestCommitAndPushLockedPushesBeforeRunningGC(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "master",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "master",
 		testBranchSpec{name: "master", contents: "remote master branch\n"},
 	)
 
-	store := NewGitTokenStore(remoteDir, "", "", "")
+	store := NewGitTokenStore(remoteURL, "", "", "")
 	store.SetBaseDir(filepath.Join(root, "workspace", "auths"))
 	if err := store.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository: %v", err)
@@ -275,13 +280,13 @@ func TestCommitAndPushLockedPushesBeforeRunningGC(t *testing.T) {
 
 func TestEnsureRepositoryFollowsRenamedRemoteDefaultBranchWhenAvailable(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "master",
+	remoteURL, remoteDir := setupGitRemoteRepository(t, root, "master",
 		testBranchSpec{name: "master", contents: "remote master branch\n"},
 		testBranchSpec{name: "main", contents: "remote main branch\n"},
 	)
 
 	baseDir := filepath.Join(root, "workspace", "auths")
-	store := NewGitTokenStore(remoteDir, "", "", "")
+	store := NewGitTokenStore(remoteURL, "", "", "")
 	store.SetBaseDir(baseDir)
 
 	if err := store.EnsureRepository(); err != nil {
@@ -290,9 +295,9 @@ func TestEnsureRepositoryFollowsRenamedRemoteDefaultBranchWhenAvailable(t *testi
 	assertRepositoryBranchAndContents(t, filepath.Join(root, "workspace"), "master", "remote master branch\n")
 
 	setRemoteHeadBranch(t, remoteDir, "main")
-	advanceRemoteBranch(t, filepath.Join(root, "seed"), remoteDir, "main", "remote main branch updated\n", "advance main")
+	advanceRemoteBranch(t, filepath.Join(root, "seed"), "main", "remote main branch updated\n", "advance main")
 
-	reopened := NewGitTokenStore(remoteDir, "", "", "")
+	reopened := NewGitTokenStore(remoteURL, "", "", "")
 	reopened.SetBaseDir(baseDir)
 
 	if err := reopened.EnsureRepository(); err != nil {
@@ -304,13 +309,13 @@ func TestEnsureRepositoryFollowsRenamedRemoteDefaultBranchWhenAvailable(t *testi
 
 func TestEnsureRepositoryKeepsCurrentBranchWhenRemoteDefaultCannotBeResolved(t *testing.T) {
 	root := t.TempDir()
-	remoteDir := setupGitRemoteRepository(t, root, "master",
+	remoteURL, _ := setupGitRemoteRepository(t, root, "master",
 		testBranchSpec{name: "master", contents: "remote master branch\n"},
 		testBranchSpec{name: "develop", contents: "remote develop branch\n"},
 	)
 
 	baseDir := filepath.Join(root, "workspace", "auths")
-	pinned := NewGitTokenStore(remoteDir, "", "", "develop")
+	pinned := NewGitTokenStore(remoteURL, "", "", "develop")
 	pinned.SetBaseDir(baseDir)
 	if err := pinned.EnsureRepository(); err != nil {
 		t.Fatalf("EnsureRepository pinned: %v", err)
@@ -336,7 +341,7 @@ func TestEnsureRepositoryKeepsCurrentBranchWhenRemoteDefaultCannotBeResolved(t *
 		t.Fatalf("set repo config: %v", err)
 	}
 
-	reopened := NewGitTokenStore(remoteDir, "", "", "")
+	reopened := NewGitTokenStore(remoteURL, "", "", "")
 	reopened.SetBaseDir(baseDir)
 
 	if err := reopened.EnsureRepository(); err != nil {
@@ -345,7 +350,7 @@ func TestEnsureRepositoryKeepsCurrentBranchWhenRemoteDefaultCannotBeResolved(t *
 	assertRepositoryHeadBranch(t, filepath.Join(root, "workspace"), "develop")
 }
 
-func setupGitRemoteRepository(t *testing.T, root, defaultBranch string, branches ...testBranchSpec) string {
+func setupGitRemoteRepository(t *testing.T, root, defaultBranch string, branches ...testBranchSpec) (remoteURL, remoteDirPath string) {
 	t.Helper()
 
 	remoteDir := filepath.Join(root, "remote.git")
@@ -389,12 +394,10 @@ func setupGitRemoteRepository(t *testing.T, root, defaultBranch string, branches
 	if _, err := seedRepo.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{remoteDir}}); err != nil {
 		t.Fatalf("create origin remote: %v", err)
 	}
-	if err := seedRepo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec("refs/heads/*:refs/heads/*")},
-	}); err != nil {
-		t.Fatalf("push seed branches: %v", err)
-	}
+	// go-git's local transport races its own handshake stderr buffer under
+	// -race; pushing through the git CLI keeps the same remote semantics
+	// without the upstream data race.
+	gitPushTestRefs(t, seedDir, "refs/heads/*:refs/heads/*")
 
 	remoteRepo, err := git.PlainOpen(remoteDir)
 	if err != nil {
@@ -404,7 +407,54 @@ func setupGitRemoteRepository(t *testing.T, root, defaultBranch string, branches
 		t.Fatalf("set remote HEAD: %v", err)
 	}
 
-	return remoteDir
+	// Return a git:// URL so go-git exercises its TCP transport; its local
+	// file transport races a shared stderr buffer under -race (upstream bug).
+	return gitDaemonURL(t, root) + "/remote.git", remoteDir
+}
+
+// gitDaemonURL starts a `git daemon` serving repos under root and returns its
+// base URL. receive-pack is enabled so token-store pushes reach the remote.
+func gitDaemonURL(t *testing.T, root string) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve daemon port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release daemon port: %v", err)
+	}
+
+	cmd := exec.Command("git", "daemon",
+		"--export-all", "--enable=receive-pack", "--reuseaddr",
+		"--base-path="+root, "--listen=127.0.0.1", "--port="+strconv.Itoa(port))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start git daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		// The daemon forks a child per connection; kill the whole group so
+		// no orphaned child keeps the test's stdout/stderr pipes open.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("git daemon did not start listening: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return "git://127.0.0.1:" + strconv.Itoa(port)
 }
 
 func commitBranchMarker(t *testing.T, seedDir string, worktree *git.Worktree, branch testBranchSpec, message string) {
@@ -427,7 +477,7 @@ func commitBranchMarker(t *testing.T, seedDir string, worktree *git.Worktree, br
 	}
 }
 
-func advanceRemoteBranch(t *testing.T, seedDir, remoteDir, branch, contents, message string) {
+func advanceRemoteBranch(t *testing.T, seedDir, branch, contents, message string) {
 	t.Helper()
 
 	seedRepo, err := git.PlainOpen(seedDir)
@@ -442,17 +492,11 @@ func advanceRemoteBranch(t *testing.T, seedDir, remoteDir, branch, contents, mes
 		t.Fatalf("checkout branch %s: %v", branch, err)
 	}
 	commitBranchMarker(t, seedDir, worktree, testBranchSpec{name: branch, contents: contents}, message)
-	if err := seedRepo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		RefSpecs: []gitconfig.RefSpec{
-			gitconfig.RefSpec(plumbing.NewBranchReferenceName(branch).String() + ":" + plumbing.NewBranchReferenceName(branch).String()),
-		},
-	}); err != nil {
-		t.Fatalf("push branch %s update to %s: %v", branch, remoteDir, err)
-	}
+	gitPushTestRefs(t, seedDir,
+		plumbing.NewBranchReferenceName(branch).String()+":"+plumbing.NewBranchReferenceName(branch).String())
 }
 
-func advanceRemoteBranchFromNewBranch(t *testing.T, seedDir, remoteDir, branch, contents, message string) {
+func advanceRemoteBranchFromNewBranch(t *testing.T, seedDir, branch, contents, message string) {
 	t.Helper()
 
 	seedRepo, err := git.PlainOpen(seedDir)
@@ -470,13 +514,18 @@ func advanceRemoteBranchFromNewBranch(t *testing.T, seedDir, remoteDir, branch, 
 		t.Fatalf("create branch %s: %v", branch, err)
 	}
 	commitBranchMarker(t, seedDir, worktree, testBranchSpec{name: branch, contents: contents}, message)
-	if err := seedRepo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		RefSpecs: []gitconfig.RefSpec{
-			gitconfig.RefSpec(plumbing.NewBranchReferenceName(branch).String() + ":" + plumbing.NewBranchReferenceName(branch).String()),
-		},
-	}); err != nil {
-		t.Fatalf("push new branch %s update to %s: %v", branch, remoteDir, err)
+	gitPushTestRefs(t, seedDir,
+		plumbing.NewBranchReferenceName(branch).String()+":"+plumbing.NewBranchReferenceName(branch).String())
+}
+
+// gitPushTestRefs pushes refs through the git CLI instead of go-git's local
+// transport, whose handshake goroutine races a shared stderr buffer under
+// -race (upstream go-git issue, not fixable in this repo).
+func gitPushTestRefs(t *testing.T, repoDir string, refspecs ...string) {
+	t.Helper()
+	args := append([]string{"-C", repoDir, "push", "origin"}, refspecs...)
+	if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("git push origin %v: %v\n%s", refspecs, err, output)
 	}
 }
 

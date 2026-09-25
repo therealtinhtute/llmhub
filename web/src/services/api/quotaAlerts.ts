@@ -33,6 +33,9 @@ type RawQuotaAlertSettings = {
   warning_threshold?: number;
   notify_recovery?: boolean;
   reminder_interval_seconds?: number;
+  confirmation_samples?: number;
+  recovery_margin?: number;
+  degraded_failure_threshold?: number;
   providers?: RawQuotaAlertProviderOverride[];
   telegram?: RawQuotaAlertTelegramRead;
 };
@@ -45,6 +48,9 @@ type RawQuotaAlertState = {
   auth_label?: string;
   alert?: string;
   health?: string;
+  failure_code?: string;
+  last_reliable_observed_at?: string;
+  consecutive_below?: number;
   remaining?: number;
   reset_at?: string;
   observed_at?: string;
@@ -109,6 +115,9 @@ const normalizeSettings = (settings: RawQuotaAlertSettings): QuotaAlertSettings 
   warningThreshold: settings.warning_threshold ?? 0,
   notifyRecovery: Boolean(settings.notify_recovery),
   reminderIntervalSeconds: settings.reminder_interval_seconds ?? 0,
+  confirmationSamples: settings.confirmation_samples ?? 1,
+  recoveryMargin: settings.recovery_margin ?? 0,
+  degradedFailureThreshold: settings.degraded_failure_threshold ?? 3,
   providers: (settings.providers ?? []).map(normalizeProviderOverride),
   telegram: normalizeTelegram(settings.telegram),
 });
@@ -121,6 +130,9 @@ const normalizeState = (state: RawQuotaAlertState): QuotaAlertState => ({
   authLabel: state.auth_label ?? '',
   alert: (state.alert || 'unknown') as QuotaAlertState['alert'],
   health: (state.health || 'unknown') as QuotaAlertState['health'],
+  failureCode: state.failure_code || undefined,
+  lastReliableObservedAt: state.last_reliable_observed_at || undefined,
+  consecutiveBelow: state.consecutive_below ?? 0,
   remaining: state.remaining,
   resetAt: state.reset_at,
   observedAt: state.observed_at ?? '',
@@ -179,6 +191,9 @@ const serializeSettingsUpdate = (settings: QuotaAlertSettingsUpdate) => ({
   warning_threshold: settings.warningThreshold,
   notify_recovery: settings.notifyRecovery,
   reminder_interval_seconds: settings.reminderIntervalSeconds,
+  confirmation_samples: settings.confirmationSamples,
+  recovery_margin: settings.recoveryMargin,
+  degraded_failure_threshold: settings.degradedFailureThreshold,
   providers: settings.providers.map(serializeProviderOverride),
 });
 

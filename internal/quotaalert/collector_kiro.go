@@ -28,11 +28,11 @@ type KiroCollector struct {
 }
 
 type kiroUsageAttempt struct {
-	client  *CollectorHTTPClient
-	method  string
-	path    string
-	headers map[string]string
-	body    any
+	client     *CollectorHTTPClient
+	method     string
+	path       string
+	headersFor func(AuthSnapshot) map[string]string
+	body       any
 }
 
 func NewKiroCollector(deps CollectorDependencies) (Collector, error) {
@@ -57,8 +57,7 @@ func (c *KiroCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obser
 	if err != nil {
 		return nil, err
 	}
-	accessToken, ok := snapshotString(cloned, "access_token")
-	if !ok {
+	if _, ok := snapshotString(cloned, "access_token"); !ok {
 		return nil, fmt.Errorf("kiro quota collector access token is missing")
 	}
 	region := kiroCollectorRegion(cloned)
@@ -73,15 +72,15 @@ func (c *KiroCollector) Collect(ctx context.Context, auth AuthSnapshot) ([]Obser
 		}
 	}
 
-	attempts := c.usageAttempts(cloned, accessToken, qClient)
+	attempts := c.usageAttempts(cloned, qClient)
 	observedAt := c.now().UTC()
 	var lastErr error
 	for _, attempt := range attempts {
 		var payload json.RawMessage
 		if attempt.body == nil {
-			err = attempt.client.JSON(ctx, cloned, attempt.method, attempt.path, attempt.headers, &payload, c.refresh)
+			err = attempt.client.JSON(ctx, cloned, attempt.method, attempt.path, attempt.headersFor, &payload, c.refresh)
 		} else {
-			err = attempt.client.JSONBody(ctx, cloned, attempt.method, attempt.path, attempt.headers, attempt.body, &payload, c.refresh)
+			err = attempt.client.JSONBody(ctx, cloned, attempt.method, attempt.path, attempt.headersFor, attempt.body, &payload, c.refresh)
 		}
 		if err != nil {
 			lastErr = err
@@ -111,9 +110,12 @@ func (c *KiroCollector) kiroQClient() *CollectorHTTPClient {
 	return c.httpClients[1]
 }
 
-func (c *KiroCollector) usageAttempts(auth AuthSnapshot, accessToken string, qClient *CollectorHTTPClient) []kiroUsageAttempt {
+func (c *KiroCollector) usageAttempts(auth AuthSnapshot, qClient *CollectorHTTPClient) []kiroUsageAttempt {
 	codeWhispererClient := c.httpClients[0]
-	headers := kiroUsageHeaders(accessToken)
+	getHeadersFor := func(a AuthSnapshot) map[string]string {
+		token, _ := snapshotString(a, "access_token")
+		return kiroUsageHeaders(token)
+	}
 	qPath := kiroUsagePathWithQuery(auth, true)
 	postBody := map[string]any{
 		"origin":       "AI_EDITOR",
@@ -122,13 +124,16 @@ func (c *KiroCollector) usageAttempts(auth AuthSnapshot, accessToken string, qCl
 	if profileARN, ok := snapshotString(auth, "profile_arn"); ok {
 		postBody["profileArn"] = profileARN
 	}
-	postHeaders := kiroUsageHeaders(accessToken)
-	postHeaders["Content-Type"] = "application/x-amz-json-1.0"
-	postHeaders["x-amz-target"] = kiroCodeWhispererGetUsageTarget
+	postHeadersFor := func(a AuthSnapshot) map[string]string {
+		headers := getHeadersFor(a)
+		headers["Content-Type"] = "application/x-amz-json-1.0"
+		headers["x-amz-target"] = kiroCodeWhispererGetUsageTarget
+		return headers
+	}
 	return []kiroUsageAttempt{
-		{client: codeWhispererClient, method: http.MethodGet, path: kiroUsagePathWithQuery(auth, false), headers: headers},
-		{client: codeWhispererClient, method: http.MethodPost, path: "/", headers: postHeaders, body: postBody},
-		{client: qClient, method: http.MethodGet, path: qPath, headers: headers},
+		{client: codeWhispererClient, method: http.MethodGet, path: kiroUsagePathWithQuery(auth, false), headersFor: getHeadersFor},
+		{client: codeWhispererClient, method: http.MethodPost, path: "/", headersFor: postHeadersFor, body: postBody},
+		{client: qClient, method: http.MethodGet, path: qPath, headersFor: getHeadersFor},
 	}
 }
 

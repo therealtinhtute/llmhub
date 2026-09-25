@@ -25,6 +25,7 @@ import { Reveal, useAnimatedNumber } from '@/components/motion';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { quotaAlertsApi } from '@/services/api';
+import { quotaAlertWindowLabel } from '@/components/quota/quotaAlertLabels';
 import { cn } from '@/lib/utils';
 import { quotaStyles as styles } from '@/components/quota/quotaStyles';
 import type {
@@ -65,6 +66,9 @@ const defaultSettings = (): QuotaAlertSettings => ({
   warningThreshold: 10,
   notifyRecovery: true,
   reminderIntervalSeconds: 0,
+  confirmationSamples: 1,
+  recoveryMargin: 0,
+  degradedFailureThreshold: 3,
   providers: PROVIDERS.map(({ provider }) => ({ provider, enabled: true, warningThreshold: null })),
   telegram: { enabled: false, chatId: '', tokenConfigured: false },
 });
@@ -114,6 +118,11 @@ const alertColorClass = (alert: string) => {
       return 'bg-muted-foreground';
   }
 };
+
+const humanizeFailureCode = (code: string) => code.replace(/_/g, ' ');
+
+const failureCodeKey = (prefix: 'collection' | 'delivery', code: string) =>
+  `quota_monitoring.${prefix}_failure_${code}`;
 
 const cloneSettings = (settings: QuotaAlertSettings): QuotaAlertSettings => ({
   ...settings,
@@ -336,6 +345,9 @@ export function QuotaMonitoringPage() {
         warningThreshold: settings.warningThreshold,
         notifyRecovery: settings.notifyRecovery,
         reminderIntervalSeconds: settings.reminderIntervalSeconds,
+        confirmationSamples: settings.confirmationSamples,
+        recoveryMargin: settings.recoveryMargin,
+        degradedFailureThreshold: settings.degradedFailureThreshold,
         providers: PROVIDERS.map(({ provider }) => {
           const override = providerOverrides.get(provider);
           return {
@@ -747,11 +759,48 @@ export function QuotaMonitoringPage() {
                             <td className={cn(tableCellClass, 'text-xs text-muted-foreground font-mono')}>
                               {state.resource}
                             </td>
-                            <td className={cn(tableCellClass, 'text-xs text-muted-foreground font-mono')}>
-                              {state.window}
+                            <td className={cn(tableCellClass, 'text-xs text-muted-foreground')}>
+                              {(() => {
+                                const label = quotaAlertWindowLabel(state.provider, state.resource, state.window);
+                                return label ? (
+                                  <span className="text-foreground" title={`${state.resource}/${state.window}`}>
+                                    {t(label.labelKey, label.labelParams)}
+                                  </span>
+                                ) : (
+                                  <span className="font-mono">{state.window}</span>
+                                );
+                              })()}
                             </td>
                             <td className={tableCellClass}>
-                              <span className={cn(badgeClass, eventBadgeClass(state.alert))}>{state.alert}</span>
+                              <div className="flex flex-col gap-1">
+                                <span className={cn(badgeClass, eventBadgeClass(state.alert))}>{state.alert}</span>
+                                {state.health === 'unknown' && state.failureCode ? (
+                                  <span
+                                    className="text-[11px] text-muted-foreground"
+                                    title={state.lastReliableObservedAt
+                                      ? t('quota_monitoring.last_reliable_observed_at', {
+                                          defaultValue: 'Last reliable observation: {{time}}',
+                                          time: formatTime(state.lastReliableObservedAt),
+                                        })
+                                      : undefined}
+                                  >
+                                    {t(failureCodeKey('collection', state.failureCode), {
+                                      defaultValue: humanizeFailureCode(state.failureCode),
+                                    })}
+                                  </span>
+                                ) : null}
+                                {state.health === 'reliable' &&
+                                state.alert === 'healthy' &&
+                                state.consecutiveBelow > 0 &&
+                                (activeSettings?.confirmationSamples ?? 1) > 1 ? (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {t('quota_monitoring.confirmation_pending', {
+                                      defaultValue: 'confirming {{count}}',
+                                      count: `${state.consecutiveBelow}/${activeSettings?.confirmationSamples}`,
+                                    })}
+                                  </span>
+                                ) : null}
+                              </div>
                             </td>
                             <td className={cn(tableCellClass, 'w-44')}>
                               <div className="flex flex-col gap-1">
@@ -991,6 +1040,38 @@ export function QuotaMonitoringPage() {
                   value={activeSettings.reminderIntervalSeconds}
                   onChange={(event) => updateSettings({ reminderIntervalSeconds: Number(event.target.value) })}
                 />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormInput
+                    id="quota-confirmation-samples"
+                    type="number"
+                    min={1}
+                    max={10}
+                    label={t('quota_monitoring.confirmation_samples', { defaultValue: 'Confirmation samples' })}
+                    hint={t('quota_monitoring.confirmation_samples_hint', { defaultValue: 'Consecutive low observations required before alerting.' })}
+                    value={activeSettings.confirmationSamples}
+                    onChange={(event) => updateSettings({ confirmationSamples: Number(event.target.value) })}
+                  />
+                  <FormInput
+                    id="quota-recovery-margin"
+                    type="number"
+                    min={0}
+                    max={100}
+                    label={t('quota_monitoring.recovery_margin', { defaultValue: 'Recovery margin (%)' })}
+                    hint={t('quota_monitoring.recovery_margin_hint', { defaultValue: 'Recovery requires remaining above threshold plus this margin.' })}
+                    value={activeSettings.recoveryMargin}
+                    onChange={(event) => updateSettings({ recoveryMargin: Number(event.target.value) })}
+                  />
+                </div>
+                <FormInput
+                  id="quota-degraded-threshold"
+                  type="number"
+                  min={0}
+                  max={100}
+                  label={t('quota_monitoring.degraded_threshold', { defaultValue: 'Degraded failure threshold' })}
+                  hint={t('quota_monitoring.degraded_threshold_hint', { defaultValue: 'Consecutive collection failures before a monitor-degraded alert. Use 0 to disable.' })}
+                  value={activeSettings.degradedFailureThreshold}
+                  onChange={(event) => updateSettings({ degradedFailureThreshold: Number(event.target.value) })}
+                />
               </div>
             </Card>
           </div>
@@ -1141,7 +1222,9 @@ export function QuotaMonitoringPage() {
                     {events.map((event) => (
                       <tr key={event.id} className={tableRowClass}>
                         <td className={tableCellClass}>
-                          <span className={cn(badgeClass, eventBadgeClass(event.kind))}>{event.kind}</span>
+                          <span className={cn(badgeClass, eventBadgeClass(event.kind))}>
+                            {t(`quota_monitoring.event_kind_${event.kind}`, { defaultValue: event.kind })}
+                          </span>
                         </td>
                         <td className={tableCellClass}>{event.provider}</td>
                         <td className={cn(tableCellClass, 'font-medium text-foreground')}>{event.authLabel}</td>
@@ -1155,9 +1238,8 @@ export function QuotaMonitoringPage() {
                                 ? t('quota_monitoring.delivery_sent', { defaultValue: 'Sent' })
                                 : event.delivery.status === 'failed'
                                   ? event.delivery.failureCode
-                                    ? t('quota_monitoring.delivery_failed_code', {
-                                        defaultValue: 'Failed: {{code}}',
-                                        code: event.delivery.failureCode,
+                                    ? t(failureCodeKey('delivery', event.delivery.failureCode), {
+                                        defaultValue: `Failed: ${humanizeFailureCode(event.delivery.failureCode)}`,
                                       })
                                     : t('quota_monitoring.delivery_failed', { defaultValue: 'Failed' })
                                   : event.delivery.attemptCount > 0

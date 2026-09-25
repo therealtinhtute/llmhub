@@ -124,6 +124,12 @@ func RenderTelegramMessage(batch NotificationBatch) string {
 		lines = append(lines,
 			"",
 			fmt.Sprintf("%s %s", transitionIcon(event.Kind), event.AuthLabel),
+		)
+		if event.Kind == TransitionMonitorDegraded {
+			lines = append(lines, "Monitoring degraded: repeated collection failures")
+			continue
+		}
+		lines = append(lines,
 			fmt.Sprintf("Resource: %s / %s", event.Identity.Resource, event.Identity.Window),
 			fmt.Sprintf("Transition: %s → %s", event.From, event.To),
 		)
@@ -163,6 +169,8 @@ func transitionIcon(kind TransitionKind) string {
 		return "✅"
 	case TransitionReminder:
 		return "🔁"
+	case TransitionMonitorDegraded:
+		return "🛠️"
 	default:
 		return "⚠️"
 	}

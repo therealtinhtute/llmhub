@@ -274,12 +274,41 @@ func (NoopHook) OnAuthUpdated(context.Context, *Auth) {}
 // OnResult implements Hook.
 func (NoopHook) OnResult(context.Context, Result) {}
 
+// hookChain forwards lifecycle callbacks to two hooks in order.
+type hookChain struct {
+	first  Hook
+	second Hook
+}
+
+func (h hookChain) OnAuthRegistered(ctx context.Context, auth *Auth) {
+	h.first.OnAuthRegistered(ctx, auth)
+	h.second.OnAuthRegistered(ctx, auth)
+}
+
+func (h hookChain) OnAuthUpdated(ctx context.Context, auth *Auth) {
+	h.first.OnAuthUpdated(ctx, auth)
+	h.second.OnAuthUpdated(ctx, auth)
+}
+
+func (h hookChain) OnResult(ctx context.Context, result Result) {
+	h.first.OnResult(ctx, result)
+	h.second.OnResult(ctx, result)
+}
+
+// hookBox boxes a Hook so it can be published atomically after construction.
+type hookBox struct {
+	hook Hook
+}
+
 // Manager orchestrates auth lifecycle, selection, execution, and persistence.
 type Manager struct {
 	store     Store
 	executors map[string]ProviderExecutor
 	selector  Selector
 	hook      Hook
+	// lateHook carries hooks added via AddHook after construction; read under
+	// currentHook so the immutable construction hook always runs first.
+	lateHook  atomic.Pointer[hookBox]
 	mu        sync.RWMutex
 	auths     map[string]*Auth
 	scheduler *authScheduler
@@ -371,6 +400,42 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 	}
 	manager.scheduler = newAuthScheduler(selector)
 	return manager
+}
+
+// AddHook appends a lifecycle hook after construction; it runs after the
+// construction-time hook and any previously added hooks.
+func (m *Manager) AddHook(hook Hook) {
+	if m == nil || hook == nil {
+		return
+	}
+	for {
+		existing := m.lateHook.Load()
+		var combined hookBox
+		if existing != nil {
+			combined = hookBox{hook: hookChain{first: existing.hook, second: hook}}
+		} else {
+			combined = hookBox{hook: hook}
+		}
+		if m.lateHook.CompareAndSwap(existing, &combined) {
+			return
+		}
+	}
+}
+
+// currentHook resolves the effective hook: construction hook, or its chain with
+// any post-construction hooks. Never nil.
+func (m *Manager) currentHook() Hook {
+	if m == nil {
+		return NoopHook{}
+	}
+	hook := m.hook
+	if hook == nil {
+		hook = NoopHook{}
+	}
+	if late := m.lateHook.Load(); late != nil && late.hook != nil {
+		hook = hookChain{first: hook, second: late.hook}
+	}
+	return hook
 }
 
 // HomeDispatchBundle is the immutable client and registry pair for one Home lifetime.
@@ -1968,7 +2033,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if err := m.persist(ctx, auth); err != nil {
 		return auth.Clone(), err
 	}
-	m.hook.OnAuthRegistered(ctx, auth.Clone())
+	m.currentHook().OnAuthRegistered(ctx, auth.Clone())
 	return auth.Clone(), nil
 }
 
@@ -2102,7 +2167,7 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 			return auth.Clone(), err
 		}
 	}
-	m.hook.OnAuthUpdated(ctx, auth.Clone())
+	m.currentHook().OnAuthUpdated(ctx, auth.Clone())
 	return auth.Clone(), nil
 }
 
@@ -3673,7 +3738,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		warnLogUpstreamFailure(ctx, nil, result.Provider, result.Model, failedAuth, 0, result.Error)
 	}
 	if !result.Success && (result.RequestScoped || shouldSkipCredentialCooldown(result.Error)) {
-		m.hook.OnResult(ctx, result)
+		m.currentHook().OnResult(ctx, result)
 		return
 	}
 
@@ -3902,7 +3967,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 
 	m.persistCooldownStateSnapshot(ctx)
-	m.hook.OnResult(ctx, result)
+	m.currentHook().OnResult(ctx, result)
 	m.updateSessionAffinity(result)
 }
 
@@ -3935,7 +4000,7 @@ func (m *Manager) recordAvailabilityNeutralResult(ctx context.Context, result Re
 	}
 	m.mu.Unlock()
 
-	m.hook.OnResult(ctx, result)
+	m.currentHook().OnResult(ctx, result)
 }
 
 func applyKiroUsageResultFromResponse(result *Result, resp cliproxyexecutor.Response) {

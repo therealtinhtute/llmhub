@@ -2,7 +2,10 @@ package quotaalert
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +22,14 @@ const (
 	MaxNotificationAttempts       = 3
 	DefaultRetentionPruneLimit    = 100
 	DefaultRetentionAge           = 30 * 24 * time.Hour
+
+	// adaptivePollDivisor is the fast-poll factor applied while any reliable
+	// quota window is hot (reset due within one base interval, or remaining
+	// within adaptiveThresholdHeadroom of the effective warning threshold).
+	adaptivePollDivisor = 5
+	// adaptiveThresholdHeadroom is the remaining-percentage headroom above the
+	// warning threshold that keeps a window hot.
+	adaptiveThresholdHeadroom = Percentage(10)
 )
 
 // AuthSource lists persisted auth snapshots eligible for quota monitoring.
@@ -183,14 +194,26 @@ func (s *Service) RunCollectionOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	healthRows, err := s.store.ListCollectionHealth(ctx)
+	if err != nil {
+		return err
+	}
+	evaluatedAt := s.clock.Now()
 	active := activeAuthProviderKeys(settings, auths)
 	collection := s.collectObservations(ctx, auths, previous, active)
+	degradedEvents, healthUpserts, healthDeletes := advanceCollectionHealth(
+		settings, auths, active, &collection, healthRows, evaluatedAt)
 	result, err := EvaluateObservations(EvaluationInput{
 		Settings:       settings,
 		Observations:   collection.observations,
 		PreviousStates: previous,
-		EvaluatedAt:    s.clock.Now(),
+		EvaluatedAt:    evaluatedAt,
 	})
+	if err != nil {
+		return err
+	}
+	events := append(result.Events, degradedEvents...)
+	batches, err := groupTransitionEvents(events, evaluatedAt)
 	if err != nil {
 		return err
 	}
@@ -198,9 +221,121 @@ func (s *Service) RunCollectionOnce(ctx context.Context) error {
 		SettingsRevision: settings.Revision,
 		States:           result.States,
 		RemovedStates:    removedStateIdentities(previous, active, collection),
-		Events:           result.Events,
-		Batches:          result.Batches,
+		Events:           events,
+		Batches:          batches,
+		HealthUpserts:    healthUpserts,
+		HealthDeletes:    healthDeletes,
 	})
+}
+
+// advanceCollectionHealth tracks consecutive collection failures per
+// (auth, provider) and emits one monitor_degraded event per streak when the
+// count crosses settings.DegradedFailureThreshold. Crossing auths also get a
+// collection/latest unknown observation appended to the cycle so the event's
+// durable state row exists; the row is auto-removed on the next reliable cycle
+// by removedStateIdentities. Reliable cycles delete the streak row, re-arming
+// the one-shot.
+func advanceCollectionHealth(
+	settings Settings,
+	auths []AuthSnapshot,
+	active map[authProviderKey]struct{},
+	collection *collectionCycle,
+	healthRows []CollectionHealthRecord,
+	evaluatedAt time.Time,
+) ([]TransitionEvent, []CollectionHealthRecord, []CollectionHealthKey) {
+	healthByKey := make(map[authProviderKey]CollectionHealthRecord, len(healthRows))
+	for _, row := range healthRows {
+		key := authProviderKey{authID: row.Key.AuthID, provider: row.Key.Provider}
+		healthByKey[key] = row
+	}
+	authByKey := make(map[authProviderKey]AuthSnapshot, len(auths))
+	for _, auth := range auths {
+		key, ok := authKey(auth)
+		if !ok {
+			continue
+		}
+		authByKey[key] = auth
+	}
+	failureCodeByKey := make(map[authProviderKey]CollectionFailureCode)
+	for _, observation := range collection.observations {
+		if observation.Health != CollectionUnknown {
+			continue
+		}
+		key := authProviderKey{authID: observation.Identity.AuthID, provider: observation.Identity.Provider}
+		if _, exists := failureCodeByKey[key]; !exists {
+			failureCodeByKey[key] = observation.FailureCode
+		}
+	}
+
+	threshold := settings.DegradedFailureThreshold
+	upserts := make([]CollectionHealthRecord, 0, len(collection.failed))
+	deletes := make([]CollectionHealthKey, 0, len(healthByKey))
+	degraded := make([]TransitionEvent, 0)
+	keys := sortedAuthProviderKeys(active)
+	for _, key := range keys {
+		if _, failed := collection.failed[key]; !failed {
+			if _, tracked := healthByKey[key]; tracked {
+				deletes = append(deletes, CollectionHealthKey{AuthID: key.authID, Provider: key.provider})
+			}
+			continue
+		}
+		previous := healthByKey[key].ConsecutiveFailures
+		count := previous + 1
+		code := failureCodeByKey[key]
+		if code == "" {
+			code = FailureInternal
+		}
+		upserts = append(upserts, CollectionHealthRecord{
+			Key:                 CollectionHealthKey{AuthID: key.authID, Provider: key.provider},
+			ConsecutiveFailures: count,
+			LastFailureCode:     code,
+			UpdatedAt:           evaluatedAt,
+		})
+		if threshold <= 0 || previous >= threshold || count < threshold {
+			continue
+		}
+		auth, ok := authByKey[key]
+		if !ok {
+			continue
+		}
+		observation := unknownObservation(auth, evaluatedAt, code)
+		if _, observed := collection.observed[observation.Identity]; !observed {
+			collection.observed[observation.Identity] = struct{}{}
+			collection.observations = append(collection.observations, observation)
+		}
+		event, err := (TransitionEvent{
+			ID:         eventID(TransitionMonitorDegraded, AlertUnknown, AlertUnknown, observation.Identity, evaluatedAt),
+			Identity:   observation.Identity,
+			AuthLabel:  observation.AuthLabel,
+			Kind:       TransitionMonitorDegraded,
+			From:       AlertUnknown,
+			To:         AlertUnknown,
+			OccurredAt: evaluatedAt,
+		}).Normalize()
+		if err == nil {
+			degraded = append(degraded, event)
+		}
+	}
+	for key := range healthByKey {
+		if _, isActive := active[key]; !isActive {
+			deletes = append(deletes, CollectionHealthKey{AuthID: key.authID, Provider: key.provider})
+		}
+	}
+	return degraded, upserts, deletes
+}
+
+func sortedAuthProviderKeys(active map[authProviderKey]struct{}) []authProviderKey {
+	keys := make([]authProviderKey, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].authID != keys[right].authID {
+			return keys[left].authID < keys[right].authID
+		}
+		return keys[left].provider < keys[right].provider
+	})
+	return keys
 }
 
 // DeliverNotificationsOnce claims and resolves currently due notification batches.
@@ -213,14 +348,20 @@ func (s *Service) DeliverNotificationsOnce(ctx context.Context) error {
 		result := NotificationResult{BatchID: claim.Batch.ID(), LeaseID: claim.LeaseID}
 		if s.sender == nil {
 			result.PermanentFailure = true
-			result.FailureCode = "sender_unavailable"
+			result.FailureCode = string(DeliverySenderUnavailable)
 		} else if sendErr := s.sender.Send(ctx, claim.Batch); sendErr != nil {
-			result.FailureCode = "send_failed"
-			if claim.Attempt >= MaxNotificationAttempts {
+			code, permanent := classifyDeliveryError(sendErr)
+			result.FailureCode = string(code)
+			if permanent || claim.Attempt >= MaxNotificationAttempts {
 				result.PermanentFailure = true
 			} else {
 				result.RetryAt = s.clock.Now().Add(DefaultNotificationRetryDelay).UTC().Truncate(time.Microsecond)
 			}
+			log.WithError(sendErr).WithFields(log.Fields{
+				"failure_code": code,
+				"provider":     claim.Batch.Provider(),
+				"batch_id":     claim.Batch.ID(),
+			}).Warn("quota alert: notification delivery failed")
 		} else {
 			result.SentAt = s.clock.Now().UTC().Truncate(time.Microsecond)
 		}
@@ -229,6 +370,23 @@ func (s *Service) DeliverNotificationsOnce(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// classifyDeliveryError maps sender errors onto the bounded delivery failure
+// codes persisted on notification batches. Configuration and decryption
+// problems are permanent — retrying cannot fix them; upstream send failures
+// stay retryable until MaxNotificationAttempts.
+func classifyDeliveryError(err error) (DeliveryFailureCode, bool) {
+	switch {
+	case errors.Is(err, ErrSenderUnavailable):
+		return DeliverySenderUnavailable, true
+	case errors.Is(err, ErrTelegramUnconfigured):
+		return DeliveryTelegramUnconfigured, true
+	case errors.Is(err, ErrTelegramUnavailable):
+		return DeliveryTelegramUnavailable, true
+	default:
+		return DeliverySendFailed, false
+	}
 }
 
 func (s *Service) run(ctx context.Context, done chan<- struct{}) {
@@ -245,11 +403,12 @@ func (s *Service) run(ctx context.Context, done chan<- struct{}) {
 			if err := s.RunCollectionOnce(ctx); err != nil {
 				log.WithError(err).Error("quota alert: collection cycle failed")
 			}
+			resetTimer(pollTimer, s.nextPollInterval(ctx))
 		case <-pollTimer.C:
 			if err := s.RunCollectionOnce(ctx); err != nil {
 				log.WithError(err).Error("quota alert: collection cycle failed")
 			}
-			resetTimer(pollTimer, s.pollInterval)
+			resetTimer(pollTimer, s.nextPollInterval(ctx))
 		case <-deliveryTimer.C:
 			if err := s.DeliverNotificationsOnce(ctx); err != nil {
 				log.WithError(err).Error("quota alert: notification delivery cycle failed")
@@ -257,6 +416,53 @@ func (s *Service) run(ctx context.Context, done chan<- struct{}) {
 			resetTimer(deliveryTimer, s.deliveryInterval)
 		}
 	}
+}
+
+// nextPollInterval computes the delay before the next scheduled collection
+// cycle. When monitoring is disabled or state is unreadable it falls back to
+// the configured base interval.
+func (s *Service) nextPollInterval(ctx context.Context) time.Duration {
+	settings, err := s.store.LoadSettings(ctx)
+	if err != nil || !settings.Enabled {
+		return s.pollInterval
+	}
+	states, err := s.listAllStates(ctx)
+	if err != nil {
+		return s.pollInterval
+	}
+	return adaptivePollInterval(s.clock.Now(), states, settings, s.pollInterval, MinPollInterval)
+}
+
+// adaptivePollInterval shortens the base interval while any reliable quota
+// window is hot: its reset lands within one base interval (so recovery is
+// observed promptly instead of a full interval late), or its remaining value
+// sits within adaptiveThresholdHeadroom of the effective warning threshold.
+// Unknown-health rows and disabled providers never shorten the interval.
+func adaptivePollInterval(now time.Time, states []CurrentState, settings Settings, base, min time.Duration) time.Duration {
+	fast := base / adaptivePollDivisor
+	if fast < min {
+		fast = min
+	}
+	configs := evaluationProviderSettings(settings)
+	for _, state := range states {
+		if state.Health != CollectionReliable {
+			continue
+		}
+		config, ok := configs[state.Identity.Provider]
+		if !ok || !config.enabled {
+			continue
+		}
+		if state.RemainingKnown && state.Remaining <= config.threshold+adaptiveThresholdHeadroom {
+			return fast
+		}
+		if state.ResetKnown {
+			until := state.ResetAt.Sub(now)
+			if until <= base && until > -base {
+				return fast
+			}
+		}
+	}
+	return base
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
@@ -433,31 +639,64 @@ func (s *Service) collectAuthObservations(ctx context.Context, auth AuthSnapshot
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{"provider": auth.Provider(), "auth_id": auth.AuthID()}).
 			Warn("quota alert: no collector for provider")
-		return s.unknownObservations(auth, previous), true
+		return s.unknownObservations(auth, previous, FailureCollectorMissing), true
 	}
 	collectionCtx, cancel := context.WithTimeout(ctx, s.collectionTimeout)
 	defer cancel()
 	collected, err := collector.Collect(collectionCtx, auth)
 	if err != nil {
-		log.WithError(err).WithFields(log.Fields{"provider": auth.Provider(), "auth_id": auth.AuthID()}).
+		code := classifyCollectorError(err)
+		log.WithError(err).WithFields(log.Fields{"provider": auth.Provider(), "auth_id": auth.AuthID(), "failure_code": code}).
 			Warn("quota alert: collector failed")
-		return s.unknownObservations(auth, previous), true
+		return s.unknownObservations(auth, previous, code), true
 	}
 	return collected, false
 }
 
-func (s *Service) unknownObservations(auth AuthSnapshot, previous []CurrentState) []Observation {
+// classifyCollectorError maps collector errors onto the bounded sanitized
+// failure-code enum. Raw error text is logged server-side only; the code is
+// what reaches persisted state, APIs, and the UI.
+func classifyCollectorError(err error) CollectionFailureCode {
+	if err == nil {
+		return FailureNone
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return FailureTimeout
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "missing") && (strings.Contains(msg, "token") || strings.Contains(msg, "credential") || strings.Contains(msg, "account") || strings.Contains(msg, "project")):
+		return FailureCredentialMissing
+	case strings.Contains(msg, "refresh failed"):
+		return FailureCredentialRejected
+	case strings.Contains(msg, "http 401") || strings.Contains(msg, "http 403"):
+		return FailureCredentialRejected
+	case strings.Contains(msg, "http "):
+		return FailureUpstreamHTTP
+	case strings.Contains(msg, "no recognized windows") || strings.Contains(msg, "json") || strings.Contains(msg, "decode"):
+		return FailureDecode
+	case strings.Contains(msg, "deadline") || strings.Contains(msg, "timeout"):
+		return FailureTimeout
+	case strings.Contains(msg, "dial") || strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host") || strings.Contains(msg, "eof"):
+		return FailureTransport
+	default:
+		return FailureInternal
+	}
+}
+
+func (s *Service) unknownObservations(auth AuthSnapshot, previous []CurrentState, code CollectionFailureCode) []Observation {
 	observedAt := s.clock.Now()
 	if len(previous) == 0 {
-		return []Observation{unknownObservation(auth, observedAt)}
+		return []Observation{unknownObservation(auth, observedAt, code)}
 	}
 	observations := make([]Observation, 0, len(previous))
 	for _, state := range previous {
 		observations = append(observations, Observation{
-			Identity:   state.Identity,
-			AuthLabel:  state.AuthLabel,
-			Health:     CollectionUnknown,
-			ObservedAt: observedAt,
+			Identity:    state.Identity,
+			AuthLabel:   state.AuthLabel,
+			Health:      CollectionUnknown,
+			FailureCode: code,
+			ObservedAt:  observedAt,
 		})
 	}
 	return observations
@@ -481,7 +720,7 @@ func removedStateIdentities(previous []CurrentState, active map[authProviderKey]
 	return removed
 }
 
-func unknownObservation(auth AuthSnapshot, observedAt time.Time) Observation {
+func unknownObservation(auth AuthSnapshot, observedAt time.Time, code CollectionFailureCode) Observation {
 	provider := auth.Provider()
 	if err := provider.Validate(); err != nil {
 		provider = ProviderClaude
@@ -493,9 +732,10 @@ func unknownObservation(auth AuthSnapshot, observedAt time.Time) Observation {
 			Resource: "collection",
 			Window:   "latest",
 		},
-		AuthLabel:  auth.RedactedLabel(),
-		Health:     CollectionUnknown,
-		ObservedAt: observedAt,
+		AuthLabel:   auth.RedactedLabel(),
+		Health:      CollectionUnknown,
+		FailureCode: code,
+		ObservedAt:  observedAt,
 	}
 }
 

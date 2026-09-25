@@ -85,6 +85,9 @@ func normalizedEvaluationSettings(settings Settings) (Settings, error) {
 	if settings.PollInterval == 0 {
 		settings.PollInterval = DefaultPollInterval
 	}
+	if settings.ConfirmationSamples == 0 {
+		settings.ConfirmationSamples = DefaultConfirmationSamples
+	}
 	if err := settings.Validate(); err != nil {
 		return Settings{}, err
 	}
@@ -170,9 +173,34 @@ func observationSortKey(observation Observation) string {
 
 func evaluateObservation(settings Settings, threshold Percentage, observation Observation, prior CurrentState, hadPrior bool, evaluatedAt time.Time) (CurrentState, TransitionEvent, bool, error) {
 	if observation.Health == CollectionUnknown {
-		if hadPrior && prior.Alert != AlertUnknown {
-			prior.UpdatedAt = evaluatedAt
-			normalized, err := prior.Normalize()
+		if hadPrior {
+			prior.Health = CollectionUnknown
+			prior.FailureCode = observation.FailureCode
+			if prior.LastReliableObservedAt.IsZero() && prior.Alert != AlertUnknown {
+				// Pre-migration rows have no last-reliable timestamp; the kept
+				// ObservedAt is the last reliable observation time.
+				prior.LastReliableObservedAt = prior.ObservedAt
+			}
+			if prior.Alert != AlertUnknown {
+				prior.UpdatedAt = evaluatedAt
+				normalized, err := prior.Normalize()
+				return normalized, TransitionEvent{}, false, err
+			}
+			// Prior state was already unknown: emit a fresh unknown row that
+			// carries the latest attempt time and failure code.
+			state := CurrentState{
+				Identity:               observation.Identity,
+				AuthLabel:              observation.AuthLabel,
+				Alert:                  AlertUnknown,
+				Health:                 CollectionUnknown,
+				FailureCode:            observation.FailureCode,
+				LastReliableObservedAt: prior.LastReliableObservedAt,
+				ObservedAt:             observation.ObservedAt,
+				TransitionedAt:         prior.TransitionedAt,
+				UpdatedAt:              evaluationUpdatedAt(evaluatedAt, observation.ObservedAt),
+				Revision:               settings.Revision,
+			}
+			normalized, err := state.Normalize()
 			return normalized, TransitionEvent{}, false, err
 		}
 		state := CurrentState{
@@ -180,6 +208,7 @@ func evaluateObservation(settings Settings, threshold Percentage, observation Ob
 			AuthLabel:      observation.AuthLabel,
 			Alert:          AlertUnknown,
 			Health:         CollectionUnknown,
+			FailureCode:    observation.FailureCode,
 			ObservedAt:     observation.ObservedAt,
 			TransitionedAt: observation.ObservedAt,
 			UpdatedAt:      evaluatedAt,
@@ -190,6 +219,39 @@ func evaluateObservation(settings Settings, threshold Percentage, observation Ob
 	}
 
 	alert := evaluateAlert(observation, threshold)
+	priorAlert := AlertUnknown
+	if hadPrior {
+		priorAlert = prior.Alert
+	}
+	consecutiveBelow := 0
+	if hadPrior {
+		consecutiveBelow = prior.ConsecutiveBelow
+	}
+	if observation.ExplicitlyExhausted || (observation.RemainingKnown && observation.Remaining <= threshold) {
+		consecutiveBelow++
+	} else {
+		consecutiveBelow = 0
+	}
+	// Confirmation: escalating into a below-threshold alert requires
+	// ConfirmationSamples consecutive below-threshold observations. Explicit
+	// provider exhaustion bypasses the gate; severity decreases never wait.
+	if alertSeverityRank(alert) > alertSeverityRank(priorAlert) &&
+		!observation.ExplicitlyExhausted &&
+		consecutiveBelow < settings.ConfirmationSamples {
+		if priorAlert == AlertUnknown {
+			alert = AlertHealthy
+		} else {
+			alert = priorAlert
+		}
+	}
+	// Hysteresis: recovery to healthy requires remaining above
+	// threshold+margin so values oscillating near the threshold do not flap.
+	if alert == AlertHealthy && (priorAlert == AlertWarning || priorAlert == AlertExhausted) {
+		recoveryLevel := threshold + settings.RecoveryMargin
+		if !observation.RemainingKnown || observation.Remaining <= recoveryLevel {
+			alert = priorAlert
+		}
+	}
 	transitionedAt := observation.ObservedAt
 	from := AlertUnknown
 	if hadPrior {
@@ -199,18 +261,20 @@ func evaluateObservation(settings Settings, threshold Percentage, observation Ob
 		}
 	}
 	state := CurrentState{
-		Identity:       observation.Identity,
-		AuthLabel:      observation.AuthLabel,
-		Alert:          alert,
-		Health:         CollectionReliable,
-		Remaining:      observation.Remaining,
-		RemainingKnown: observation.RemainingKnown,
-		ResetAt:        observation.ResetAt,
-		ResetKnown:     observation.ResetKnown,
-		ObservedAt:     observation.ObservedAt,
-		TransitionedAt: transitionedAt,
-		UpdatedAt:      evaluatedAt,
-		Revision:       settings.Revision,
+		Identity:               observation.Identity,
+		AuthLabel:              observation.AuthLabel,
+		Alert:                  alert,
+		Health:                 CollectionReliable,
+		LastReliableObservedAt: observation.ObservedAt,
+		ConsecutiveBelow:       consecutiveBelow,
+		Remaining:              observation.Remaining,
+		RemainingKnown:         observation.RemainingKnown,
+		ResetAt:                observation.ResetAt,
+		ResetKnown:             observation.ResetKnown,
+		ObservedAt:             observation.ObservedAt,
+		TransitionedAt:         transitionedAt,
+		UpdatedAt:              evaluationUpdatedAt(evaluatedAt, observation.ObservedAt),
+		Revision:               settings.Revision,
 	}
 	if alert == AlertExhausted && !state.RemainingKnown {
 		state.Remaining = 0
@@ -228,8 +292,12 @@ func evaluateObservation(settings Settings, threshold Percentage, observation Ob
 	if !emit {
 		return normalizedState, TransitionEvent{}, false, nil
 	}
+	occurredAt := evaluatedAt
+	if kind != TransitionReminder {
+		occurredAt = normalizedState.TransitionedAt
+	}
 	event := TransitionEvent{
-		ID:             eventID(kind, from, alert, normalizedState.Identity, evaluatedAt),
+		ID:             eventID(kind, from, alert, normalizedState.Identity, occurredAt),
 		Identity:       normalizedState.Identity,
 		AuthLabel:      normalizedState.AuthLabel,
 		Kind:           kind,
@@ -239,7 +307,7 @@ func evaluateObservation(settings Settings, threshold Percentage, observation Ob
 		RemainingKnown: normalizedState.RemainingKnown,
 		ResetAt:        normalizedState.ResetAt,
 		ResetKnown:     normalizedState.ResetKnown,
-		OccurredAt:     evaluatedAt,
+		OccurredAt:     occurredAt,
 	}
 	normalizedEvent, err := event.Normalize()
 	if err != nil {
@@ -256,6 +324,20 @@ func evaluateAlert(observation Observation, threshold Percentage) AlertState {
 		return AlertWarning
 	}
 	return AlertHealthy
+}
+
+// alertSeverityRank orders alert severities for the confirmation gate;
+// unknown and healthy share the non-alerting rank so a first reliable
+// observation after unknown is still gated by confirmation samples.
+func alertSeverityRank(alert AlertState) int {
+	switch alert {
+	case AlertWarning:
+		return 1
+	case AlertExhausted:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func transitionKind(from, to AlertState, notifyRecovery bool) (TransitionKind, bool) {
@@ -322,4 +404,13 @@ func groupTransitionEvents(events []TransitionEvent, createdAt time.Time) ([]Not
 		batches = append(batches, batch)
 	}
 	return batches, nil
+}
+
+// evaluationUpdatedAt keeps observed <= updated when a collector stamps the
+// observation after the cycle's evaluation clock.
+func evaluationUpdatedAt(evaluatedAt, observedAt time.Time) time.Time {
+	if observedAt.After(evaluatedAt) {
+		return observedAt
+	}
+	return evaluatedAt
 }

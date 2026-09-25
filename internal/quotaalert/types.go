@@ -15,19 +15,26 @@ import (
 )
 
 const (
-	DefaultPollInterval          = 5 * time.Minute
-	MinPollInterval              = time.Minute
-	MaxPollInterval              = 24 * time.Hour
-	DefaultWarningThreshold      = Percentage(10)
-	DefaultPageSize              = 50
-	MaxPageSize                  = 100
-	MaxIdentityFieldLength       = 256
-	MaxAuthLabelLength           = 256
-	MaxTelegramChatIDLength      = 256
-	MaxTransitionEventIDLength   = 256
-	MaxNotificationBatchEvents   = 100
-	MinNotificationLeaseDuration = time.Second
-	MaxNotificationLeaseDuration = 24 * time.Hour
+	DefaultPollInterval        = 5 * time.Minute
+	MinPollInterval            = time.Minute
+	MaxPollInterval            = 24 * time.Hour
+	DefaultWarningThreshold    = Percentage(10)
+	DefaultConfirmationSamples = 1
+	MaxConfirmationSamples     = 10
+	DefaultRecoveryMargin      = Percentage(0)
+	// DegradedFailureThreshold is the consecutive collection failures required
+	// before a monitor_degraded event fires; 0 disables the signal.
+	DefaultDegradedFailureThreshold = 3
+	MaxDegradedFailureThreshold     = 100
+	DefaultPageSize                 = 50
+	MaxPageSize                     = 100
+	MaxIdentityFieldLength          = 256
+	MaxAuthLabelLength              = 256
+	MaxTelegramChatIDLength         = 256
+	MaxTransitionEventIDLength      = 256
+	MaxNotificationBatchEvents      = 100
+	MinNotificationLeaseDuration    = time.Second
+	MaxNotificationLeaseDuration    = 24 * time.Hour
 )
 
 // Provider identifies a quota collector supported by the monitor.
@@ -134,21 +141,29 @@ func (d TelegramDestination) Validate() error {
 
 // Settings contains database-backed global settings and provider overrides.
 type Settings struct {
-	Revision          int64
-	Enabled           bool
-	PollInterval      time.Duration
-	WarningThreshold  Percentage
-	NotifyRecovery    bool
-	ReminderInterval  time.Duration
-	ProviderOverrides []ProviderOverride
-	Telegram          TelegramDestination
+	Revision            int64
+	Enabled             bool
+	PollInterval        time.Duration
+	WarningThreshold    Percentage
+	NotifyRecovery      bool
+	ReminderInterval    time.Duration
+	ConfirmationSamples int
+	RecoveryMargin      Percentage
+	// DegradedFailureThreshold is the consecutive collection failures required
+	// before one monitor_degraded event fires per streak; 0 disables.
+	DegradedFailureThreshold int
+	ProviderOverrides        []ProviderOverride
+	Telegram                 TelegramDestination
 }
 
 // DefaultSettings returns the safe disabled settings seeded by persistence.
 func DefaultSettings() Settings {
 	return Settings{
-		PollInterval:     DefaultPollInterval,
-		WarningThreshold: DefaultWarningThreshold,
+		PollInterval:             DefaultPollInterval,
+		WarningThreshold:         DefaultWarningThreshold,
+		ConfirmationSamples:      DefaultConfirmationSamples,
+		RecoveryMargin:           DefaultRecoveryMargin,
+		DegradedFailureThreshold: DefaultDegradedFailureThreshold,
 	}
 }
 
@@ -169,6 +184,18 @@ func (s Settings) Validate() error {
 	if s.ReminderInterval > 0 && s.ReminderInterval < s.PollInterval {
 		return fmt.Errorf("reminder interval must be zero or at least the poll interval")
 	}
+	if s.ConfirmationSamples < 1 || s.ConfirmationSamples > MaxConfirmationSamples {
+		return fmt.Errorf("confirmation samples must be between 1 and %d", MaxConfirmationSamples)
+	}
+	if err := s.RecoveryMargin.Validate("recovery margin"); err != nil {
+		return err
+	}
+	if s.WarningThreshold+s.RecoveryMargin > 100 {
+		return fmt.Errorf("warning threshold plus recovery margin must not exceed 100")
+	}
+	if s.DegradedFailureThreshold < 0 || s.DegradedFailureThreshold > MaxDegradedFailureThreshold {
+		return fmt.Errorf("degraded failure threshold must be between 0 and %d", MaxDegradedFailureThreshold)
+	}
 
 	seen := make(map[Provider]struct{}, len(s.ProviderOverrides))
 	for _, override := range s.ProviderOverrides {
@@ -177,6 +204,9 @@ func (s Settings) Validate() error {
 		}
 		if _, exists := seen[override.Provider]; exists {
 			return fmt.Errorf("duplicate provider override %q", override.Provider)
+		}
+		if override.WarningThreshold != nil && *override.WarningThreshold+s.RecoveryMargin > 100 {
+			return fmt.Errorf("provider %q warning threshold plus recovery margin must not exceed 100", override.Provider)
 		}
 		seen[override.Provider] = struct{}{}
 	}
@@ -247,10 +277,92 @@ func (i StateIdentity) StableKey() (string, error) {
 // CollectionHealth records whether an observation is safe to evaluate.
 type CollectionHealth string
 
+// CollectionHealthKey identifies one per-auth collection health row.
+type CollectionHealthKey struct {
+	AuthID   string
+	Provider Provider
+}
+
+// Normalize validates a collection health key and returns its canonical form.
+func (k CollectionHealthKey) Normalize() (CollectionHealthKey, error) {
+	k.AuthID = strings.TrimSpace(k.AuthID)
+	if k.AuthID == "" {
+		return CollectionHealthKey{}, fmt.Errorf("collection health auth ID is required")
+	}
+	if len(k.AuthID) > MaxIdentityFieldLength {
+		return CollectionHealthKey{}, fmt.Errorf("collection health auth ID must not exceed %d bytes", MaxIdentityFieldLength)
+	}
+	if err := k.Provider.Validate(); err != nil {
+		return CollectionHealthKey{}, err
+	}
+	return k, nil
+}
+
+// CollectionHealthRecord is the persisted per-auth collection failure streak
+// used to emit one-shot monitor_degraded events. Rows live only while an auth
+// fails consecutively; a reliable cycle deletes the row and re-arms the streak.
+type CollectionHealthRecord struct {
+	Key                 CollectionHealthKey
+	ConsecutiveFailures int
+	LastFailureCode     CollectionFailureCode
+	UpdatedAt           time.Time
+}
+
+// Normalize validates a collection health row and returns its canonical form.
+func (h CollectionHealthRecord) Normalize() (CollectionHealthRecord, error) {
+	key, err := h.Key.Normalize()
+	if err != nil {
+		return CollectionHealthRecord{}, err
+	}
+	h.Key = key
+	if h.ConsecutiveFailures <= 0 {
+		return CollectionHealthRecord{}, fmt.Errorf("collection health rows require at least one consecutive failure")
+	}
+	if err := h.LastFailureCode.Validate(); err != nil {
+		return CollectionHealthRecord{}, err
+	}
+	if h.LastFailureCode == FailureNone {
+		return CollectionHealthRecord{}, fmt.Errorf("collection health rows require a failure code")
+	}
+	if h.UpdatedAt.IsZero() {
+		return CollectionHealthRecord{}, fmt.Errorf("collection health updated time is required")
+	}
+	h.UpdatedAt = h.UpdatedAt.UTC().Truncate(time.Microsecond)
+	return h, nil
+}
+
+// CollectionFailureCode is a sanitized reason a collection attempt produced no
+// reliable quota evidence. Raw error text never reaches persisted state.
+type CollectionFailureCode string
+
 const (
 	CollectionReliable CollectionHealth = "reliable"
 	CollectionUnknown  CollectionHealth = "unknown"
 )
+
+const (
+	FailureNone               CollectionFailureCode = ""
+	FailureCollectorMissing   CollectionFailureCode = "collector_missing"
+	FailureCredentialMissing  CollectionFailureCode = "credential_missing"
+	FailureCredentialRejected CollectionFailureCode = "credential_rejected"
+	FailureUpstreamHTTP       CollectionFailureCode = "upstream_http"
+	FailureTimeout            CollectionFailureCode = "timeout"
+	FailureTransport          CollectionFailureCode = "transport"
+	FailureDecode             CollectionFailureCode = "decode"
+	FailureInternal           CollectionFailureCode = "internal"
+)
+
+// Validate verifies the failure code is empty or a known sanitized class.
+func (c CollectionFailureCode) Validate() error {
+	switch c {
+	case FailureNone, FailureCollectorMissing, FailureCredentialMissing,
+		FailureCredentialRejected, FailureUpstreamHTTP, FailureTimeout,
+		FailureTransport, FailureDecode, FailureInternal:
+		return nil
+	default:
+		return fmt.Errorf("invalid collection failure code %q", c)
+	}
+}
 
 // Validate verifies the collection-health value.
 func (h CollectionHealth) Validate() error {
@@ -287,6 +399,7 @@ type Observation struct {
 	Identity            StateIdentity
 	AuthLabel           string
 	Health              CollectionHealth
+	FailureCode         CollectionFailureCode
 	Remaining           Percentage
 	RemainingKnown      bool
 	ExplicitlyExhausted bool
@@ -325,12 +438,18 @@ func (o Observation) Normalize() (Observation, error) {
 		o.ResetAt = time.Time{}
 	}
 
+	if err = o.FailureCode.Validate(); err != nil {
+		return Observation{}, err
+	}
 	if o.Health == CollectionUnknown {
 		if o.RemainingKnown || o.ExplicitlyExhausted {
 			return Observation{}, fmt.Errorf("unknown collection cannot contain reliable quota evidence")
 		}
 		o.Remaining = 0
 		return o, nil
+	}
+	if o.FailureCode != FailureNone {
+		return Observation{}, fmt.Errorf("reliable collection cannot carry a failure code")
 	}
 	if !o.RemainingKnown && !o.ExplicitlyExhausted {
 		return Observation{}, fmt.Errorf("reliable collection requires remaining quota or explicit exhaustion evidence")
@@ -351,18 +470,21 @@ func (o Observation) Normalize() (Observation, error) {
 
 // CurrentState is the latest persisted evaluation for one durable identity.
 type CurrentState struct {
-	Identity       StateIdentity
-	AuthLabel      string
-	Alert          AlertState
-	Health         CollectionHealth
-	Remaining      Percentage
-	RemainingKnown bool
-	ResetAt        time.Time
-	ResetKnown     bool
-	ObservedAt     time.Time
-	TransitionedAt time.Time
-	UpdatedAt      time.Time
-	Revision       int64
+	Identity               StateIdentity
+	AuthLabel              string
+	Alert                  AlertState
+	Health                 CollectionHealth
+	FailureCode            CollectionFailureCode
+	LastReliableObservedAt time.Time
+	ConsecutiveBelow       int
+	Remaining              Percentage
+	RemainingKnown         bool
+	ResetAt                time.Time
+	ResetKnown             bool
+	ObservedAt             time.Time
+	TransitionedAt         time.Time
+	UpdatedAt              time.Time
+	Revision               int64
 }
 
 // Normalize validates a current state and returns its canonical durable form.
@@ -384,6 +506,18 @@ func (s CurrentState) Normalize() (CurrentState, error) {
 	}
 	if err = s.Health.Validate(); err != nil {
 		return CurrentState{}, err
+	}
+	if err = s.FailureCode.Validate(); err != nil {
+		return CurrentState{}, err
+	}
+	if s.Health == CollectionReliable && s.FailureCode != FailureNone {
+		return CurrentState{}, fmt.Errorf("reliable current state cannot carry a failure code")
+	}
+	if !s.LastReliableObservedAt.IsZero() {
+		s.LastReliableObservedAt = s.LastReliableObservedAt.UTC().Truncate(time.Microsecond)
+	}
+	if s.ConsecutiveBelow < 0 {
+		return CurrentState{}, fmt.Errorf("current state consecutive-below counter must not be negative")
 	}
 	if s.Revision < 0 {
 		return CurrentState{}, fmt.Errorf("current state revision must not be negative")
@@ -435,16 +569,17 @@ func (s CurrentState) Normalize() (CurrentState, error) {
 type TransitionKind string
 
 const (
-	TransitionWarning   TransitionKind = "warning"
-	TransitionExhausted TransitionKind = "exhausted"
-	TransitionRecovery  TransitionKind = "recovery"
-	TransitionReminder  TransitionKind = "reminder"
+	TransitionWarning         TransitionKind = "warning"
+	TransitionExhausted       TransitionKind = "exhausted"
+	TransitionRecovery        TransitionKind = "recovery"
+	TransitionReminder        TransitionKind = "reminder"
+	TransitionMonitorDegraded TransitionKind = "monitor_degraded"
 )
 
 // Validate verifies the transition kind.
 func (k TransitionKind) Validate() error {
 	switch k {
-	case TransitionWarning, TransitionExhausted, TransitionRecovery, TransitionReminder:
+	case TransitionWarning, TransitionExhausted, TransitionRecovery, TransitionReminder, TransitionMonitorDegraded:
 		return nil
 	default:
 		return fmt.Errorf("invalid transition kind %q", k)
@@ -541,6 +676,8 @@ func validTransition(kind TransitionKind, from, to AlertState) bool {
 		return to == AlertHealthy && (from == AlertWarning || from == AlertExhausted)
 	case TransitionReminder:
 		return from == to && (to == AlertWarning || to == AlertExhausted)
+	case TransitionMonitorDegraded:
+		return from == to && to == AlertUnknown
 	default:
 		return false
 	}
@@ -693,6 +830,11 @@ type CollectionCommit struct {
 	RemovedStates    []StateIdentity
 	Events           []TransitionEvent
 	Batches          []NotificationBatch
+	// HealthUpserts carries failure-streak rows for auths that failed this
+	// cycle; HealthDeletes removes streaks for auths that collected reliably
+	// or left the active set entirely.
+	HealthUpserts []CollectionHealthRecord
+	HealthDeletes []CollectionHealthKey
 }
 
 // NotificationClaim contains one leased immutable batch.
@@ -708,6 +850,19 @@ type NotificationClaimOptions struct {
 	Limit         int
 	LeaseDuration time.Duration
 }
+
+// DeliveryFailureCode is the bounded sanitized reason a notification batch
+// could not be delivered. It is persisted on delivery records and exposed
+// through the events API; it never carries secret material or upstream text.
+type DeliveryFailureCode string
+
+const (
+	DeliveryFailureNone          DeliveryFailureCode = ""
+	DeliverySendFailed           DeliveryFailureCode = "send_failed"
+	DeliverySenderUnavailable    DeliveryFailureCode = "sender_unavailable"
+	DeliveryTelegramUnconfigured DeliveryFailureCode = "telegram_unconfigured"
+	DeliveryTelegramUnavailable  DeliveryFailureCode = "telegram_unavailable"
+)
 
 // NotificationResult resolves one claimed delivery attempt.
 type NotificationResult struct {
@@ -735,6 +890,7 @@ type Store interface {
 	SaveSettingsWithSecret(ctx context.Context, expectedRevision int64, settings Settings, update SecretUpdate, cipher *SecretCipher, purpose string) (Settings, error)
 	TryAcquireCollection(ctx context.Context) (CollectionLease, bool, error)
 	LoadStates(ctx context.Context, identities []StateIdentity) ([]CurrentState, error)
+	ListCollectionHealth(ctx context.Context) ([]CollectionHealthRecord, error)
 	CommitCollection(ctx context.Context, lease CollectionLease, commit CollectionCommit) error
 	ListStates(ctx context.Context, page PageRequest) (Page[CurrentState], error)
 	ListEvents(ctx context.Context, page PageRequest) (Page[TransitionEvent], error)

@@ -10,6 +10,12 @@ import (
 // RequestedModelMetadataKey stores the client-requested model name in Options.Metadata.
 const RequestedModelMetadataKey = "requested_model"
 
+// AuthSelectionModelMetadataKey overrides the model used only for auth selection.
+// Restored execution requests carry the upstream execution model in Request.Model
+// while this key keeps the original selection model for auth picking
+// (upstream parity).
+const AuthSelectionModelMetadataKey = "auth_selection_model"
+
 // RequestPathMetadataKey stores the inbound HTTP request path (e.g. "/v1/images/generations") in Options.Metadata.
 // It is optional and may be absent for non-HTTP executions.
 const RequestPathMetadataKey = "request_path"

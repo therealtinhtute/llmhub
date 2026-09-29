@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/therealtinhtute/llmhub/internal/registry"
+)
 
 // VertexCompatKey represents the configuration for Vertex AI-compatible API keys.
 // This supports third-party services that use Vertex AI-style endpoint paths
@@ -64,11 +68,15 @@ type VertexCompatModel struct {
 
 	// DisplayName is the optional human-readable name shown in model catalogs.
 	DisplayName string `yaml:"display-name,omitempty" json:"display-name,omitempty"`
+
+	// Thinking configures the thinking/reasoning capability for this model.
+	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
-func (m VertexCompatModel) GetName() string        { return m.Name }
-func (m VertexCompatModel) GetAlias() string       { return m.Alias }
-func (m VertexCompatModel) GetDisplayName() string { return m.DisplayName }
+func (m VertexCompatModel) GetName() string                        { return m.Name }
+func (m VertexCompatModel) GetAlias() string                       { return m.Alias }
+func (m VertexCompatModel) GetDisplayName() string                 { return m.DisplayName }
+func (m VertexCompatModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
 
 // SanitizeVertexCompatKeys deduplicates and normalizes Vertex-compatible API key credentials.
 func (cfg *Config) SanitizeVertexCompatKeys() {

@@ -7,24 +7,44 @@
   "scope_policy": {
     "strategy": "targeted-parity",
     "include": [
-      "quota-double-count-fix",
-      "claude-2.1.280-betas",
-      "model-catalog-sync",
-      "codex-client-catalog-compact",
-      "priority-patch-endpoints",
-      "per-credential-cloaking-disable",
-      "trusted-proxies",
-      "video-input-responses",
-      "string-input-responses-claude",
-      "gemini-uppercase-array-fix",
-      "octal-nul-pattern-strip"
+      "gemini-antigravity-translator-fidelity",
+      "claude-responses-adjacent-text-merge",
+      "claude-tool-name-sanitize",
+      "codex-routing-hint",
+      "codex-service-tier",
+      "codex-multiagent-compat-strip",
+      "claude-2-1-280-thinking-display",
+      "xai-reasoning-effort-cleanup",
+      "credential-quota-isolation",
+      "invalid-grant-backoff",
+      "immediate-server-stop",
+      "request-id-collision",
+      "session-extract-perf",
+      "lifecycle-clone-avoidance",
+      "devin-catalog-sync",
+      "meta-subs-metadata-client-id",
+      "usage-trace-ids",
+      "file-priority-watcher-retry",
+      "configuration-update-support",
+      "gemini-unsigned-signature-guard",
+      "tui-remote-mgmt"
     ],
     "exclude": [
-      "request-proxy-overrides",
-      "perf-batch",
-      "upstream-docs-gofmt"
+      "plugin-host-surface",
+      "session-id-replay-header",
+      "direct-messages-passthrough-bypass"
     ],
-    "defer": [],
+    "defer": [
+      {
+        "range": "v7.3.20..v8.0.3",
+        "reason": "p19 stop condition: upstream released 4 new versions (>3) mid-cycle; scope stays pinned at v7.3.20 per plan",
+        "artifacts": [
+          "docs/upstream/cliproxyapi-gap-v7.3.20..v8.0.3.json",
+          "docs/upstream/cliproxyapi-ledger-v7.3.20..v8.0.3.md"
+        ],
+        "follow_up": "next-cycle upstream triage initiative for v8.0.3 (14 non-merge commits, 938 changed paths, 490 semantic-review)"
+      }
+    ],
     "defer_resolved": {
       "claude-allowed-warning": "closed: helps/claude_ratelimit.go ported in v7.3.9 cycle already contains isClaudeWindowAllowed with allowed_warning",
       "home-port-normalize": "closed: not applicable \u2014 llmhub has no Home-provided server listen port (Postgres config + LLMHUB_PORT override); internal/home client already guards Port <= 0",
@@ -35,16 +55,16 @@
     }
   },
   "checkpoint": {
-    "tag": "v7.3.15",
-    "commit": "673131f57484517c3a1eae7e36c4cfa7b9bb4efc",
-    "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.15",
-    "published_at": "2026-09-23T00:55:44Z",
-    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.15",
+    "tag": "v8.0.3",
+    "commit": "acdace936fa7df2905500c7f5e0a97d683138dea",
+    "ref": "refs/upstream-checkpoints/cliproxyapi/v8.0.3",
+    "published_at": "2026-09-28T00:19:58Z",
+    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.3",
     "target_commitish": "main",
-    "checked_at": "2026-09-23T03:22:43Z"
+    "checked_at": "2026-09-28T10:51:51Z"
   },
   "local_baseline": {
-    "commit": "1e16cf32d9f281ff9da96cb5ab6bf8fb0c9dcbc7",
+    "commit": "f19668f8a00c0acbd4f082b7cf94ff5133073c74",
     "branch": "master"
   },
   "prior_checkpoints": [
@@ -137,37 +157,49 @@
       "commit": "ffe6ad3c5fcf0a5eedd2198cd2e04b0249dc5063",
       "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.11",
       "role": "prior-checkpoint"
-    }
-  ],
-  "source_range": {
-    "from_exclusive": "v7.3.11",
-    "to_inclusive": "v7.3.15"
-  },
-  "releases": [
-    {
-      "tag": "v7.3.12",
-      "commit": "2eb8dd11d2480c5fd8bc8f2796cec6af534bc3b6",
-      "published_at": "2026-09-22T02:25:45Z",
-      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.12"
-    },
-    {
-      "tag": "v7.3.13",
-      "commit": "2430354330af80b645f9ffb1a51e1e7c72c4cc8e",
-      "published_at": "2026-09-22T18:43:11Z",
-      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.13"
-    },
-    {
-      "tag": "v7.3.14",
-      "commit": "937ebb8f11f798e241565ed78f26884b80698e8e",
-      "published_at": "2026-09-22T20:39:13Z",
-      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.14"
     },
     {
       "tag": "v7.3.15",
       "commit": "673131f57484517c3a1eae7e36c4cfa7b9bb4efc",
-      "published_at": "2026-09-23T00:55:44Z",
-      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.15"
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.15",
+      "role": "prior-checkpoint"
+    },
+    {
+      "tag": "v7.3.20",
+      "commit": "ef9e71201e0ca72b03a540d9b6e0862f8c053347",
+      "ref": "refs/upstream-checkpoints/cliproxyapi/v7.3.20",
+      "role": "prior-checkpoint"
     }
   ],
-  "generated_at": "2026-09-23T06:17:41Z"
+  "source_range": {
+    "from_exclusive": "v7.3.20",
+    "to_inclusive": "v8.0.3"
+  },
+  "releases": [
+    {
+      "tag": "v8.0.0",
+      "commit": "31f4cfab3fc17f0ebc57b491508f451b190b020f",
+      "published_at": "2026-09-27T10:22:32Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.0"
+    },
+    {
+      "tag": "v8.0.1",
+      "commit": "6c385e6069575f36fd34ba5ffd7420b8dcc784eb",
+      "published_at": "2026-09-27T11:58:20Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.1"
+    },
+    {
+      "tag": "v8.0.2",
+      "commit": "4a2c81864f31f39308e946c4c65e72147855da6e",
+      "published_at": "2026-09-27T12:17:49Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.2"
+    },
+    {
+      "tag": "v8.0.3",
+      "commit": "acdace936fa7df2905500c7f5e0a97d683138dea",
+      "published_at": "2026-09-28T00:19:58Z",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.3"
+    }
+  ],
+  "generated_at": "2026-09-28T10:51:54Z"
 }

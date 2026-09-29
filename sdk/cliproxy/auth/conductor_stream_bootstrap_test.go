@@ -26,7 +26,7 @@ func TestStreamBootstrapErrorOnlyBeforeFirstChunk(t *testing.T) {
 
 	ctx := context.Background()
 	req := cliproxyexecutor.Request{Model: "m1"}
-	result, err := manager.executeStreamWithModelPool(ctx, exec, auth, "pool", req, cliproxyexecutor.Options{}, "m1", []string{"m1"}, false)
+	result, err := manager.executeStreamWithModelPool(ctx, exec, auth, "pool", req, cliproxyexecutor.Options{}, "m1", "", []string{"m1"}, false)
 
 	var bootstrapErr *streamBootstrapError
 	if !errors.As(err, &bootstrapErr) {
@@ -55,7 +55,7 @@ func TestStreamBootstrapMidStreamFailureNotBootstrapped(t *testing.T) {
 
 	ctx := context.Background()
 	req := cliproxyexecutor.Request{Model: "m1"}
-	result, err := manager.executeStreamWithModelPool(ctx, exec, auth, "pool", req, cliproxyexecutor.Options{}, "m1", []string{"m1"}, false)
+	result, err := manager.executeStreamWithModelPool(ctx, exec, auth, "pool", req, cliproxyexecutor.Options{}, "m1", "", []string{"m1"}, false)
 
 	if err != nil {
 		t.Fatalf("mid-stream failure must not be returned as an error, got %T: %v", err, err)

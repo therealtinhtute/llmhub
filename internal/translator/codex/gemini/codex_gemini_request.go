@@ -70,6 +70,9 @@ func ConvertGeminiRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 
 	// Model
 	out, _ = sjson.SetBytes(out, "model", modelName)
+	if serviceTier := normalizeGeminiCodexServiceTier(root.Get("service_tier")); serviceTier != "" {
+		out, _ = sjson.SetBytes(out, "service_tier", serviceTier)
+	}
 
 	// System instruction -> as a user message with input_text parts
 	sysParts := root.Get("system_instruction.parts")
@@ -354,4 +357,15 @@ func buildShortNameMap(names []string) map[string]string {
 		m[n] = uniq
 	}
 	return m
+}
+
+func normalizeGeminiCodexServiceTier(serviceTier gjson.Result) string {
+	if !serviceTier.Exists() || serviceTier.Type != gjson.String {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(serviceTier.String())) {
+	case "priority", "fast":
+		return "priority"
+	}
+	return ""
 }

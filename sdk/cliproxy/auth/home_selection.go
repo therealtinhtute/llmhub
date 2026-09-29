@@ -147,7 +147,8 @@ type HomeDispatchSelection struct {
 	// modelInfo carries the authoritative capability metadata Home resolved for
 	// the dispatched model (upstream 6ff680e90ab5); it is bound to executor
 	// requests via attachResolvedHomeModelInfo.
-	modelInfo *registry.ModelInfo
+	modelInfo                  *registry.ModelInfo
+	configurationUpdateSupport *bool
 
 	scope            *executionregistry.Scope
 	accountedModel   string

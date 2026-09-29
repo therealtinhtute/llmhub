@@ -288,15 +288,28 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 				tcs := m.Get("tool_calls")
 				if tcs.IsArray() {
 					type assistantToolCall struct {
-						id   string
-						name string
+						rawID string
+						id    string
+						name  string
 					}
 					toolCalls := make([]assistantToolCall, 0)
+					usedToolCallIDs := make(map[string]struct{})
 					for _, tc := range tcs.Array() {
 						if tc.Get("type").String() != "function" {
 							continue
 						}
-						fid := tc.Get("id").String()
+						rawID := tc.Get("id").String()
+						baseID := util.SanitizeClaudeToolID(rawID)
+						fid := baseID
+						suffix := 1
+						for {
+							if _, exists := usedToolCallIDs[fid]; !exists {
+								usedToolCallIDs[fid] = struct{}{}
+								break
+							}
+							fid = fmt.Sprintf("%s_%d", baseID, suffix)
+							suffix++
+						}
 						fname := util.SanitizeFunctionName(tc.Get("function.name").String())
 						if fname == "" {
 							continue
@@ -311,7 +324,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						}
 						node, _ = sjson.SetBytes(node, "parts."+itoa(p)+".thoughtSignature", geminiCLIFunctionThoughtSignature)
 						p++
-						toolCalls = append(toolCalls, assistantToolCall{id: fid, name: fname})
+						toolCalls = append(toolCalls, assistantToolCall{rawID: rawID, id: fid, name: fname})
 					}
 					out, _ = sjson.SetRawBytes(out, "request.contents.-1", node)
 
@@ -336,7 +349,7 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 					for _, call := range toolCalls {
 						toolNode, _ = sjson.SetBytes(toolNode, "parts."+itoa(pp)+".functionResponse.id", call.id)
 						toolNode, _ = sjson.SetBytes(toolNode, "parts."+itoa(pp)+".functionResponse.name", call.name)
-						resp := turnToolResponses[call.id]
+						resp := turnToolResponses[call.rawID]
 						if resp == "" {
 							resp = "{}"
 						}

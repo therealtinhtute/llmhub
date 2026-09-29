@@ -547,3 +547,51 @@ func TestUsageQueuePluginPayloadContextFallbackAndMismatch(t *testing.T) {
 		}
 	})
 }
+
+func TestUsageQueuePlugin_ExecutionIDAndTraceID(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "000000ab")
+		execUUID := "12345678-1234-4234-8234-123456789abc"
+
+		plugin := &usageQueuePlugin{}
+		plugin.HandleUsage(ctx, coreusage.Record{
+			RequestID: execUUID,
+			TraceID:   "000000ab",
+			Provider:  "openai",
+			Model:     "gpt-5.4",
+			Detail: coreusage.Detail{
+				InputTokens:  10,
+				OutputTokens: 5,
+				TotalTokens:  15,
+			},
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "request_id", "000000ab")
+		requireStringField(t, payload, "execution_id", execUUID)
+		requireStringField(t, payload, "trace_id", "000000ab")
+	})
+}
+
+func TestUsageQueuePlugin_StrictLegacyRequestIDPreservation(t *testing.T) {
+	withEnabledQueue(t, func() {
+		ctx := internallogging.WithRequestID(context.Background(), "legacy-log-id")
+		execUUID := "12345678-1234-4234-8234-123456789abc"
+
+		plugin := &usageQueuePlugin{}
+		plugin.HandleUsage(ctx, coreusage.Record{
+			RequestID: execUUID,
+			TraceID:   "custom-trace-id",
+			Provider:  "openai",
+			Model:     "gpt-5.4",
+			Detail: coreusage.Detail{
+				InputTokens: 5,
+			},
+		})
+
+		payload := popSinglePayload(t)
+		requireStringField(t, payload, "request_id", "legacy-log-id")
+		requireStringField(t, payload, "execution_id", execUUID)
+		requireStringField(t, payload, "trace_id", "custom-trace-id")
+	})
+}

@@ -135,6 +135,7 @@ func normalizeAntigravityCapabilityModelID(modelID string) string {
 // dynamic devin_models.json catalog nor models.json's devin section is
 // available. IDs carry the devin/ namespace prefix.
 var staticDevinModels = []*ModelInfo{
+	devinBuiltinSWE16SlowModelInfo(),
 	{
 		ID:                  "devin/swe-2",
 		Type:                "devin",

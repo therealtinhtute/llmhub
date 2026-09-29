@@ -73,6 +73,9 @@ type ModelInfo struct {
 	// SupportedOutputModalities lists supported output modalities (e.g., TEXT, IMAGE)
 	SupportedOutputModalities []string `json:"supportedOutputModalities,omitempty"`
 
+	// SupportConfigurationUpdate reports internal support for configuration_update.
+	SupportConfigurationUpdate bool `json:"-"`
+
 	// NativeCapabilities contains internal, static per-model capability metadata.
 	// It is intentionally separate from Antigravity's dynamically probed capability.
 	NativeCapabilities *NativeCapabilities `json:"-"`
@@ -93,18 +96,20 @@ type ModelInfo struct {
 	IsCompat bool `json:"-"`
 }
 
-// UnmarshalJSON loads internal native capability metadata without exposing it
+// UnmarshalJSON loads internal capability metadata without exposing it
 // through ModelInfo's normal JSON serialization.
 func (m *ModelInfo) UnmarshalJSON(data []byte) error {
 	type modelInfoAlias ModelInfo
 	aux := struct {
 		*modelInfoAlias
-		NativeCapabilities *NativeCapabilities `json:"native_capabilities"`
+		NativeCapabilities         *NativeCapabilities `json:"native_capabilities"`
+		SupportConfigurationUpdate bool                `json:"support_configuration_update"`
 	}{modelInfoAlias: (*modelInfoAlias)(m)}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 	m.NativeCapabilities = aux.NativeCapabilities
+	m.SupportConfigurationUpdate = aux.SupportConfigurationUpdate
 	return nil
 }
 

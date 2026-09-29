@@ -14,7 +14,7 @@ func TestQuotaStateObserveResponseHeadersKeepsProviderScopedSignals(t *testing.T
 	var quota QuotaState
 	if !quota.ObserveResponseHeadersForProvider("codex", http.Header{
 		"X-Codex-Primary-Used-Percent": []string{"2"},
-		"X-Codex-Plan-Type": []string{"pro"},
+		"X-Codex-Plan-Type":            []string{"pro"},
 	}, observedAt) {
 		t.Fatal("expected observation to be recorded")
 	}
@@ -43,7 +43,7 @@ func TestProviderSupportsQuotaObservation(t *testing.T) {
 func TestQuotaStateCloneCopiesSignals(t *testing.T) {
 	orig := QuotaState{
 		ObservedAt: time.Unix(10, 0),
-		Signals: map[string]string{"X-Codex-Primary-Used-Percent": "51"},
+		Signals:    map[string]string{"X-Codex-Primary-Used-Percent": "51"},
 	}
 	clone := orig.Clone()
 	if clone.Signals["X-Codex-Primary-Used-Percent"] != "51" {
@@ -58,8 +58,8 @@ func TestQuotaStateCloneCopiesSignals(t *testing.T) {
 func TestApplyCooldownFieldsPreservesObservation(t *testing.T) {
 	orig := QuotaState{
 		ObservedAt: time.Unix(10, 0),
-		Signals: map[string]string{"X-Codex-Primary-Used-Percent": "51"},
-		Exceeded: false,
+		Signals:    map[string]string{"X-Codex-Primary-Used-Percent": "51"},
+		Exceeded:   false,
 	}
 	cooldown := QuotaState{Exceeded: true, Reason: "quota", NextRecoverAt: time.Unix(20, 0), BackoffLevel: 2}
 	applyCooldownFields(&orig, cooldown)

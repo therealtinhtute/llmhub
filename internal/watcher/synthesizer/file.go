@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -140,17 +139,7 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 		UpdatedAt: now,
 	}
 	// Read priority from auth file.
-	if rawPriority, ok := metadata["priority"]; ok {
-		switch v := rawPriority.(type) {
-		case float64:
-			a.Attributes["priority"] = strconv.Itoa(int(v))
-		case string:
-			priority := strings.TrimSpace(v)
-			if _, errAtoi := strconv.Atoi(priority); errAtoi == nil {
-				a.Attributes["priority"] = priority
-			}
-		}
-	}
+	coreauth.ApplyAuthPriorityMetadata(a, metadata)
 	// Read note from auth file.
 	if rawNote, ok := metadata["note"]; ok {
 		if note, isStr := rawNote.(string); isStr {

@@ -331,6 +331,11 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 			changes = append(changes, "remote-management.secret-key: updated")
 		}
 	}
+	oldBaseURL := strings.TrimSpace(oldCfg.RemoteManagement.BaseURL)
+	newBaseURL := strings.TrimSpace(newCfg.RemoteManagement.BaseURL)
+	if oldBaseURL != newBaseURL {
+		changes = append(changes, fmt.Sprintf("remote-management.base-url: %s -> %s", formatProxyURL(oldBaseURL), formatProxyURL(newBaseURL)))
+	}
 
 	// OpenAI compatibility providers (summarized)
 	if compat := DiffOpenAICompatibility(oldCfg.OpenAICompatibility, newCfg.OpenAICompatibility); len(compat) > 0 {

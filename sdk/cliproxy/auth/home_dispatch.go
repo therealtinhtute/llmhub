@@ -17,11 +17,12 @@ import (
 )
 
 func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, countTokens bool) (cliproxyexecutor.Response, error) {
+	routeModel := authSelectionModelFromOptions(opts, req.Model)
+	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
+	opts = ensureRequestedModelMetadata(opts, routeModel)
 	if unlockSession := m.lockHomeWebsocketSession(ctx, opts); unlockSession != nil {
 		defer unlockSession()
 	}
-	routeModel := req.Model
-	opts = ensureRequestedModelMetadata(opts, routeModel)
 	tried := make(map[string]struct{})
 	var lastErr error
 	for count := 1; ; count++ {
@@ -91,9 +92,16 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 		resultModel := m.stateModelForExecution(preparedAuth, routeModel, upstreamModel, pooled)
 		execReq := req
 		execReq.Model = upstreamModel
-		// Attach Home's authoritative model capabilities so thinking handling
-		// uses the dispatched definition (upstream 6ff680e90ab5).
-		execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo)
+		execReq = m.attachResolvedAPIKeyModelInfo(execReq, auth, routeModel, upstreamModel)
+		if restoreExecutionModel {
+			execReq.Model = executionModel
+		} else {
+			// Attach Home's authoritative model capabilities so thinking handling
+			// uses the dispatched definition (upstream 6ff680e90ab5). The bound
+			// API-key/OAuth info above lets a legacy dispatch inherit the local
+			// capability flag for the same model.
+			execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo, selection.configurationUpdateSupport)
+		}
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
 		if selection.CanonicalSessionID != "" {
@@ -171,7 +179,8 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 	if unlockSession := m.lockHomeWebsocketSession(ctx, opts); unlockSession != nil {
 		defer unlockSession()
 	}
-	routeModel := req.Model
+	routeModel := authSelectionModelFromOptions(opts, req.Model)
+	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	tried := make(map[string]struct{})
 	var lastErr error
@@ -232,9 +241,16 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 		}
 		execReq := req
 		execReq.Model = models[0]
-		// Attach Home's authoritative model capabilities so thinking handling
-		// uses the dispatched definition (upstream 6ff680e90ab5).
-		execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo)
+		execReq = m.attachResolvedAPIKeyModelInfo(execReq, auth, routeModel, models[0])
+		if restoreExecutionModel {
+			execReq.Model = executionModel
+		} else {
+			// Attach Home's authoritative model capabilities so thinking handling
+			// uses the dispatched definition (upstream 6ff680e90ab5). The bound
+			// API-key/OAuth info above lets a legacy dispatch inherit the local
+			// capability flag for the same model.
+			execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo, selection.configurationUpdateSupport)
+		}
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
 		if selection.CanonicalSessionID != "" {
@@ -627,6 +643,9 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 	// Bind the authoritative capability metadata Home resolved for the dispatched
 	// model (upstream 6ff680e90ab5); executors consume it via ResolvedModelInfo.
 	selection.modelInfo = dispatch.ModelInfo.registryModelInfo()
+	if dispatch.ModelInfo != nil {
+		selection.configurationUpdateSupport = dispatch.ModelInfo.SupportConfigurationUpdate
+	}
 	if envelope.Present {
 		selection.accountedModel = envelope.Tuple.Model
 	}

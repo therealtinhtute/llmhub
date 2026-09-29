@@ -341,6 +341,8 @@ type RemoteManagement struct {
 	// DisableAutoUpdatePanel disables automatic periodic background updates of the management panel asset from GitHub.
 	// When false (the default), the background updater remains enabled; when true, the panel is only downloaded on first access if missing.
 	DisableAutoUpdatePanel bool `yaml:"disable-auto-update-panel"`
+	// BaseURL specifies the base URL of the remote management API for TUI client mode (e.g. "https://proxy.example.com").
+	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
 }
 
 // AntigravityConnectionPoolConfig controls upstream HTTP/1.1 connection pooling
@@ -549,12 +551,16 @@ type ClaudeModel struct {
 
 	// MaxContextLength overrides the context window advertised to Codex clients.
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
+
+	// Thinking configures the thinking/reasoning capability for this model.
+	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
-func (m ClaudeModel) GetName() string          { return m.Name }
-func (m ClaudeModel) GetAlias() string         { return m.Alias }
-func (m ClaudeModel) GetDisplayName() string   { return m.DisplayName }
-func (m ClaudeModel) GetMaxContextLength() int { return m.MaxContextLength }
+func (m ClaudeModel) GetName() string                        { return m.Name }
+func (m ClaudeModel) GetAlias() string                       { return m.Alias }
+func (m ClaudeModel) GetDisplayName() string                 { return m.DisplayName }
+func (m ClaudeModel) GetMaxContextLength() int               { return m.MaxContextLength }
+func (m ClaudeModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
 
 // CodexKey represents the configuration for a Codex API key,
 // including the API key itself and an optional base URL for the API endpoint.
@@ -631,6 +637,13 @@ type CodexModel struct {
 	// native agent_message items. Default false keeps agent_message unchanged.
 	IsCompat bool `yaml:"is-compat,omitempty" json:"is-compat,omitempty"`
 
+	// SupportConfigurationUpdate enables configuration_update for this API-key model.
+	// It defaults to false, independently of the built-in OAuth model catalog.
+	SupportConfigurationUpdate bool `yaml:"support-configuration-update,omitempty" json:"support-configuration-update,omitempty"`
+
+	// Thinking configures the thinking/reasoning capability for this model.
+	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+
 	// MaxContextLength overrides the context window advertised to Codex clients.
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
 }
@@ -642,11 +655,12 @@ type MetaKey = CodexKey
 // MetaModel uses the Codex model mapping structure for Meta Muse models.
 type MetaModel = CodexModel
 
-func (m CodexModel) GetName() string          { return m.Name }
-func (m CodexModel) GetAlias() string         { return m.Alias }
-func (m CodexModel) GetDisplayName() string   { return m.DisplayName }
-func (m CodexModel) GetIsCompat() bool        { return m.IsCompat }
-func (m CodexModel) GetMaxContextLength() int { return m.MaxContextLength }
+func (m CodexModel) GetName() string                        { return m.Name }
+func (m CodexModel) GetAlias() string                       { return m.Alias }
+func (m CodexModel) GetDisplayName() string                 { return m.DisplayName }
+func (m CodexModel) GetIsCompat() bool                      { return m.IsCompat }
+func (m CodexModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
+func (m CodexModel) GetMaxContextLength() int               { return m.MaxContextLength }
 
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
@@ -707,12 +721,16 @@ type GeminiModel struct {
 
 	// MaxContextLength overrides the context window advertised to Codex clients.
 	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
+
+	// Thinking configures the thinking/reasoning capability for this model.
+	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
-func (m GeminiModel) GetName() string          { return m.Name }
-func (m GeminiModel) GetAlias() string         { return m.Alias }
-func (m GeminiModel) GetDisplayName() string   { return m.DisplayName }
-func (m GeminiModel) GetMaxContextLength() int { return m.MaxContextLength }
+func (m GeminiModel) GetName() string                        { return m.Name }
+func (m GeminiModel) GetAlias() string                       { return m.Alias }
+func (m GeminiModel) GetDisplayName() string                 { return m.DisplayName }
+func (m GeminiModel) GetMaxContextLength() int               { return m.MaxContextLength }
+func (m GeminiModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
 
 // OpenAICompatibility represents the configuration for OpenAI API compatibility
 // with external providers, allowing model aliases to be routed through OpenAI API format.
@@ -821,10 +839,15 @@ type OpenAICompatibilityModel struct {
 	// Thinking configures the thinking/reasoning capability for this model.
 	// If nil, the model defaults to level-based reasoning with levels ["low", "medium", "high"].
 	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+
+	// IsCompat marks the model as using a compatible upstream that benefits from
+	// capability flags resolved for API-key models (upstream parity).
+	IsCompat bool `yaml:"is-compat,omitempty" json:"is-compat,omitempty"`
 }
 
 func (m OpenAICompatibilityModel) GetName() string          { return m.Name }
 func (m OpenAICompatibilityModel) GetAlias() string         { return m.Alias }
+func (m OpenAICompatibilityModel) GetIsCompat() bool        { return m.IsCompat }
 func (m OpenAICompatibilityModel) GetDisplayName() string   { return m.DisplayName }
 func (m OpenAICompatibilityModel) GetMaxContextLength() int { return m.MaxContextLength }
 

@@ -579,3 +579,18 @@ func TestBuildConfigChangeDetails_Meta(t *testing.T) {
 		t.Errorf("expected meta-api-key count change, got %v", countChanges)
 	}
 }
+func TestBuildConfigChangeDetails_RemoteManagementBaseURL(t *testing.T) {
+	oldCfg := &config.Config{
+		RemoteManagement: config.RemoteManagement{
+			BaseURL: "https://old.example.com",
+		},
+	}
+	newCfg := &config.Config{
+		RemoteManagement: config.RemoteManagement{
+			BaseURL: "https://new.example.com",
+		},
+	}
+
+	changes := BuildConfigChangeDetails(oldCfg, newCfg)
+	expectContains(t, changes, "remote-management.base-url: https://old.example.com -> https://new.example.com")
+}

@@ -78,10 +78,12 @@ type RefreshEvaluator interface {
 }
 
 const (
-	refreshCheckInterval  = 5 * time.Second
-	refreshMaxConcurrency = 16
-	refreshPendingBackoff = time.Minute
-	refreshFailureBackoff = 5 * time.Minute
+	refreshCheckInterval    = 5 * time.Second
+	refreshMaxConcurrency   = 16
+	refreshPendingBackoff   = time.Minute
+	refreshFailureBackoff   = 5 * time.Minute
+	invalidGrantBackoffBase = time.Minute
+	invalidGrantBackoffMax  = 30 * time.Minute
 	// refreshIneffectiveBackoff throttles refresh attempts when an executor returns
 	// success but the auth still evaluates as needing refresh (e.g. token expiry
 	// wasn't updated). Without this guard, the auto-refresh loop can tight-loop and
@@ -336,6 +338,10 @@ type Manager struct {
 	// Keyed by auth.ID, value is alias(lower) -> upstream model (including suffix).
 	apiKeyModelAlias atomic.Value
 
+	// apiKeyModelCapabilities caches resolved model capability snapshots for
+	// configured-model auths (upstream apiKeyModelRoutingSnapshot.capabilities).
+	apiKeyModelCapabilities atomic.Value
+
 	// modelPoolOffsets tracks per-auth alias pool rotation state.
 	modelPoolOffsets map[string]int
 
@@ -394,6 +400,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 	// atomic.Value requires non-nil initial value.
 	manager.runtimeConfig.Store(&internalconfig.Config{})
 	manager.apiKeyModelAlias.Store(apiKeyModelAliasTable(nil))
+	manager.apiKeyModelCapabilities.Store(&apiKeyModelCapabilitySnapshot{config: &internalconfig.Config{}})
 	defaultInFlightConfig, errInFlightConfig := HomeInFlightPublisherConfigFromConfig(internalconfig.DefaultCredentialInFlightConfig())
 	if errInFlightConfig == nil {
 		manager.ApplyHomeInFlightPublisherConfig(defaultInFlightConfig)
@@ -1622,7 +1629,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 	return &cliproxyexecutor.StreamResult{Headers: headers, Chunks: out}
 }
 
-func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor ProviderExecutor, auth *Auth, provider string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, routeModel string, execModels []string, pooled bool) (*cliproxyexecutor.StreamResult, error) {
+func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor ProviderExecutor, auth *Auth, provider string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, routeModel, executionModel string, execModels []string, pooled bool) (*cliproxyexecutor.StreamResult, error) {
 	if executor == nil {
 		return nil, &Error{Code: "executor_not_found", Message: "executor not registered"}
 	}
@@ -1634,6 +1641,10 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		resultModel := m.stateModelForExecution(auth, routeModel, execModel, pooled)
 		execReq := req
 		execReq.Model = execModel
+		if executionModel != "" {
+			execReq.Model = executionModel
+		}
+		execReq = m.attachResolvedExecutionModelInfo(execReq, auth, routeModel, execModel, executionModel != "")
 		streamResult, errStream := executor.ExecuteStream(ctx, auth, execReq, opts)
 		if errStream != nil {
 			if errCtx := ctx.Err(); errCtx != nil {
@@ -1875,7 +1886,18 @@ func (m *Manager) rebuildAPIKeyModelAliasLocked(cfg *internalconfig.Config) {
 		}
 	}
 
+	capabilities := make(apiKeyModelCapabilityTable)
+	for _, auth := range m.auths {
+		if auth == nil || strings.TrimSpace(auth.ID) == "" {
+			continue
+		}
+		if byRoute := compileAPIKeyModelCapabilitiesForAuth(cfg, auth); len(byRoute) > 0 {
+			capabilities[auth.ID] = byRoute
+		}
+	}
+
 	m.apiKeyModelAlias.Store(out)
+	m.apiKeyModelCapabilities.Store(&apiKeyModelCapabilitySnapshot{config: cfg, capabilities: capabilities})
 }
 
 func compileAPIKeyModelAliasForModels[T interface {
@@ -2384,7 +2406,8 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 	if len(providers) == 0 {
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}, false
 	}
-	routeModel := req.Model
+	routeModel := authSelectionModelFromOptions(opts, req.Model)
+	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
 	homeAuthCount := 1
@@ -2480,6 +2503,10 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
 			execReq := req
 			execReq.Model = upstreamModel
+			if restoreExecutionModel {
+				execReq.Model = executionModel
+			}
+			execReq = m.attachResolvedExecutionModelInfo(execReq, auth, routeModel, upstreamModel, restoreExecutionModel)
 			resp, errExec := executor.Execute(execCtx, auth, execReq, execOpts)
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
@@ -2566,7 +2593,8 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 	if len(providers) == 0 {
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}, false
 	}
-	routeModel := req.Model
+	routeModel := authSelectionModelFromOptions(opts, req.Model)
+	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
 	homeAuthCount := 1
@@ -2662,6 +2690,10 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
 			execReq := req
 			execReq.Model = upstreamModel
+			if restoreExecutionModel {
+				execReq.Model = executionModel
+			}
+			execReq = m.attachResolvedExecutionModelInfo(execReq, auth, routeModel, upstreamModel, restoreExecutionModel)
 			resp, errExec := executor.CountTokens(execCtx, auth, execReq, execOpts)
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
@@ -2742,7 +2774,8 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 	if len(providers) == 0 {
 		return nil, nil, false
 	}
-	routeModel := req.Model
+	routeModel := authSelectionModelFromOptions(opts, req.Model)
+	executionModel, _ := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
 	homeAuthCount := 1
@@ -2830,7 +2863,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 		}
 		execCtx = syncMetadataSessionToContext(execCtx, execOpts.Metadata)
-		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, req, execOpts, routeModel, models, pooled)
+		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, req, execOpts, routeModel, executionModel, models, pooled)
 		if errStream != nil {
 			if errCtx := execCtx.Err(); errCtx != nil {
 				return nil, errCtx, progressed
@@ -3796,10 +3829,16 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 
 					statusCode := statusCodeFromResult(result.Error)
 					if isModelSupportResultError(result.Error) {
-						next := now.Add(12 * time.Hour)
-						state.NextRetryAfter = next
-						suspendReason = "model_not_supported"
-						shouldSuspendModel = true
+						if disableCooling {
+							state.NextRetryAfter = time.Time{}
+						} else if result.RetryAfter != nil && *result.RetryAfter > 0 {
+							state.NextRetryAfter = now.Add(*result.RetryAfter)
+						} else {
+							next := now.Add(12 * time.Hour)
+							state.NextRetryAfter = next
+							suspendReason = "model_not_supported"
+							shouldSuspendModel = true
+						}
 					} else if isInvalidGrantResultError(result.Error) {
 						if disableCooling {
 							state.NextRetryAfter = time.Time{}
@@ -3831,6 +3870,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 						case 404:
 							if disableCooling {
 								state.NextRetryAfter = time.Time{}
+							} else if result.RetryAfter != nil && *result.RetryAfter > 0 {
+								state.NextRetryAfter = now.Add(*result.RetryAfter)
 							} else {
 								next := now.Add(12 * time.Hour)
 								state.NextRetryAfter = next
@@ -3839,17 +3880,34 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 							}
 						case 429:
 							var next time.Time
+							var credentialNext time.Time
 							backoffLevel := state.Quota.BackoffLevel
+							if result.CredentialScope {
+								backoffLevel = 0
+								if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" {
+									backoffLevel = auth.Quota.BackoffLevel
+								}
+							}
 							if !disableCooling {
 								if result.RetryAfter != nil {
 									cooldown := *result.RetryAfter
 									if cooldown < minQuotaCooldownFloor {
 										cooldown = minQuotaCooldownFloor
 									}
-									next = now.Add(cooldown)
+									next = now.Add(cooldown).Round(0)
 								} else {
-									next, backoffLevel = quotaCooldownAfterFailure(state.Quota, disableCooling, now)
+									quotaForFailure := state.Quota
+									if result.CredentialScope {
+										if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" {
+											quotaForFailure = auth.Quota
+										} else {
+											quotaForFailure.NextRecoverAt = time.Time{}
+											quotaForFailure.BackoffLevel = 0
+										}
+									}
+									next, backoffLevel = quotaCooldownAfterFailure(quotaForFailure, disableCooling, now)
 								}
+								credentialNext = next
 								if state.Quota.Exceeded && state.Quota.NextRecoverAt.After(next) {
 									next = state.Quota.NextRecoverAt
 								}
@@ -3871,7 +3929,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 									if otherState != nil && otherState != state {
 										otherState.Unavailable = true
 										otherState.Status = StatusError
-										otherQuotaNext := next
+										otherQuotaNext := credentialNext
 										if otherState.Quota.Exceeded && otherState.Quota.NextRecoverAt.After(otherQuotaNext) {
 											otherQuotaNext = otherState.Quota.NextRecoverAt
 										}
@@ -3893,13 +3951,15 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 									}
 								}
 								auth.Unavailable = true
-								auth.Quota.Exceeded = true
-								auth.Quota.Reason = "credential_quota"
-								authNext := next
-								if auth.Quota.NextRecoverAt.After(authNext) {
+								authNext := credentialNext
+								if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" &&
+									auth.Quota.NextRecoverAt.After(authNext) {
 									authNext = auth.Quota.NextRecoverAt
 								}
+								auth.Quota.Exceeded = true
+								auth.Quota.Reason = "credential_quota"
 								auth.Quota.NextRecoverAt = authNext
+								auth.Quota.BackoffLevel = backoffLevel
 								auth.NextRetryAfter = authNext
 							}
 							if !disableCooling {
@@ -4610,6 +4670,25 @@ func HasUnauthorizedAuthFailure(auth *Auth) bool {
 	return hasUnauthorizedAuthFailure(auth)
 }
 
+func hasDisabledInvalidGrantFailure(auth *Auth) bool {
+	if auth == nil {
+		return false
+	}
+	isDisabled := auth.Disabled || auth.Status == StatusDisabled
+	if !isDisabled {
+		return false
+	}
+	if auth.LastError != nil && (isInvalidGrantResultError(auth.LastError) || isInvalidGrantErrorMessage(auth.LastError.Message) || isInvalidGrantErrorMessage(auth.LastError.Code)) {
+		return true
+	}
+	return false
+}
+
+// HasDisabledInvalidGrantFailure reports whether the auth is disabled and has encountered an invalid_grant error.
+func HasDisabledInvalidGrantFailure(auth *Auth) bool {
+	return hasDisabledInvalidGrantFailure(auth)
+}
+
 func refreshErrorFromError(err error) *Error {
 	if err == nil {
 		return nil
@@ -4771,7 +4850,7 @@ func isInvalidGrantError(err error) bool {
 		return false
 	}
 	status := statusCodeFromError(err)
-	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized && status != 0 {
 		return false
 	}
 	var authErr *Error
@@ -4786,7 +4865,7 @@ func isInvalidGrantResultError(err *Error) bool {
 		return false
 	}
 	status := statusCodeFromResult(err)
-	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized && status != 0 {
 		return false
 	}
 	return isInvalidGrantIdentifier(err.Code) || isInvalidGrantErrorMessage(err.Message)
@@ -5144,6 +5223,8 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		auth.StatusMessage = "not_found"
 		if disableCooling {
 			auth.NextRetryAfter = time.Time{}
+		} else if retryAfter != nil && *retryAfter > 0 {
+			auth.NextRetryAfter = now.Add(*retryAfter)
 		} else {
 			auth.NextRetryAfter = now.Add(12 * time.Hour)
 		}
@@ -5987,15 +6068,16 @@ type homeAuthDispatchResponse struct {
 // Ported from upstream CLIProxyAPI commits 6ff680e90ab5 and a9e92b81453f
 // (sdk/cliproxy/auth/conductor_home.go); the latter adds NativeCapabilities.
 type homeDispatchModelInfo struct {
-	ID                  string                       `json:"id"`
-	Type                string                       `json:"type,omitempty"`
-	InputTokenLimit     int                          `json:"inputTokenLimit,omitempty"`
-	OutputTokenLimit    int                          `json:"outputTokenLimit,omitempty"`
-	ContextLength       int                          `json:"context_length,omitempty"`
-	MaxCompletionTokens int                          `json:"max_completion_tokens,omitempty"`
-	Thinking            *registry.ThinkingSupport    `json:"thinking,omitempty"`
-	NativeCapabilities  *registry.NativeCapabilities `json:"native_capabilities,omitempty"`
-	UserDefined         bool                         `json:"user_defined"`
+	ID                         string                       `json:"id"`
+	Type                       string                       `json:"type,omitempty"`
+	InputTokenLimit            int                          `json:"inputTokenLimit,omitempty"`
+	OutputTokenLimit           int                          `json:"outputTokenLimit,omitempty"`
+	ContextLength              int                          `json:"context_length,omitempty"`
+	MaxCompletionTokens        int                          `json:"max_completion_tokens,omitempty"`
+	Thinking                   *registry.ThinkingSupport    `json:"thinking,omitempty"`
+	NativeCapabilities         *registry.NativeCapabilities `json:"native_capabilities,omitempty"`
+	SupportConfigurationUpdate *bool                        `json:"support_configuration_update,omitempty"`
+	UserDefined                bool                         `json:"user_defined"`
 }
 
 func (m *homeDispatchModelInfo) registryModelInfo() *registry.ModelInfo {
@@ -6003,15 +6085,16 @@ func (m *homeDispatchModelInfo) registryModelInfo() *registry.ModelInfo {
 		return nil
 	}
 	return &registry.ModelInfo{
-		ID:                  strings.TrimSpace(m.ID),
-		Type:                strings.TrimSpace(m.Type),
-		InputTokenLimit:     m.InputTokenLimit,
-		OutputTokenLimit:    m.OutputTokenLimit,
-		ContextLength:       m.ContextLength,
-		MaxCompletionTokens: m.MaxCompletionTokens,
-		Thinking:            m.Thinking,
-		NativeCapabilities:  m.NativeCapabilities,
-		UserDefined:         m.UserDefined,
+		ID:                         strings.TrimSpace(m.ID),
+		Type:                       strings.TrimSpace(m.Type),
+		InputTokenLimit:            m.InputTokenLimit,
+		OutputTokenLimit:           m.OutputTokenLimit,
+		ContextLength:              m.ContextLength,
+		MaxCompletionTokens:        m.MaxCompletionTokens,
+		Thinking:                   m.Thinking,
+		NativeCapabilities:         m.NativeCapabilities,
+		SupportConfigurationUpdate: m.SupportConfigurationUpdate != nil && *m.SupportConfigurationUpdate,
+		UserDefined:                m.UserDefined,
 	}
 }
 
@@ -6474,6 +6557,7 @@ func (m *Manager) tryAntigravityCreditsExecute(ctx context.Context, req cliproxy
 			resultModel := m.stateModelForExecution(c.auth, routeModel, upstreamModel, len(models) > 1)
 			execReq := req
 			execReq.Model = upstreamModel
+			execReq = m.attachResolvedExecutionModelInfo(execReq, c.auth, routeModel, upstreamModel, false)
 			creditsCtx = syncMetadataSessionToContext(creditsCtx, creditsOpts.Metadata)
 			resp, errExec := c.executor.Execute(creditsCtx, c.auth, execReq, creditsOpts)
 			result := Result{AuthID: c.auth.ID, Provider: c.provider, Model: resultModel, Success: errExec == nil, Options: creditsOpts}
@@ -6520,7 +6604,7 @@ func (m *Manager) tryAntigravityCreditsExecuteStream(ctx context.Context, req cl
 			continue
 		}
 		creditsCtx = syncMetadataSessionToContext(creditsCtx, creditsOpts.Metadata)
-		result, errStream := m.executeStreamWithModelPool(creditsCtx, c.executor, c.auth, c.provider, req, creditsOpts, routeModel, models, len(models) > 1)
+		result, errStream := m.executeStreamWithModelPool(creditsCtx, c.executor, c.auth, c.provider, req, creditsOpts, routeModel, "", models, len(models) > 1)
 		if errStream != nil {
 			continue
 		}
@@ -6634,11 +6718,39 @@ func (m *Manager) queueRefreshReschedule(authID string) {
 	loop.queueReschedule(authID)
 }
 
+func (m *Manager) queueRefreshUnschedule(authID string) {
+	if m == nil || authID == "" {
+		return
+	}
+	m.mu.RLock()
+	loop := m.refreshLoop
+	m.mu.RUnlock()
+	if loop == nil {
+		return
+	}
+	loop.remove(authID)
+}
+
+func invalidGrantBackoffDuration(failures int) time.Duration {
+	if failures <= 1 {
+		return invalidGrantBackoffBase
+	}
+	shift := failures - 1
+	if shift > 10 {
+		shift = 10
+	}
+	backoff := invalidGrantBackoffBase * time.Duration(1<<shift)
+	if backoff > invalidGrantBackoffMax {
+		return invalidGrantBackoffMax
+	}
+	return backoff
+}
+
 func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
 	if a == nil {
 		return false
 	}
-	if hasUnauthorizedAuthFailure(a) {
+	if hasUnauthorizedAuthFailure(a) || hasDisabledInvalidGrantFailure(a) {
 		return false
 	}
 	if !a.NextRefreshAfter.IsZero() && now.Before(a.NextRefreshAfter) {
@@ -6845,7 +6957,7 @@ func lookupMetadataTime(meta map[string]any, keys ...string) (time.Time, bool) {
 func (m *Manager) markRefreshPending(id string, now time.Time) bool {
 	m.mu.Lock()
 	auth, ok := m.auths[id]
-	if !ok || auth == nil {
+	if !ok || auth == nil || hasDisabledInvalidGrantFailure(auth) {
 		m.mu.Unlock()
 		return false
 	}
@@ -6933,6 +7045,9 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 	if auth == nil || exec == nil {
 		return nil, errors.New("auth or executor not found")
 	}
+	if hasDisabledInvalidGrantFailure(auth) {
+		return nil, errors.New("auth is disabled with invalid grant")
+	}
 
 	// Another request may already have refreshed this credential.
 	if failedAccessToken != "" {
@@ -6951,7 +7066,9 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 	now := time.Now()
 	if err != nil {
 		unauthorized := isUnauthorizedError(err)
+		invalidGrant := isInvalidGrantError(err)
 		shouldReschedule := false
+		isPermanentlyDisabled := false
 		m.mu.Lock()
 		if current := m.auths[id]; current != nil {
 			if base != nil && current.RegistrationEpoch != base.RegistrationEpoch {
@@ -6962,32 +7079,62 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 			current.UpdatedAt = now
 			current.LastError = refreshErrorFromError(err)
 
+			isDisabled := current.Disabled || current.Status == StatusDisabled
 			hasValidAccessToken := current.HasValidAccessToken(now)
-			if !hasValidAccessToken {
+			if isDisabled && invalidGrant {
+				current.Unavailable = true
+				current.Status = StatusDisabled
+				current.NextRefreshAfter = time.Time{}
+				current.RefreshFailures = 0
+				current.StatusMessage = "disabled (invalid grant)"
+				isPermanentlyDisabled = true
+			} else if isDisabled {
+				current.Unavailable = true
+				current.Status = StatusDisabled
+				current.NextRefreshAfter = now.Add(refreshFailureBackoff)
+				if current.StatusMessage == "" {
+					current.StatusMessage = "disabled"
+				}
+				shouldReschedule = true
+			} else if !hasValidAccessToken {
 				current.Unavailable = true
 				current.Status = StatusError
 				if unauthorized {
 					current.NextRefreshAfter = time.Time{}
+					current.RefreshFailures = 0
 					current.StatusMessage = "unauthorized"
+				} else if invalidGrant {
+					current.RefreshFailures++
+					current.NextRefreshAfter = now.Add(invalidGrantBackoffDuration(current.RefreshFailures))
+					current.StatusMessage = "invalid grant (retrying)"
+					shouldReschedule = true
 				} else {
+					current.RefreshFailures = 0
 					current.NextRefreshAfter = now.Add(refreshFailureBackoff)
 					current.StatusMessage = "token expired"
+					shouldReschedule = true
 				}
 			} else {
 				// Access token remains valid. Preserve current in-flight/cooldown
 				// status without overwrite (upstream 9812b1e76872).
 				nextRetry := now.Add(refreshFailureBackoff)
+				if invalidGrant {
+					current.RefreshFailures++
+					nextRetry = now.Add(invalidGrantBackoffDuration(current.RefreshFailures))
+				} else {
+					current.RefreshFailures = 0
+				}
 				if exp, ok := current.AccessTokenExpirationTime(); ok && !exp.IsZero() && nextRetry.After(exp) {
 					nextRetry = exp
 				}
 				current.NextRefreshAfter = nextRetry
+				shouldReschedule = true
 
 				if !current.Unavailable {
 					log.Warnf("credential refresh failed for %s (%s): %s; retaining active credential as access token is unexpired", current.Provider, current.ID, SanitizeUpstreamErrorSummary(err.Error()))
 				}
 			}
 			m.auths[id] = current
-			shouldReschedule = true
 			if m.scheduler != nil {
 				m.scheduler.upsertAuth(current.Clone())
 			}
@@ -6995,6 +7142,8 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		m.mu.Unlock()
 		if shouldReschedule {
 			m.queueRefreshReschedule(id)
+		} else if isPermanentlyDisabled {
+			m.queueRefreshUnschedule(id)
 		}
 		return nil, err
 	}
@@ -7011,6 +7160,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 	updated.LastError = nil
 	updated.StatusMessage = ""
 	updated.Unavailable = false
+	updated.RefreshFailures = 0
 	if updated.Status == StatusError || updated.Status == "" {
 		updated.Status = StatusActive
 	}
@@ -7443,4 +7593,43 @@ func syncMetadataSessionToContext(ctx context.Context, metadata map[string]any) 
 	}
 	ctx = logging.WithClientRequestMetadata(ctx, clientMeta)
 	return util.WithSessionID(ctx, clientMeta.SessionID)
+}
+
+// authSelectionModelFromOptions returns the model used for auth selection. A
+// restored execution request keeps its upstream model in Request.Model while
+// this key preserves the original selection model (upstream conductor_execution.go).
+func authSelectionModelFromOptions(opts cliproxyexecutor.Options, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if len(opts.Metadata) == 0 {
+		return fallback
+	}
+	raw, ok := opts.Metadata[cliproxyexecutor.AuthSelectionModelMetadataKey]
+	if !ok || raw == nil {
+		return fallback
+	}
+	switch value := raw.(type) {
+	case string:
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	case []byte:
+		if strings.TrimSpace(string(value)) != "" {
+			return strings.TrimSpace(string(value))
+		}
+	}
+	return fallback
+}
+
+// executionModelForAuthSelection reports whether Request.Model is already an
+// execution (upstream) model rather than the selection model.
+func executionModelForAuthSelection(opts cliproxyexecutor.Options, model string) (string, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "", false
+	}
+	selectionModel := authSelectionModelFromOptions(opts, model)
+	if selectionModel == model {
+		return "", false
+	}
+	return model, true
 }

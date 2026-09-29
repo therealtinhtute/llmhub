@@ -1110,3 +1110,43 @@ func TestFileSynthesizer_Synthesize_KimiDomainExplicitOverrides(t *testing.T) {
 		t.Errorf("a2 base_url = %q, want https://api.kimi.com/coding", a2.Attributes["base_url"])
 	}
 }
+
+func TestSynthesizeAuthFileAppliesSourcePriority(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		raw          string
+		want         string
+		wantMetadata any
+	}{
+		{name: "number", raw: `{"type":"claude","priority":1}`, want: "1", wantMetadata: float64(1)},
+		{name: "string", raw: `{"type":"claude","priority":" 2 "}`, want: "2", wantMetadata: " 2 "},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			fullPath := filepath.Join(tempDir, "claude-auth.json")
+			if err := os.WriteFile(fullPath, []byte(testCase.raw), 0o644); err != nil {
+				t.Fatalf("write auth file: %v", err)
+			}
+			ctx := &SynthesisContext{
+				Config:      &config.Config{},
+				AuthDir:     tempDir,
+				Now:         time.Now(),
+				IDGenerator: NewStableIDGenerator(),
+			}
+			auths := SynthesizeAuthFile(ctx, fullPath, []byte(testCase.raw))
+			if len(auths) != 1 {
+				t.Fatalf("SynthesizeAuthFile() len = %d, want 1", len(auths))
+			}
+			auth := auths[0]
+			if got := auth.Attributes["priority"]; got != testCase.want {
+				t.Errorf("priority attribute = %q, want %q", got, testCase.want)
+			}
+			if got := auth.Attributes[coreauth.AttributeFilePriority]; got != "true" {
+				t.Errorf("file priority marker = %q, want true", got)
+			}
+			if got := auth.Metadata["priority"]; got != testCase.wantMetadata {
+				t.Errorf("priority metadata = %v, want %v", got, testCase.wantMetadata)
+			}
+		})
+	}
+}

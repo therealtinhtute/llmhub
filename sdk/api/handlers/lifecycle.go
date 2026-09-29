@@ -22,9 +22,10 @@ type RequestLifecycleRequest struct {
 	NormalizedModel string
 	Alt             string
 	Stream          bool
-	Payload         []byte
-	Headers         http.Header
-	Metadata        map[string]any
+	// Payload contains the current request payload. Treat it as read-only; mutations must be returned via RequestLifecycleDecision.Payload.
+	Payload  []byte
+	Headers  http.Header
+	Metadata map[string]any
 }
 
 type RequestLifecycleResponse struct {

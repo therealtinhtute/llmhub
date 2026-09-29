@@ -371,3 +371,19 @@ func TestPatchAuthFileFields_SaveErrorReturnsFailure(t *testing.T) {
 		t.Fatalf("expected status %d, got %d with body %s", http.StatusInternalServerError, rec.Code, rec.Body.String())
 	}
 }
+
+func TestSyncAuthFilePriorityAttributeTracksFileSource(t *testing.T) {
+	auth := &coreauth.Auth{
+		Attributes: map[string]string{"path": "/auth/test.json"},
+		Metadata:   map[string]any{"priority": float64(1)},
+	}
+	syncAuthFilePriorityAttribute(auth)
+	if auth.Attributes[coreauth.AttributeFilePriority] != "true" {
+		t.Fatal("added file priority not marked as inherited")
+	}
+	delete(auth.Metadata, "priority")
+	syncAuthFilePriorityAttribute(auth)
+	if _, inherited := auth.Attributes[coreauth.AttributeFilePriority]; inherited {
+		t.Fatal("removed file priority still marked as inherited")
+	}
+}

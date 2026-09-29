@@ -107,6 +107,23 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, deviceFlo
 		return
 	}
 
+	record := buildMetaAuthRecord(bundle, tokenStorage)
+	if errGuard := guardOAuthSessionPendingForSave(state, "meta"); errGuard != nil {
+		return
+	}
+	savedPath, errSave := h.saveTokenRecord(ctx, record)
+	if errSave != nil {
+		log.Errorf("Failed to save Meta token to file: %v", errSave)
+		SetOAuthSessionError(state, "Failed to save token to file")
+		return
+	}
+
+	CompleteOAuthSession(state)
+	fmt.Printf("Authentication successful! Token saved to %s\n", savedPath)
+	fmt.Println("You can now use Meta services through this CLI")
+}
+
+func buildMetaAuthRecord(bundle *metaauth.MetaAuthBundle, tokenStorage *metaauth.MetaTokenStorage) *coreauth.Auth {
 	fileName := metaauth.CredentialFileName(tokenStorage.Email, tokenStorage.DCAToken)
 	label := strings.TrimSpace(tokenStorage.Email)
 	if label == "" {
@@ -141,6 +158,12 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, deviceFlo
 	if tokenStorage.Name != "" {
 		metadata["name"] = tokenStorage.Name
 	}
+	if bundle != nil && bundle.MintedKey != nil {
+		metadata["subs_tier_name"] = bundle.MintedKey.SubsTierName
+		metadata["subs_tier_id"] = bundle.MintedKey.SubsTierID
+		metadata["is_subs_active"] = bundle.MintedKey.IsSubsActive
+		metadata["has_payment_method"] = bundle.MintedKey.HasPaymentMethod
+	}
 
 	attrs := map[string]string{
 		"auth_kind": "oauth",
@@ -156,7 +179,7 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, deviceFlo
 		attrs["email"] = tokenStorage.Email
 	}
 
-	record := &coreauth.Auth{
+	return &coreauth.Auth{
 		ID:         fileName,
 		Provider:   "meta",
 		FileName:   fileName,
@@ -165,17 +188,4 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, deviceFlo
 		Metadata:   metadata,
 		Attributes: attrs,
 	}
-	if errGuard := guardOAuthSessionPendingForSave(state, "meta"); errGuard != nil {
-		return
-	}
-	savedPath, errSave := h.saveTokenRecord(ctx, record)
-	if errSave != nil {
-		log.Errorf("Failed to save Meta token to file: %v", errSave)
-		SetOAuthSessionError(state, "Failed to save token to file")
-		return
-	}
-
-	CompleteOAuthSession(state)
-	fmt.Printf("Authentication successful! Token saved to %s\n", savedPath)
-	fmt.Println("You can now use Meta services through this CLI")
 }

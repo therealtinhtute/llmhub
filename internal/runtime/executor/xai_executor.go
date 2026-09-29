@@ -704,10 +704,10 @@ func (e *XAIExecutor) prepareResponsesRequest(ctx context.Context, req cliproxye
 	}
 	originalPayload := bytes.Clone(originalPayloadSource)
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, stream)
-	body := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), stream)
+	body, updatesChanged := helps.TranslateRequestWithAPIKeyModelCompatibilityAndUpdateIntent(ctx, opts.Headers, e.cfg, from, to, baseModel, bytes.Clone(req.Payload), stream, helps.APIKeyModelIsCompat(req))
 
 	var err error
-	body, err = thinking.ApplyThinking(body, req.Model, from.String(), e.Identifier(), e.Identifier())
+	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), e.Identifier(), e.Identifier(), updatesChanged)
 	if err != nil {
 		return nil, err
 	}
@@ -776,7 +776,10 @@ func (e *XAIExecutor) prepareResponsesRequest(ctx context.Context, req cliproxye
 	}
 	body = normalizeXAIInputReasoningItems(body)
 	body = normalizeCodexInstructions(body)
-	body = sanitizeXAIResponsesBody(body, baseModel)
+	body = removeXAIEncryptedReasoningInclude(body)
+	// stop is supported by Chat Completions but not by xAI's Responses API.
+	// Thinking was handled before payload overrides and must not be revalidated here.
+	body, _ = sjson.DeleteBytes(body, "stop")
 	body = normalizeXAIToolChoiceForTools(body)
 	sessionID := xaiExecutionSessionID(req, opts)
 	if sessionID != "" {
@@ -993,14 +996,6 @@ func xaiMetadataString(meta map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(typed))
 	}
-}
-
-func sanitizeXAIResponsesBody(body []byte, model string) []byte {
-	body = removeXAIEncryptedReasoningInclude(body)
-	if !xaiSupportsReasoningEffort(model) {
-		body, _ = sjson.DeleteBytes(body, "reasoning")
-	}
-	return body
 }
 
 type xaiToolIdentity struct {
@@ -3295,23 +3290,6 @@ func xaiCompareGrokVersion(a, b xaiGrokVersion) int {
 		return 1
 	}
 	return 0
-}
-
-func xaiSupportsReasoningEffort(model string) bool {
-	name := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(model).ModelName))
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
-	switch {
-	case strings.HasPrefix(name, "grok-3-mini"):
-		return true
-	case strings.HasPrefix(name, "grok-4.20-multi-agent"):
-		return true
-	case strings.HasPrefix(name, "grok-4.3"):
-		return true
-	default:
-		return false
-	}
 }
 
 func xaiCollectOutputItemDone(eventData []byte, outputItemsByIndex map[int64][]byte, outputItemsFallback *[][]byte) {

@@ -97,7 +97,21 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		// Atomic replace on some platforms may surface as Rename (or Remove) before the new file is ready.
 		// Wait briefly; if the path exists again, treat as an update instead of removal.
 		time.Sleep(replaceCheckDelay)
+		statSucceeded := false
 		if _, statErr := os.Stat(event.Name); statErr == nil {
+			statSucceeded = true
+		} else if w.isKnownAuthFile(event.Name) {
+			// Atomic replace can trigger a delete before the target inode is fully
+			// visible; retry briefly before treating a known auth file as removed.
+			for attempt := 0; attempt < 3; attempt++ {
+				time.Sleep(25 * time.Millisecond)
+				if _, retryErr := os.Stat(event.Name); retryErr == nil {
+					statSucceeded = true
+					break
+				}
+			}
+		}
+		if statSucceeded {
 			if unchanged, errSame := w.authFileUnchanged(event.Name); errSame == nil && unchanged {
 				log.Debugf("auth file unchanged (hash match), skipping reload: %s", filepath.Base(event.Name))
 				return

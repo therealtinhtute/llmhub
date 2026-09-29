@@ -259,6 +259,7 @@ func applyMetaAPIHeaders(req *http.Request, auth *cliproxyauth.Auth, token strin
 		req.Header.Del("Authorization")
 	}
 	req.Header.Set("User-Agent", metaUserAgent)
+	req.Header.Set("X-Client-Id", "tbh:tui")
 	if stream {
 		req.Header.Set("Accept", "text/event-stream")
 		req.Header.Set("Cache-Control", "no-cache")
@@ -277,6 +278,8 @@ func applyMetaAPIHeaders(req *http.Request, auth *cliproxyauth.Auth, token strin
 // credential rather than a single model. Upstream wraps statusErr in
 // metaRateLimitError (d09042a54810); the local statusErr already carries
 // credentialScoped/IsCredentialScoped, so the wrapper folds into it.
+const metaNotFoundCooldown = 5 * time.Minute
+
 func wrapMetaUpstreamError(statusCode int, body []byte) error {
 	se := statusErr{code: statusCode, msg: string(body)}
 	if statusCode == http.StatusTooManyRequests {
@@ -285,6 +288,14 @@ func wrapMetaUpstreamError(statusCode int, body []byte) error {
 		}
 		if isMetaSubscriptionQuota(statusCode, body) {
 			se.credentialScoped = true
+		}
+	}
+	if statusCode == http.StatusNotFound {
+		if retryAfter := parseMetaRetryAfter(statusCode, body, time.Now()); retryAfter != nil {
+			se.retryAfter = retryAfter
+		} else {
+			retry := metaNotFoundCooldown
+			se.retryAfter = &retry
 		}
 	}
 	return se

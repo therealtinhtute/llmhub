@@ -943,11 +943,11 @@ func (s *Service) Run(ctx context.Context) error {
 		redisqueue.SetUsageStatisticsEnabled(true)
 	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
 	defer func() {
-		if err := s.Shutdown(shutdownCtx); err != nil {
-			log.Errorf("service shutdown returned error: %v", err)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if errShutdown := s.Shutdown(shutdownCtx); errShutdown != nil {
+			log.Errorf("service shutdown returned error: %v", errShutdown)
 		}
 	}()
 
@@ -1230,12 +1230,10 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		// no legacy clients to persist
 
 		if s.server != nil {
-			shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			if err := s.server.Stop(shutdownCtx); err != nil {
-				log.Errorf("error stopping API server: %v", err)
+			if errStop := s.server.Stop(ctx); errStop != nil {
+				log.Errorf("error stopping API server: %v", errStop)
 				if shutdownErr == nil {
-					shutdownErr = err
+					shutdownErr = errStop
 				}
 			}
 		}
@@ -1358,6 +1356,14 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		}
 		models = applyExcludedModels(models, excluded)
 	case "codex":
+		if authKind == "apikey" {
+			if entry := s.resolveConfigCodexKey(a); entry != nil {
+				models = buildCodexConfigModels(entry)
+				excluded = entry.ExcludedModels
+			}
+			models = applyExcludedModels(models, excluded)
+			break
+		}
 		codexPlanType := ""
 		if a.Attributes != nil {
 			codexPlanType = strings.TrimSpace(a.Attributes["plan_type"])
@@ -1373,14 +1379,6 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 			models = registry.GetCodexFreeModels()
 		default:
 			models = registry.GetCodexProModels()
-		}
-		if entry := s.resolveConfigCodexKey(a); entry != nil {
-			if len(entry.Models) > 0 {
-				models = buildCodexConfigModels(entry)
-			}
-			if authKind == "apikey" {
-				excluded = entry.ExcludedModels
-			}
 		}
 		models = applyExcludedModels(models, excluded)
 	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
@@ -2096,8 +2094,18 @@ func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {
 	if entry == nil {
 		return nil
 	}
-	models := registry.WithCodexBuiltins(buildConfigModels(entry.Models, "openai", "openai", "codex"))
+	if len(entry.Models) == 0 {
+		models := registry.GetCodexProModels()
+		for _, model := range models {
+			if model != nil {
+				model.SupportConfigurationUpdate = false
+			}
+		}
+		return models
+	}
+	models := buildConfigModels(entry.Models, "openai", "openai", "codex")
 	configuredDisplayNames := make(map[string]string, len(entry.Models))
+	configuredConfigurationUpdates := make(map[string]bool, len(entry.Models))
 	seenConfiguredModels := make(map[string]struct{}, len(entry.Models))
 	for i := range entry.Models {
 		model := entry.Models[i]
@@ -2113,6 +2121,7 @@ func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {
 			continue
 		}
 		seenConfiguredModels[key] = struct{}{}
+		configuredConfigurationUpdates[key] = model.SupportConfigurationUpdate
 		if displayName := strings.TrimSpace(model.DisplayName); displayName != "" {
 			configuredDisplayNames[key] = displayName
 		}
@@ -2121,9 +2130,11 @@ func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {
 		if model == nil {
 			continue
 		}
-		if displayName, ok := configuredDisplayNames[strings.ToLower(model.ID)]; ok {
+		key := strings.ToLower(model.ID)
+		if displayName, ok := configuredDisplayNames[key]; ok {
 			model.DisplayName = displayName
 		}
+		model.SupportConfigurationUpdate = configuredConfigurationUpdates[key]
 	}
 	return models
 }

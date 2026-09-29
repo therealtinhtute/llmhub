@@ -378,6 +378,13 @@ func convertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool, 
 	}
 	template, _ = sjson.SetBytes(template, "reasoning.effort", reasoningEffort)
 	template, _ = sjson.SetBytes(template, "reasoning.summary", "auto")
+	serviceTier := normalizeCodexServiceTier(rootResult.Get("service_tier"))
+	if speed := rootResult.Get("speed"); speed.Type == gjson.String && speed.String() == "fast" {
+		serviceTier = "priority"
+	}
+	if serviceTier != "" {
+		template, _ = sjson.SetBytes(template, "service_tier", serviceTier)
+	}
 	template, _ = sjson.SetBytes(template, "stream", true)
 	template, _ = sjson.SetBytes(template, "store", false)
 	template, _ = sjson.SetBytes(template, "include", []string{"reasoning.encrypted_content"})
@@ -493,6 +500,19 @@ func convertClaudeToolChoiceToCodex(toolChoice gjson.Result, toolNameMap map[str
 		return choice
 	default:
 		return []byte(`"auto"`)
+	}
+}
+
+func normalizeCodexServiceTier(result gjson.Result) string {
+	if !result.Exists() || result.Type != gjson.String {
+		return ""
+	}
+
+	switch strings.ToLower(strings.TrimSpace(result.String())) {
+	case "fast", "priority":
+		return "priority"
+	default:
+		return ""
 	}
 }
 

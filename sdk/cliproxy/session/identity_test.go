@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"unsafe"
 
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
@@ -786,5 +787,31 @@ func TestEnrich_MetadataOnlyCanonicalAndParentSessionPreserved(t *testing.T) {
 	_, enrichedLoop := Enrich(req, optsLoop)
 	if _, hasLoopParent := enrichedLoop.Metadata[cliproxyexecutor.ParentSessionIDMetadataKey]; hasLoopParent {
 		t.Fatalf("self-loop parent was not eliminated in metadata-only mode")
+	}
+}
+
+func TestEnrich_DoesNotClonePayloadWhenPopulatingOriginalRequest_Issue6101(t *testing.T) {
+	req := cliproxyexecutor.Request{
+		Model:   "gpt-5.4",
+		Payload: []byte(`{"messages":[{"role":"user","content":"test"}]}`),
+	}
+	opts := cliproxyexecutor.Options{}
+
+	_, enrichedOpts := Enrich(req, opts)
+	if len(enrichedOpts.OriginalRequest) == 0 {
+		t.Fatal("expected OriginalRequest to be populated")
+	}
+	if unsafe.SliceData(enrichedOpts.OriginalRequest) != unsafe.SliceData(req.Payload) {
+		t.Fatal("Enrich allocated a new copy of Payload instead of reusing the slice reference for OriginalRequest")
+	}
+
+	// When caller explicitly provides an independent OriginalRequest, Enrich preserves it
+	independentOriginal := []byte(`{"messages":[{"role":"user","content":"original"}]}`)
+	optsWithOriginal := cliproxyexecutor.Options{
+		OriginalRequest: independentOriginal,
+	}
+	_, enrichedOpts2 := Enrich(req, optsWithOriginal)
+	if unsafe.SliceData(enrichedOpts2.OriginalRequest) != unsafe.SliceData(independentOriginal) {
+		t.Fatal("Enrich replaced explicitly provided OriginalRequest")
 	}
 }

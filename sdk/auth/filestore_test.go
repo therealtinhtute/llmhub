@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 func TestExtractAccessToken(t *testing.T) {
@@ -130,5 +132,39 @@ func TestFileTokenStore_ReadAuthFile_NormalizesKiro9RouterJSON(t *testing.T) {
 	}
 	if metadata["type"] != "kiro" || metadata["provider"] != nil {
 		t.Fatalf("persisted metadata = %#v, want llmhub kiro shape", metadata)
+	}
+}
+
+func TestFileTokenStoreReadAuthFileAppliesSourcePriority(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		raw          string
+		want         string
+		wantMetadata any
+	}{
+		{name: "number", raw: `{"type":"claude","priority":1}`, want: "1", wantMetadata: float64(1)},
+		{name: "string", raw: `{"type":"claude","priority":" 2 "}`, want: "2", wantMetadata: " 2 "},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			path := filepath.Join(baseDir, "claude-auth.json")
+			if err := os.WriteFile(path, []byte(testCase.raw), 0o600); err != nil {
+				t.Fatalf("write auth file: %v", err)
+			}
+			store := NewFileTokenStore()
+			auth, err := store.readAuthFile(path, baseDir)
+			if err != nil {
+				t.Fatalf("readAuthFile() error = %v", err)
+			}
+			if got := auth.Attributes["priority"]; got != testCase.want {
+				t.Errorf("priority attribute = %q, want %q", got, testCase.want)
+			}
+			if got := auth.Attributes[cliproxyauth.AttributeFilePriority]; got != "true" {
+				t.Errorf("file priority marker = %q, want true", got)
+			}
+			if got := auth.Metadata["priority"]; got != testCase.wantMetadata {
+				t.Errorf("priority metadata = %v, want %v", got, testCase.wantMetadata)
+			}
+		})
 	}
 }

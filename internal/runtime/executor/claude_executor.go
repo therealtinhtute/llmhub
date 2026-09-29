@@ -1483,7 +1483,8 @@ func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool)
 		}
 	}
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
-	if requested[claudeThinkingBindingBeta] || gjson.GetBytes(body, "thinking.block_binding").Exists() {
+	if requested[claudeThinkingBindingBeta] || gjson.GetBytes(body, "thinking.block_binding").Exists() ||
+		(claudeModelUsesProgressDisplay(gjson.GetBytes(body, "model").String()) && thinkingType == "adaptive") {
 		betas = append(betas, claudeThinkingBindingBeta)
 	}
 	if !isProbeOrHelper && thinkingType != "disabled" && (requested[claudeThinkingDisplayUpdatesBeta] || claudeThinkingDisplayUpdates(body)) {
@@ -1574,12 +1575,46 @@ func claudeCanonicalModel(model string) string {
 	return model
 }
 
+func isClaudeOpus55Model(model string) bool {
+	model = claudeCanonicalModel(model)
+	return model == "claude-opus-5-5" || strings.HasPrefix(model, "claude-opus-5-5[")
+}
+
+func isClaudeSonnet5Model(model string) bool {
+	model = claudeCanonicalModel(model)
+	return model == "claude-sonnet-5" || strings.HasPrefix(model, "claude-sonnet-5-") || strings.HasPrefix(model, "claude-sonnet-5[")
+}
+
+// claudeModelUsesProgressDisplay reports the 2.1.280 interactive CLI models that
+// send thinking.display=updates unless the caller already chose a display mode.
+func claudeModelUsesProgressDisplay(model string) bool {
+	return isClaudeOpus55Model(model) || isClaudeFable51Model(model) || isClaudeSonnet5Model(model)
+}
+
+// applyClaudeCloakThinkingDisplay fills the latest CLI display only when the
+// translated caller did not choose one. An explicit summarized or omitted value
+// from Responses, Chat, or Gemini stays untouched.
+func applyClaudeCloakThinkingDisplay(body []byte, callerOwned bool) []byte {
+	if callerOwned || len(body) == 0 || gjson.GetBytes(body, "thinking.display").Exists() {
+		return body
+	}
+	if !claudeModelUsesProgressDisplay(gjson.GetBytes(body, "model").String()) {
+		return body
+	}
+	switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String())) {
+	case "adaptive", "enabled":
+	default:
+		return body
+	}
+	body, _ = sjson.SetBytes(body, "thinking.display", "updates")
+	return body
+}
+
 // claudeModelHasPerTurnEffort reports models whose 2.1.280 catalog capability
 // per_turn_effort puts per-turn-control-2026-07-01 on every first-party request
 // (upstream bd584a752329).
 func claudeModelHasPerTurnEffort(model string) bool {
-	model = claudeCanonicalModel(model)
-	return strings.HasPrefix(model, "claude-opus-5-5") || strings.HasPrefix(model, "claude-fable-5-1")
+	return isClaudeOpus55Model(model) || strings.HasPrefix(claudeCanonicalModel(model), "claude-fable-5-1")
 }
 
 // claudeModelHasPerTurnTiming reports models whose catalog lists per_turn_timing.
@@ -1637,7 +1672,7 @@ func claudeIncludeInlineTools(body []byte, requested map[string]bool) bool {
 }
 
 func claudeIncludeMidConvClearAt(body []byte, requested map[string]bool) bool {
-	if requested[claudeMidConvSystemClearAtBeta] {
+	if requested[claudeMidConvSystemClearAtBeta] || claudeModelUsesProgressDisplay(gjson.GetBytes(body, "model").String()) {
 		return true
 	}
 	found := false
@@ -3645,16 +3680,16 @@ func applyCloaking(ctx context.Context, cfg *config.Config, auth *cliproxyauth.A
 	// In native Claude Code 2.1.280, claude-fable-5-1 requests carry:
 	// "fallbacks": [{"model": "claude-opus-5"}] (upstream de4aa600280e).
 	cloakModel := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "model").String()))
+	if isClaudeOpus55Model(cloakModel) && !isProbeOrHelper && !gjson.GetBytes(payload, "fallbacks").Exists() {
+		payload, _ = sjson.SetRawBytes(payload, "fallbacks", []byte(`[{"model":"claude-opus-4-8"}]`))
+	}
 	if isClaudeFable51Model(cloakModel) && !isProbeOrHelper {
 		if !gjson.GetBytes(payload, "fallbacks").Exists() {
 			payload, _ = sjson.SetRawBytes(payload, "fallbacks", []byte(`[{"model":"claude-opus-5"}]`))
 		}
-		if gjson.GetBytes(payload, "thinking").Exists() {
-			thinkingType := gjson.GetBytes(payload, "thinking.type").String()
-			if thinkingType == "adaptive" && !gjson.GetBytes(payload, "thinking.display").Exists() {
-				payload, _ = sjson.SetBytes(payload, "thinking.display", "updates")
-			}
-		}
+	}
+	if !isProbeOrHelper {
+		payload = applyClaudeCloakThinkingDisplay(payload, false)
 	}
 
 	// Probes never use 1h cache in native Claude Code; ensure any caller-supplied
@@ -3847,6 +3882,20 @@ func reconcileClaudeCodeFableModelAfterPayload(
 		return body
 	}
 	currentModel := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "model").String()))
+	// A model rewrite may change the native fallback target. Never override a
+	// caller or payload-rule fallback; only replace one inserted by the cloak.
+	if fableState.injectedFallbacks && !payloadTouchedFallbacks {
+		wantFallback := ""
+		switch {
+		case isClaudeFable51Model(currentModel):
+			wantFallback = "claude-opus-5"
+		case isClaudeOpus55Model(currentModel):
+			wantFallback = "claude-opus-4-8"
+		}
+		if gjson.GetBytes(body, "fallbacks.0.model").String() != wantFallback {
+			body, _ = sjson.DeleteBytes(body, "fallbacks")
+		}
+	}
 
 	if isClaudeFable51Model(currentModel) {
 		// Non-Fable rewritten to Fable 5.1 (or original Fable 5.1): attach Fable additions
@@ -3887,16 +3936,24 @@ func reconcileClaudeCodeFableModelAfterPayload(
 				body, _ = sjson.SetRawBytes(body, "system", []byte("["+strings.Join(blocks, ",")+"]"))
 			}
 		}
+		if !isProbeOrHelper {
+			body = applyClaudeCloakThinkingDisplay(body, payloadTouchedDisplay)
+		}
 		return body
 	}
 
-	// Target model is Non-Fable 5.1:
-	// Only delete fallbacks if CPA automatically injected it and matching payload rules did NOT explicitly configure/modify it
-	if fableState.injectedFallbacks && !payloadTouchedFallbacks {
-		body, _ = sjson.DeleteBytes(body, "fallbacks")
+	if isClaudeOpus55Model(currentModel) && !gjson.GetBytes(body, "fallbacks").Exists() && !payloadTouchedFallbacks {
+		body, _ = sjson.SetRawBytes(body, "fallbacks", []byte(`[{"model":"claude-opus-4-8"}]`))
 	}
-	if fableState.injectedDisplay && !payloadTouchedDisplay {
+	thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
+	thinkingActive := thinkingType == "adaptive" || thinkingType == "enabled"
+	// Payload rules can disable thinking without touching display. Remove only
+	// CPA's injected value; explicit caller and operator choices remain owned.
+	if fableState.injectedDisplay && !payloadTouchedDisplay && (!thinkingActive || !claudeModelUsesProgressDisplay(currentModel)) {
 		body, _ = sjson.DeleteBytes(body, "thinking.display")
+	}
+	if !isProbeOrHelper {
+		body = applyClaudeCloakThinkingDisplay(body, payloadTouchedDisplay)
 	}
 
 	// Remove Reporting outcomes if CPA automatically injected it

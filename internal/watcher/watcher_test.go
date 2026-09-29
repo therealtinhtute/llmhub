@@ -1692,3 +1692,67 @@ func TestScheduleProcessEventsStopsOnContextDone(t *testing.T) {
 func hexString(data []byte) string {
 	return strings.ToLower(fmt.Sprintf("%x", data))
 }
+
+func TestHandleEventAtomicReplaceDelayedStatPreservesClient(t *testing.T) {
+	tmpDir := t.TempDir()
+	authDir := filepath.Join(tmpDir, "auth")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatalf("failed to create auth dir: %v", err)
+	}
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("auth_dir: "+authDir+"\n"), 0o644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	authFile := filepath.Join(authDir, "token.json")
+	oldContent := []byte(`{"type":"demo","v":1}`)
+	newContent := []byte(`{"type":"demo","v":2}`)
+	oldSum := sha256.Sum256(oldContent)
+
+	w := &Watcher{
+		authDir:        authDir,
+		configPath:     configPath,
+		lastAuthHashes: make(map[string]string),
+	}
+	w.SetConfig(&config.Config{AuthDir: authDir})
+	normalized := w.normalizeAuthPath(authFile)
+	w.lastAuthHashes[normalized] = hexString(oldSum[:])
+
+	mockAuth := &coreauth.Auth{
+		ID:       "token.json",
+		FileName: "token.json",
+		Provider: "demo",
+		Status:   coreauth.StatusActive,
+	}
+	w.currentAuths = map[string]*coreauth.Auth{"token.json": mockAuth}
+	w.fileAuthsByPath = map[string]map[string]*coreauth.Auth{
+		normalized: {"token.json": mockAuth},
+	}
+
+	// Delay writing the new file until 60ms (after the initial check, within retry window)
+	errChan := make(chan error, 1)
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		errChan <- os.WriteFile(authFile, newContent, 0o644)
+	}()
+
+	w.handleEvent(fsnotify.Event{Name: authFile, Op: fsnotify.Rename})
+	if errWrite := <-errChan; errWrite != nil {
+		t.Fatalf("async WriteFile failed: %v", errWrite)
+	}
+
+	w.clientsMutex.RLock()
+	_, stillKnown := w.lastAuthHashes[normalized]
+	_, stillInCurrent := w.currentAuths["token.json"]
+	pathAuths := w.fileAuthsByPath[normalized]
+	w.clientsMutex.RUnlock()
+
+	if !stillKnown {
+		t.Fatal("expected known auth file to survive atomic replace with delayed stat, but hash was removed")
+	}
+	if !stillInCurrent {
+		t.Fatal("expected client to remain registered in currentAuths, but was removed")
+	}
+	if len(pathAuths) == 0 {
+		t.Fatal("expected client to remain registered in fileAuthsByPath, but was removed")
+	}
+}

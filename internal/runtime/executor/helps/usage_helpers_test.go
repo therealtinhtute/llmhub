@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/therealtinhtute/llmhub/internal/logging"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 )
@@ -592,5 +593,51 @@ func TestFailFromErrorsPrefersResponseBody(t *testing.T) {
 				t.Fatalf("failure = %#v, want status %d body %q", failure, http.StatusUnauthorized, wantBody)
 			}
 		})
+	}
+}
+
+func TestUsageReporter_AllocatesUniqueUUIDPerAttemptWithSharedTraceID(t *testing.T) {
+	ctx := logging.WithRequestID(context.Background(), "00000042")
+
+	reporter1 := NewUsageReporter(ctx, "openai", "gpt-5.4", nil)
+	record1 := reporter1.buildRecord(usage.Detail{TotalTokens: 10}, false, usage.Failure{})
+
+	reporter2 := NewUsageReporter(ctx, "claude", "claude-3-7-sonnet", nil)
+	record2 := reporter2.buildRecord(usage.Detail{TotalTokens: 20}, false, usage.Failure{})
+
+	if record1.TraceID != "00000042" {
+		t.Fatalf("record1.TraceID = %q, want 00000042", record1.TraceID)
+	}
+	if record2.TraceID != "00000042" {
+		t.Fatalf("record2.TraceID = %q, want 00000042", record2.TraceID)
+	}
+	if record1.RequestID == "" {
+		t.Fatal("record1.RequestID should not be empty")
+	}
+	if record2.RequestID == "" {
+		t.Fatal("record2.RequestID should not be empty")
+	}
+	if record1.RequestID == record2.RequestID {
+		t.Fatalf("consecutive attempts must have distinct UUID RequestIDs: got %q and %q", record1.RequestID, record2.RequestID)
+	}
+	u1, err1 := uuid.Parse(record1.RequestID)
+	if err1 != nil || u1.Version() != 4 {
+		t.Fatalf("record1.RequestID %q is not valid UUID v4: %v", record1.RequestID, err1)
+	}
+	u2, err2 := uuid.Parse(record2.RequestID)
+	if err2 != nil || u2.Version() != 4 {
+		t.Fatalf("record2.RequestID %q is not valid UUID v4: %v", record2.RequestID, err2)
+	}
+}
+
+func TestUsageReporter_ExplicitTraceIDPrecedenceOverLogRequestID(t *testing.T) {
+	ctx := logging.WithRequestID(context.Background(), "log-id-1")
+	ctx = usage.WithTraceID(ctx, "explicit-trace-1")
+
+	reporter := NewUsageReporter(ctx, "openai", "gpt-5.4", nil)
+	record := reporter.buildRecord(usage.Detail{TotalTokens: 10}, false, usage.Failure{})
+
+	if record.TraceID != "explicit-trace-1" {
+		t.Fatalf("record.TraceID = %q, want explicit-trace-1", record.TraceID)
 	}
 }

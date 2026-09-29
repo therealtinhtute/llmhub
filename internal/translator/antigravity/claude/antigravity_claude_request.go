@@ -371,9 +371,9 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 								}
 
 								if nonImageCount == 1 {
-									functionResponseJSON, _ = sjson.SetRawBytes(functionResponseJSON, "response.result", []byte(lastNonImageRaw))
+									functionResponseJSON = translatorcommon.SetGeminiFunctionResponseRaw(functionResponseJSON, "response.result", string(lastNonImageRaw))
 								} else if nonImageCount > 1 {
-									functionResponseJSON, _ = sjson.SetRawBytes(functionResponseJSON, "response.result", filteredJSON)
+									functionResponseJSON = translatorcommon.SetGeminiFunctionResponseRaw(functionResponseJSON, "response.result", string(filteredJSON))
 								} else {
 									functionResponseJSON, _ = sjson.SetBytes(functionResponseJSON, "response.result", "")
 								}
@@ -402,10 +402,10 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 									functionResponseJSON, _ = sjson.SetRawBytes(functionResponseJSON, "parts", imagePartsJSON)
 									functionResponseJSON, _ = sjson.SetBytes(functionResponseJSON, "response.result", "")
 								} else {
-									functionResponseJSON, _ = sjson.SetRawBytes(functionResponseJSON, "response.result", []byte(functionResponseResult.Raw))
+									functionResponseJSON = translatorcommon.SetGeminiFunctionResponseResult(functionResponseJSON, "response.result", functionResponseResult)
 								}
 							} else if functionResponseResult.Raw != "" {
-								functionResponseJSON, _ = sjson.SetRawBytes(functionResponseJSON, "response.result", []byte(functionResponseResult.Raw))
+								functionResponseJSON = translatorcommon.SetGeminiFunctionResponseResult(functionResponseJSON, "response.result", functionResponseResult)
 							} else {
 								// Content field is missing entirely — .Raw is empty which
 								// causes sjson.SetRaw to produce invalid JSON (e.g. "result":}).
@@ -588,7 +588,12 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 			contentItems = append(contentItems, []byte(content.Raw))
 			return true
 		})
-		out, _ = sjson.SetRawBytes(out, "request.contents", translatorcommon.JoinRawArray(translatorcommon.MergeAdjacentGeminiContents(contentItems)))
+		if util.IsClaudeModel(modelName) {
+			contentItems = translatorcommon.SplitGeminiFunctionResponseTurns(contentItems)
+			out, _ = sjson.SetRawBytes(out, "request.contents", translatorcommon.JoinRawArray(translatorcommon.MergeAdjacentGeminiUserContents(contentItems)))
+		} else {
+			out, _ = sjson.SetRawBytes(out, "request.contents", translatorcommon.JoinRawArray(translatorcommon.MergeAdjacentGeminiContents(contentItems)))
+		}
 	}
 	if toolDeclCount > 0 && !isToolChoiceNone {
 		out, _ = sjson.SetRawBytes(out, "request.tools", toolsJSON)

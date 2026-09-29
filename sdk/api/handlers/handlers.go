@@ -632,7 +632,7 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 		NormalizedModel: normalizedModel,
 		Alt:             alt,
 		Stream:          false,
-		Payload:         cloneBytes(payload),
+		Payload:         payload,
 		Headers:         cloneHeader(headers),
 		Metadata:        cloneLifecycleMetadata(reqMeta),
 	}
@@ -650,7 +650,7 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 			return body, addon, nil
 		}
 		payload, headers = applyLifecycleDecision(payload, headers, decision)
-		lifecycleReq.Payload = cloneBytes(payload)
+		lifecycleReq.Payload = payload
 		lifecycleReq.Headers = cloneHeader(headers)
 	}
 	req := coreexecutor.Request{
@@ -786,7 +786,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		NormalizedModel: normalizedModel,
 		Alt:             alt,
 		Stream:          true,
-		Payload:         cloneBytes(payload),
+		Payload:         payload,
 		Headers:         cloneHeader(headers),
 		Metadata:        cloneLifecycleMetadata(reqMeta),
 	}
@@ -817,7 +817,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 			return nil, cloneHeader(decision.Termination.Headers), errChan
 		}
 		payload, headers = applyLifecycleDecision(payload, headers, decision)
-		lifecycleReq.Payload = cloneBytes(payload)
+		lifecycleReq.Payload = payload
 		lifecycleReq.Headers = cloneHeader(headers)
 	}
 	req := coreexecutor.Request{

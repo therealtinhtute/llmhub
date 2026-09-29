@@ -346,8 +346,10 @@ func fableReportingSystemJSON(t *testing.T, extraBilling bool) string {
 // Fable additions when payload rules rewrite the model or related fields
 // (upstream de4aa600280e).
 func TestReconcileFableModelAfterPayload(t *testing.T) {
-	// Fable rewritten to non-Fable: CPA-injected additions are removed.
-	body := []byte(`{"model":"claude-sonnet-5","fallbacks":[{"model":"claude-opus-5"}],"thinking":{"type":"adaptive","display":"updates"},"system":` + fableReportingSystemJSON(t, true) + `,"messages":[{"role":"user","content":"hi"}]}`)
+	// Fable rewritten to a non-progress-display model: CPA-injected additions
+	// are removed (claude-opus-4-8 per upstream f7c738da — sonnet-5 now keeps
+	// display=updates as a progress-display model).
+	body := []byte(`{"model":"claude-opus-4-8","fallbacks":[{"model":"claude-opus-5"}],"thinking":{"type":"adaptive","display":"updates"},"system":` + fableReportingSystemJSON(t, true) + `,"messages":[{"role":"user","content":"hi"}]}`)
 	if !hasFableReportingBlock(body) {
 		t.Fatal("precondition: input must carry a detectable reporting block")
 	}
@@ -377,7 +379,7 @@ func TestReconcileFableModelAfterPayload(t *testing.T) {
 	}
 
 	// Payload rules owning the field are respected.
-	body = []byte(`{"model":"claude-sonnet-5","fallbacks":[{"model":"claude-opus-5"}],"thinking":{"type":"adaptive","display":"updates"},"messages":[{"role":"user","content":"hi"}]}`)
+	body = []byte(`{"model":"claude-opus-4-8","fallbacks":[{"model":"claude-opus-5"}],"thinking":{"type":"adaptive","display":"updates"},"messages":[{"role":"user","content":"hi"}]}`)
 	out = reconcileClaudeCodeFableModelAfterPayload(body, state, true, true, true, false)
 	if !gjson.GetBytes(out, "fallbacks").Exists() || !gjson.GetBytes(out, "thinking.display").Exists() {
 		t.Fatalf("payload-touched fields must survive reconcile: %s", out)
@@ -504,12 +506,12 @@ func TestClaudeCodeCLIBetas_21280GatedBetas(t *testing.T) {
 		{
 			name: "opus-5-5 carries per-turn-control between mid-conversation betas",
 			body: `{"model":"claude-opus-5-5"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01",
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
 		},
 		{
 			name: "fable-5-1 carries per-turn-control but not timing unless the body asks",
 			body: `{"model":"claude-fable-5-1"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01",
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
 		},
 		{
 			name: "opus-5-5 timing and the other 2.1.280 gated betas keep wire order",

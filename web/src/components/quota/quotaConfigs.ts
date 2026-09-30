@@ -5,6 +5,7 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type {
   AntigravityQuotaGroup,
   AntigravityQuotaSubscription,
@@ -1088,9 +1089,15 @@ const renderCodexItems = (
     ? formatShanghaiDateTime(String(subscriptionActiveUntil)) || String(subscriptionActiveUntil)
     : null;
 
-  const nodes: ReactNode[] = [];
+  const hasManualResetTab = resetCredits.length > 0 || Boolean(resetCreditsError);
+  const statusNodes: ReactNode[] = [];
+  const manualResetNodes: ReactNode[] = [];
+  const renderResetAction = (key: string) =>
+    resetQuotaAction
+      ? h('div', { key, className: styleMap.quotaCardActionRow }, resetQuotaAction)
+      : null;
 
-  if (planLabel || expiryLabel || resetCreditsCount !== null) {
+  if (planLabel || expiryLabel || (resetCreditsCount !== null && !hasManualResetTab)) {
     const planItems: ReactNode[] = [];
     if (planLabel) {
       planItems.push(
@@ -1112,7 +1119,7 @@ const renderCodexItems = (
         )
       );
     }
-    if (resetCreditsCount !== null) {
+    if (resetCreditsCount !== null && !hasManualResetTab) {
       planItems.push(
         h(
           'span',
@@ -1122,11 +1129,13 @@ const renderCodexItems = (
         )
       );
     }
-    nodes.push(h('div', { key: 'plan', className: styleMap.codexPlan }, ...planItems));
+    statusNodes.push(h('div', { key: 'plan', className: styleMap.codexPlan }, ...planItems));
   }
 
   if (resetCredits.length > 0) {
-    nodes.push(
+    const manualResetAction = renderResetAction('manual-reset-action');
+    if (manualResetAction) manualResetNodes.push(manualResetAction);
+    manualResetNodes.push(
       h(
         'div',
         { key: 'reset-credit-expiries', className: styleMap.codexResetCredits },
@@ -1157,7 +1166,9 @@ const renderCodexItems = (
       )
     );
   } else if (resetCreditsError) {
-    nodes.push(
+    const manualResetAction = renderResetAction('manual-reset-action');
+    if (manualResetAction) manualResetNodes.push(manualResetAction);
+    manualResetNodes.push(
       h(
         'div',
         { key: 'reset-credit-expiry-error', className: styleMap.codexResetCreditsError },
@@ -1167,11 +1178,11 @@ const renderCodexItems = (
   }
 
   if (windows.length === 0) {
-    nodes.push(
+    statusNodes.push(
       h('div', { key: 'empty', className: styleMap.quotaMessage }, t('codex_quota.empty_windows'))
     );
   } else {
-    nodes.push(
+    statusNodes.push(
       ...windows.map((window) => {
         const used = window.usedPercent;
         const clampedUsed = used === null ? null : Math.max(0, Math.min(100, used));
@@ -1201,13 +1212,42 @@ const renderCodexItems = (
     );
   }
 
-  if (resetQuotaAction) {
-    nodes.push(
-      h('div', { key: 'status-reset-action', className: styleMap.quotaCardActionRow }, resetQuotaAction)
-    );
+  const statusResetAction = renderResetAction('status-reset-action');
+  if (statusResetAction) statusNodes.push(statusResetAction);
+
+  if (!hasManualResetTab) {
+    return h(Fragment, null, ...statusNodes);
   }
 
-  return h(Fragment, null, ...nodes);
+  const manualResetCount = resetCreditsCount ?? (resetCredits.length > 0 ? resetCredits.length : null);
+
+  return h(
+    Tabs,
+    { defaultValue: 'status', className: styleMap.quotaCardTabs },
+    h(
+      TabsList,
+      { className: styleMap.quotaCardTabsList },
+      h(TabsTrigger, { value: 'status', className: styleMap.quotaCardTabsTrigger }, t('codex_quota.status_tab')),
+      h(
+        TabsTrigger,
+        { value: 'manual-resets', className: styleMap.quotaCardTabsTrigger },
+        t('codex_quota.manual_resets_tab'),
+        manualResetCount !== null
+          ? h('span', { className: styleMap.tabCountBadge }, manualResetCount.toString())
+          : null
+      )
+    ),
+    h(
+      TabsContent,
+      { value: 'status', className: styleMap.quotaCardTabsContent },
+      ...statusNodes
+    ),
+    h(
+      TabsContent,
+      { value: 'manual-resets', className: styleMap.quotaCardTabsContent },
+      ...manualResetNodes
+    )
+  );
 };
 
 const renderGeminiCliItems = (

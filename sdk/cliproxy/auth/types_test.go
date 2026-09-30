@@ -279,3 +279,29 @@ func TestRecentRequestsSnapshotBucketAdvanceMovesCounts(t *testing.T) {
 		t.Fatalf("newest bucket = success=%d failed=%d, want 0/1", newest.Success, newest.Failed)
 	}
 }
+func TestAuthClone_EmptyMapsIsolation(t *testing.T) {
+	orig := &Auth{
+		Attributes:  map[string]string{},
+		Metadata:    map[string]any{},
+		ModelStates: map[string]*ModelState{},
+	}
+
+	cloned := orig.Clone()
+	if cloned == nil {
+		t.Fatal("Clone() returned nil")
+	}
+
+	cloned.Attributes["test"] = "val"
+	cloned.Metadata["test"] = 123
+	cloned.ModelStates["test"] = &ModelState{}
+
+	if len(orig.Attributes) != 0 {
+		t.Errorf("orig.Attributes modified, len = %d", len(orig.Attributes))
+	}
+	if len(orig.Metadata) != 0 {
+		t.Errorf("orig.Metadata modified, len = %d", len(orig.Metadata))
+	}
+	if len(orig.ModelStates) != 0 {
+		t.Errorf("orig.ModelStates modified, len = %d", len(orig.ModelStates))
+	}
+}

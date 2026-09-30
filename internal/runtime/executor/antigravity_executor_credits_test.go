@@ -17,6 +17,22 @@ import (
 )
 
 func resetAntigravityCreditsRetryState() {
+	// Finish optional background credits work before clearing the maps so a task
+	// cannot publish into the next test's transport.
+	antigravityCreditsHintRefreshByID.Range(func(_, value any) bool {
+		if state, ok := value.(*antigravityCreditsHintRefreshState); ok && state != nil {
+			state.mu.Lock()
+			task := state.task
+			state.mu.Unlock()
+			if task != nil {
+				select {
+				case <-task.done:
+				case <-time.After(5 * time.Second):
+				}
+			}
+		}
+		return true
+	})
 	// Clear the maps in place instead of reassigning the package-level variables:
 	// a background credits-refresh goroutine may still hold a reference to the old
 	// map when this runs as t.Cleanup, and reassigning races with its access.

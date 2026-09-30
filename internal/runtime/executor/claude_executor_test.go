@@ -2879,3 +2879,128 @@ func TestClaudeHistoryHasAdvisorCallOrResult(t *testing.T) {
 		})
 	}
 }
+func TestRemapOAuthToolNames_MidConversationToolChanges(t *testing.T) {
+	const tools = `[` +
+		`{"name":"read_file","description":"Read a file","input_schema":{"type":"object","properties":{}}},` +
+		`{"name":"lookup_notes","description":"Look up notes","input_schema":{"type":"object","properties":{}},"defer_loading":true},` +
+		`{"type":"web_search_20250305","name":"web_search"},` +
+		`{"name":"mcp__context7__query-docs","input_schema":{"type":"object"}}` +
+		`]`
+
+	type nameCheck struct {
+		path     string
+		original string
+		aliased  bool
+	}
+	tests := []struct {
+		name     string
+		messages string
+		checks   []nameCheck
+	}{
+		{
+			name:     "tool_addition reference to declared tool",
+			messages: `[{"role":"user","content":"Reply with exactly: ok"},{"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_reference","name":"lookup_notes"}}]}]`,
+			checks:   []nameCheck{{path: "messages.1.content.0.tool.name", original: "lookup_notes", aliased: true}},
+		},
+		{
+			name:     "tool_removal reference to declared tool",
+			messages: `[{"role":"user","content":"hi"},{"role":"system","content":[{"type":"tool_removal","tool":{"type":"tool_reference","name":"read_file"}}]}]`,
+			checks:   []nameCheck{{path: "messages.1.content.0.tool.name", original: "read_file", aliased: true}},
+		},
+		{
+			name:     "mixed with text and tool_use history",
+			messages: `[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]},{"role":"system","content":[{"type":"text","text":"Tools changed."},{"type":"tool_removal","tool":{"type":"tool_reference","name":"read_file"}},{"type":"tool_addition","tool":{"type":"tool_reference","name":"lookup_notes"}}]}]`,
+			checks: []nameCheck{
+				{path: "messages.1.content.0.name", original: "read_file", aliased: true},
+				{path: "messages.3.content.0.text", original: "Tools changed."},
+				{path: "messages.3.content.1.tool.name", original: "read_file", aliased: true},
+				{path: "messages.3.content.2.tool.name", original: "lookup_notes", aliased: true},
+			},
+		},
+		{
+			name:     "undeclared server and caller MCP names unchanged",
+			messages: `[{"role":"user","content":"hi"},{"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_reference","name":"Bash"}},{"type":"tool_addition","tool":{"type":"tool_reference","name":"web_search"}},{"type":"tool_removal","tool":{"type":"tool_reference","name":"mcp__context7__query-docs"}}]}]`,
+			checks: []nameCheck{
+				{path: "messages.1.content.0.tool.name", original: "Bash"},
+				{path: "messages.1.content.1.tool.name", original: "web_search"},
+				{path: "messages.1.content.2.tool.name", original: "mcp__context7__query-docs"},
+			},
+		},
+		{
+			name:     "MCP connector references unchanged",
+			messages: `[{"role":"user","content":"hi"},{"role":"system","content":[{"type":"tool_addition","tool":{"type":"mcp_tool_reference","server_name":"docs","name":"read_file"}},{"type":"tool_removal","tool":{"type":"mcp_toolset_reference","server_name":"read_file"}}]}]`,
+			checks: []nameCheck{
+				{path: "messages.1.content.0.tool.name", original: "read_file"},
+				{path: "messages.1.content.1.tool.server_name", original: "read_file"},
+			},
+		},
+		{
+			name:     "inline definition redefining declared tool",
+			messages: `[{"role":"user","content":"hi"},{"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_definition","definition":{"name":"lookup_notes","description":"v2","input_schema":{"type":"object"}}}}]}]`,
+			checks:   []nameCheck{{path: "messages.1.content.0.tool.definition.name", original: "lookup_notes", aliased: true}},
+		},
+		{
+			name:     "inline definitions of undeclared or server tools unchanged",
+			messages: `[{"role":"user","content":"hi"},{"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_definition","definition":{"name":"db_query","input_schema":{"type":"object"}}}},{"type":"tool_addition","tool":{"type":"tool_definition","definition":{"type":"web_search_20260209","name":"read_file"}}},{"type":"tool_addition","tool":{"type":"tool_definition","definition":{"type":"mcp_toolset","mcp_server_name":"calendar"}}}]}]`,
+			checks: []nameCheck{
+				{path: "messages.1.content.0.tool.definition.name", original: "db_query"},
+				{path: "messages.1.content.1.tool.definition.name", original: "read_file"},
+				{path: "messages.1.content.2.tool.definition.mcp_server_name", original: "calendar"},
+			},
+		},
+		{
+			name:     "malformed tool changes ignored",
+			messages: `[{"role":"user","content":"hi"},{"role":"system","content":[{"type":"tool_addition"},{"type":"tool_addition","tool":"lookup_notes"},{"type":"tool_addition","tool":{"name":"lookup_notes"}},{"type":"tool_addition","tool":{"type":"tool_reference","tool_name":"lookup_notes"}},{"type":"tool_removal","tool":{"type":"tool_definition","definition":{"name":"lookup_notes"}}},{"type":"tool_addition","tool":{"type":"tool_reference","name":""}}]}]`,
+			checks: []nameCheck{
+				{path: "messages.1.content.1.tool", original: "lookup_notes"},
+				{path: "messages.1.content.2.tool.name", original: "lookup_notes"},
+				{path: "messages.1.content.3.tool.tool_name", original: "lookup_notes"},
+				{path: "messages.1.content.4.tool.definition.name", original: "lookup_notes"},
+				{path: "messages.1.content.5.tool.name", original: ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{"model":"claude-opus-5-5","max_tokens":64,"tools":` + tools + `,"messages":` + test.messages + `}`)
+			remappedBody, reverseMap := remapOAuthToolNames(body, context.Background())
+
+			for _, variant := range []struct {
+				name       string
+				body       []byte
+				reverseMap map[string]string
+			}{
+				{name: "remap", body: remappedBody, reverseMap: reverseMap},
+			} {
+				declared := make(map[string]string)
+				gjson.GetBytes(variant.body, "tools").ForEach(func(index, tool gjson.Result) bool {
+					original := gjson.Get(tools, fmt.Sprintf("%d.name", index.Int())).String()
+					declared[original] = tool.Get("name").String()
+					return true
+				})
+				for _, check := range test.checks {
+					want := check.original
+					if check.aliased {
+						want = declared[check.original]
+						if want == check.original || !helps.IsClaudeMCPToolName(want) {
+							t.Fatalf("%s: tools[] name for %q = %q, want an MCP alias", variant.name, check.original, want)
+						}
+						if got := variant.reverseMap[want]; got != check.original {
+							t.Fatalf("%s: reverseMap[%q] = %q, want %q", variant.name, want, got, check.original)
+						}
+					}
+					if got := gjson.GetBytes(variant.body, check.path).String(); got != want {
+						t.Fatalf("%s: %s = %q, want %q", variant.name, check.path, got, want)
+					}
+				}
+				if got := gjson.GetBytes(variant.body, "tools.2.name").String(); got != "web_search" {
+					t.Fatalf("%s: server tool name = %q, want web_search", variant.name, got)
+				}
+				if got := gjson.GetBytes(variant.body, "tools.3.name").String(); got != "mcp__context7__query-docs" {
+					t.Fatalf("%s: caller MCP tool name = %q, want unchanged", variant.name, got)
+				}
+			}
+		})
+	}
+}

@@ -1438,7 +1438,9 @@ func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool)
 		if claudeIncludePerTurnTiming(body, requested) {
 			betas = append(betas, claudePerTurnTimingBeta)
 		}
-		betas = append(betas, claudeMidConvToolChangesBeta)
+		if !isClaudeSonnet5Model(gjson.GetBytes(body, "model").String()) {
+			betas = append(betas, claudeMidConvToolChangesBeta)
+		}
 		if claudeIncludeInlineTools(body, requested) {
 			betas = append(betas, claudeInlineToolsBeta)
 		}
@@ -1580,15 +1582,23 @@ func isClaudeOpus55Model(model string) bool {
 	return model == "claude-opus-5-5" || strings.HasPrefix(model, "claude-opus-5-5[")
 }
 
+func isClaudeSonnet55Model(model string) bool {
+	model = claudeCanonicalModel(model)
+	return model == "claude-sonnet-5-5" || strings.HasPrefix(model, "claude-sonnet-5-5-") || strings.HasPrefix(model, "claude-sonnet-5-5[")
+}
+
 func isClaudeSonnet5Model(model string) bool {
 	model = claudeCanonicalModel(model)
+	if isClaudeSonnet55Model(model) {
+		return false
+	}
 	return model == "claude-sonnet-5" || strings.HasPrefix(model, "claude-sonnet-5-") || strings.HasPrefix(model, "claude-sonnet-5[")
 }
 
 // claudeModelUsesProgressDisplay reports the 2.1.280 interactive CLI models that
 // send thinking.display=updates unless the caller already chose a display mode.
 func claudeModelUsesProgressDisplay(model string) bool {
-	return isClaudeOpus55Model(model) || isClaudeFable51Model(model) || isClaudeSonnet5Model(model)
+	return isClaudeOpus55Model(model) || isClaudeFable51Model(model) || isClaudeSonnet5Model(model) || isClaudeSonnet55Model(model)
 }
 
 // applyClaudeCloakThinkingDisplay fills the latest CLI display only when the
@@ -2386,6 +2396,15 @@ func remapOAuthToolNames(body []byte, ctx context.Context) ([]byte, map[string]s
 						body, _ = sjson.SetBytes(body, path, newName)
 						recordRename(toolName, newName)
 					}
+				case "tool_addition", "tool_removal":
+					if namePath := claudeToolChangeNamePath(part); namePath != "" {
+						changeToolName := part.Get(namePath).String()
+						if newName, ok := renameRef(changeToolName); ok {
+							changePath := fmt.Sprintf("messages.%d.content.%d.%s", msgIndex.Int(), contentIndex.Int(), namePath)
+							body, _ = sjson.SetBytes(body, changePath, newName)
+							recordRename(changeToolName, newName)
+						}
+					}
 				case "tool_result":
 					// Handle nested tool_reference blocks inside tool_result.content[]
 					toolID := part.Get("tool_use_id").String()
@@ -2528,6 +2547,28 @@ func recordPassthroughMCPTools(recordRename func(original, renamed string), forw
 	for _, name := range passthrough {
 		recordRename(name, name)
 	}
+}
+
+// claudeToolChangeNamePath returns the path, relative to a mid-conversation
+// tool_addition or tool_removal block, of the tool name that must carry the
+// same MCP alias as tools[]. A tool_reference names a tool declared in tools[];
+// upstream rejects a reference to an undeclared name. A tool_addition can
+// instead carry a tool_definition (inline-tools-2026-09-15) whose definition is
+// a tools[] entry; redefining a declared custom tool replaces it only under the
+// same upstream name. Server tool definitions and MCP connector references keep
+// their names, matching the tools[] rewrite.
+// Ported from upstream CLIProxyAPI commit 958eeca7.
+func claudeToolChangeNamePath(part gjson.Result) string {
+	switch part.Get("tool.type").String() {
+	case "tool_reference":
+		return "tool.name"
+	case "tool_definition":
+		if part.Get("type").String() != "tool_addition" || helps.IsClaudeServerToolType(part.Get("tool.definition.type").String()) {
+			return ""
+		}
+		return "tool.definition.name"
+	}
+	return ""
 }
 
 func (resolver claudeMCPAliasResolver) resolve(name string) (string, bool, error) {

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/util"
-	log "github.com/sirupsen/logrus"
 )
 
 // OAuth configuration constants for OpenAI Codex
@@ -156,9 +156,11 @@ func (o *CodexAuth) ExchangeCodeForTokensWithRedirect(ctx context.Context, code,
 
 	accountID := ""
 	email := ""
+	planType := DefaultPlanType
 	if claims != nil {
 		accountID = claims.GetAccountID()
 		email = claims.GetUserEmail()
+		planType = claims.GetPlanType()
 	}
 
 	// Create token data
@@ -168,6 +170,7 @@ func (o *CodexAuth) ExchangeCodeForTokensWithRedirect(ctx context.Context, code,
 		RefreshToken: tokenResp.RefreshToken,
 		AccountID:    accountID,
 		Email:        email,
+		PlanType:     planType,
 		Expire:       time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339),
 	}
 
@@ -240,9 +243,11 @@ func (o *CodexAuth) RefreshTokens(ctx context.Context, refreshToken string) (*Co
 
 	accountID := ""
 	email := ""
+	planType := DefaultPlanType
 	if claims != nil {
 		accountID = claims.GetAccountID()
 		email = claims.Email
+		planType = claims.GetPlanType()
 	}
 
 	return &CodexTokenData{
@@ -251,6 +256,7 @@ func (o *CodexAuth) RefreshTokens(ctx context.Context, refreshToken string) (*Co
 		RefreshToken: tokenResp.RefreshToken,
 		AccountID:    accountID,
 		Email:        email,
+		PlanType:     planType,
 		Expire:       time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339),
 	}, nil
 }
@@ -258,6 +264,10 @@ func (o *CodexAuth) RefreshTokens(ctx context.Context, refreshToken string) (*Co
 // CreateTokenStorage creates a new CodexTokenStorage from a CodexAuthBundle.
 // It populates the storage struct with token data, user information, and timestamps.
 func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStorage {
+	planType := DefaultPlanType
+	if bundle != nil && strings.TrimSpace(bundle.TokenData.PlanType) != "" {
+		planType = strings.TrimSpace(bundle.TokenData.PlanType)
+	}
 	storage := &CodexTokenStorage{
 		IDToken:      bundle.TokenData.IDToken,
 		AccessToken:  bundle.TokenData.AccessToken,
@@ -265,6 +275,7 @@ func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStora
 		AccountID:    bundle.TokenData.AccountID,
 		LastRefresh:  bundle.LastRefresh,
 		Email:        bundle.TokenData.Email,
+		PlanType:     planType,
 		Expire:       bundle.TokenData.Expire,
 	}
 

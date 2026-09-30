@@ -100,7 +100,7 @@ func (m *Manager) executeHome(ctx context.Context, req cliproxyexecutor.Request,
 			// uses the dispatched definition (upstream 6ff680e90ab5). The bound
 			// API-key/OAuth info above lets a legacy dispatch inherit the local
 			// capability flag for the same model.
-			execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo, selection.configurationUpdateSupport)
+			execReq = attachResolvedHomeModelInfo(execReq, auth, routeModel, selection.modelInfo, selection.configurationUpdateSupport)
 		}
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection
@@ -249,7 +249,7 @@ func (m *Manager) executeHomeStream(ctx context.Context, req cliproxyexecutor.Re
 			// uses the dispatched definition (upstream 6ff680e90ab5). The bound
 			// API-key/OAuth info above lets a legacy dispatch inherit the local
 			// capability flag for the same model.
-			execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo, selection.configurationUpdateSupport)
+			execReq = attachResolvedHomeModelInfo(execReq, auth, routeModel, selection.modelInfo, selection.configurationUpdateSupport)
 		}
 		execOpts := opts
 		execOpts.ExecutionLifecycle = selection

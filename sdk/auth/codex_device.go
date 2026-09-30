@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/auth/codex"
 	"github.com/therealtinhtute/llmhub/internal/browser"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -259,10 +259,15 @@ func (a *CodexAuthenticator) buildAuthRecord(authSvc *codex.CodexAuth, authBundl
 	}
 
 	planType := ""
+	if tokenStorage.PlanType != "" {
+		planType = tokenStorage.PlanType
+	}
 	hashAccountID := ""
 	if tokenStorage.IDToken != "" {
 		if claims, errParse := codex.ParseJWTToken(tokenStorage.IDToken); errParse == nil && claims != nil {
-			planType = strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType)
+			if pt := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); pt != "" {
+				planType = pt
+			}
 			accountID := strings.TrimSpace(claims.CodexAuthInfo.ChatgptAccountID)
 			if accountID != "" {
 				digest := sha256.Sum256([]byte(accountID))
@@ -271,9 +276,15 @@ func (a *CodexAuthenticator) buildAuthRecord(authSvc *codex.CodexAuth, authBundl
 		}
 	}
 
+	if planType == "" {
+		planType = codex.DefaultPlanType
+	}
+	tokenStorage.PlanType = planType
+
 	fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, true)
 	metadata := map[string]any{
-		"email": tokenStorage.Email,
+		"email":     tokenStorage.Email,
+		"plan_type": planType,
 	}
 
 	fmt.Println("Codex authentication successful")

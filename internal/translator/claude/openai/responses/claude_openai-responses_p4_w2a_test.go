@@ -97,11 +97,15 @@ func TestClaudeP4_TrailingToolUsePreservedForRejectingModels(t *testing.T) {
 	}`)
 	out := ConvertOpenAIResponsesRequestToClaude("claude-opus-5", raw, false)
 	msgs := gjson.GetBytes(out, "messages").Array()
-	if len(msgs) != 2 {
-		t.Fatalf("messages = %d, want 2 preserving tool_use: %s", len(msgs), out)
+	if len(msgs) != 3 {
+		t.Fatalf("messages = %d, want 3 (tool_use + synthesized error tool_result): %s", len(msgs), out)
 	}
 	content := msgs[1].Get("content").Array()
 	if len(content) != 1 || content[0].Get("type").String() != "tool_use" {
 		t.Fatalf("trailing tool_use lost: %s", out)
+	}
+	stub := msgs[2].Get("content.0")
+	if stub.Get("type").String() != "tool_result" || stub.Get("tool_use_id").String() != "call_9" {
+		t.Fatalf("synthesized error tool_result stub missing: %s", out)
 	}
 }

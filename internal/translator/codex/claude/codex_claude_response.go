@@ -943,28 +943,3 @@ func finalizeCodexThinkingBlock(params *ConvertCodexResponseToClaudeParams) []by
 
 	return output
 }
-
-func setClaudeReasoningUsage(out []byte, usage gjson.Result) []byte {
-	detail := usage.Get("output_tokens_details.reasoning_tokens")
-	if !detail.Exists() || detail.Type != gjson.Number {
-		return out
-	}
-	if strings.HasPrefix(strings.TrimSpace(detail.Raw), "-") || detail.Num < 0 {
-		return out
-	}
-	outputTokens := usage.Get("output_tokens").Int()
-	if outputTokens < 0 {
-		outputTokens = 0
-	}
-	var tokens int64
-	if detail.Num >= float64(outputTokens) {
-		tokens = outputTokens
-	} else {
-		tokens = detail.Int()
-	}
-	updated, errSetBytes := sjson.SetBytes(out, "usage.output_tokens_details.thinking_tokens", tokens)
-	if errSetBytes != nil {
-		return out
-	}
-	return updated
-}

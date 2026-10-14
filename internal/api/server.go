@@ -1632,6 +1632,12 @@ func (s *Server) applyAccessConfig(oldCfg, newCfg *config.Config) {
 //   - clients: The new slice of AI service clients
 //   - cfg: The new application configuration
 func (s *Server) UpdateClients(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	// Own an isolated snapshot: the caller (service bootstrap, tests) may
+	// keep mutating or replacing its reference while requests are served.
+	cfg = cfg.CloneForRuntime()
 	// Reconstruct old config from YAML snapshot to avoid reference sharing issues
 	var oldCfg *config.Config
 	if len(s.oldConfigYaml) > 0 {

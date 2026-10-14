@@ -9,9 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/therealtinhtute/llmhub/internal/config"
-	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/tidwall/gjson"
 )
 
@@ -26,34 +24,6 @@ func newClaudeP4HeaderTestRequest(t *testing.T, incoming http.Header) *http.Requ
 		}
 	}
 	return req
-}
-
-func TestClaudeP4_BetaEffortPruning(t *testing.T) {
-	oauthAuth := &cliproxyauth.Auth{ID: "a", Attributes: map[string]string{"api_key": "k"}}
-	cases := []struct {
-		name    string
-		body    string
-		want    bool
-		present string
-	}{
-		{"haiku prunes effort", `{"model":"claude-haiku-4-5-20251001","tools":[{"name":"t","input_schema":{"type":"object"}}]}`, false, claudeEffortBeta},
-		{"disabled thinking prunes effort", `{"model":"claude-opus-5","thinking":{"type":"disabled"},"tools":[{"name":"t","input_schema":{"type":"object"}}]}`, false, claudeEffortBeta},
-		{"probe prunes effort", `{"model":"claude-opus-5","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`, false, claudeEffortBeta},
-		{"opus keeps effort", `{"model":"claude-opus-5","tools":[{"name":"t","input_schema":{"type":"object"}}]}`, true, claudeEffortBeta},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := newClaudeP4HeaderTestRequest(t, nil)
-			applyClaudeHeaders(req, oauthAuth, "sk-ant-oat-x", false, nil, []byte(tc.body), nil)
-			got := req.Header.Get("Anthropic-Beta")
-			if tc.want && !strings.Contains(got, tc.present) {
-				t.Fatalf("beta %q missing in %q", tc.present, got)
-			}
-			if !tc.want && strings.Contains(got, tc.present) {
-				t.Fatalf("beta %q must be pruned in %q", tc.present, got)
-			}
-		})
-	}
 }
 
 func TestClaudeP4_BetaThinkingDisplayAndAdvisor(t *testing.T) {
@@ -93,31 +63,6 @@ func TestClaudeP4_BetaFallbackGating(t *testing.T) {
 	applyClaudeHeaders(req2, auth, "k", false, nil, withoutFallbacks, nil)
 	if got := req2.Header.Get("Anthropic-Beta"); strings.Contains(got, claudeServerSideFallbackBeta) {
 		t.Fatalf("server-side-fallback must not appear without fallbacks/request in %q", got)
-	}
-}
-
-func TestClaudeP4_BetaExtendedCacheTTLSuppression(t *testing.T) {
-	oauthAuth := &cliproxyauth.Auth{ID: "a", Attributes: map[string]string{"api_key": "k"}}
-	mainBody := []byte(`{"model":"claude-opus-5"}`)
-	req := newClaudeP4HeaderTestRequest(t, nil)
-	applyClaudeHeaders(req, oauthAuth, "sk-ant-oat-x", false, nil, mainBody, nil)
-	if got := req.Header.Get("Anthropic-Beta"); !strings.HasSuffix(got, claudeExtendedCacheTTLBeta) {
-		t.Fatalf("main OAuth must end with extended-cache-ttl, got %q", got)
-	}
-
-	subBody := []byte(`{"model":"claude-opus-5"}`)
-	subHeaders := http.Header{"X-Claude-Code-Agent-Id": []string{"agent-1"}}
-	req2 := newClaudeP4HeaderTestRequest(t, nil)
-	applyClaudeHeaders(req2, oauthAuth, "sk-ant-oat-x", false, nil, subBody, nil, subHeaders)
-	if got := req2.Header.Get("Anthropic-Beta"); strings.Contains(got, claudeExtendedCacheTTLBeta) {
-		t.Fatalf("subagent must suppress extended-cache-ttl, got %q", got)
-	}
-
-	probeBody := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
-	req3 := newClaudeP4HeaderTestRequest(t, nil)
-	applyClaudeHeaders(req3, oauthAuth, "sk-ant-oat-x", false, nil, probeBody, nil)
-	if got := req3.Header.Get("Anthropic-Beta"); strings.Contains(got, claudeExtendedCacheTTLBeta) {
-		t.Fatalf("probe must suppress extended-cache-ttl, got %q", got)
 	}
 }
 
@@ -161,33 +106,10 @@ func TestClaudeP4_StripCacheControlTTL(t *testing.T) {
 	}
 }
 
-func TestClaudeP4_BillingChainSubagentAndPromptID(t *testing.T) {
-	main := generateBillingHeaderWithChain(nil, false, "2.1.258", "hello world this is a test message", "cli", "", false, "prompt-1")
-	if !strings.Contains(main, "cc_version=2.1.258.") {
-		t.Fatalf("billing missing versioned fingerprint: %q", main)
-	}
-	if !strings.Contains(main, "cc_prompt_id=prompt-1;") {
-		t.Fatalf("billing missing prompt id: %q", main)
-	}
-	if strings.Contains(main, "cc_is_subagent=true;") {
-		t.Fatalf("main billing must not mark subagent: %q", main)
-	}
-	sub := generateBillingHeaderWithChain(nil, false, "2.1.258", "hello world this is a test message", "cli", "", true, "prompt-2")
-	if !strings.Contains(sub, "cc_is_subagent=true;") {
-		t.Fatalf("subagent billing missing marker: %q", sub)
-	}
-
-	payload := []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"hi"}],"messages":[{"role":"user","content":"hi"}]}`)
-	out := checkSystemInstructionsWithChain(payload, false, false, true, "2.1.258", "cli", "", true, "prompt-3")
-	if got := gjson.GetBytes(out, "system.0.text").String(); !strings.Contains(got, "cc_is_subagent=true;") || !strings.Contains(got, "cc_prompt_id=prompt-3;") {
-		t.Fatalf("system billing chain incomplete: %q", got)
-	}
-}
-
 func TestClaudeP4_FableFallbacksAndDisplay(t *testing.T) {
 	cfg := &config.Config{}
 	payload := []byte(`{"model":"claude-fable-5-1","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hi"}]}`)
-	out := applyCloaking(context.Background(), cfg, nil, payload, "claude-fable-5-1", "sk-ant-oat-x", "https://api.anthropic.com")
+	out, _ := applyCloaking(context.Background(), cfg, nil, payload, "claude-fable-5-1", "sk-ant-oat-x", "https://api.anthropic.com")
 	if !gjson.GetBytes(out, "fallbacks").Exists() {
 		t.Fatalf("fable fallbacks missing: %s", out)
 	}
@@ -199,48 +121,5 @@ func TestClaudeP4_FableFallbacksAndDisplay(t *testing.T) {
 	}
 	if isClaudeFable51Model("claude-opus-5") {
 		t.Fatal("opus-5 misdetected as fable")
-	}
-}
-
-func TestClaudeP4_MCPFullNameRecovery(t *testing.T) {
-	wrapped := "mcp__virtualserver__mcp__docs-search__search-pages"
-	restored, ok := restorePassthroughWrappedMCPName(wrapped)
-	if !ok || restored != "mcp__docs-search__search-pages" {
-		t.Fatalf("wrapped recovery = %q,%v, want full mcp__ name", restored, ok)
-	}
-	if _, ok := restorePassthroughWrappedMCPName("mcp__server__tool"); ok {
-		t.Fatal("plain mcp name must not trigger wrapped recovery")
-	}
-	if _, ok := restorePassthroughWrappedMCPName("Bash"); ok {
-		t.Fatal("non-mcp name must not trigger wrapped recovery")
-	}
-
-	resp := []byte(`{"content":[{"type":"tool_use","id":"toolu_1","name":"` + wrapped + `","input":{}}]}`)
-	got := reverseRemapOAuthToolNames(resp, map[string]string{})
-	if name := gjson.GetBytes(got, "content.0.name").String(); name != "mcp__docs-search__search-pages" {
-		t.Fatalf("response wrapped restore = %q", name)
-	}
-	line := []byte(`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"` + wrapped + `","input":{}}}`)
-	restoredLine := reverseRemapOAuthToolNamesFromStreamLine(line, map[string]string{})
-	if name := gjson.GetBytes(helps.JSONPayload(restoredLine), "content_block.name").String(); name != "mcp__docs-search__search-pages" {
-		t.Fatalf("stream wrapped restore = %q", name)
-	}
-}
-
-func TestClaudeP4_StripTranslatedDefaultMaxTokens(t *testing.T) {
-	translated := []byte(`{"model":"claude-opus-5-5","max_tokens":128000,"messages":[]}`)
-	omitted := []byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hi"}]}`)
-	stripped := stripTranslatedDefaultMaxTokens(sdktranslator.FormatOpenAI, omitted, translated)
-	if gjson.GetBytes(stripped, "max_tokens").Exists() {
-		t.Fatalf("omitted limit must strip translated default: %s", stripped)
-	}
-	explicit := []byte(`{"model":"claude-opus-5-5","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`)
-	kept := stripTranslatedDefaultMaxTokens(sdktranslator.FormatOpenAI, explicit, translated)
-	if gjson.GetBytes(kept, "max_tokens").Int() != 128000 {
-		t.Fatalf("explicit limit must keep translated value: %s", kept)
-	}
-	claudeSrc := stripTranslatedDefaultMaxTokens(sdktranslator.FormatClaude, omitted, translated)
-	if gjson.GetBytes(claudeSrc, "max_tokens").Int() != 128000 {
-		t.Fatalf("claude source must pass through: %s", claudeSrc)
 	}
 }

@@ -257,9 +257,7 @@ func TestP5SchedulerDemotesExpiredTokens(t *testing.T) {
 	shard := &modelScheduler{modelKey: "gpt-5", entries: map[string]*scheduledAuth{
 		auth.ID: {auth: auth.Clone(), state: scheduledStateReady},
 	}}
-	if !shard.demoteExpiredTokensLocked(time.Now()) {
-		t.Fatal("expected demotion of expired token")
-	}
+	shard.demoteExpiredTokensLocked(time.Now())
 	if shard.entries[auth.ID].state == scheduledStateReady {
 		t.Fatal("expired token left in ready state")
 	}

@@ -158,27 +158,6 @@ func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 	return common.AttachDefaultSafetySettings(rawJSON, "request.safetySettings")
 }
 
-// normalizeGeminiGenerationConfigResponseSchema converts generationConfig.responseJsonSchema
-// (and snake_case response_json_schema) to generationConfig.responseSchema for Antigravity compatibility.
-func normalizeGeminiGenerationConfigResponseSchema(rawJSON []byte) []byte {
-	for _, container := range []string{"request.generationConfig", "request.generation_config"} {
-		if !util.GetGJSONBytesNoCopy(rawJSON, container).Exists() {
-			continue
-		}
-		for _, schemaKey := range []string{"responseJsonSchema", "response_json_schema"} {
-			oldPath := container + "." + schemaKey
-			if schema := util.GetGJSONBytesNoCopy(rawJSON, oldPath); schema.Exists() {
-				targetPath := container + ".responseSchema"
-				if !util.GetGJSONBytesNoCopy(rawJSON, targetPath).Exists() {
-					rawJSON, _ = sjson.SetRawBytes(rawJSON, targetPath, []byte(schema.Raw))
-				}
-				rawJSON, _ = sjson.DeleteBytes(rawJSON, oldPath)
-			}
-		}
-	}
-	return rawJSON
-}
-
 // geminiContentRolesNeedNormalization reports whether any content role is missing
 // or invalid and therefore requires rebuilding the contents array.
 func geminiContentRolesNeedNormalization(contents gjson.Result) bool {

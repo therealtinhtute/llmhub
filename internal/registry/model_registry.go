@@ -84,10 +84,6 @@ type ModelInfo struct {
 	// SupportConfigurationUpdate reports internal support for configuration_update.
 	SupportConfigurationUpdate bool `json:"-"`
 
-	// NativeCapabilities contains internal, static per-model capability metadata.
-	// It is intentionally separate from Antigravity's dynamically probed capability.
-	NativeCapabilities *NativeCapabilities `json:"-"`
-
 	// Thinking holds provider-specific reasoning/thinking budget capabilities.
 	// This is optional and currently used for Gemini thinking budget normalization.
 	Thinking *ThinkingSupport `json:"thinking,omitempty"`
@@ -118,21 +114,6 @@ func (m *ModelInfo) UnmarshalJSON(data []byte) error {
 	}
 	m.NativeCapabilities = aux.NativeCapabilities
 	m.SupportConfigurationUpdate = aux.SupportConfigurationUpdate
-	return nil
-}
-
-// UnmarshalJSON loads internal capability metadata without exposing it
-// through ModelInfo's normal JSON serialization.
-func (m *ModelInfo) UnmarshalJSON(data []byte) error {
-	type modelInfoAlias ModelInfo
-	aux := struct {
-		*modelInfoAlias
-		NativeCapabilities *NativeCapabilities `json:"native_capabilities"`
-	}{modelInfoAlias: (*modelInfoAlias)(m)}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	m.NativeCapabilities = aux.NativeCapabilities
 	return nil
 }
 

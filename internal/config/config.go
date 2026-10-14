@@ -242,6 +242,25 @@ type Config struct {
 	legacyMigrationPending bool `yaml:"-" json:"-"`
 }
 
+// CodexMultiAgentV2Enabled reports whether Codex multi-agent v2 optimization is
+// enabled via either the additive client.codex section (upstream 63c04b4bd4)
+// or the legacy flat codex-optimize-multi-agent-v2 field, which keeps working.
+func (cfg *Config) CodexMultiAgentV2Enabled() bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.CodexOptimizeMultiAgentV2 || cfg.Client.Codex.OptimizeMultiAgentV2
+}
+
+// CodexApplyPatchEnabled reports whether freeform apply_patch advertisement is
+// enabled via the additive client.codex section (upstream 63c04b4bd4).
+func (cfg *Config) CodexApplyPatchEnabled() bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.Client.Codex.EnableApplyPatch
+}
+
 // ClaudeHeaderDefaults configures default header values injected into Claude API requests.
 // In legacy mode, UserAgent/PackageVersion/RuntimeVersion/Timeout act as fallbacks when
 // the client omits them, while OS/Arch remain runtime-derived. When stabilized device

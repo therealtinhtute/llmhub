@@ -1,6 +1,10 @@
 package helps
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -17,7 +21,10 @@ import (
 )
 
 // utlsRoundTripper implements http.RoundTripper using utls with Chrome fingerprint
-// to bypass Cloudflare's TLS fingerprinting on Anthropic domains.
+// to bypass Cloudflare's TLS fingerprinting on Anthropic domains. The HTTP
+// version follows the negotiated ALPN protocol: HTTP/2 connections are pooled
+// per host, while HTTP/1.1 (including empty ALPN behind TLS-inspecting
+// proxies) is served on single-use transports over the handshaken connection.
 type utlsRoundTripper struct {
 	mu          sync.Mutex
 	connections map[string]*http2.ClientConn
@@ -26,6 +33,8 @@ type utlsRoundTripper struct {
 	// sessionCache is scoped to this round tripper, which is already keyed by
 	// proxy, so resumption never crosses proxy boundaries.
 	sessionCache tls.ClientSessionCache
+	// dialTLS overrides the dial-plus-handshake step in tests.
+	dialTLS func(host, addr string) (*tls.UConn, error)
 }
 
 // claudeCodeSessionCacheCapacity bounds the per-transport TLS session cache for
@@ -102,6 +111,37 @@ func (t *utlsRoundTripper) getOrCreateConnection(host, addr string) (*http2.Clie
 }
 
 func (t *utlsRoundTripper) createConnection(host, addr string) (*http2.ClientConn, error) {
+	tlsConn, err := t.dialUtlsConnection(host, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	switch protocol := tlsConn.ConnectionState().NegotiatedProtocol; protocol {
+	case "h2":
+		tr := &http2.Transport{}
+		h2Conn, err := tr.NewClientConn(tlsConn)
+		if err != nil {
+			tlsConn.Close()
+			return nil, err
+		}
+		return h2Conn, nil
+	case "", "http/1.1":
+		// Empty ALPN means HTTP/1.1, including when a TLS-inspecting proxy
+		// omits ALPN. Hand the live connection back through the fallback
+		// error so RoundTrip serves exactly one request on it instead of
+		// pooling it as HTTP/2.
+		return nil, &http1FallbackConn{conn: tlsConn}
+	default:
+		tlsConn.Close()
+		return nil, fmt.Errorf("utls: unsupported negotiated protocol %q", protocol)
+	}
+}
+
+// dialUtlsConnection dials upstream and completes the uTLS handshake.
+func (t *utlsRoundTripper) dialUtlsConnection(host, addr string) (*tls.UConn, error) {
+	if t.dialTLS != nil {
+		return t.dialTLS(host, addr)
+	}
 	conn, err := t.dialer.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -115,14 +155,18 @@ func (t *utlsRoundTripper) createConnection(host, addr string) (*http2.ClientCon
 		return nil, err
 	}
 
-	tr := &http2.Transport{}
-	h2Conn, err := tr.NewClientConn(tlsConn)
-	if err != nil {
-		tlsConn.Close()
-		return nil, err
-	}
+	return tlsConn, nil
+}
 
-	return h2Conn, nil
+// http1FallbackConn reports a successful TLS handshake whose ALPN negotiation
+// selected HTTP/1.1. It carries the live connection so the caller can serve
+// one request on it without redialing; HTTP/1.1 connections are never pooled.
+type http1FallbackConn struct {
+	conn *tls.UConn
+}
+
+func (e *http1FallbackConn) Error() string {
+	return "utls: negotiated HTTP/1.1, use single-use fallback transport"
 }
 
 func (t *utlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -135,7 +179,11 @@ func (t *utlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	h2Conn, err := t.getOrCreateConnection(hostname, addr)
 	if err != nil {
-		return nil, err
+		var fallback *http1FallbackConn
+		if !errors.As(err, &fallback) || fallback.conn == nil {
+			return nil, err
+		}
+		return roundTripSingleUseHTTP1(req, fallback.conn)
 	}
 
 	resp, err := h2Conn.RoundTrip(req)
@@ -149,6 +197,73 @@ func (t *utlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	return resp, nil
+}
+
+// roundTripSingleUseHTTP1 serves one request over an already-handshaken uTLS
+// connection whose ALPN selected HTTP/1.1. A fresh non-pooling transport
+// retains net/http's cancellation and request-body handling without changing
+// the TLS fingerprint or redialing through another path.
+func roundTripSingleUseHTTP1(req *http.Request, tlsConn *tls.UConn) (*http.Response, error) {
+	transport := &http.Transport{
+		DisableKeepAlives: true,
+		DialTLSContext: func(context.Context, string, string) (net.Conn, error) {
+			return tlsConn, nil
+		},
+	}
+	resp, err := transport.RoundTrip(req)
+	transport.CloseIdleConnections()
+	if err != nil {
+		closeUtlsConn(tlsConn)
+		return nil, err
+	}
+	if resp == nil {
+		closeUtlsConn(tlsConn)
+		return nil, fmt.Errorf("utls: upstream returned an empty response")
+	}
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+	}
+	resp.Body = &closeConnBody{
+		ReadCloser: resp.Body,
+		closeConn:  func() error { return closeUtlsConn(tlsConn) },
+	}
+	return resp, nil
+}
+
+// closeUtlsConn tolerates an already-closed connection: the HTTP/1.1
+// transport may have closed its non-pooled connection after reading the
+// response or canceling the request.
+func closeUtlsConn(tlsConn *tls.UConn) error {
+	if err := tlsConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return nil
+}
+
+// closeConnBody closes the response body and then the underlying connection.
+type closeConnBody struct {
+	io.ReadCloser
+	closeConn func() error
+	once      sync.Once
+	err       error
+}
+
+func (b *closeConnBody) Close() error {
+	if b == nil {
+		return nil
+	}
+	b.once.Do(func() {
+		var errBody error
+		if b.ReadCloser != nil {
+			errBody = b.ReadCloser.Close()
+		}
+		var errConn error
+		if b.closeConn != nil {
+			errConn = b.closeConn()
+		}
+		b.err = errors.Join(errBody, errConn)
+	})
+	return b.err
 }
 
 // anthropicHosts contains the hosts that should use utls Chrome TLS fingerprint.

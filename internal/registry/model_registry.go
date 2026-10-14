@@ -72,6 +72,14 @@ type ModelInfo struct {
 	SupportedInputModalities []string `json:"supportedInputModalities,omitempty"`
 	// SupportedOutputModalities lists supported output modalities (e.g., TEXT, IMAGE)
 	SupportedOutputModalities []string `json:"supportedOutputModalities,omitempty"`
+	// SupportsWebSearch indicates this model can execute native web search
+	// (currently populated for Antigravity models listed with web search support).
+	SupportsWebSearch bool `json:"supports_web_search,omitempty"`
+
+	// NativeCapabilities contains internal, static per-model capability metadata
+	// decoded from the catalog's `native_capabilities` object. It is kept out of
+	// normal JSON serialization so model listings stay unchanged.
+	NativeCapabilities *NativeCapabilities `json:"-"`
 
 	// SupportConfigurationUpdate reports internal support for configuration_update.
 	SupportConfigurationUpdate bool `json:"-"`
@@ -110,6 +118,54 @@ func (m *ModelInfo) UnmarshalJSON(data []byte) error {
 	}
 	m.NativeCapabilities = aux.NativeCapabilities
 	m.SupportConfigurationUpdate = aux.SupportConfigurationUpdate
+	return nil
+}
+
+// UnmarshalJSON loads internal capability metadata without exposing it
+// through ModelInfo's normal JSON serialization.
+func (m *ModelInfo) UnmarshalJSON(data []byte) error {
+	type modelInfoAlias ModelInfo
+	aux := struct {
+		*modelInfoAlias
+		NativeCapabilities *NativeCapabilities `json:"native_capabilities"`
+	}{modelInfoAlias: (*modelInfoAlias)(m)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	m.NativeCapabilities = aux.NativeCapabilities
+	return nil
+}
+
+// HasNativeWebSearch reports whether the model explicitly supports native web
+// search, either via the static `supports_web_search` flag or via the
+// `native_capabilities.web_search` catalog metadata.
+func (m *ModelInfo) HasNativeWebSearch() bool {
+	if m == nil {
+		return false
+	}
+	if m.SupportsWebSearch {
+		return true
+	}
+	return m.NativeCapabilities != nil && m.NativeCapabilities.WebSearch != nil && *m.NativeCapabilities.WebSearch
+}
+
+// LookupModelWebSearchSupport returns tri-state native web search support for a
+// model: true/false when the catalog states it explicitly, nil when unknown.
+// It resolves through the same dynamic-then-static path as LookupModelInfo so
+// model-specific max-token and capability metadata stay consistent.
+func LookupModelWebSearchSupport(modelID string, provider ...string) *bool {
+	info := LookupModelInfo(modelID, provider...)
+	if info == nil {
+		return nil
+	}
+	if info.NativeCapabilities != nil && info.NativeCapabilities.WebSearch != nil {
+		supported := *info.NativeCapabilities.WebSearch
+		return &supported
+	}
+	if info.SupportsWebSearch {
+		supported := true
+		return &supported
+	}
 	return nil
 }
 
@@ -743,6 +799,14 @@ func cloneModelInfo(model *ModelInfo) *ModelInfo {
 			copyThinking.Levels = append([]string(nil), model.Thinking.Levels...)
 		}
 		copyModel.Thinking = &copyThinking
+	}
+	if model.NativeCapabilities != nil {
+		copyCapabilities := *model.NativeCapabilities
+		if model.NativeCapabilities.WebSearch != nil {
+			webSearch := *model.NativeCapabilities.WebSearch
+			copyCapabilities.WebSearch = &webSearch
+		}
+		copyModel.NativeCapabilities = &copyCapabilities
 	}
 	return &copyModel
 }

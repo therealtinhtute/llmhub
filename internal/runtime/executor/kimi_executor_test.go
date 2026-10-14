@@ -691,3 +691,97 @@ func TestKimiExecutor_KimiAI_Refresh(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeKimiToolsInlinesLocalRefs(t *testing.T) {
+	body := []byte(`{
+		"tools":[{
+			"type":"function",
+			"function":{
+				"name":"automation_update",
+				"parameters":{
+					"$defs":{"value":{"type":"string"}},
+					"type":"object",
+					"properties":{"value":{"$ref":"#/$defs/value","type":"string","description":"A value"}}
+				}
+			}
+		}]
+	}`)
+
+	out := normalizeKimiTools(body)
+	params := gjson.GetBytes(out, "tools.0.function.parameters")
+	if params.Get("properties.value.$ref").Exists() {
+		t.Fatalf("$ref was not inlined: %s", params.Raw)
+	}
+	if got := params.Get("properties.value.type").String(); got != "string" {
+		t.Fatalf("value.type = %q, want string: %s", got, params.Raw)
+	}
+	if got := params.Get("properties.value.description").String(); got != "A value" {
+		t.Fatalf("sibling description lost: %s", params.Raw)
+	}
+	if params.Get("$defs").Exists() {
+		t.Fatalf("$defs was not stripped: %s", params.Raw)
+	}
+	if got := params.Get("type").String(); got != "object" {
+		t.Fatalf("parameters.type = %q, want object: %s", got, params.Raw)
+	}
+}
+
+func TestNormalizeKimiToolsNamespacedAndInputToolLists(t *testing.T) {
+	body := []byte(`{
+		"tools":[{
+			"type":"namespace",
+			"name":"mcp__rea",
+			"tools":[{
+				"type":"function",
+				"name":"capture",
+				"parameters":{
+					"$defs":{"val":{"type":"string"}},
+					"properties":{"arg":{"$ref":"#/$defs/val"}}
+				}
+			}]
+		}],
+		"input":[
+			{"type":"message","role":"user","content":"hi"},
+			{"type":"additional_tools","tools":[{
+				"type":"namespace",
+				"name":"mcp__extra",
+				"children":[{
+					"type":"function",
+					"name":"extra_fn",
+					"parameters":{"properties":{"arg":{"type":"string"}}}
+				}]
+			}]}
+		]
+	}`)
+
+	out := normalizeKimiTools(body)
+
+	nested := gjson.GetBytes(out, "tools.0.tools.0.parameters")
+	if nested.Get("$defs").Exists() {
+		t.Fatalf("namespaced $defs not stripped: %s", nested.Raw)
+	}
+	if nested.Get("properties.arg.$ref").Exists() {
+		t.Fatalf("namespaced $ref not inlined: %s", nested.Raw)
+	}
+	if got := nested.Get("properties.arg.type").String(); got != "string" {
+		t.Fatalf("namespaced arg.type = %q, want string: %s", got, nested.Raw)
+	}
+	if got := nested.Get("type").String(); got != "object" {
+		t.Fatalf("namespaced parameters.type = %q, want object: %s", got, nested.Raw)
+	}
+
+	extra := gjson.GetBytes(out, "input.1.tools.0.children.0.parameters")
+	if !extra.Exists() {
+		t.Fatalf("input additional_tools nested tool missing: %s", out)
+	}
+	if got := extra.Get("type").String(); got != "object" {
+		t.Fatalf("input nested parameters.type = %q, want object: %s", got, extra.Raw)
+	}
+}
+
+func TestNormalizeKimiToolsLeavesCleanSchemasUntouched(t *testing.T) {
+	body := []byte(`{"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object","properties":{"a":{"type":"string"}}}}}]}`)
+	if out := normalizeKimiTools(body); string(out) != string(body) {
+		t.Fatalf("clean schema was rewritten:\n got: %s\nwant: %s", out, body)
+	}
+}

@@ -71,6 +71,10 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 	}
 
 	if rescanAuth {
+		// Serialize the full rescan against incremental event handling so
+		// per-file updates cannot slip between the directory read and the
+		// hash-cache swap below.
+		w.authRescanMu.Lock()
 		w.clientsMutex.Lock()
 
 		w.lastAuthHashes = make(map[string]string)
@@ -124,6 +128,7 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 			}
 		}
 		w.clientsMutex.Unlock()
+		w.authRescanMu.Unlock()
 	}
 
 	totalNewClients := authFileCount + geminiAPIKeyCount + vertexCompatAPIKeyCount + claudeAPIKeyCount + codexAPIKeyCount + metaAPIKeyCount + openAICompatCount
@@ -148,6 +153,11 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 }
 
 func (w *Watcher) addOrUpdateClient(path string) {
+	// Record the observation before reading: a concurrent full scan must not
+	// treat this file's state as settled while this update is in flight.
+	// Callers from handleEvent already hold authRescanMu; direct callers are
+	// serialized by the same mutex scope inside refresh paths.
+	w.observeAuthFile(path)
 	data, errRead := os.ReadFile(path)
 	if errRead != nil {
 		log.Errorf("failed to read auth file %s: %v", filepath.Base(path), errRead)
@@ -237,6 +247,7 @@ func (w *Watcher) addOrUpdateClient(path string) {
 }
 
 func (w *Watcher) removeClient(path string) {
+	w.observeAuthFile(path)
 	normalized := w.normalizeAuthPath(path)
 	w.clientsMutex.Lock()
 	oldByID := make(map[string]*coreauth.Auth, len(w.fileAuthsByPath[normalized]))
@@ -266,8 +277,10 @@ func (w *Watcher) computePerPathUpdatesLocked(oldByID, newByID map[string]*corea
 			updates = append(updates, AuthUpdate{Action: AuthUpdateActionAdd, ID: id, Auth: newAuth.Clone()})
 			continue
 		}
+		// Always refresh the stored snapshot so later comparisons see the
+		// latest content even when no update is emitted for this pass.
+		w.currentAuths[id] = newAuth.Clone()
 		if !authEqual(existing, newAuth) {
-			w.currentAuths[id] = newAuth.Clone()
 			updates = append(updates, AuthUpdate{Action: AuthUpdateActionModify, ID: id, Auth: newAuth.Clone()})
 		}
 	}
@@ -278,6 +291,7 @@ func (w *Watcher) computePerPathUpdatesLocked(oldByID, newByID map[string]*corea
 		delete(w.currentAuths, id)
 		updates = append(updates, AuthUpdate{Action: AuthUpdateActionDelete, ID: id})
 	}
+	w.stampAuthUpdatesLocked(updates)
 	return updates
 }
 

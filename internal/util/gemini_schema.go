@@ -821,6 +821,130 @@ func mergeMissingSchemaAtPath(jsonStr, destination string, incoming gjson.Result
 	return jsonStr
 }
 
+func isRequiredOnlyUnionBranch(item gjson.Result) bool {
+	if !item.IsObject() || !item.Get("required").Exists() {
+		return false
+	}
+	for _, key := range []string{"type", "properties", "items", "enum", "anyOf", "oneOf", "allOf"} {
+		if item.Get(key).Exists() {
+			return false
+		}
+	}
+	return true
+}
+
+func materializeRequiredOnlyBranch(item, parentProps gjson.Result) (gjson.Result, bool) {
+	if !parentProps.IsObject() {
+		return gjson.Result{}, false
+	}
+	reqs := getStrings(item.Raw, "required")
+	if len(reqs) == 0 {
+		return gjson.Result{}, false
+	}
+	raw := item.Raw
+	for _, reqName := range reqs {
+		escaped := escapeGJSONPathKey(reqName)
+		propVal := parentProps.Get(escaped)
+		if !propVal.Exists() {
+			return gjson.Result{}, false
+		}
+		updated, errSet := sjson.SetRawBytes([]byte(raw), "properties."+escaped, []byte(propVal.Raw))
+		if errSet == nil {
+			raw = string(updated)
+		}
+	}
+	if updated, errSet := sjson.SetBytes([]byte(raw), "type", "object"); errSet == nil {
+		raw = string(updated)
+	}
+	return gjson.Parse(raw), true
+}
+
+func isNullOnlyBranch(item gjson.Result) bool {
+	if item.Get("properties").Exists() || item.Get("items").Exists() {
+		return false
+	}
+	t := item.Get("type")
+	if t.Type == gjson.String {
+		return t.String() == "null"
+	}
+	if t.IsArray() && len(t.Array()) > 0 {
+		for _, elem := range t.Array() {
+			if elem.String() != "null" {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// partitionUnionBranches splits union branches into standalone non-null branches,
+// reporting whether null-only branches and other filtered branches were present.
+// Required-only branches are materialized into typed object branches using the
+// parent object's properties when possible.
+func partitionUnionBranches(items []gjson.Result, parentProps gjson.Result) (nonNullItems []gjson.Result, hasNull, hasFilteredBranch bool) {
+	for _, item := range items {
+		if !item.IsObject() {
+			hasFilteredBranch = true
+			continue
+		}
+		if isNullOnlyBranch(item) {
+			hasNull = true
+			continue
+		}
+		if isRequiredOnlyUnionBranch(item) {
+			if materialized, ok := materializeRequiredOnlyBranch(item, parentProps); ok {
+				nonNullItems = append(nonNullItems, materialized)
+				hasFilteredBranch = true
+				continue
+			}
+			hasFilteredBranch = true
+			continue
+		}
+		nonNullItems = append(nonNullItems, item)
+	}
+	return
+}
+
+// preserveUnionBranches retains multi-branch unions instead of flattening them
+// into a single branch, so non-first branches are not lost. Null-only branches
+// are projected to nullable:true with a description hint. On Gemini/Antigravity
+// schema carriers oneOf is normalized to anyOf. It reports whether the union
+// was preserved (caller must skip legacy flattening) and the updated document.
+func preserveUnionBranches(jsonStr, parentPath, key, unionPath string, items []gjson.Result, parentProps gjson.Result) (string, bool) {
+	nonNullItems, hasNull, hasFilteredBranch := partitionUnionBranches(items, parentProps)
+	if len(nonNullItems) < 2 {
+		return jsonStr, false
+	}
+	targetKey := key
+	if key == "oneOf" {
+		targetKey = "anyOf"
+	}
+	targetPath := joinPath(parentPath, targetKey)
+
+	if targetKey != key || hasNull || hasFilteredBranch {
+		rawBranches := make([]json.RawMessage, 0, len(nonNullItems))
+		for _, item := range nonNullItems {
+			rawBranches = append(rawBranches, json.RawMessage(item.Raw))
+		}
+		updated, errSet := sjson.SetBytes([]byte(jsonStr), targetPath, rawBranches)
+		if errSet == nil {
+			jsonStr = string(updated)
+		}
+		if targetKey != key {
+			jsonStr, _ = sjson.Delete(jsonStr, unionPath)
+		}
+	}
+	if hasNull {
+		updated, errSet := sjson.SetBytes([]byte(jsonStr), joinPath(parentPath, "nullable"), true)
+		if errSet == nil {
+			jsonStr = string(updated)
+		}
+		jsonStr = appendHint(jsonStr, parentPath, "(nullable)")
+	}
+	return jsonStr, true
+}
+
 func flattenAnyOfOneOf(jsonStr string) string {
 	for _, key := range []string{"anyOf", "oneOf"} {
 		paths := findPaths(jsonStr, key)
@@ -833,12 +957,21 @@ func flattenAnyOfOneOf(jsonStr string) string {
 			}
 
 			parentPath := trimSuffix(p, "."+key)
+			if isPropertyDefinition(parentPath) {
+				continue
+			}
 			parent := gjson.Get(jsonStr, parentPath)
 			if parentPath == "" {
 				parent = gjson.Parse(jsonStr)
 			}
 
 			items := arr.Array()
+
+			// Preserve multi-branch unions (2+ standalone non-null branches).
+			if next, preserved := preserveUnionBranches(jsonStr, parentPath, key, p, items, parent.Get("properties")); preserved {
+				jsonStr = next
+				continue
+			}
 
 			if parentProps := parent.Get("properties"); parentProps.IsObject() {
 				hasNull := false

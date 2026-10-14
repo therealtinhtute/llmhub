@@ -139,7 +139,7 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_SmartSelection(t *testing
 	compareJSON(t, expected, result)
 }
 
-func TestCleanJSONSchemaForAntigravity_OneOfFlattening(t *testing.T) {
+func TestCleanJSONSchemaForAntigravity_OneOfMultiBranchPreserved(t *testing.T) {
 	input := `{
 		"type": "object",
 		"properties": {
@@ -152,18 +152,77 @@ func TestCleanJSONSchemaForAntigravity_OneOfFlattening(t *testing.T) {
 		}
 	}`
 
+	// Multi-branch unions are preserved instead of flattened so non-first
+	// branches are not lost; oneOf is normalized to anyOf on native carriers.
 	expected := `{
 		"type": "object",
 		"properties": {
 			"config": {
-				"type": "string",
-				"description": "Accepts: string | integer"
+				"anyOf": [
+					{ "type": "string" },
+					{ "type": "integer" }
+				]
 			}
 		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
 	compareJSON(t, expected, result)
+}
+
+func TestCleanJSONSchemaForAntigravity_MultiBranchAnyOfPreserved(t *testing.T) {
+	input := `{
+		"type": "object",
+		"properties": {
+			"target": {
+				"anyOf": [
+					{
+						"type": "object",
+						"properties": { "path": { "type": "string" } },
+						"required": ["path"]
+					},
+					{
+						"type": "object",
+						"properties": { "id": { "type": "integer" } },
+						"required": ["id"]
+					},
+					{ "type": "null" }
+				]
+			},
+			"single": {
+				"anyOf": [
+					{ "type": "null" },
+					{ "type": "string" }
+				]
+			}
+		}
+	}`
+
+	result := CleanJSONSchemaForAntigravity(input)
+	parsed := gjson.Parse(result)
+
+	// Multi-branch union keeps both object branches; null becomes nullable.
+	branches := parsed.Get("properties.target.anyOf").Array()
+	if len(branches) != 2 {
+		t.Fatalf("target.anyOf branch count = %d, want 2; cleaned: %s", len(branches), result)
+	}
+	if branches[0].Get("properties.path.type").String() != "string" {
+		t.Errorf("target.anyOf[0].properties.path.type not preserved: %s", branches[0].Raw)
+	}
+	if branches[1].Get("properties.id.type").String() != "integer" {
+		t.Errorf("target.anyOf[1].properties.id.type not preserved: %s", branches[1].Raw)
+	}
+	if !parsed.Get("properties.target.nullable").Exists() {
+		t.Errorf("target.nullable missing for null branch: %s", result)
+	}
+
+	// Single non-null branch unions still flatten to the branch itself.
+	if got := parsed.Get("properties.single.type").String(); got != "string" {
+		t.Errorf("single.type = %q, want string (flattened); cleaned: %s", got, result)
+	}
+	if parsed.Get("properties.single.anyOf").Exists() {
+		t.Errorf("single.anyOf should have been flattened: %s", result)
+	}
 }
 
 func TestCleanJSONSchemaForAntigravity_AllOfMerging(t *testing.T) {
@@ -449,12 +508,21 @@ func TestCleanJSONSchemaForAntigravity_AnyOfAlternativeHints(t *testing.T) {
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
+	parsed := gjson.Parse(result)
 
-	if !strings.Contains(result, "Accepts:") {
-		t.Errorf("Expected alternative types hint, got: %s", result)
+	// Multi-branch unions are preserved; null projects to nullable:true.
+	branches := parsed.Get("properties.value.anyOf").Array()
+	if len(branches) != 2 {
+		t.Fatalf("anyOf branch count = %d, want 2; cleaned: %s", len(branches), result)
 	}
-	if !strings.Contains(result, "string") || !strings.Contains(result, "integer") {
-		t.Errorf("Expected all alternative types in hint, got: %s", result)
+	if branches[0].Get("type").String() != "string" || branches[1].Get("type").String() != "integer" {
+		t.Errorf("branches were not preserved, got: %s", result)
+	}
+	if !parsed.Get("properties.value.nullable").Exists() {
+		t.Errorf("Expected nullable marker for null branch, got: %s", result)
+	}
+	if desc := parsed.Get("properties.value.description").String(); !strings.Contains(desc, "(nullable)") {
+		t.Errorf("Expected (nullable) hint, got: %s", result)
 	}
 }
 
@@ -568,8 +636,11 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_PreservesDescription(t *t
 		"type": "object",
 		"properties": {
 			"config": {
-				"type": "string",
-				"description": "Parent desc (Child desc) (Accepts: string | integer)"
+				"description": "Parent desc",
+				"anyOf": [
+					{ "type": "string", "description": "Child desc" },
+					{ "type": "integer" }
+				]
 			}
 		}
 	}`
@@ -1754,8 +1825,17 @@ func TestCleanJSONSchemaForAntigravityResponse_AnyOfRequiredOnlyBranches(t *test
 	if !parsed.Get("properties.left").Exists() || !parsed.Get("properties.right").Exists() {
 		t.Fatalf("properties were wiped out; cleaned: %s", got)
 	}
-	if parsed.Get("anyOf").Exists() {
-		t.Fatalf("anyOf was not removed; cleaned: %s", got)
+	// Required-only branches are materialized into typed object branches
+	// using the parent properties so the union is preserved.
+	branches := parsed.Get("anyOf").Array()
+	if len(branches) != 2 {
+		t.Fatalf("anyOf branch count = %d, want 2; cleaned: %s", len(branches), got)
+	}
+	if branches[0].Get("type").String() != "object" || !branches[0].Get("properties.left").Exists() || branches[0].Get("required.0").String() != "left" {
+		t.Fatalf("anyOf[0] was not materialized into valid object branch: %s", branches[0].Raw)
+	}
+	if branches[1].Get("type").String() != "object" || !branches[1].Get("properties.right").Exists() || branches[1].Get("required.0").String() != "right" {
+		t.Fatalf("anyOf[1] was not materialized into valid object branch: %s", branches[1].Raw)
 	}
 }
 

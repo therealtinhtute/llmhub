@@ -56,6 +56,10 @@ func TestHasUnsupportedUnicodePropertyEscape(t *testing.T) {
 		{name: "Hex NUL escape is the accepted spelling", pattern: `^[^\x00]*$`, want: false},
 		{name: "Escaped backslash before zero is literal and safe", pattern: `^\\0$`, want: false},
 		{name: "Trailing backslash", pattern: `foo\`, want: false},
+		{name: "multiple \\p escapes", pattern: `^(?!__.*__$)[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}"\./[\]]{1,200}$`, want: true},
+		{name: "negative lookahead without unicode properties", pattern: `^(?!__.*__$).{1,200}$`, want: false},
+		{name: "backslash p without brace", pattern: `\p`, want: false},
+		{name: "empty string", pattern: ``, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

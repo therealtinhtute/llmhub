@@ -6,6 +6,10 @@ package config
 
 // SDKConfig represents the application's configuration, loaded from a YAML file.
 type SDKConfig struct {
+	// Client configures client-facing compatibility behavior (adapted from
+	// upstream 63c04b4bd4; additive — the legacy flat codex fields keep working).
+	Client ClientConfig `yaml:"client" json:"client"`
+
 	// ProxyURL is the URL of an optional proxy server to use for outbound requests.
 	ProxyURL string `yaml:"proxy-url" json:"proxy-url"`
 
@@ -68,6 +72,24 @@ type SDKConfig struct {
 	// runtime-only SDKConfig field (42c9680eee55); locally this flat key serves both
 	// the user-facing config and the SDK handler surface via the embedded SDKConfig.
 	CodexResponseSteering bool `yaml:"codex-response-steering,omitempty" json:"codex-response-steering,omitempty"`
+}
+
+// ClientConfig configures client-facing compatibility behavior.
+// It applies to both OAuth and API-key routes.
+type ClientConfig struct {
+	Codex CodexClientConfig `yaml:"codex" json:"codex"`
+}
+
+// CodexClientConfig configures Codex client compatibility and the model catalog.
+type CodexClientConfig struct {
+	// OptimizeMultiAgentV2 optimizes official Codex multi-agent requests
+	// (Codex Desktop, codex-tui, and codex_cli_rs) across providers.
+	// Default false leaves the client's multi-agent behavior unchanged.
+	OptimizeMultiAgentV2 bool `yaml:"optimize-multi-agent-v2" json:"optimize-multi-agent-v2"`
+
+	// EnableApplyPatch advertises freeform apply_patch only for supported models.
+	// Default false clears the capability regardless of template metadata.
+	EnableApplyPatch bool `yaml:"enable-apply-patch" json:"enable-apply-patch"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.

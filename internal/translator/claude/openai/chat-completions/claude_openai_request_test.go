@@ -36,7 +36,7 @@ func TestConvertOpenAIRequestToClaude_MaxTokensAndMaxCompletionTokens(t *testing
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out := ConvertOpenAIRequestToClaude("claude-3-7-sonnet-20250219", []byte(tc.rawJSON), false)
+			out := ConvertOpenAIRequestToClaude("claude-opus-4-1-20250805", []byte(tc.rawJSON), false)
 			got := gjson.GetBytes(out, "max_tokens").Int()
 			if got != tc.wantLimit {
 				t.Fatalf("max_tokens = %d, want %d. Output: %s", got, tc.wantLimit, string(out))

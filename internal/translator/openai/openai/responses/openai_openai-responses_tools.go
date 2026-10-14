@@ -3,11 +3,13 @@ package responses
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -479,7 +481,7 @@ func normalizeResponsesToolForCodex(tool gjson.Result, namespace string, table *
 			normalized, _ = sjson.SetBytes(normalized, "description", description)
 		}
 		if parameters := responsesToolParameters(tool); parameters.Exists() {
-			normalized, _ = sjson.SetRawBytes(normalized, "parameters", []byte(parameters.Raw))
+			normalized, _ = sjson.SetRawBytes(normalized, "parameters", sanitizeResponsesToolParametersForCodex([]byte(parameters.Raw)))
 		}
 		return [][]byte{normalized}
 	}
@@ -488,7 +490,214 @@ func normalizeResponsesToolForCodex(tool gjson.Result, namespace string, table *
 	}
 	normalized, _ = sjson.SetBytes(normalized, "name", effectiveName)
 	normalized, _ = sjson.DeleteBytes(normalized, "namespace")
+	for _, path := range []string{"parameters", "parametersJsonSchema", "input_schema"} {
+		if parameters := tool.Get(path); parameters.Exists() && parameters.IsObject() {
+			normalized, _ = sjson.SetRawBytes(normalized, path, sanitizeResponsesToolParametersForCodex([]byte(parameters.Raw)))
+		}
+	}
 	return [][]byte{normalized}
+}
+
+// responsesNumericBoundKeywords lists the JSON Schema numeric bound keywords
+// the Codex backend rejects with HTTP 500 when set to an integer outside the
+// signed 64-bit range (upstream 57d005fe6c20, issue #6579).
+var responsesNumericBoundKeywords = [...]string{
+	"minimum",
+	"maximum",
+	"exclusiveMinimum",
+	"exclusiveMaximum",
+}
+
+// sanitizeResponsesToolParametersForCodex removes schema fragments the Codex
+// backend rejects: regex patterns with unsupported Unicode property escapes
+// (\p{...} / \P{...}), patternProperties entries keyed by such patterns, and
+// integer numeric bounds outside int64. The walk is schema-aware: only
+// subschemas under known JSON Schema keyword locations
+// (util.SchemaMapKeywords / util.SchemaValueKeywords) are visited, so keys
+// inside user data (e.g. description, default, enum) are preserved. The input
+// is returned unchanged when nothing was removed.
+func sanitizeResponsesToolParametersForCodex(raw []byte) []byte {
+	rawStr := string(raw)
+	// "inimum" and "aximum" match minimum, maximum, exclusiveMinimum, and
+	// exclusiveMaximum. `\u` covers patterns using JSON Unicode escapes
+	// (e.g. \u005c for '\') that decode to unsupported property escapes.
+	if !strings.Contains(rawStr, `\p{`) && !strings.Contains(rawStr, `\P{`) && !strings.Contains(rawStr, `\u`) &&
+		!strings.Contains(rawStr, `\\0`) && !strings.Contains(rawStr, "inimum") && !strings.Contains(rawStr, "aximum") {
+		return raw
+	}
+	var root any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&root); err != nil || root == nil {
+		return raw
+	}
+	var dummy any
+	if err := dec.Decode(&dummy); err != io.EOF {
+		return raw
+	}
+	if !stripResponsesIncompatibleSchemaFragments(root) {
+		return raw
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(root); err != nil {
+		return raw
+	}
+	return bytes.TrimSpace(buf.Bytes())
+}
+
+func stripResponsesIncompatibleSchemaFragments(v any) bool {
+	changed := false
+	switch schema := v.(type) {
+	case map[string]any:
+		if patternVal, ok := schema["pattern"].(string); ok && util.HasUnsupportedUnicodePropertyEscape(patternVal) {
+			delete(schema, "pattern")
+			changed = true
+		}
+		for _, boundKey := range responsesNumericBoundKeywords {
+			if boundVal, ok := schema[boundKey].(json.Number); ok && isResponsesNumericBoundOutOfInt64(boundVal) {
+				delete(schema, boundKey)
+				changed = true
+			}
+		}
+		if patternProps, ok := schema["patternProperties"].(map[string]any); ok {
+			for patternKey, subSchema := range patternProps {
+				if util.HasUnsupportedUnicodePropertyEscape(patternKey) {
+					delete(patternProps, patternKey)
+					changed = true
+				} else if stripResponsesIncompatibleSchemaFragments(subSchema) {
+					changed = true
+				}
+			}
+		}
+		for _, mapKey := range util.SchemaMapKeywords {
+			if mapKey == "patternProperties" {
+				continue
+			}
+			if subMap, ok := schema[mapKey].(map[string]any); ok {
+				for _, subSchema := range subMap {
+					if stripResponsesIncompatibleSchemaFragments(subSchema) {
+						changed = true
+					}
+				}
+			}
+		}
+		for _, valKey := range util.SchemaValueKeywords {
+			if val, exists := schema[valKey]; exists {
+				switch sub := val.(type) {
+				case map[string]any:
+					if stripResponsesIncompatibleSchemaFragments(sub) {
+						changed = true
+					}
+				case []any:
+					for _, item := range sub {
+						if stripResponsesIncompatibleSchemaFragments(item) {
+							changed = true
+						}
+					}
+				}
+			}
+		}
+	case []any:
+		for _, item := range schema {
+			if stripResponsesIncompatibleSchemaFragments(item) {
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+// isResponsesNumericBoundOutOfInt64 reports whether a JSON numeric bound
+// denotes an integer outside the signed 64-bit range. Fractional values and
+// non-integral scientific notation are always in range for Codex; only exact
+// integers beyond [math.MinInt64, math.MaxInt64] are stripped. Adapted from
+// upstream isNumericBoundOutOfInt64 (57d005fe6c20).
+func isResponsesNumericBoundOutOfInt64(number json.Number) bool {
+	raw := strings.TrimSpace(number.String())
+	if raw == "" {
+		return false
+	}
+	if !strings.ContainsAny(raw, ".eE") {
+		_, errParse := strconv.ParseInt(raw, 10, 64)
+		return errors.Is(errParse, strconv.ErrRange)
+	}
+
+	s := raw
+	negative := false
+	if strings.HasPrefix(s, "-") {
+		negative = true
+		s = s[1:]
+	} else if strings.HasPrefix(s, "+") {
+		s = s[1:]
+	}
+
+	mantissa := s
+	var exp int64
+	if idx := strings.IndexAny(s, "eE"); idx >= 0 {
+		mantissa = s[:idx]
+		expStr := s[idx+1:]
+		parsedExp, errExp := strconv.ParseInt(expStr, 10, 64)
+		if errExp != nil {
+			if errors.Is(errExp, strconv.ErrRange) {
+				return !strings.HasPrefix(expStr, "-") && strings.Trim(mantissa, "0.") != ""
+			}
+			return false
+		}
+		exp = parsedExp
+	}
+
+	intPart := mantissa
+	fracPart := ""
+	if dotIdx := strings.IndexByte(mantissa, '.'); dotIdx >= 0 {
+		intPart = mantissa[:dotIdx]
+		fracPart = mantissa[dotIdx+1:]
+		if strings.IndexByte(fracPart, '.') >= 0 {
+			return false
+		}
+	}
+	if intPart == "" && fracPart == "" {
+		return false
+	}
+	for i := 0; i < len(intPart); i++ {
+		if intPart[i] < '0' || intPart[i] > '9' {
+			return false
+		}
+	}
+	for i := 0; i < len(fracPart); i++ {
+		if fracPart[i] < '0' || fracPart[i] > '9' {
+			return false
+		}
+	}
+
+	allDigits := intPart + fracPart
+	sig := strings.TrimLeft(allDigits, "0")
+	if sig == "" {
+		return false
+	}
+	if exp < -int64(len(raw)) {
+		return false
+	}
+	if exp > int64(len(raw))+20 {
+		return true
+	}
+	trimmed := strings.TrimRight(sig, "0")
+	trailingZeros := int64(len(sig) - len(trimmed))
+	effectiveExp := exp - int64(len(fracPart)) + trailingZeros
+	if effectiveExp < 0 {
+		return false
+	}
+	if effectiveExp > 19 || int64(len(trimmed))+effectiveExp > 19 {
+		return true
+	}
+
+	intStr := trimmed + strings.Repeat("0", int(effectiveExp))
+	if negative {
+		intStr = "-" + intStr
+	}
+	_, errParse := strconv.ParseInt(intStr, 10, 64)
+	return errors.Is(errParse, strconv.ErrRange)
 }
 
 func convertResponsesToolToOpenAIChatTools(tool gjson.Result) [][]byte {

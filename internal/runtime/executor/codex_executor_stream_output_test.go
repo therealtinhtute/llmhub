@@ -284,6 +284,18 @@ func TestCodexBootstrapOverloadDetection(t *testing.T) {
 	if isCodexOverloadBootstrapFailure(other) {
 		t.Fatalf("non-capacity failures must stay in-stream")
 	}
+	retryableServerErr := []byte(`{"error":{"type":"server_error","message":"An error occurred, you can retry your request"}}`)
+	if !isCodexOverloadBootstrapFailure(retryableServerErr) {
+		t.Fatalf("retryable server_error must be an overload bootstrap failure")
+	}
+	retryableTopLevel := []byte(`{"error":{"code":"server_error"},"message":"You can retry your request later"}`)
+	if !isCodexOverloadBootstrapFailure(retryableTopLevel) {
+		t.Fatalf("retryable top-level message must be an overload bootstrap failure")
+	}
+	fatalServerErr := []byte(`{"error":{"type":"server_error","message":"model not found"}}`)
+	if isCodexOverloadBootstrapFailure(fatalServerErr) {
+		t.Fatalf("non-retryable server_error must stay in-stream")
+	}
 	err := newCodexBootstrapOverloadErr(overload)
 	if err.StatusCode() != http.StatusServiceUnavailable {
 		t.Fatalf("bootstrap overload status = %d, want 503", err.StatusCode())

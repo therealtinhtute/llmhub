@@ -327,3 +327,35 @@ func TestRewriteCodexMultiAgentV2Input_StripsAuthorAndRecipient_Issue6136(t *tes
 		}
 	})
 }
+
+func TestCodexOptimizedCollaborationDotPrefixConflict(t *testing.T) {
+	payload := []byte(`{"tools":[
+		{"type":"function","name":"collaboration-optimize.wait_agent"},
+		{"type":"function","name":"other_tool"}
+	]}`)
+	if !codexToolsHaveOptimizedCollaborationConflict(gjson.GetBytes(payload, "tools")) {
+		t.Fatal("expected dotted collaboration-optimize tool to report a conflict")
+	}
+
+	payload = []byte(`{"tools":[{"type":"function","name":"other_tool"}]}`)
+	if codexToolsHaveOptimizedCollaborationConflict(gjson.GetBytes(payload, "tools")) {
+		t.Fatal("expected unrelated tool to report no conflict")
+	}
+}
+func TestRestoreCodexCollaborationDotPrefixedToolCall(t *testing.T) {
+	payload := []byte(`{"output":[
+		{"type":"function_call","name":"collaboration-optimize.wait_agent","arguments":"{}"},
+		{"type":"function_call","name":"collaboration-optimize__send_message","arguments":"{}"}
+	]}`)
+	restored := RestoreCodexMultiAgentV2Response(payload, true)
+
+	if got := gjson.GetBytes(restored, "output.0.namespace").String(); got != "collaboration" {
+		t.Fatalf("output.0.namespace = %q, want collaboration; got %s", got, restored)
+	}
+	if got := gjson.GetBytes(restored, "output.0.name").String(); got != "wait_agent" {
+		t.Fatalf("output.0.name = %q, want wait_agent; got %s", got, restored)
+	}
+	if got := gjson.GetBytes(restored, "output.1.name").String(); got != "collaboration__send_message" {
+		t.Fatalf("output.1.name = %q, want collaboration__send_message; got %s", got, restored)
+	}
+}

@@ -656,3 +656,60 @@ func TestConvertClaudeRequestToCodex_OutputConfigFormatStrictDowngrade(t *testin
 		}
 	})
 }
+
+func TestConvertClaudeRequestToCodex_StripsUnsupportedUnicodePropertyEscapePatterns(t *testing.T) {
+	inputJSON := `{
+		"model": "gpt-5.6",
+		"messages": [{"role": "user", "content": "hello"}],
+		"tools": [{
+			"name": "pattern_tool",
+			"input_schema": {
+				"type": "object",
+				"properties": {
+					"bad": {"type": "string", "pattern": "^\\p{L}+$"},
+					"escaped": {"type": "string", "pattern": "\u005c\u0070{N}+"},
+					"good": {"type": "string", "pattern": "^[a-z]+$"},
+					"nested": {"type": "object", "properties": {"deep": {"type": "string", "pattern": "\\P{N}+"}}},
+					"userdata": {"type": "string", "default": "keep \\p{L} text", "description": "a pattern mention"}
+				},
+				"patternProperties": {
+					"^\\p{L}+$": {"type": "string"},
+					"^[a-z]+$": {"type": "string"}
+				}
+			}
+		}]
+	}`
+
+	translated := ConvertClaudeRequestToCodex("gpt-5.6", []byte(inputJSON), false)
+	tools := gjson.GetBytes(translated, "tools").Array()
+	if len(tools) == 0 {
+		t.Fatalf("expected tools in translated payload, got: %s", translated)
+	}
+	params := tools[0].Get("parameters")
+
+	if params.Get("properties.bad.pattern").Exists() {
+		t.Errorf("expected properties.bad.pattern (\\p{L}) to be removed, got: %s", params.Get("properties.bad.pattern").Raw)
+	}
+	if params.Get("properties.escaped.pattern").Exists() {
+		t.Errorf("expected JSON-escaped properties.escaped.pattern to be removed, got: %s", params.Get("properties.escaped.pattern").Raw)
+	}
+	if got := params.Get("properties.good.pattern").String(); got != "^[a-z]+$" {
+		t.Errorf("expected properties.good.pattern preserved, got %q: %s", got, params.Raw)
+	}
+	if params.Get("properties.nested.properties.deep.pattern").Exists() {
+		t.Errorf("expected nested deep.pattern to be removed, got: %s", params.Raw)
+	}
+	if got := params.Get("properties.userdata.default").String(); got != `keep \p{L} text` {
+		t.Errorf("expected user-data default preserved, got %q: %s", got, params.Raw)
+	}
+	if got := params.Get("properties.userdata.description").String(); got != "a pattern mention" {
+		t.Errorf("expected user-data description preserved, got %q: %s", got, params.Raw)
+	}
+	patternProps := params.Get("patternProperties").Map()
+	if _, exists := patternProps[`^\p{L}+$`]; exists {
+		t.Errorf("expected patternProperties key with \\p{L} to be removed, got: %s", params.Get("patternProperties").Raw)
+	}
+	if _, exists := patternProps[`^[a-z]+$`]; !exists {
+		t.Errorf("expected safe patternProperties key preserved, got: %s", params.Get("patternProperties").Raw)
+	}
+}

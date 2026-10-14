@@ -66,6 +66,13 @@ func GinLogrusLogger() gin.HandlerFunc {
 
 		c.Next()
 
+		// Silence successful health probes while keeping failed probes
+		// visible, including responses from global middleware (upstream a163c5e7e).
+		if path == "/healthz" && (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) &&
+			c.Writer.Status() >= http.StatusOK && c.Writer.Status() < http.StatusMultipleChoices {
+			return
+		}
+
 		if shouldSkipGinRequestLogging(c) {
 			return
 		}

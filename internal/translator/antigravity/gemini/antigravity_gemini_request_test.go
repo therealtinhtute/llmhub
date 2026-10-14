@@ -1266,3 +1266,68 @@ func TestConvertGeminiRequestToAntigravity_PreservesExistingResponseSchema(t *te
 		t.Fatalf("request.generationConfig.responseJsonSchema should have been removed. Output: %s", out)
 	}
 }
+
+func TestConvertGeminiRequestToAntigravity_TranslatesResponseJsonSchemaToResponseSchema(t *testing.T) {
+	for _, schemaKey := range []string{"responseJsonSchema", "response_json_schema"} {
+		t.Run(schemaKey, func(t *testing.T) {
+			inputJSON := []byte(fmt.Sprintf(`{
+				"contents": [{"role": "user", "parts": [{"text": "hello"}]}],
+				"generationConfig": {
+					"responseMimeType": "application/json",
+					"%s": {
+						"type": "OBJECT",
+						"properties": {"message": {"type": "STRING"}},
+						"required": ["message"]
+					}
+				}
+			}`, schemaKey))
+
+			out := ConvertGeminiRequestToAntigravity("gemini-3-flash", inputJSON, false)
+
+			schema := gjson.GetBytes(out, "request.generationConfig.responseSchema")
+			if !schema.Exists() {
+				t.Fatalf("request.generationConfig.responseSchema missing. Output: %s", out)
+			}
+			if got := schema.Get("properties.message.type").String(); got != "STRING" {
+				t.Fatalf("responseSchema.properties.message.type = %q, want STRING. Output: %s", got, out)
+			}
+			if gjson.GetBytes(out, "request.generationConfig."+schemaKey).Exists() {
+				t.Fatalf("deprecated key %s should have been removed. Output: %s", schemaKey, out)
+			}
+		})
+	}
+}
+
+func TestConvertGeminiRequestToAntigravity_PreservesExistingResponseSchema(t *testing.T) {
+	inputJSON := []byte(`{
+		"contents": [{"role": "user", "parts": [{"text": "hello"}]}],
+		"generationConfig": {
+			"responseMimeType": "application/json",
+			"responseSchema": {
+				"type": "OBJECT",
+				"properties": {"name": {"type": "STRING"}},
+				"required": ["name"]
+			},
+			"responseJsonSchema": {
+				"type": "OBJECT",
+				"properties": {"stale": {"type": "STRING"}}
+			}
+		}
+	}`)
+
+	out := ConvertGeminiRequestToAntigravity("gemini-3-flash", inputJSON, false)
+
+	schema := gjson.GetBytes(out, "request.generationConfig.responseSchema")
+	if !schema.Exists() {
+		t.Fatalf("request.generationConfig.responseSchema missing. Output: %s", out)
+	}
+	if got := schema.Get("properties.name.type").String(); got != "STRING" {
+		t.Fatalf("responseSchema.properties.name.type = %q, want STRING. Output: %s", got, out)
+	}
+	if schema.Get("properties.stale").Exists() {
+		t.Fatalf("stale properties survived. Output: %s", out)
+	}
+	if gjson.GetBytes(out, "request.generationConfig.responseJsonSchema").Exists() {
+		t.Fatalf("request.generationConfig.responseJsonSchema should have been removed. Output: %s", out)
+	}
+}

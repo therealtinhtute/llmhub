@@ -5,6 +5,7 @@ package watcher
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 	"time"
@@ -69,21 +70,55 @@ func (w *Watcher) dispatchRuntimeAuthUpdate(update AuthUpdate) bool {
 			}
 		}
 	}
+	updates := []AuthUpdate{update}
+	w.stampAuthUpdatesLocked(updates)
 	w.clientsMutex.Unlock()
 	if w.getAuthQueue() == nil {
 		return false
 	}
-	w.dispatchAuthUpdates([]AuthUpdate{update})
+	w.dispatchAuthUpdates(updates)
 	return true
 }
 
 func (w *Watcher) refreshAuthState(force bool) {
-	w.clientsMutex.RLock()
+	w.clientsMutex.Lock()
+	w.activeAuthScans++
 	cfg := w.config
 	authDir := w.authDir
-	w.clientsMutex.RUnlock()
+	previous := maps.Clone(w.authRevisions)
+	previousFiles := maps.Clone(w.fileObservations)
+	w.clientsMutex.Unlock()
 	auths := snapshotCoreAuthsFunc(cfg, authDir)
 	w.clientsMutex.Lock()
+	w.activeAuthScans--
+	// A full scan may finish after a newer file update landed. Keep those
+	// concurrent changes, including deletions, instead of publishing stale
+	// scan data over them.
+	changedDuringScan := func(auth *coreauth.Auth) bool {
+		if auth == nil {
+			return false
+		}
+		path := ""
+		if auth.Attributes != nil {
+			path = auth.Attributes["path"]
+			if path == "" {
+				path = auth.Attributes["source"]
+			}
+		}
+		normalized := w.normalizeAuthPath(path)
+		return previous[auth.ID] != w.authRevisions[auth.ID] ||
+			previousFiles[normalized] != w.fileObservations[normalized]
+	}
+	for index, auth := range auths {
+		if auth != nil && changedDuringScan(auth) {
+			auths[index] = nil
+		}
+	}
+	for _, auth := range w.currentAuths {
+		if auth != nil && changedDuringScan(auth) {
+			auths = append(auths, auth.Clone())
+		}
+	}
 	if len(w.runtimeAuths) > 0 {
 		for _, a := range w.runtimeAuths {
 			if a != nil {
@@ -104,21 +139,6 @@ func (w *Watcher) prepareAuthUpdatesLocked(auths []*coreauth.Auth, force bool) [
 		}
 		newState[auth.ID] = auth.Clone()
 	}
-	if w.currentAuths == nil {
-		w.currentAuths = newState
-		if w.authQueue == nil {
-			return nil
-		}
-		updates := make([]AuthUpdate, 0, len(newState))
-		for id, auth := range newState {
-			updates = append(updates, AuthUpdate{Action: AuthUpdateActionAdd, ID: id, Auth: auth.Clone()})
-		}
-		return updates
-	}
-	if w.authQueue == nil {
-		w.currentAuths = newState
-		return nil
-	}
 	updates := make([]AuthUpdate, 0, len(newState)+len(w.currentAuths))
 	for id, auth := range newState {
 		if existing, ok := w.currentAuths[id]; !ok {
@@ -133,15 +153,57 @@ func (w *Watcher) prepareAuthUpdatesLocked(auths []*coreauth.Auth, force bool) [
 		}
 	}
 	w.currentAuths = newState
+	w.stampAuthUpdatesLocked(updates)
+	if w.authQueue == nil {
+		return nil
+	}
 	return updates
+}
+
+// stampAuthUpdatesLocked records observations even without a queue and retains
+// deletion revisions so a scan cannot resurrect an auth that appeared then vanished.
+func (w *Watcher) stampAuthUpdatesLocked(updates []AuthUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+	if w.authRevisions == nil {
+		w.authRevisions = make(map[string]uint64)
+	}
+	for index := range updates {
+		update := &updates[index]
+		if update.ID == "" && update.Auth != nil {
+			update.ID = update.Auth.ID
+		}
+		if update.ID == "" {
+			continue
+		}
+		w.authRevisions[update.ID]++
+		update.revision = w.authRevisions[update.ID]
+	}
 }
 
 func (w *Watcher) dispatchAuthUpdates(updates []AuthUpdate) {
 	if len(updates) == 0 {
 		return
 	}
-	queue := w.getAuthQueue()
-	if queue == nil {
+	// Filter stale revisions first, then enqueue. The two steps deliberately
+	// use separate critical sections: holding clientsMutex across the
+	// dispatchMu enqueue would invert the lock order used by
+	// setAuthUpdateQueue/stopDispatch (clientsMutex -> dispatchMu) and risk a
+	// shutdown-time deadlock. Every state change stamps and enqueues its own
+	// newer update immediately, so a newer revision always follows and wins
+	// the per-ID coalescing below even in the residual interleaving window.
+	w.clientsMutex.RLock()
+	queue := w.authQueue
+	filtered := make([]AuthUpdate, 0, len(updates))
+	for _, update := range updates {
+		if update.revision != 0 && update.revision < w.authRevisions[update.ID] {
+			continue
+		}
+		filtered = append(filtered, update)
+	}
+	w.clientsMutex.RUnlock()
+	if queue == nil || len(filtered) == 0 {
 		return
 	}
 	baseTS := time.Now().UnixNano()
@@ -149,7 +211,7 @@ func (w *Watcher) dispatchAuthUpdates(updates []AuthUpdate) {
 	if w.pendingUpdates == nil {
 		w.pendingUpdates = make(map[string]AuthUpdate)
 	}
-	for idx, update := range updates {
+	for idx, update := range filtered {
 		key := w.authUpdateKey(update, baseTS+int64(idx))
 		if _, exists := w.pendingUpdates[key]; !exists {
 			w.pendingOrder = append(w.pendingOrder, key)

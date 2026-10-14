@@ -34,6 +34,7 @@ type Watcher struct {
 	authDir           string
 	config            *config.Config
 	clientsMutex      sync.RWMutex
+	authRescanMu      sync.Mutex
 	configReloadMu    sync.Mutex
 	configReloadTimer *time.Timer
 	serverUpdateMu    sync.Mutex
@@ -50,6 +51,9 @@ type Watcher struct {
 	lastConfigHash    string
 	authQueue         chan<- AuthUpdate
 	currentAuths      map[string]*coreauth.Auth
+	authRevisions     map[string]uint64 // Includes deletion tombstones; guarded by clientsMutex.
+	fileObservations  map[string]uint64 // Tracks file events even when content is unchanged.
+	activeAuthScans   int               // Guarded by clientsMutex.
 	runtimeAuths      map[string]*coreauth.Auth
 	dispatchMu        sync.Mutex
 	dispatchCond      *sync.Cond
@@ -72,9 +76,10 @@ const (
 
 // AuthUpdate describes an incremental change to auth configuration.
 type AuthUpdate struct {
-	Action AuthUpdateAction
-	ID     string
-	Auth   *coreauth.Auth
+	Action   AuthUpdateAction
+	ID       string
+	Auth     *coreauth.Auth
+	revision uint64 // Watcher-local ordering, independent of runtime auth generations.
 }
 
 const (
@@ -132,10 +137,13 @@ func (w *Watcher) Stop() error {
 
 // SetConfig updates the current configuration
 func (w *Watcher) SetConfig(cfg *config.Config) {
+	// Own an isolated snapshot: producers reuse their Config pointer after
+	// this call, and sharing it would race with reload-time readers.
+	cloned := cfg.CloneForRuntime()
 	w.clientsMutex.Lock()
 	defer w.clientsMutex.Unlock()
-	w.config = cfg
-	w.oldConfigYaml, _ = yaml.Marshal(cfg)
+	w.config = cloned
+	w.oldConfigYaml, _ = yaml.Marshal(cloned)
 }
 
 // SetAuthUpdateQueue sets the queue used to emit auth updates.

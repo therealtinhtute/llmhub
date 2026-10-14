@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -1195,5 +1196,83 @@ func TestConvertClaudeRequestToOpenAI_EnabledThinkingEffort(t *testing.T) {
 				t.Fatalf("reasoning_effort = %q, want %q; body=%s", got, tt.wantEffort, out)
 			}
 		})
+	}
+}
+
+func TestConvertClaudeRequestToOpenAI_ToolWithoutInputSchemaDefaultsParameters(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "claude-opus-5",
+		"tools": [
+			{"name": "web_search"},
+			{"name": "null_schema_custom", "input_schema": null},
+			{"name": "with_schema", "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}}}
+		],
+		"messages": [{"role": "user", "content": "hello"}]
+	}`)
+
+	output := ConvertClaudeRequestToOpenAI("test-model", inputJSON, false)
+	parsed := gjson.ParseBytes(output)
+
+	for i, toolName := range []string{"web_search", "null_schema_custom"} {
+		params := parsed.Get(fmt.Sprintf("tools.%d.function.parameters", i))
+		if !params.Exists() {
+			t.Fatalf("tool %d (%s) function.parameters missing: %s", i, toolName, parsed.Get(fmt.Sprintf("tools.%d.function", i)).Raw)
+		}
+		if got := params.Get("type").String(); got != "object" {
+			t.Fatalf("tool %d parameters.type = %q, want object: %s", i, got, params.Raw)
+		}
+		if props := params.Get("properties"); !props.Exists() || !props.IsObject() {
+			t.Fatalf("tool %d parameters.properties missing: %s", i, params.Raw)
+		}
+	}
+	if got := parsed.Get("tools.2.function.parameters.properties.q.type").String(); got != "string" {
+		t.Fatalf("explicit schema was not preserved: %s", parsed.Get("tools.2.function.parameters").Raw)
+	}
+}
+func TestConvertClaudeRequestToOpenAI_StripsUnsupportedUnicodePropertyEscapePatterns(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "claude-opus-5",
+		"messages": [{"role": "user", "content": "hello"}],
+		"tools": [{
+			"name": "pattern_tool",
+			"input_schema": {
+				"type": "object",
+				"properties": {
+					"bad": {"type": "string", "pattern": "^\\p{L}+$"},
+					"good": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+					"nested": {"type": "object", "properties": {"deep": {"type": "string", "pattern": "\\P{N}+"}}},
+					"userdata": {"type": "string", "default": "keep \\p{L} text"}
+				},
+				"patternProperties": {
+					"^\\p{L}+$": {"type": "string"},
+					"^[a-z]+$": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	output := ConvertClaudeRequestToOpenAI("test-model", inputJSON, false)
+	params := gjson.GetBytes(output, "tools.0.function.parameters")
+	if !params.Exists() {
+		t.Fatalf("function.parameters missing: %s", output)
+	}
+	if params.Get("properties.bad.pattern").Exists() {
+		t.Errorf("expected properties.bad.pattern to be removed, got: %s", params.Get("properties.bad.pattern").Raw)
+	}
+	if got := params.Get("properties.good.pattern").String(); got != "^[0-9a-f]{32}$" {
+		t.Errorf("expected properties.good.pattern preserved, got %q: %s", got, params.Raw)
+	}
+	if params.Get("properties.nested.properties.deep.pattern").Exists() {
+		t.Errorf("expected nested deep.pattern to be removed, got: %s", params.Raw)
+	}
+	if got := params.Get("properties.userdata.default").String(); got != `keep \p{L} text` {
+		t.Errorf("expected user-data default preserved, got %q: %s", got, params.Raw)
+	}
+	patternProps := params.Get("patternProperties").Map()
+	if _, exists := patternProps[`^\p{L}+$`]; exists {
+		t.Errorf("expected patternProperties key with unicode escape to be removed, got: %s", params.Get("patternProperties").Raw)
+	}
+	if _, exists := patternProps[`^[a-z]+$`]; !exists {
+		t.Errorf("expected safe patternProperties key preserved, got: %s", params.Get("patternProperties").Raw)
 	}
 }

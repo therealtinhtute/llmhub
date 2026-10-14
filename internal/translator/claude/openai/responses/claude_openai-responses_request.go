@@ -452,6 +452,14 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 		log.Warnf("responses->claude: message invariants violated after repair (model=%s): %s", modelName, strings.Join(problems, "; "))
 	}
 
+	// Claude compatibility normalizations (adapted from upstream 07d815637,
+	// c350d3f52, 6f25b9a14): collapse consecutive thinking blocks to the
+	// latest, strip trailing thinking from the final assistant message, and
+	// drop trailing assistant prefill for models that reject it.
+	messageBlocks = collapseConsecutiveClaudeThinkingBlocks(messageBlocks)
+	messageBlocks = stripTrailingClaudeThinkingBlocks(messageBlocks)
+	messageBlocks = dropUnsupportedClaudeAssistantPrefill(modelName, messageBlocks)
+
 	if len(messageBlocks) > 0 {
 		out, _ = sjson.SetRawBytes(out, "messages", common.JoinRawArray(messageBlocks))
 	}
@@ -646,6 +654,133 @@ func defaultClaudeResponsesMaxTokensForModel(modelName string) int {
 		return info.MaxCompletionTokens
 	}
 	return maxTokens
+}
+
+// collapseConsecutiveClaudeThinkingBlocks replaces runs of consecutive
+// thinking/redacted_thinking blocks within an assistant message with the
+// latest block. Adapted from upstream 07d815637: only the most recent
+// reasoning item in a run is kept; tool_use and text blocks break runs.
+func collapseConsecutiveClaudeThinkingBlocks(messages [][]byte) [][]byte {
+	for i, msg := range messages {
+		parsed := gjson.ParseBytes(msg)
+		if !strings.EqualFold(strings.TrimSpace(parsed.Get("role").String()), "assistant") {
+			continue
+		}
+		content := parsed.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		parts := content.Array()
+		if len(parts) < 2 {
+			continue
+		}
+		collapsed := make([][]byte, 0, len(parts))
+		for _, part := range parts {
+			partType := strings.TrimSpace(part.Get("type").String())
+			isThinking := partType == "thinking" || partType == "redacted_thinking"
+			if isThinking && len(collapsed) > 0 {
+				prevType := strings.TrimSpace(gjson.ParseBytes(collapsed[len(collapsed)-1]).Get("type").String())
+				if prevType == "thinking" || prevType == "redacted_thinking" {
+					collapsed[len(collapsed)-1] = []byte(part.Raw)
+					continue
+				}
+			}
+			collapsed = append(collapsed, []byte(part.Raw))
+		}
+		if len(collapsed) == len(parts) {
+			continue
+		}
+		updated, err := sjson.SetRawBytes(msg, "content", common.JoinRawArray(collapsed))
+		if err != nil {
+			continue
+		}
+		messages[i] = updated
+	}
+	return messages
+}
+
+// stripTrailingClaudeThinkingBlocks removes trailing thinking and
+// redacted_thinking blocks from the final assistant message. Adapted from
+// upstream c350d3f52: Anthropic rejects a final assistant block that is
+// thinking. The message is dropped when nothing remains.
+func stripTrailingClaudeThinkingBlocks(messages [][]byte) [][]byte {
+	if len(messages) == 0 {
+		return messages
+	}
+	lastIdx := len(messages) - 1
+	last := gjson.ParseBytes(messages[lastIdx])
+	if !strings.EqualFold(strings.TrimSpace(last.Get("role").String()), "assistant") {
+		return messages
+	}
+	content := last.Get("content")
+	if !content.IsArray() {
+		return messages
+	}
+	parts := content.Array()
+	end := len(parts)
+	for end > 0 {
+		partType := strings.TrimSpace(parts[end-1].Get("type").String())
+		if partType == "thinking" || partType == "redacted_thinking" {
+			end--
+		} else {
+			break
+		}
+	}
+	if end == len(parts) {
+		return messages
+	}
+	if end == 0 {
+		return messages[:lastIdx]
+	}
+	remaining := make([][]byte, end)
+	for i := 0; i < end; i++ {
+		remaining[i] = []byte(parts[i].Raw)
+	}
+	updated, err := sjson.SetRawBytes(messages[lastIdx], "content", common.JoinRawArray(remaining))
+	if err != nil {
+		return messages
+	}
+	messages[lastIdx] = updated
+	return messages
+}
+
+// claudeModelRejectsAssistantPrefill reports whether a Claude model family
+// disallows trailing assistant prefill. Adapted from upstream 6f25b9a14.
+func claudeModelRejectsAssistantPrefill(modelName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(modelName))
+	for _, family := range []string{"fable", "opus-5", "sonnet-4-6"} {
+		if strings.Contains(normalized, family) {
+			return true
+		}
+	}
+	return false
+}
+
+// dropUnsupportedClaudeAssistantPrefill removes a trailing assistant prefill
+// message for models that reject it. Only text/thinking-only trailing
+// assistants are dropped; trailing tool_use turns are preserved as real tool
+// calls rather than prefill.
+func dropUnsupportedClaudeAssistantPrefill(modelName string, messages [][]byte) [][]byte {
+	if !claudeModelRejectsAssistantPrefill(modelName) || len(messages) == 0 {
+		return messages
+	}
+	last := gjson.ParseBytes(messages[len(messages)-1])
+	if !strings.EqualFold(strings.TrimSpace(last.Get("role").String()), "assistant") {
+		return messages
+	}
+	content := last.Get("content")
+	if content.Type == gjson.String {
+		return messages[:len(messages)-1]
+	}
+	if content.IsArray() {
+		for _, part := range content.Array() {
+			if strings.TrimSpace(part.Get("type").String()) == "tool_use" {
+				return messages
+			}
+		}
+		return messages[:len(messages)-1]
+	}
+	return messages
 }
 
 func convertResponsesReasoningToClaudeThinking(item gjson.Result) []byte {

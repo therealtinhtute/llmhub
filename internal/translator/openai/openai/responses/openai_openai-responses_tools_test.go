@@ -314,3 +314,88 @@ func TestResponsesToolDeclarationTablePreservesCustomInputFidelity(t *testing.T)
 		})
 	}
 }
+
+func TestNormalizeResponsesToolsForCodex_StripsIncompatibleSchemaFragments(t *testing.T) {
+	request := []byte(`{
+		"tools": [
+			{"type": "function", "name": "emulate_process", "parameters": {
+				"type": "object",
+				"properties": {
+					"seed": {"type": "integer", "minimum": 0, "maximum": 18446744073709552000},
+					"over_max_int64": {"type": "integer", "minimum": -9223372036854775809, "maximum": 9223372036854775808, "exclusiveMinimum": -9223372036854775809, "exclusiveMaximum": 9223372036854775808},
+					"exact_int64_limits": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+					"float_bounds": {"type": "number", "minimum": -0.5, "maximum": 3.14},
+					"scientific_bounds": {"type": "number", "minimum": 1e5, "maximum": 1e100},
+					"bad_pattern": {"type": "string", "pattern": "^\\p{L}+$"},
+					"good_pattern": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+					"user_data": {"type": "object", "default": {"maximum": 18446744073709552000}},
+					"maximum": {"type": "integer", "minimum": 0}
+				},
+				"patternProperties": {"^\\p{L}+$": {"type": "string"}, "^[a-z]+$": {"type": "string"}}
+			}},
+			{"type": "function", "function": {"name": "nested_fn", "parameters": {"type": "object", "properties": {"big": {"type": "integer", "maximum": 18446744073709551615}}}}}
+		]
+	}`)
+
+	normalized := NormalizeResponsesToolsForCodex(request)
+	params := gjson.GetBytes(normalized, "tools.0.parameters")
+	props := params.Get("properties")
+
+	if props.Get("seed.maximum").Exists() {
+		t.Errorf("expected seed.maximum (u64 range) to be removed, got %s", props.Get("seed.maximum").Raw)
+	}
+	if got := props.Get("seed.minimum").Raw; got != "0" {
+		t.Errorf("expected seed.minimum == 0, got %s", got)
+	}
+	for _, kw := range []string{"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"} {
+		if props.Get("over_max_int64." + kw).Exists() {
+			t.Errorf("expected over_max_int64.%s to be removed, got %s", kw, props.Get("over_max_int64."+kw).Raw)
+		}
+	}
+	if got := props.Get("exact_int64_limits.minimum").Raw; got != "-9223372036854775808" {
+		t.Errorf("expected exact int64 minimum preserved, got %s", got)
+	}
+	if got := props.Get("exact_int64_limits.maximum").Raw; got != "9223372036854775807" {
+		t.Errorf("expected exact int64 maximum preserved, got %s", got)
+	}
+	if got := props.Get("float_bounds.minimum").Raw; got != "-0.5" {
+		t.Errorf("expected float minimum preserved, got %s", got)
+	}
+	if got := props.Get("float_bounds.maximum").Raw; got != "3.14" {
+		t.Errorf("expected float maximum preserved, got %s", got)
+	}
+	if got := props.Get("scientific_bounds.minimum").Raw; got != "1e5" {
+		t.Errorf("expected in-range scientific minimum preserved, got %s", got)
+	}
+	if props.Get("scientific_bounds.maximum").Exists() {
+		t.Errorf("expected out-of-range scientific maximum (1e100) to be removed, got %s", props.Get("scientific_bounds.maximum").Raw)
+	}
+	if props.Get("bad_pattern.pattern").Exists() {
+		t.Errorf("expected bad_pattern.pattern to be removed, got: %s", params.Raw)
+	}
+	if got := props.Get("good_pattern.pattern").String(); got != "^[0-9a-f]{32}$" {
+		t.Errorf("expected good_pattern.pattern preserved, got %q: %s", got, params.Raw)
+	}
+	if got := props.Get("user_data.default.maximum").Raw; got != "18446744073709552000" {
+		t.Errorf("expected user-data default.maximum preserved, got %s", got)
+	}
+	if got := props.Get("maximum.type").String(); got != "integer" {
+		t.Errorf("expected property named maximum preserved, got %q: %s", got, params.Raw)
+	}
+	patternProps := params.Get("patternProperties").Map()
+	if _, exists := patternProps[`^\p{L}+$`]; exists {
+		t.Errorf("expected unicode patternProperties key to be removed, got: %s", params.Get("patternProperties").Raw)
+	}
+	if _, exists := patternProps[`^[a-z]+$`]; !exists {
+		t.Errorf("expected safe patternProperties key preserved, got: %s", params.Get("patternProperties").Raw)
+	}
+
+	if gjson.GetBytes(normalized, "tools.1.parameters.properties.big.maximum").Exists() {
+		t.Errorf("expected nested function-tool big.maximum to be removed, got: %s", normalized)
+	}
+
+	again := NormalizeResponsesToolsForCodex(normalized)
+	if string(again) != string(normalized) {
+		t.Errorf("expected NormalizeResponsesToolsForCodex to be idempotent")
+	}
+}

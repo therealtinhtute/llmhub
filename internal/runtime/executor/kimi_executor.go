@@ -1126,22 +1126,57 @@ func normalizeKimiTools(body []byte) []byte {
 	}
 	body = normalizeKimiToolList(body, "tools", true)
 	body = normalizeKimiToolList(body, "functions", false)
+	// Responses-style payloads can also carry tool lists inside input items
+	// (e.g. additional_tools / tool_search_output blocks).
+	if input := gjson.GetBytes(body, "input"); input.Exists() && input.IsArray() {
+		for idx, item := range input.Array() {
+			switch strings.TrimSpace(item.Get("type").String()) {
+			case "additional_tools", "tool_search_output":
+				body = normalizeKimiToolList(body, fmt.Sprintf("input.%d.tools", idx), true)
+			}
+		}
+	}
 	return body
 }
 
 func normalizeKimiToolList(body []byte, arrayKey string, isTools bool) []byte {
 	items := gjson.GetBytes(body, arrayKey)
-	if !items.Exists() || !items.IsArray() {
+	normalized, changed := normalizeKimiToolArray(items, isTools)
+	if !changed {
 		return body
+	}
+	out, errSetRaw := sjson.SetRawBytes(body, arrayKey, normalized)
+	if errSetRaw != nil {
+		return body
+	}
+	return out
+}
+
+func normalizeKimiToolArray(items gjson.Result, isTools bool) ([]byte, bool) {
+	if !items.Exists() || !items.IsArray() {
+		return nil, false
 	}
 	arr := items.Array()
 	if len(arr) == 0 {
-		return body
+		return nil, false
 	}
 	changed := false
 	updatedItems := make([]string, 0, len(arr))
 	for _, item := range arr {
 		itemRaw := item.Raw
+		// Namespaced tool containers nest their schemas under tools/children.
+		if isTools && strings.TrimSpace(item.Get("type").String()) == "namespace" {
+			for _, nestedKey := range []string{"tools", "children"} {
+				if nested := gjson.Get(itemRaw, nestedKey); nested.Exists() && nested.IsArray() {
+					if normalizedNested, nestedChanged := normalizeKimiToolArray(nested, true); nestedChanged {
+						if updated, errSet := sjson.SetRawBytes([]byte(itemRaw), nestedKey, normalizedNested); errSet == nil {
+							itemRaw = string(updated)
+							changed = true
+						}
+					}
+				}
+			}
+		}
 		paramPath := ""
 		if isTools && item.Get("function.parameters").Exists() {
 			paramPath = "function.parameters"
@@ -1163,7 +1198,7 @@ func normalizeKimiToolList(body []byte, arrayKey string, isTools bool) []byte {
 		updatedItems = append(updatedItems, itemRaw)
 	}
 	if !changed {
-		return body
+		return nil, false
 	}
 	joined := make([]byte, 0, 2)
 	joined = append(joined, '[')
@@ -1174,18 +1209,15 @@ func normalizeKimiToolList(body []byte, arrayKey string, isTools bool) []byte {
 		joined = append(joined, item...)
 	}
 	joined = append(joined, ']')
-	out, errSetRaw := sjson.SetRawBytes(body, arrayKey, joined)
-	if errSetRaw != nil {
-		return body
-	}
-	return out
+	return joined, true
 }
 
 func normalizeKimiParametersSchema(paramsRaw string) string {
 	if strings.TrimSpace(paramsRaw) == "" {
 		return paramsRaw
 	}
-	paramBytes := []byte(paramsRaw)
+	// Moonshot rejects $ref with sibling keywords: inline local pointers first.
+	paramBytes := []byte(util.InlineLocalRefs(paramsRaw))
 	if gjson.GetBytes(paramBytes, "$defs").Exists() {
 		paramBytes, _ = sjson.DeleteBytes(paramBytes, "$defs")
 	}

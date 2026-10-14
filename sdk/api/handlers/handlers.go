@@ -349,6 +349,11 @@ func disallowFreeAuthFromContext(ctx context.Context) bool {
 // It holds a pool of clients to interact with the backend service and manages
 // load balancing, client selection, and configuration.
 type BaseAPIHandler struct {
+	// runtimeMu guards Cfg against concurrent UpdateClients swaps while
+	// request handlers read the configuration. Read the config only via
+	// CurrentConfig; never mutate the returned pointer.
+	runtimeMu sync.RWMutex
+
 	// AuthManager manages auth lifecycle and execution in the new architecture.
 	AuthManager *coreauth.Manager
 
@@ -378,7 +383,26 @@ func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *B
 // Parameters:
 //   - clients: The new slice of AI service clients
 //   - cfg: The new application configuration
-func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) { h.Cfg = cfg }
+func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) {
+	if h == nil {
+		return
+	}
+	h.runtimeMu.Lock()
+	h.Cfg = cfg
+	h.runtimeMu.Unlock()
+}
+
+// CurrentConfig returns the current application configuration snapshot.
+// The returned pointer is owned by the handler and must not be mutated.
+func (h *BaseAPIHandler) CurrentConfig() *config.SDKConfig {
+	if h == nil {
+		return nil
+	}
+	h.runtimeMu.RLock()
+	cfg := h.Cfg
+	h.runtimeMu.RUnlock()
+	return cfg
+}
 
 // GetAlt extracts the 'alt' parameter from the request query string.
 // It checks both 'alt' and '$alt' parameters and returns the appropriate value.
@@ -478,7 +502,7 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 		if c != nil {
 			logging.SetResponseStatus(cancelCtx, c.Writer.Status())
 		}
-		if h.Cfg.RequestLog && len(params) == 1 {
+		if cfg := h.CurrentConfig(); cfg != nil && cfg.RequestLog && len(params) == 1 {
 			if existing, exists := c.Get("API_RESPONSE"); exists {
 				if existingBytes, ok := existing.([]byte); ok && len(bytes.TrimSpace(existingBytes)) > 0 {
 					switch params[0].(type) {
@@ -524,7 +548,7 @@ func (h *BaseAPIHandler) StartNonStreamingKeepAlive(c *gin.Context, ctx context.
 	if h == nil || c == nil {
 		return func() {}
 	}
-	interval := NonStreamingKeepAliveInterval(h.Cfg)
+	interval := NonStreamingKeepAliveInterval(h.CurrentConfig())
 	if interval <= 0 {
 		return func() {}
 	}
@@ -684,7 +708,7 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 		return nil, nil, errMsg
 	}
 	upstreamHeaders := http.Header(nil)
-	if PassthroughHeadersEnabled(h.Cfg) {
+	if PassthroughHeadersEnabled(h.CurrentConfig()) {
 		upstreamHeaders = FilterUpstreamHeaders(resp.Headers)
 	}
 	payload = resp.Payload
@@ -736,7 +760,7 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		return nil, nil, executionErrorMessage(err)
 	}
-	if !PassthroughHeadersEnabled(h.Cfg) {
+	if !PassthroughHeadersEnabled(h.CurrentConfig()) {
 		return resp.Payload, nil, nil
 	}
 	return resp.Payload, FilterUpstreamHeaders(resp.Headers), nil
@@ -872,7 +896,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		close(errChan)
 		return nil, nil, errChan
 	}
-	passthroughHeadersEnabled := PassthroughHeadersEnabled(h.Cfg)
+	passthroughHeadersEnabled := PassthroughHeadersEnabled(h.CurrentConfig())
 	// Capture upstream headers from the initial connection synchronously before the goroutine starts.
 	// Keep a mutable map so bootstrap retries can replace it before first payload is sent.
 	var upstreamHeaders http.Header
@@ -890,7 +914,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		defer close(errChan)
 		sentPayload := false
 		bootstrapRetries := 0
-		maxBootstrapRetries := StreamingBootstrapRetries(h.Cfg)
+		maxBootstrapRetries := StreamingBootstrapRetries(h.CurrentConfig())
 		emitter := NewSafeStreamEmitter(func(chunk []byte) bool {
 			if ctx == nil {
 				dataChan <- chunk
@@ -1393,7 +1417,7 @@ func (h *BaseAPIHandler) WriteErrorResponse(c *gin.Context, msg *interfaces.Erro
 			c.Writer.Header().Add("Retry-After", value)
 		}
 	}
-	if msg != nil && msg.Addon != nil && PassthroughHeadersEnabled(h.Cfg) {
+	if msg != nil && msg.Addon != nil && PassthroughHeadersEnabled(h.CurrentConfig()) {
 		for key, values := range msg.Addon {
 			if len(values) == 0 {
 				continue
@@ -1467,7 +1491,7 @@ func writeDirectErrorResponse(c *gin.Context, status int, msg *interfaces.ErrorM
 }
 
 func (h *BaseAPIHandler) LoggingAPIResponseError(ctx context.Context, err *interfaces.ErrorMessage) {
-	if h.Cfg.RequestLog {
+	if cfg := h.CurrentConfig(); cfg != nil && cfg.RequestLog {
 		if ginContext, ok := ctx.Value("gin").(*gin.Context); ok {
 			if apiResponseErrors, isExist := ginContext.Get("API_RESPONSE_ERROR"); isExist {
 				if slicesAPIResponseError, isOk := apiResponseErrors.([]*interfaces.ErrorMessage); isOk {

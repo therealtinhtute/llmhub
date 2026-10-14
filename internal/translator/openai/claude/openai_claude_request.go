@@ -6,6 +6,8 @@
 package claude
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 
 	sigcompat "github.com/therealtinhtute/llmhub/internal/signature"
@@ -322,9 +324,14 @@ func convertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 			openAIToolJSON, _ = sjson.SetBytes(openAIToolJSON, "function.name", tool.Get("name").String())
 			openAIToolJSON, _ = sjson.SetBytes(openAIToolJSON, "function.description", tool.Get("description").String())
 
-			// Convert Anthropic input_schema to OpenAI function parameters
-			if inputSchema := tool.Get("input_schema"); inputSchema.Exists() {
-				openAIToolJSON, _ = sjson.SetBytes(openAIToolJSON, "function.parameters", inputSchema.Value())
+			// Convert Anthropic input_schema to OpenAI function parameters.
+			// Default to an empty object schema when input_schema is omitted or null.
+			// Regex patterns with unsupported Unicode property escapes are stripped
+			// (shared util predicate) since strict upstream validators reject them.
+			if inputSchema := tool.Get("input_schema"); inputSchema.Exists() && inputSchema.Type != gjson.Null {
+				openAIToolJSON, _ = sjson.SetRawBytes(openAIToolJSON, "function.parameters", []byte(stripUnsupportedUnicodePatternsFromSchemaJSON(inputSchema.Raw)))
+			} else {
+				openAIToolJSON, _ = sjson.SetRawBytes(openAIToolJSON, "function.parameters", []byte(`{"type":"object","properties":{}}`))
 			}
 
 			toolsJSON, _ = sjson.SetRawBytes(toolsJSON, "-1", openAIToolJSON)
@@ -377,6 +384,92 @@ func convertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 	}
 
 	return out
+}
+
+// stripUnsupportedUnicodePatternsFromSchemaJSON drops `pattern` entries whose
+// value contains unsupported Unicode property escapes (\p{...} / \P{...}) and
+// removes patternProperties entries keyed by such patterns. Adapted from
+// upstream e56abd56f142 / 37ce368c5002. The walk is schema-aware: only
+// subschemas under known JSON Schema keyword locations (util.SchemaMapKeywords
+// / util.SchemaValueKeywords) are visited, so `pattern` keys inside user data
+// (e.g. description, default, enum) are preserved. The input is returned
+// unchanged when no incompatible pattern is present.
+func stripUnsupportedUnicodePatternsFromSchemaJSON(raw string) string {
+	if !strings.Contains(raw, `\p{`) && !strings.Contains(raw, `\P{`) && !strings.Contains(raw, `\u`) {
+		return raw
+	}
+	var root any
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&root); err != nil || root == nil {
+		return raw
+	}
+	if !stripUnsupportedUnicodePatterns(root) {
+		return raw
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(root); err != nil {
+		return raw
+	}
+	return strings.TrimSpace(buf.String())
+}
+
+func stripUnsupportedUnicodePatterns(v any) bool {
+	changed := false
+	switch schema := v.(type) {
+	case map[string]any:
+		if patternVal, ok := schema["pattern"].(string); ok && util.HasUnsupportedUnicodePropertyEscape(patternVal) {
+			delete(schema, "pattern")
+			changed = true
+		}
+		if patternProps, ok := schema["patternProperties"].(map[string]any); ok {
+			for patternKey, subSchema := range patternProps {
+				if util.HasUnsupportedUnicodePropertyEscape(patternKey) {
+					delete(patternProps, patternKey)
+					changed = true
+				} else if stripUnsupportedUnicodePatterns(subSchema) {
+					changed = true
+				}
+			}
+		}
+		for _, mapKey := range util.SchemaMapKeywords {
+			if mapKey == "patternProperties" {
+				continue
+			}
+			if subMap, ok := schema[mapKey].(map[string]any); ok {
+				for _, subSchema := range subMap {
+					if stripUnsupportedUnicodePatterns(subSchema) {
+						changed = true
+					}
+				}
+			}
+		}
+		for _, valKey := range util.SchemaValueKeywords {
+			if val, exists := schema[valKey]; exists {
+				switch sub := val.(type) {
+				case map[string]any:
+					if stripUnsupportedUnicodePatterns(sub) {
+						changed = true
+					}
+				case []any:
+					for _, item := range sub {
+						if stripUnsupportedUnicodePatterns(item) {
+							changed = true
+						}
+					}
+				}
+			}
+		}
+	case []any:
+		for _, item := range schema {
+			if stripUnsupportedUnicodePatterns(item) {
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func convertClaudeContentPart(part gjson.Result) (string, bool) {

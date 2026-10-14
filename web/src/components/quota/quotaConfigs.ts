@@ -1004,7 +1004,7 @@ const renderAntigravityItems = (
   groups.forEach((group) => {
     const groupTitle =
       ANTIGRAVITY_GROUP_LABEL_KEYS[group.label.toLowerCase()]
-        ? t(ANTIGRAVITY_GROUP_LABEL_KEYS[group.label.toLowerCase()])
+        ? t(`antigravity_quota.${ANTIGRAVITY_GROUP_LABEL_KEYS[group.label.toLowerCase()]}`)
         : group.label;
 
     nodes.push(
@@ -1021,7 +1021,7 @@ const renderAntigravityItems = (
       const resetLabel = formatQuotaResetTime(bucket.resetTime);
       const bucketLabel =
         bucket.window && ANTIGRAVITY_BUCKET_LABEL_KEYS[bucket.window.toLowerCase()]
-          ? t(ANTIGRAVITY_BUCKET_LABEL_KEYS[bucket.window.toLowerCase()])
+          ? t(`antigravity_quota.${ANTIGRAVITY_BUCKET_LABEL_KEYS[bucket.window.toLowerCase()]}`)
           : bucket.label;
 
       nodes.push(

@@ -397,6 +397,7 @@
     "missing_project_id": "Project ID not found in Antigravity credential",
     "group_gemini_models": "Gemini models",
     "group_claude_gpt_models": "Claude & GPT models",
+    "group_gemini_other": "Gemini (other)",
     "five_hour_limit": "5-hour limit",
     "daily_limit": "Daily limit",
     "weekly_limit": "Weekly limit",

@@ -397,6 +397,7 @@
     "missing_project_id": "Không tìm thấy Project ID trong credential Antigravity",
     "group_gemini_models": "Mô hình Gemini",
     "group_claude_gpt_models": "Mô hình Claude & GPT",
+    "group_gemini_other": "Gemini (khác)",
     "five_hour_limit": "Giới hạn 5 giờ",
     "daily_limit": "Giới hạn ngày",
     "weekly_limit": "Giới hạn tuần",

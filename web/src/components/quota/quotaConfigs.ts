@@ -79,6 +79,7 @@ import {
   normalizeQuotaFraction,
   normalizeStringValue,
   parseAntigravityPayload,
+  parseAntigravityPartialSummary,
   parseClaudeUsagePayload,
   parseCodexUsagePayload,
   normalizeCodexResetCreditsPayload,
@@ -268,6 +269,12 @@ const fetchAntigravityQuota = async (
   let lastStatus: number | undefined;
   let priorityStatus: number | undefined;
   let hadSuccess = false;
+  // First summary that carried groups but no Gemini group. It is only rendered
+  // when no host (and no fetchAvailableModels fallback) produced a better one.
+  let partialSummary: {
+    groups: AntigravityQuotaGroup[];
+    serverTimeOffsetMs: number | null;
+  } | null = null;
 
   for (const url of ANTIGRAVITY_QUOTA_URLS) {
     try {
@@ -289,10 +296,25 @@ const fetchAntigravityQuota = async (
       }
 
       hadSuccess = true;
+      const rawPayload = result.body ?? result.bodyText;
       const payload = parseAntigravityPayload(
-        result.body ?? result.bodyText
+        rawPayload
       ) as AntigravityQuotaSummaryPayload | null;
       if (!payload || !Array.isArray(payload.groups)) {
+        if (!partialSummary) {
+          const partial = parseAntigravityPartialSummary(
+            rawPayload
+          ) as AntigravityQuotaSummaryPayload | null;
+          if (partial) {
+            const groups = buildAntigravityQuotaGroups(partial);
+            if (groups.length > 0) {
+              partialSummary = {
+                groups,
+                serverTimeOffsetMs: resolveResponseServerTimeOffsetMs(result.header),
+              };
+            }
+          }
+        }
         lastError = t('antigravity_quota.empty_models');
         continue;
       }
@@ -318,6 +340,14 @@ const fetchAntigravityQuota = async (
         }
       }
     }
+  }
+
+  if (partialSummary) {
+    return {
+      groups: partialSummary.groups,
+      subscription: await subscriptionPromise,
+      serverTimeOffsetMs: partialSummary.serverTimeOffsetMs,
+    };
   }
 
   if (hadSuccess) {

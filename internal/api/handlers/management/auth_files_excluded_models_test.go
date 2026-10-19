@@ -308,12 +308,13 @@ func TestPatchAuthFileFieldsExcludedModels(t *testing.T) {
 		}
 	}
 
-	// Test 10: Legacy key in metadata is removed even when patching an unrelated field
+	// Test 10: Legacy-only "excluded-models" metadata survives an unrelated PATCH via normalization
 	{
-		// Artificially inject legacy "excluded-models" into targetAuth.Metadata
+		// Start from Metadata with ONLY legacy "excluded-models", no canonical key
 		cur, _ := manager.GetByID("cred.json")
 		cloned := cur.Clone()
-		cloned.Metadata["excluded-models"] = []any{"legacy-leftover"}
+		delete(cloned.Metadata, "excluded_models")
+		cloned.Metadata["excluded-models"] = []any{"keep-me-1", "keep-me-2"}
 		_, _ = manager.Update(context.Background(), cloned)
 
 		rec := httptest.NewRecorder()
@@ -329,7 +330,51 @@ func TestPatchAuthFileFieldsExcludedModels(t *testing.T) {
 			t.Fatal("auth not found after patch")
 		}
 		if _, hasHyphen := updated.Metadata["excluded-models"]; hasHyphen {
-			t.Fatal("expected legacy excluded-models key to be dropped on every path")
+			t.Fatal("expected legacy excluded-models key to be dropped from metadata")
+		}
+		canonVal, hasCanon := updated.Metadata["excluded_models"]
+		if !hasCanon {
+			t.Fatal("expected legacy-only excluded-models value to survive and migrate to canonical excluded_models")
+		}
+		canonSlice, okSlice := canonVal.([]any)
+		if !okSlice || len(canonSlice) != 2 || canonSlice[0] != "keep-me-1" || canonSlice[1] != "keep-me-2" {
+			t.Fatalf("expected migrated canonical values [keep-me-1 keep-me-2], got %#v", canonVal)
+		}
+		if updated.Prefix != "new-prefix" {
+			t.Fatalf("expected prefix=new-prefix, got %q", updated.Prefix)
+		}
+	}
+
+	// Test 11: Collision in metadata before unrelated PATCH: canonical value wins, legacy is dropped
+	{
+		cur, _ := manager.GetByID("cred.json")
+		cloned := cur.Clone()
+		cloned.Metadata["excluded_models"] = []any{"canon-stay"}
+		cloned.Metadata["excluded-models"] = []any{"legacy-drop"}
+		_, _ = manager.Update(context.Background(), cloned)
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","prefix":"coll-prefix"}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on unrelated field patch with collision, got %d: %s", rec.Code, rec.Body.String())
+		}
+		updated, ok := manager.GetByID("cred.json")
+		if !ok || updated == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if _, hasHyphen := updated.Metadata["excluded-models"]; hasHyphen {
+			t.Fatal("expected legacy excluded-models key to be dropped on collision")
+		}
+		canonVal, hasCanon := updated.Metadata["excluded_models"]
+		if !hasCanon {
+			t.Fatal("expected canonical excluded_models to be present")
+		}
+		canonSlice, okSlice := canonVal.([]any)
+		if !okSlice || len(canonSlice) != 1 || canonSlice[0] != "canon-stay" {
+			t.Fatalf("expected canonical value [canon-stay] to win on collision, got %#v", canonVal)
 		}
 	}
 }

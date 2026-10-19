@@ -1880,10 +1880,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		return
 	}
 	targetAuth = targetAuth.Clone()
-	if targetAuth.Metadata != nil {
-		delete(targetAuth.Metadata, "excluded-models")
-	}
-
+	coreauth.NormalizeCredentialMetadata(targetAuth.Metadata)
 
 	changed := false
 	touchedRoots := make(map[string]struct{}, len(req))
@@ -1957,9 +1954,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 
 	targetAuth.UpdatedAt = time.Now()
 
-	if targetAuth.Metadata != nil {
-		delete(targetAuth.Metadata, "excluded-models")
-	}
+	coreauth.NormalizeCredentialMetadata(targetAuth.Metadata)
 
 	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})

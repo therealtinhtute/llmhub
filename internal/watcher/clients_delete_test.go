@@ -67,27 +67,34 @@ func TestAuthDeleteFileRemovalClassification(t *testing.T) {
 	removalRevB := w.pendingUpdates[idB].Revision()
 
 	// 4. Re-create file without a create event. Snapshot must read disk, not cleared state or tombstones.
-	if errWriteFile := os.WriteFile(path, []byte(`{"type":"gemini-cli","email":"test@example.com","project_id":"proj-b"}`), 0o600); errWriteFile != nil {
+	if errWriteFile := os.WriteFile(path, []byte(`{"type":"gemini-cli","email":"test@example.com","project_id":"proj-b,proj-d"}`), 0o600); errWriteFile != nil {
 		t.Fatal(errWriteFile)
 	}
 	fullSnapshot := w.SnapshotCoreAuths()
-	if len(fullSnapshot) == 0 {
-		t.Fatal("expected auths from re-created file in full snapshot")
-	}
 	foundB := false
 	for _, a := range fullSnapshot {
-		if a.ID == "accounts.json" || a.ID == idB {
+		if a.ID == idB {
 			foundB = true
 			break
 		}
 	}
 	if !foundB {
-		t.Fatalf("expected proj-b from re-created file, got %+v", fullSnapshot)
+		t.Fatalf("expected %s from re-created file, got %+v", idB, fullSnapshot)
 	}
 
 	fileSnapshot, errSnapshotAuthFile := w.SnapshotAuthFile(path)
-	if errSnapshotAuthFile != nil || len(fileSnapshot) == 0 {
-		t.Fatalf("single-file snapshot failed: auths=%+v, err=%v", fileSnapshot, errSnapshotAuthFile)
+	if errSnapshotAuthFile != nil {
+		t.Fatalf("single-file snapshot failed: err=%v", errSnapshotAuthFile)
+	}
+	foundFileB := false
+	for _, a := range fileSnapshot {
+		if a.ID == idB {
+			foundFileB = true
+			break
+		}
+	}
+	if !foundFileB {
+		t.Fatalf("expected %s in single-file snapshot, got %+v", idB, fileSnapshot)
 	}
 
 	// 5. Newer add replaces marked delete, and later content delete does not inherit file-removal mark.

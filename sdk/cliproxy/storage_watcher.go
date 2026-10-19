@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"sync"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/nativeproviders"
 	"github.com/therealtinhtute/llmhub/internal/watcher"
 	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"time"
 )
 
 const storageWatcherPollInterval = 2 * time.Second
@@ -59,6 +61,9 @@ func NewStorageWatcherFactory(store RuntimeStorage) WatcherFactory {
 			},
 			snapshotAuths: func() []*coreauth.Auth {
 				return w.snapshotAuths()
+			},
+			snapshotAuthFile: func(path string) ([]*coreauth.Auth, error) {
+				return w.snapshotAuthFile(path)
 			},
 			setUpdateQueue: func(queue chan<- watcher.AuthUpdate) {
 				w.setUpdateQueue(queue)
@@ -156,6 +161,34 @@ func (w *storageWatcher) snapshotAuths() []*coreauth.Auth {
 		out = append(out, auth.Clone())
 	}
 	return out
+}
+
+func (w *storageWatcher) snapshotAuthFile(path string) ([]*coreauth.Auth, error) {
+	cleanPath := filepath.Clean(strings.TrimSpace(path))
+	if cleanPath == "" || cleanPath == "." {
+		return nil, fmt.Errorf("file path is empty")
+	}
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("read auth file: %w", err)
+	}
+	w.mu.Lock()
+	cfg := w.cfg
+	w.mu.Unlock()
+	authDir := ""
+	if cfg != nil {
+		authDir = cfg.AuthDir
+	}
+	if authDir == "" {
+		authDir = filepath.Dir(cleanPath)
+	}
+	return synthesizer.SynthesizeAuthFile(&synthesizer.SynthesisContext{
+		Config:            cfg,
+		AuthDir:           authDir,
+		Now:               time.Now(),
+		IDGenerator:       synthesizer.NewStableIDGenerator(),
+		StrictFileParsing: true,
+	}, cleanPath, data)
 }
 
 func (w *storageWatcher) dispatch(update watcher.AuthUpdate) bool {

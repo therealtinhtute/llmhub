@@ -2047,6 +2047,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	m.authEpochs[auth.ID]++
 	auth.RegistrationEpoch = m.authEpochs[auth.ID]
 	auth.Generation = 1
+	auth.ClearFileSnapshot()
 	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone
 	m.mu.Unlock()
@@ -2097,6 +2098,21 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 		return nil, nil
 	}
 	NormalizeCredentialMetadata(auth.Metadata)
+	if mode == updateModeReplace && auth.HasFileSnapshot() {
+		m.mu.RLock()
+		existing, ok := m.auths[auth.ID]
+		m.mu.RUnlock()
+		if !ok || existing == nil {
+			return nil, nil
+		}
+		// Validate file snapshot freshness without holding m.mu across filesystem I/O.
+		if !auth.FileSnapshotMatchesDisk() {
+			m.mu.RLock()
+			current := m.auths[auth.ID].Clone()
+			m.mu.RUnlock()
+			return current, nil
+		}
+	}
 	m.mu.Lock()
 	existing, hasExisting := m.auths[auth.ID]
 	if hasExisting && existing == nil {
@@ -2179,6 +2195,7 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 			return nil, fmt.Errorf("persist meta auth: %w", errPersist)
 		}
 	}
+	auth.ClearFileSnapshot()
 	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone
 	m.mu.Unlock()

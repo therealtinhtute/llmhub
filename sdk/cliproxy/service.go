@@ -7,13 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"reflect"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/home"
@@ -34,6 +27,13 @@ import (
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/executionregistry"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 	"github.com/therealtinhtute/llmhub/sdk/config"
+	"os"
+	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
@@ -236,6 +236,31 @@ func (s *Service) handleAuthUpdate(ctx context.Context, update watcher.AuthUpdat
 		if id == "" {
 			return
 		}
+		if existing, ok := s.coreManager.GetByID(id); ok && existing != nil {
+			if update.Auth != nil && isStaleCoreAuth(existing, update.Auth) {
+				log.Debugf("skipping stale auth delete for %s: incoming gen=%d, existing gen=%d", id, update.Auth.Generation, existing.Generation)
+				return
+			}
+			// Whole-file deletes can outlive a persisted re-create whose inline
+			// sync did not carry a revision. Recheck local files, including remote
+			// store mirrors, but do not suppress per-ID content/config deletes.
+			if update.Auth == nil && update.IsFileRemoval() {
+				path := existing.Attributes[coreauth.AttributePath]
+				switch existing.AuthSourceKind() {
+				case coreauth.AuthSourceFile:
+					if path == "" {
+						path = existing.Attributes[coreauth.AttributeSource]
+					}
+				case coreauth.AuthSourceGit, coreauth.AuthSourcePostgres, coreauth.AuthSourceObjectStore:
+					// Remote stores are file-backed only when they provide a local path.
+				default:
+					path = ""
+				}
+				if path != "" && s.shouldSkipFileAuthDelete(path, id) {
+					return
+				}
+			}
+		}
 		s.applyCoreAuthRemoval(ctx, id)
 	default:
 		log.Debugf("received unknown auth update action: %v", update.Action)
@@ -335,9 +360,21 @@ func (s *Service) applyCoreAuthAddOrUpdate(ctx context.Context, auth *coreauth.A
 			}
 		}
 		op = "update"
-		_, err = s.coreManager.Update(ctx, auth)
+		var updated *coreauth.Auth
+		updated, err = s.coreManager.Update(ctx, auth)
+		if err == nil && updated != nil {
+			if updated.Generation == existing.Generation {
+				log.Debugf("skipping stale auth update for %s: incoming snapshot did not advance generation (gen=%d)", auth.ID, existing.Generation)
+				return
+			}
+			auth = updated
+		}
 	} else {
-		_, err = s.coreManager.Register(ctx, auth)
+		var registered *coreauth.Auth
+		registered, err = s.coreManager.Register(ctx, auth)
+		if err == nil && registered != nil {
+			auth = registered
+		}
 	}
 	if err != nil {
 		log.Errorf("failed to %s auth %s: %v", op, auth.ID, err)
@@ -369,6 +406,69 @@ func (s *Service) applyCoreAuthRemoval(ctx context.Context, id string) {
 			executor.CloseCodexWebsocketSessionsForAuthID(existing.ID, "auth_removed")
 		}
 	}
+}
+
+// shouldSkipFileAuthDelete retains re-created IDs and preserves auths on uncertain reads.
+func (s *Service) shouldSkipFileAuthDelete(path, id string) bool {
+	_, errStat := os.Stat(path)
+	if os.IsNotExist(errStat) {
+		return false
+	}
+	if errStat != nil {
+		log.Debugf("skipping auth delete for %s: backing file is not confirmed missing", id)
+		return true
+	}
+	// A file can return with only a subset of its previous plugin auth IDs.
+	// Read just this file so another file with the same ID cannot retain the auth.
+	auths, errSnapshotAuthFile := s.currentWatcher().SnapshotAuthFile(path)
+	if errSnapshotAuthFile != nil || len(auths) == 0 {
+		log.Debugf("skipping auth delete for %s: file auth snapshot is uncertain (err=%v)", id, errSnapshotAuthFile)
+		return true
+	}
+	hasAuth := false
+	for _, auth := range auths {
+		if auth == nil || auth.ID == "" {
+			continue
+		}
+		hasAuth = true
+		// Store IDs retain case, but the file synthesizer lowercases IDs on Windows.
+		// Other platforms keep exact matching for case-sensitive plugin auth IDs.
+		if authIDMatches(auth.ID, id, runtime.GOOS == "windows") {
+			log.Debugf("skipping auth delete for %s: auth ID is present in the re-created file", id)
+			return true
+		}
+	}
+	if !hasAuth {
+		log.Debugf("skipping auth delete for %s: file auth snapshot has no valid IDs", id)
+	}
+	return !hasAuth
+}
+
+func (s *Service) currentWatcher() *WatcherWrapper {
+	if s == nil {
+		return nil
+	}
+	return s.watcher
+}
+
+func authIDMatches(snapshotID, id string, foldCase bool) bool {
+	if foldCase {
+		return strings.EqualFold(snapshotID, id)
+	}
+	return snapshotID == id
+}
+
+func isStaleCoreAuth(existing, incoming *coreauth.Auth) bool {
+	if existing == nil || incoming == nil {
+		return false
+	}
+	if incoming.RegistrationEpoch > 0 && incoming.RegistrationEpoch < existing.RegistrationEpoch {
+		return true
+	}
+	if incoming.Generation > 0 && incoming.Generation < existing.Generation {
+		return true
+	}
+	return false
 }
 
 func (s *Service) applyRetryConfig(cfg *config.Config) {

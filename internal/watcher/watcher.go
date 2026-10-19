@@ -17,9 +17,9 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 	"gopkg.in/yaml.v3"
 
+	log "github.com/sirupsen/logrus"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 )
 
 // storePersister captures persistence-capable token store methods used by the watcher.

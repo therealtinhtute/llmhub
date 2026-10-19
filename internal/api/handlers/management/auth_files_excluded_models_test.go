@@ -264,4 +264,72 @@ func TestPatchAuthFileFieldsExcludedModels(t *testing.T) {
 			t.Fatalf("expected 400 on non-string/non-array alias, got %d", recInvalid.Code)
 		}
 	}
+
+	// Test 9: Dual spelling with canonical and legacy keys: canonical-wins deterministically regardless of JSON order
+	{
+		// Subtest A: canonical first, legacy second -> canonical wins
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded_models":["canon-1","canon-2"],"excluded-models":["legacy-1"]}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on dual-spelling patch, got %d: %s", rec.Code, rec.Body.String())
+		}
+		updated, ok := manager.GetByID("cred.json")
+		if !ok || updated == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if got := updated.Attributes["excluded_models"]; got != "canon-1,canon-2" {
+			t.Fatalf("expected canonical to win (canon-1,canon-2), got %q", got)
+		}
+		if _, hasHyphen := updated.Metadata["excluded-models"]; hasHyphen {
+			t.Fatal("expected legacy excluded-models key to be dropped from metadata")
+		}
+
+		// Subtest B: legacy first, canonical second -> canonical still wins deterministically
+		recB := httptest.NewRecorder()
+		cB, _ := gin.CreateTestContext(recB)
+		cB.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded-models":["legacy-2"],"excluded_models":["canon-3"]}`))
+		cB.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(cB)
+		if recB.Code != http.StatusOK {
+			t.Fatalf("expected 200 on dual-spelling patch B, got %d: %s", recB.Code, recB.Body.String())
+		}
+		updatedB, okB := manager.GetByID("cred.json")
+		if !okB || updatedB == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if got := updatedB.Attributes["excluded_models"]; got != "canon-3" {
+			t.Fatalf("expected canonical to win (canon-3), got %q", got)
+		}
+		if _, hasHyphen := updatedB.Metadata["excluded-models"]; hasHyphen {
+			t.Fatal("expected legacy excluded-models key to be dropped from metadata")
+		}
+	}
+
+	// Test 10: Legacy key in metadata is removed even when patching an unrelated field
+	{
+		// Artificially inject legacy "excluded-models" into targetAuth.Metadata
+		cur, _ := manager.GetByID("cred.json")
+		cloned := cur.Clone()
+		cloned.Metadata["excluded-models"] = []any{"legacy-leftover"}
+		_, _ = manager.Update(context.Background(), cloned)
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","prefix":"new-prefix"}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on unrelated field patch, got %d: %s", rec.Code, rec.Body.String())
+		}
+		updated, ok := manager.GetByID("cred.json")
+		if !ok || updated == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if _, hasHyphen := updated.Metadata["excluded-models"]; hasHyphen {
+			t.Fatal("expected legacy excluded-models key to be dropped on every path")
+		}
+	}
 }

@@ -1864,6 +1864,13 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	delete(req, "auth_index")
 	delete(req, "provider")
 
+	var errNormalize error
+	req, errNormalize = normalizeAuthFilePatchFields(req)
+	if errNormalize != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errNormalize.Error()})
+		return
+	}
+
 	ctx := c.Request.Context()
 	targetAuth := h.findAuthFileBySelector(selector)
 
@@ -1873,6 +1880,10 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		return
 	}
 	targetAuth = targetAuth.Clone()
+	if targetAuth.Metadata != nil {
+		delete(targetAuth.Metadata, "excluded-models")
+	}
+
 
 	changed := false
 	touchedRoots := make(map[string]struct{}, len(req))
@@ -1891,7 +1902,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 			targetAuth.Metadata = make(map[string]any)
 		}
 		if rootAuthFileField(fieldPath) == "excluded_models" {
-			if fieldPath != "excluded_models" && fieldPath != "excluded-models" {
+			if fieldPath != "excluded_models" {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models does not support nested fields"})
 				return
 			}
@@ -1946,6 +1957,10 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 
 	targetAuth.UpdatedAt = time.Now()
 
+	if targetAuth.Metadata != nil {
+		delete(targetAuth.Metadata, "excluded-models")
+	}
+
 	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
 		return
@@ -1996,10 +2011,38 @@ func rootAuthFileField(path string) string {
 	if idx := strings.Index(path, "."); idx >= 0 {
 		path = strings.TrimSpace(path[:idx])
 	}
-	if path == "excluded-models" {
-		return "excluded_models"
+	return coreauth.CanonicalCredentialMetadataKey(path)
+}
+
+func normalizeAuthFilePatchFields(fields map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	normalized := make(map[string]json.RawMessage, len(fields))
+	originalNames := make(map[string]string, len(fields))
+	canonicalNames := make(map[string]bool, len(fields))
+	for key, value := range fields {
+		parts := strings.Split(strings.TrimSpace(key), ".")
+		for index := range parts {
+			parts[index] = strings.TrimSpace(parts[index])
+		}
+		originalRoot := parts[0]
+		parts[0] = coreauth.CanonicalCredentialMetadataKey(originalRoot)
+		canonicalPath := strings.Join(parts, ".")
+		if original, exists := originalNames[canonicalPath]; exists {
+			currentCanonical := originalRoot == parts[0]
+			if canonicalNames[canonicalPath] != currentCanonical {
+				if currentCanonical {
+					normalized[canonicalPath] = value
+					originalNames[canonicalPath] = key
+					canonicalNames[canonicalPath] = true
+				}
+				continue
+			}
+			return nil, fmt.Errorf("auth file fields %q and %q refer to the same field", original, key)
+		}
+		normalized[canonicalPath] = value
+		originalNames[canonicalPath] = key
+		canonicalNames[canonicalPath] = originalRoot == parts[0]
 	}
-	return path
+	return normalized, nil
 }
 
 func setAuthFileMetadataValue(metadata map[string]any, path string, value any) error {

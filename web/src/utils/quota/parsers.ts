@@ -115,36 +115,40 @@ export function parseIdTokenPayload(value: unknown): Record<string, unknown> | n
   return null;
 }
 
-export function parseAntigravityPayload(payload: unknown): Record<string, unknown> | null {
-  const toRecord = (value: unknown): Record<string, unknown> | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) return null;
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return parsed as Record<string, unknown>;
-        }
-      } catch {
-        return null;
+function toAntigravityRecord(value: unknown): Record<string, unknown> | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
       }
+    } catch {
       return null;
     }
-    if (typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, unknown>;
-    }
     return null;
-  };
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
 
-  const parsed = toRecord(payload);
+function resolveAntigravityCandidate(payload: unknown): Record<string, unknown> | null {
+  const parsed = toAntigravityRecord(payload);
   if (!parsed) return null;
+  return 'models' in parsed ? parsed : (toAntigravityRecord(parsed.body) ?? parsed);
+}
 
-  const candidate = 'models' in parsed ? parsed : (toRecord(parsed.body) ?? parsed);
+export function parseAntigravityPayload(payload: unknown): Record<string, unknown> | null {
+  const candidate = resolveAntigravityCandidate(payload);
+  if (!candidate) return null;
 
   // fetchAvailableModels fallback: synthesize summary-shaped groups from the
   // per-model quota map, including the unmatched-gemini fallback group.
-  const models = toRecord(candidate.models);
+  const models = toAntigravityRecord(candidate.models);
   if (models && Object.keys(models).length > 0) {
     const groups = buildAntigravitySummaryGroupsFromModels(models);
     if (groups.length > 0) {
@@ -161,6 +165,23 @@ export function parseAntigravityPayload(payload: unknown): Record<string, unknow
   }
 
   return candidate;
+}
+
+/**
+ * Extract a summary that has groups but no Gemini group. The loader remembers
+ * the first one and only renders it once every host and the model fallback
+ * have been exhausted, so an account without Gemini access still shows its
+ * Claude/GPT quota instead of an empty card.
+ */
+export function parseAntigravityPartialSummary(
+  payload: unknown
+): Record<string, unknown> | null {
+  const candidate = resolveAntigravityCandidate(payload);
+  if (!candidate) return null;
+
+  const groups = Array.isArray(candidate.groups) ? candidate.groups : null;
+  if (!groups || groups.length === 0) return null;
+  return hasAntigravityGeminiGroup(groups) ? null : candidate;
 }
 
 export function parseClaudeUsagePayload(payload: unknown): ClaudeUsagePayload | null {

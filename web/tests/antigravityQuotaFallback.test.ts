@@ -1,11 +1,16 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
+import type { TFunction } from 'i18next';
 import { buildAntigravityQuotaGroups } from '../src/utils/quota/builders';
 import {
   ANTIGRAVITY_FALLBACK_GROUP_LABEL,
   buildAntigravitySummaryGroupsFromModels,
   hasAntigravityGeminiGroup,
 } from '../src/utils/quota/antigravityModels';
-import { parseAntigravityPayload } from '../src/utils/quota/parsers';
+import {
+  parseAntigravityPartialSummary,
+  parseAntigravityPayload,
+} from '../src/utils/quota/parsers';
+import { ANTIGRAVITY_QUOTA_URLS } from '../src/utils/quota/constants';
 import type { AntigravityQuotaSummaryPayload } from '../src/types/quota';
 
 type SummaryGroup = {
@@ -133,6 +138,159 @@ describe('parseAntigravityPayload', () => {
     };
 
     expect(parseAntigravityPayload(payload)).toEqual(payload);
+  });
+});
+
+describe('parseAntigravityPartialSummary', () => {
+  test('returns a Claude/GPT-only summary for the loader to keep as fallback', () => {
+    const partial = {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [{ bucketId: '3p-5h', remainingFraction: 1 }],
+        },
+      ],
+    };
+
+    expect(parseAntigravityPartialSummary(partial)).toEqual(partial);
+  });
+
+  test('ignores complete summaries, empty groups and model payloads', () => {
+    expect(
+      parseAntigravityPartialSummary({
+        groups: [
+          { displayName: 'Gemini models', buckets: [{ bucketId: 'gemini-5h', remainingFraction: 1 }] },
+        ],
+      })
+    ).toBeNull();
+    expect(parseAntigravityPartialSummary({ groups: [] })).toBeNull();
+    expect(parseAntigravityPartialSummary({})).toBeNull();
+    expect(
+      parseAntigravityPartialSummary({
+        models: {
+          'gemini-3.8-flash-high': { quotaInfo: { remainingFraction: 0.4 } },
+        },
+      })
+    ).toBeNull();
+  });
+});
+
+type FakeApiResult = {
+  statusCode: number;
+  header: Record<string, string[]>;
+  bodyText: string;
+  body: unknown;
+};
+
+const requestedUrls: string[] = [];
+let respondToRequest: (url: string) => FakeApiResult = () => ({
+  statusCode: 500,
+  header: {},
+  bodyText: '',
+  body: null,
+});
+
+mock.module('@/services/api', () => ({
+  apiCallApi: {
+    request: async ({ url }: { url: string }) => {
+      requestedUrls.push(url);
+      return respondToRequest(url);
+    },
+  },
+  antigravitySubscriptionApi: { get: async () => null },
+  authFilesApi: { downloadText: async () => '' },
+  getApiCallErrorMessage: (result: FakeApiResult) => `HTTP ${result.statusCode}`,
+}));
+
+const { ANTIGRAVITY_CONFIG } = await import('@/components/quota/quotaConfigs');
+
+const summaryPayload = (label: string, remainingFraction: number) => ({
+  groups: [
+    {
+      displayName: label,
+      buckets: [{ bucketId: '3p-5h', window: '5h', remainingFraction }],
+    },
+  ],
+});
+
+const fetchQuota = (t: (key: string) => string = (key) => key) =>
+  ANTIGRAVITY_CONFIG.fetchQuota(
+    {
+      name: 'antigravity.json',
+      type: 'antigravity',
+      auth_index: '1',
+      project_id: 'project-1',
+    },
+    t as unknown as TFunction
+  );
+
+describe('fetchAntigravityQuota partial-summary fallback', () => {
+  test('renders the first partial summary when every host is partial and the model fallback fails', async () => {
+    requestedUrls.length = 0;
+    respondToRequest = (url) => {
+      if (url.includes('fetchAvailableModels')) {
+        return { statusCode: 500, header: {}, bodyText: 'boom', body: null };
+      }
+      const isFirstSummary = url === ANTIGRAVITY_QUOTA_URLS[0];
+      const payload = summaryPayload(
+        'Claude and GPT models',
+        isFirstSummary ? 1 : 0.5
+      );
+      return { statusCode: 200, header: {}, bodyText: JSON.stringify(payload), body: payload };
+    };
+
+    const data = await fetchQuota();
+
+    expect(requestedUrls).toEqual(ANTIGRAVITY_QUOTA_URLS);
+    expect(data.groups.map((group) => group.label)).toEqual(['Claude and GPT models']);
+    // The first partial summary wins over later hosts.
+    expect(data.groups[0]?.buckets[0]?.remainingFraction).toBe(1);
+  });
+
+  test('keeps the first partial summary when the model fallback yields nothing', async () => {
+    requestedUrls.length = 0;
+    respondToRequest = (url) => {
+      if (url.includes('fetchAvailableModels')) {
+        const payload = { models: {} };
+        return { statusCode: 200, header: {}, bodyText: JSON.stringify(payload), body: payload };
+      }
+      const payload = summaryPayload('Claude and GPT models', 0.8);
+      return { statusCode: 200, header: {}, bodyText: JSON.stringify(payload), body: payload };
+    };
+
+    const data = await fetchQuota();
+
+    expect(requestedUrls).toEqual(ANTIGRAVITY_QUOTA_URLS);
+    expect(data.groups.map((group) => group.label)).toEqual(['Claude and GPT models']);
+  });
+
+  test('still returns the complete summary from the first host without extra requests', async () => {
+    requestedUrls.length = 0;
+    respondToRequest = () => {
+      const payload = {
+        groups: [
+          { displayName: 'Gemini models', buckets: [{ bucketId: 'gemini-5h', remainingFraction: 0.9 }] },
+          { displayName: 'Claude and GPT models', buckets: [{ bucketId: '3p-5h', remainingFraction: 0.7 }] },
+        ],
+      };
+      return { statusCode: 200, header: {}, bodyText: JSON.stringify(payload), body: payload };
+    };
+
+    const data = await fetchQuota();
+
+    expect(requestedUrls).toEqual([ANTIGRAVITY_QUOTA_URLS[0]]);
+    expect(data.groups.map((group) => group.label)).toEqual([
+      'Gemini models',
+      'Claude and GPT models',
+    ]);
+  });
+
+  test('still throws when every host fails', async () => {
+    requestedUrls.length = 0;
+    respondToRequest = () => ({ statusCode: 403, header: {}, bodyText: 'forbidden', body: null });
+
+    await expect(fetchQuota()).rejects.toThrow();
+    expect(requestedUrls).toEqual(ANTIGRAVITY_QUOTA_URLS);
   });
 });
 

@@ -180,9 +180,8 @@ func TestSnapshotCoreAuths_ConfigAndAuthFiles(t *testing.T) {
 	if !geminiPrimary.Disabled || geminiPrimary.Status != coreauth.StatusDisabled {
 		t.Fatal("expected primary gemini-cli auth to be disabled when virtual auths are synthesized")
 	}
-	expectedOAuthHash := diff.ComputeExcludedModelsHash([]string{"Foo", "bar"})
-	if geminiPrimary.Attributes["excluded_models_hash"] != expectedOAuthHash {
-		t.Fatalf("expected OAuth excluded hash %s, got %s", expectedOAuthHash, geminiPrimary.Attributes["excluded_models_hash"])
+	if got := geminiPrimary.Attributes["excluded_models_hash"]; got != "" {
+		t.Fatalf("expected OAuth excluded hash to be empty, got %s", got)
 	}
 	if geminiPrimary.Attributes["auth_kind"] != "oauth" {
 		t.Fatalf("expected auth_kind=oauth, got %s", geminiPrimary.Attributes["auth_kind"])
@@ -195,8 +194,8 @@ func TestSnapshotCoreAuths_ConfigAndAuthFiles(t *testing.T) {
 		if v.Attributes["gemini_virtual_parent"] != geminiPrimary.ID {
 			t.Fatalf("virtual auth missing parent link to %s", geminiPrimary.ID)
 		}
-		if v.Attributes["excluded_models_hash"] != expectedOAuthHash {
-			t.Fatalf("expected virtual excluded hash %s, got %s", expectedOAuthHash, v.Attributes["excluded_models_hash"])
+		if got := v.Attributes["excluded_models_hash"]; got != "" {
+			t.Fatalf("expected virtual excluded hash to be empty, got %s", got)
 		}
 		if v.Status != coreauth.StatusActive {
 			t.Fatalf("expected virtual auth to be active, got %s", v.Status)

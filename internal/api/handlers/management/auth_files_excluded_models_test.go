@@ -175,4 +175,93 @@ func TestPatchAuthFileFieldsExcludedModels(t *testing.T) {
 			t.Fatal("expected non-empty excluded_models_hash after patch")
 		}
 	}
+
+	// Test 5: Comma-separated string form persists as canonical array and updates attributes
+	{
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded_models":"comma-1, comma-2"}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on comma-separated string, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		updated, ok := manager.GetByID("cred.json")
+		if !ok || updated == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if got := updated.Attributes["excluded_models"]; got != "comma-1,comma-2" {
+			t.Fatalf("expected updated excluded_models=%q, got %q", "comma-1,comma-2", got)
+		}
+		// Verify metadata stores canonical array
+		rawArr, okArr := updated.Metadata["excluded_models"].([]string)
+		if !okArr || len(rawArr) != 2 || rawArr[0] != "comma-1" || rawArr[1] != "comma-2" {
+			t.Fatalf("expected metadata excluded_models to be []string{\"comma-1\", \"comma-2\"}, got %#v", updated.Metadata["excluded_models"])
+		}
+	}
+
+	// Test 6: Legacy hyphen alias "excluded-models" updates metadata and attributes
+	{
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded-models":["alias-1","alias-2"]}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on alias patch, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		updated, ok := manager.GetByID("cred.json")
+		if !ok || updated == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if got := updated.Attributes["excluded_models"]; got != "alias-1,alias-2" {
+			t.Fatalf("expected updated excluded_models=%q, got %q", "alias-1,alias-2", got)
+		}
+		if _, hasHyphen := updated.Metadata["excluded-models"]; hasHyphen {
+			t.Fatal("expected legacy excluded-models key to be removed from metadata in favor of canonical excluded_models")
+		}
+	}
+
+	// Test 7: Legacy hyphen alias "excluded-models" with comma-separated string
+	{
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded-models":"alias-str1, alias-str2"}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on alias comma-separated string, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		updated, ok := manager.GetByID("cred.json")
+		if !ok || updated == nil {
+			t.Fatal("auth not found after patch")
+		}
+		if got := updated.Attributes["excluded_models"]; got != "alias-str1,alias-str2" {
+			t.Fatalf("expected updated excluded_models=%q, got %q", "alias-str1,alias-str2", got)
+		}
+	}
+
+	// Test 8: Legacy hyphen alias rejects nested and invalid types
+	{
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded-models.nested":"bad"}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 on nested alias, got %d", rec.Code)
+		}
+
+		recInvalid := httptest.NewRecorder()
+		cInvalid, _ := gin.CreateTestContext(recInvalid)
+		cInvalid.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/auth-files/fields", strings.NewReader(`{"name":"cred.json","excluded-models":12345}`))
+		cInvalid.Request.Header.Set("Content-Type", "application/json")
+		h.PatchAuthFileFields(cInvalid)
+		if recInvalid.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 on non-string/non-array alias, got %d", recInvalid.Code)
+		}
+	}
 }

@@ -1891,24 +1891,22 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 			targetAuth.Metadata = make(map[string]any)
 		}
 		if rootAuthFileField(fieldPath) == "excluded_models" {
-			if fieldPath != "excluded_models" {
+			if fieldPath != "excluded_models" && fieldPath != "excluded-models" {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models does not support nested fields"})
 				return
 			}
-			if value != nil {
-				models, okModels := value.([]any)
-				validModels := okModels
-				for _, model := range models {
-					if _, okString := model.(string); !okString {
-						validModels = false
-						break
-					}
-				}
-				if !validModels {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models must be a string array or null"})
-					return
-				}
+			// Accept the same shapes as auth-file loading, but reject anything it would ignore.
+			models, errExcluded := synthesizer.ExtractExcludedModelsFromMetadata(map[string]any{"excluded_models": value})
+			if errExcluded != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models must be a string array, a comma-separated string, or null"})
+				return
 			}
+			// Persist the legacy comma-separated form as a canonical array.
+			if _, isString := value.(string); isString {
+				value = models
+			}
+			fieldPath = "excluded_models"
+			delete(targetAuth.Metadata, "excluded-models")
 		}
 
 		if fieldPath == "headers" {
@@ -1996,7 +1994,10 @@ func rootAuthFileField(path string) string {
 		return ""
 	}
 	if idx := strings.Index(path, "."); idx >= 0 {
-		return strings.TrimSpace(path[:idx])
+		path = strings.TrimSpace(path[:idx])
+	}
+	if path == "excluded-models" {
+		return "excluded_models"
 	}
 	return path
 }

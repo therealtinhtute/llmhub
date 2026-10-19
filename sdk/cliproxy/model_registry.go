@@ -174,11 +174,21 @@ func (s *Service) reconcileSupersededAuthRegistration(ctx context.Context, authI
 	if s == nil || s.coreManager == nil || authID == "" {
 		return false
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return false
+	}
 	latest, ok := s.latestAuthForModelRegistration(authID)
 	if !ok || latest == nil {
 		return false
 	}
-	s.registerModelsForAuth(latest)
+	if latest.Disabled {
+		s.unregisterModelsForAuthFenced(latest, newModelRegistrationFence(latest, s.cfg))
+	} else {
+		s.registerModelsForAuthDirect(ctx, latest)
+	}
 	s.coreManager.ReconcileRegistryModelStates(ctx, latest.ID)
 	s.coreManager.RefreshSchedulerEntry(authID)
 	return true

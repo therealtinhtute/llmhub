@@ -352,14 +352,7 @@ func (s *Service) applyCoreAuthAddOrUpdate(ctx context.Context, auth *coreauth.A
 	// Register models after auth is updated in coreManager.
 	// This operation may block on network calls, but the auth configuration
 	// is already effective at this point.
-	s.registerModelsForAuth(auth)
-	s.coreManager.ReconcileRegistryModelStates(ctx, auth.ID)
-
-	// Refresh the scheduler entry so that the auth's supportedModelSet is rebuilt
-	// from the now-populated global model registry. Without this, newly added auths
-	// have an empty supportedModelSet (because Register/Update upserts into the
-	// scheduler before registerModelsForAuth runs) and are invisible to the scheduler.
-	s.coreManager.RefreshSchedulerEntry(auth.ID)
+	s.completeModelRegistrationForAuth(ctx, auth)
 }
 
 func (s *Service) applyCoreAuthRemoval(ctx context.Context, id string) {
@@ -507,13 +500,22 @@ func (s *Service) registerComboModels(cfg *config.Config) {
 	GlobalModelRegistry().RegisterClient(comboModelsClientID, "combo", models)
 }
 
-func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) {
+func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) bool {
+	return s.registerResolvedModelsForAuthWithContext(context.Background(), a, fence, providerKey, models)
+}
+
+func (s *Service) registerResolvedModelsForAuthWithContext(ctx context.Context, a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) bool {
 	if a == nil || a.ID == "" {
-		return
+		return true
 	}
-	if !s.registerResolvedModelsForAuthFenced(a, fence, providerKey, models) {
-		s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	published := s.registerResolvedModelsForAuthFenced(a, fence, providerKey, models)
+	if !published && ctx.Err() == nil {
+		s.reconcileSupersededAuthRegistration(ctx, a.ID)
+	}
+	return published
 }
 
 // rebindExecutors refreshes provider executors so they observe the latest configuration.
@@ -1267,17 +1269,77 @@ func (s *Service) requiresLocalAuthDir() bool {
 }
 
 // registerModelsForAuth (re)binds provider models in the global registry using the core auth ID as client identifier.
-func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
+func (s *Service) registerModelsForAuth(a *coreauth.Auth) bool {
+	return s.completeModelRegistrationForAuth(context.Background(), a)
+}
+
+func (s *Service) completeModelRegistrationForAuth(ctx context.Context, auth *coreauth.Auth) bool {
+	if s == nil || auth == nil || auth.ID == "" {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	targetAuth := auth
+	if s.coreManager != nil {
+		if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
+			targetAuth = latest
+		}
+	}
+	published := s.registerModelsForAuthDirect(ctx, targetAuth)
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	if !published && s.coreManager != nil {
+		// The registration was fenced out because its registration inputs
+		// or the registry epoch changed mid-computation. Reconcile the latest
+		// auth once instead of risking an empty model list. The retry
+		// recomputes from the latest snapshot and never republishes the superseded computation's models.
+		if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
+			targetAuth = latest
+			if latest.Disabled {
+				accepted := s.unregisterModelsForAuthFenced(latest, newModelRegistrationFence(latest, s.cfg))
+				log.WithFields(log.Fields{"auth_id": latest.ID, "provider": latest.Provider, "superseded": !accepted}).Debugf("model registration reconciliation attempted for disabled auth %s", latest.ID)
+			} else {
+				accepted := s.registerModelsForAuthDirect(ctx, targetAuth)
+				if ctx != nil && ctx.Err() != nil {
+					return false
+				}
+				log.WithFields(log.Fields{"auth_id": latest.ID, "provider": latest.Provider, "superseded": !accepted}).Debugf("model registration reconciliation attempted for auth %s", latest.ID)
+			}
+		}
+	}
+	if s.coreManager != nil {
+		s.coreManager.ReconcileRegistryModelStates(ctx, targetAuth.ID)
+		s.coreManager.RefreshSchedulerEntry(targetAuth.ID)
+	}
+	return true
+}
+
+func (s *Service) registerModelsForAuthDirect(ctx context.Context, a *coreauth.Auth) bool {
 	if a == nil || a.ID == "" {
-		return
+		return true
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return true
 	}
 	// Capture the publication fence once before any runtime read or model resolution.
 	fence := newModelRegistrationFence(a, s.cfg)
 	if a.Disabled {
-		if !s.unregisterModelsForAuthFenced(a, fence) {
-			s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+		if s != nil && s.coreManager != nil {
+			if current, ok := s.coreManager.GetByID(a.ID); ok && current != nil && !current.Disabled {
+				return false
+			}
 		}
-		return
+		return s.unregisterModelsForAuthFenced(a, fence)
+	}
+	if s != nil && s.coreManager != nil {
+		if current, ok := s.coreManager.GetByID(a.ID); !ok || current == nil || current.Disabled {
+			return true
+		}
 	}
 	authKind := strings.ToLower(strings.TrimSpace(a.Attributes["auth_kind"]))
 	if authKind == "" {
@@ -1287,10 +1349,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	}
 	if a.Attributes != nil {
 		if v := strings.TrimSpace(a.Attributes["gemini_virtual_primary"]); strings.EqualFold(v, "true") {
-			if !s.unregisterModelsForAuthFenced(a, fence) {
-				s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
-			}
-			return
+			return s.unregisterModelsForAuthFenced(a, fence)
 		}
 	}
 	// Unregister legacy client ID (if present) to avoid double counting
@@ -1467,24 +1526,20 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 						if providerKey == "" {
 							providerKey = "openai-compatibility"
 						}
-						s.registerResolvedModelsForAuth(a, fence, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
-					} else {
-						// Ensure stale registrations are cleared when model list becomes empty.
-						if !s.unregisterModelsForAuthFenced(a, fence) {
-							s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
-						}
+						return s.registerResolvedModelsForAuthFenced(a, fence, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					}
-					return
+					// Ensure stale registrations are cleared when model list becomes empty.
+					return s.unregisterModelsForAuthFenced(a, fence)
 				}
 			}
 			if isCompatAuth {
 				// No matching provider found or models removed entirely; drop any prior registration.
-				if !s.unregisterModelsForAuthFenced(a, fence) {
-					s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
-				}
-				return
+				return s.unregisterModelsForAuthFenced(a, fence)
 			}
 		}
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return true
 	}
 	models = applyOAuthModelAlias(s.cfg, provider, authKind, models)
 	if len(models) > 0 {
@@ -1492,13 +1547,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		if key == "" {
 			key = strings.ToLower(strings.TrimSpace(a.Provider))
 		}
-		s.registerResolvedModelsForAuth(a, fence, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
-		return
+		return s.registerResolvedModelsForAuthFenced(a, fence, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
 	}
 
-	if !s.unregisterModelsForAuthFenced(a, fence) {
-		s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
-	}
+	return s.unregisterModelsForAuthFenced(a, fence)
 }
 
 func (s *Service) resolveKiroModelsForAuth(a *coreauth.Auth) ([]*ModelInfo, *coreauth.Auth, error) {
@@ -1522,9 +1574,7 @@ func (s *Service) registerLoadedCoreAuths(ctx context.Context) {
 		if !auth.Disabled {
 			s.ensureExecutorsForAuth(auth)
 		}
-		s.registerModelsForAuth(auth)
-		s.coreManager.ReconcileRegistryModelStates(ctx, auth.ID)
-		s.coreManager.RefreshSchedulerEntry(auth.ID)
+		s.completeModelRegistrationForAuth(ctx, auth)
 	}
 }
 
@@ -1543,7 +1593,7 @@ func (s *Service) refreshModelRegistrationForAuth(current *coreauth.Auth) bool {
 	if !current.Disabled {
 		s.ensureExecutorsForAuth(current)
 	}
-	s.registerModelsForAuth(current)
+	s.registerModelsForAuthDirect(context.Background(), current)
 	s.coreManager.ReconcileRegistryModelStates(context.Background(), current.ID)
 
 	latest, ok := s.latestAuthForModelRegistration(current.ID)
@@ -1561,7 +1611,7 @@ func (s *Service) refreshModelRegistrationForAuth(current *coreauth.Auth) bool {
 	// stale model registrations behind. This may duplicate registration work when
 	// no auth fields changed, but keeps the refresh path simple and correct.
 	s.ensureExecutorsForAuth(latest)
-	s.registerModelsForAuth(latest)
+	s.registerModelsForAuthDirect(context.Background(), latest)
 	s.coreManager.ReconcileRegistryModelStates(context.Background(), latest.ID)
 	s.coreManager.RefreshSchedulerEntry(current.ID)
 	return true

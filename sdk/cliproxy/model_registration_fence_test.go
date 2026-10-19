@@ -260,3 +260,192 @@ func TestRegisterResolvedModelsForAuth_LiveFencingReconcilesEnabledLatest(t *tes
 		t.Fatal("expected gemini-2.5-pro to be registered after reconciliation of latest auth")
 	}
 }
+
+type registrationInterleaveRuntime struct {
+	onRead func()
+}
+
+func (r *registrationInterleaveRuntime) GetClientID() string {
+	if r.onRead != nil {
+		r.onRead()
+	}
+	return ""
+}
+
+func TestModelRegistration_FenceCapturedBeforeResolution_InterruptedByEpochChangeDiscardsStale(t *testing.T) {
+	clientID := "epoch-interrupted-client"
+	reg := GlobalModelRegistry()
+	reg.UnregisterClient(clientID)
+	t.Cleanup(func() {
+		reg.UnregisterClient(clientID)
+	})
+
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{ForceModelPrefix: false},
+	}
+	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
+	service := &Service{cfg: cfg, coreManager: manager}
+
+	interleaved := false
+	runtime := &registrationInterleaveRuntime{
+		onRead: func() {
+			if interleaved {
+				return
+			}
+			interleaved = true
+			// Mid-flight interruption: a concurrent registration advances the registry epoch
+			// and publishes newer state for this client before this registration finishes.
+			reg.RegisterClient(clientID, "gemini", []*ModelInfo{{ID: "newer-concurrent-model"}})
+		},
+	}
+
+	auth := &coreauth.Auth{
+		ID:       clientID,
+		Provider: "gemini",
+		Status:   coreauth.StatusActive,
+		Runtime:  runtime,
+		Attributes: map[string]string{
+			"auth_kind": "apikey",
+		},
+	}
+	registered, errRegister := manager.Register(context.Background(), auth)
+	if errRegister != nil {
+		t.Fatalf("failed to register auth: %v", errRegister)
+	}
+
+	// Run registerModelsForAuthDirect: the fence was captured before resolution.
+	// The resolution is interrupted by the concurrent epoch advance.
+	// The stale publication must be rejected and discarded.
+	published := service.registerModelsForAuthDirect(context.Background(), registered)
+	if !interleaved {
+		t.Fatal("expected interleave point to be hit during model resolution")
+	}
+	if published {
+		t.Fatal("expected published to be false when resolution was interrupted by epoch change")
+	}
+
+	// Newer concurrent model must remain published
+	if !reg.ClientSupportsModel(clientID, "newer-concurrent-model") {
+		t.Fatal("newer concurrent model should be preserved")
+	}
+	// The stale gemini models from the interrupted pass must not have overwritten newer state
+	if reg.ClientSupportsModel(clientID, "gemini-2.5-flash") {
+		t.Fatal("stale publication should have been discarded and not registered")
+	}
+}
+
+func TestModelRegistration_FenceCapturedBeforeResolution_InterruptedByConfigChangeDiscardsStale(t *testing.T) {
+	clientID := "config-interrupted-client"
+	reg := GlobalModelRegistry()
+	reg.UnregisterClient(clientID)
+	t.Cleanup(func() {
+		reg.UnregisterClient(clientID)
+	})
+
+	oldCfg := &config.Config{
+		SDKConfig:           config.SDKConfig{ForceModelPrefix: false},
+		OAuthExcludedModels: map[string][]string{"claude": {"model-initial"}},
+	}
+	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
+	service := &Service{cfg: oldCfg, coreManager: manager}
+
+	interleaved := false
+	runtime := &registrationInterleaveRuntime{
+		onRead: func() {
+			if interleaved {
+				return
+			}
+			interleaved = true
+			// Mid-flight interruption: global config exclusions change while model resolution is running
+			service.cfgMu.Lock()
+			service.cfg = &config.Config{
+				SDKConfig:           config.SDKConfig{ForceModelPrefix: false},
+				OAuthExcludedModels: map[string][]string{"claude": {"model-mutated"}},
+			}
+			service.cfgMu.Unlock()
+		},
+	}
+
+	auth := &coreauth.Auth{
+		ID:       clientID,
+		Provider: "claude",
+		Status:   coreauth.StatusActive,
+		Runtime:  runtime,
+		Attributes: map[string]string{
+			"auth_kind": "oauth",
+		},
+	}
+	registered, errRegister := manager.Register(context.Background(), auth)
+	if errRegister != nil {
+		t.Fatalf("failed to register auth: %v", errRegister)
+	}
+
+	// Resolution captured the fence under oldCfg. The mid-flight config mutation
+	// must cause the fence to discard the stale publication.
+	published := service.registerModelsForAuthDirect(context.Background(), registered)
+	if !interleaved {
+		t.Fatal("expected interleave point to be hit during model resolution")
+	}
+	if published {
+		t.Fatal("expected publication to be rejected when config changed mid-flight")
+	}
+	// Registry should not have models published from the discarded stale pass
+	if reg.ClientSupportsModel(clientID, "claude-3-5-sonnet-20241022") {
+		t.Fatal("stale models should not be registered after config changed mid-flight")
+	}
+}
+
+func TestModelRegistration_CanceledContextDoesNotRetry(t *testing.T) {
+	clientID := "canceled-context-client"
+	reg := GlobalModelRegistry()
+	reg.UnregisterClient(clientID)
+	t.Cleanup(func() {
+		reg.UnregisterClient(clientID)
+	})
+
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{ForceModelPrefix: false},
+	}
+	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
+	service := &Service{cfg: cfg, coreManager: manager}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	interleaved := false
+	runtime := &registrationInterleaveRuntime{
+		onRead: func() {
+			if interleaved {
+				return
+			}
+			interleaved = true
+			// Interleave: update auth in manager to trigger supersede condition
+			current, _ := manager.GetByID(clientID)
+			cloned := current.Clone()
+			cloned.Attributes["note"] = "snapshot-updated"
+			_, _ = manager.Update(context.Background(), cloned)
+			// Cancel context mid-flight
+			cancel()
+		},
+	}
+
+	auth := &coreauth.Auth{
+		ID:       clientID,
+		Provider: "gemini",
+		Status:   coreauth.StatusActive,
+		Runtime:  runtime,
+		Attributes: map[string]string{
+			"auth_kind": "apikey",
+		},
+	}
+	registered, errRegister := manager.Register(context.Background(), auth)
+	if errRegister != nil {
+		t.Fatalf("failed to register auth: %v", errRegister)
+	}
+
+	// completeModelRegistrationForAuth with canceled context must not run retries
+	ok := service.completeModelRegistrationForAuth(ctx, registered)
+	if ok {
+		t.Fatal("expected completeModelRegistrationForAuth to report false on canceled context")
+	}
+}

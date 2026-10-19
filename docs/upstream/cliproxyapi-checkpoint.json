@@ -7,38 +7,34 @@
  "scope_policy": {
   "strategy": "targeted-semantic-ports",
   "include": [
-   "xai-runtime-fixes",
-   "gemini-schema-normalize",
-   "gemini-antigravity-protocol",
-   "claude-translator-fixes",
-   "codex-openai-compat",
-   "auth-rotation-fairness",
-   "session-subagent-affinity",
-   "session-lcp-merkle",
-   "session-cache-lru",
-   "auth-epochs-generations",
-   "auth-error-propagation",
-   "proxy-http11-alpn",
-   "video-multi-ref-duration",
-   "kimi-schema-normalize",
-   "quota-signals",
-   "ttft-measurement",
-   "usage-streaming-state"
+   "auth-excluded-models",
+   "model-registration-fence",
+   "watcher-auth-snapshot",
+   "cooldown-exec-seq",
+   "claude-thinking",
+   "claude-tool-args",
+   "gemini-translator",
+   "gemini-antigravity-schema",
+   "antigravity-misc",
+   "claude-responses",
+   "claude-ratelimit-per-minute",
+   "session-date-pin",
+   "stream-truncation",
+   "meta-usage-filter",
+   "management-config-snapshot",
+   "registry-catalog",
+   "xai-web-search",
+   "codex-siwc-config-update"
   ],
   "exclude": [
-   "branding-docs",
-   "github-token-assets",
-   "test-hygiene",
-   "management-post-persist",
-   "pluginhost-hot-reload-ws-usage"
+   "docs-branding",
+   "pluginhost-shadow"
   ],
   "defer": [
-   "home-401-refresh-revert",
-   "home-401-diagnostics",
-   "home-port-normalize",
-   "gitstore-recovery",
-   "namespace-responses-tools",
-   "claude-allowed-warning"
+   "vertex-config-upload",
+   "tls-handshake-timeout",
+   "devin-quota",
+   "discovery-mdns"
   ]
  },
  "checkpoint": {
@@ -152,5 +148,5 @@
    "url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.33"
   }
  ],
- "generated_at": "2026-10-19T05:23:16Z"
+ "generated_at": "2026-10-19T06:36:18Z"
 }

@@ -422,8 +422,43 @@ func (r *ModelRegistry) triggerModelsUnregistered(provider, clientID string) {
 func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models []*ModelInfo) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.ensureAvailableModelsCacheLocked()
+	r.registerClientLocked(clientID, clientProvider, models)
+}
 
+// RegisterClientIfEpochCurrent registers a client's models only if its
+// registration epoch still equals expectedEpoch and publish is non-nil. The
+// fence evaluation and the registration runs atomically under the registry
+// mutex. publish must be fast and must not call back into the registry or
+// block. The returned value reports whether the registration was applied.
+func (r *ModelRegistry) RegisterClientIfEpochCurrent(clientID, clientProvider string, expectedEpoch uint64, models []*ModelInfo, publish func() bool) bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.clientEpochs[clientID] != expectedEpoch || publish == nil || !publish() {
+		return false
+	}
+	r.registerClientLocked(clientID, clientProvider, models)
+	return true
+}
+
+// UnregisterClientIfEpochCurrent removes a client only if its registration
+// epoch still equals expectedEpoch and publish is non-nil. The fence
+// evaluation and the removal runs atomically under the registry mutex.
+// publish must be fast and must not call back into the registry or block.
+// The returned value reports whether the removal was applied.
+func (r *ModelRegistry) UnregisterClientIfEpochCurrent(clientID string, expectedEpoch uint64, publish func() bool) bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.clientEpochs[clientID] != expectedEpoch || publish == nil || !publish() {
+		return false
+	}
+	r.unregisterClientInternal(clientID)
+	r.invalidateAvailableModelsCacheLocked()
+	return true
+}
+
+// registerClientLocked reconciles a client's models while the registry mutex is held.
+func (r *ModelRegistry) registerClientLocked(clientID, clientProvider string, models []*ModelInfo) {
+	r.ensureAvailableModelsCacheLocked()
 	provider := strings.ToLower(clientProvider)
 	uniqueModelIDs := make([]string, 0, len(models))
 	rawModelIDs := make([]string, 0, len(models))

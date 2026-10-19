@@ -51,7 +51,11 @@ func (s *FileSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth, e
 		if errRead != nil || len(data) == 0 {
 			continue
 		}
-		auths := synthesizeFileAuths(ctx, full, data)
+		auths, errSynthesize := synthesizeFileAuths(ctx, full, data)
+		if errSynthesize != nil {
+			log.WithError(errSynthesize).Warnf("skipping auth file %s", name)
+			continue
+		}
 		if len(auths) == 0 {
 			continue
 		}
@@ -62,22 +66,25 @@ func (s *FileSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth, e
 
 // SynthesizeAuthFile generates Auth entries for one auth JSON file payload.
 // It shares exactly the same mapping behavior as FileSynthesizer.Synthesize.
-func SynthesizeAuthFile(ctx *SynthesisContext, fullPath string, data []byte) []*coreauth.Auth {
+func SynthesizeAuthFile(ctx *SynthesisContext, fullPath string, data []byte) ([]*coreauth.Auth, error) {
 	return synthesizeFileAuths(ctx, fullPath, data)
 }
 
-func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []*coreauth.Auth {
+func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([]*coreauth.Auth, error) {
 	if ctx == nil || len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 	now := ctx.Now
 	var metadata map[string]any
 	if errUnmarshal := json.Unmarshal(data, &metadata); errUnmarshal != nil {
-		return nil
+		if ctx.StrictFileParsing {
+			return nil, fmt.Errorf("parse auth file: %w", errUnmarshal)
+		}
+		return nil, nil
 	}
 	t, _ := metadata["type"].(string)
 	if t == "" {
-		return nil
+		return nil, nil
 	}
 	provider := strings.ToLower(t)
 	if provider == "gemini" {
@@ -183,16 +190,19 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 	}
 	if provider == "gemini-cli" {
 		if virtuals := SynthesizeGeminiVirtualAuths(a, metadata, now); len(virtuals) > 0 {
+			a.BindFileSnapshot(fullPath, data)
 			for _, v := range virtuals {
 				ApplyAuthExcludedModelsMeta(v, perAccountExcluded, "oauth")
+				v.BindFileSnapshot(fullPath, data)
 			}
 			out := make([]*coreauth.Auth, 0, 1+len(virtuals))
 			out = append(out, a)
 			out = append(out, virtuals...)
-			return out
+			return out, nil
 		}
 	}
-	return []*coreauth.Auth{a}
+	a.BindFileSnapshot(fullPath, data)
+	return []*coreauth.Auth{a}, nil
 }
 
 // SynthesizeGeminiVirtualAuths creates virtual Auth entries for multi-project Gemini credentials.

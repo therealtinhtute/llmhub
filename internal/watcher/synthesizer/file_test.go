@@ -1133,7 +1133,10 @@ func TestSynthesizeAuthFileAppliesSourcePriority(t *testing.T) {
 				Now:         time.Now(),
 				IDGenerator: NewStableIDGenerator(),
 			}
-			auths := SynthesizeAuthFile(ctx, fullPath, []byte(testCase.raw))
+			auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, []byte(testCase.raw))
+			if errSynthesize != nil {
+				t.Fatalf("unexpected error from SynthesizeAuthFile: %v", errSynthesize)
+			}
 			if len(auths) != 1 {
 				t.Fatalf("SynthesizeAuthFile() len = %d, want 1", len(auths))
 			}

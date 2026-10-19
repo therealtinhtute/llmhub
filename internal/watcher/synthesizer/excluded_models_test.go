@@ -89,7 +89,10 @@ func TestSynthesizeAuthFileKeepsCredentialWithInvalidExcludedModels(t *testing.T
 		IDGenerator: NewStableIDGenerator(),
 	}
 
-	auths := SynthesizeAuthFile(ctx, filePath, content)
+	auths, errSynthesize := SynthesizeAuthFile(ctx, filePath, content)
+	if errSynthesize != nil {
+		t.Fatalf("unexpected error from SynthesizeAuthFile: %v", errSynthesize)
+	}
 	if len(auths) != 1 {
 		t.Fatalf("expected 1 auth even with invalid excluded_models elements, got %d", len(auths))
 	}

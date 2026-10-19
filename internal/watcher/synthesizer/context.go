@@ -16,4 +16,6 @@ type SynthesisContext struct {
 	Now time.Time
 	// IDGenerator generates stable IDs for auth entries
 	IDGenerator *StableIDGenerator
+	// StrictFileParsing surfaces parse errors instead of silently skipping or falling back.
+	StrictFileParsing bool
 }

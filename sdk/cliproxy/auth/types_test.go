@@ -305,3 +305,83 @@ func TestAuthClone_EmptyMapsIsolation(t *testing.T) {
 		t.Errorf("orig.ModelStates modified, len = %d", len(orig.ModelStates))
 	}
 }
+
+func TestAuthFileSnapshotBindingAndFreshness(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "account.json")
+	data := []byte(`{"type":"codex","prefix":"pfx-1"}`)
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	auth := &Auth{
+		ID:         "account.json",
+		Attributes: map[string]string{AttributePath: filePath},
+	}
+
+	if auth.HasFileSnapshot() {
+		t.Fatal("auth should not have file snapshot before binding")
+	}
+	if !auth.FileSnapshotMatchesDisk() {
+		t.Fatal("unbound auth should report FileSnapshotMatchesDisk() true")
+	}
+
+	auth.BindFileSnapshot(filePath, data)
+	if !auth.HasFileSnapshot() {
+		t.Fatal("auth should have file snapshot after binding")
+	}
+	if !auth.FileSnapshotMatchesDisk() {
+		t.Fatal("freshly bound snapshot should match disk")
+	}
+
+	// Test canonical JSON digest invariance (reordered keys and whitespace).
+	reformatted := []byte("{\n  \"prefix\": \"pfx-1\",\n  \"type\": \"codex\"\n}\n")
+	auth2 := &Auth{ID: "account2.json"}
+	auth2.BindFileSnapshot(filePath, reformatted)
+	if !auth.SameFileSnapshot(auth2) {
+		t.Fatal("snapshots with equivalent JSON should have identical digests and match under SameFileSnapshot")
+	}
+
+	// Verify re-formatting on disk still matches snapshot.
+	if err := os.WriteFile(filePath, reformatted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !auth.FileSnapshotMatchesDisk() {
+		t.Fatal("reformatted file on disk should still match canonical snapshot digest")
+	}
+
+	// Modify file content on disk -> snapshot is stale!
+	modified := []byte(`{"type":"codex","prefix":"pfx-2"}`)
+	if err := os.WriteFile(filePath, modified, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if auth.FileSnapshotMatchesDisk() {
+		t.Fatal("modified file on disk must cause FileSnapshotMatchesDisk() to return false")
+	}
+
+	// Remove file on disk -> snapshot is stale!
+	if err := os.Remove(filePath); err != nil {
+		t.Fatal(err)
+	}
+	if auth.FileSnapshotMatchesDisk() {
+		t.Fatal("deleted file on disk must cause FileSnapshotMatchesDisk() to return false")
+	}
+
+	// Test committing/versioning clears unversioned snapshot status.
+	auth.Generation = 1
+	if auth.HasFileSnapshot() {
+		t.Fatal("auth with Generation > 0 must not report HasFileSnapshot() true")
+	}
+	auth.Generation = 0
+	auth.RegistrationEpoch = 1
+	if auth.HasFileSnapshot() {
+		t.Fatal("auth with RegistrationEpoch > 0 must not report HasFileSnapshot() true")
+	}
+
+	// Test ClearFileSnapshot.
+	auth.RegistrationEpoch = 0
+	auth.ClearFileSnapshot()
+	if auth.HasFileSnapshot() {
+		t.Fatal("auth after ClearFileSnapshot() must not report HasFileSnapshot() true")
+	}
+}

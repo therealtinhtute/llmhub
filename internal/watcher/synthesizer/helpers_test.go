@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/watcher/diff"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
@@ -110,7 +109,6 @@ func TestApplyAuthExcludedModelsMeta(t *testing.T) {
 	tests := []struct {
 		name     string
 		auth     *coreauth.Auth
-		cfg      *config.Config
 		perKey   []string
 		authKind string
 		wantHash bool
@@ -122,38 +120,25 @@ func TestApplyAuthExcludedModelsMeta(t *testing.T) {
 				Provider:   "gemini",
 				Attributes: make(map[string]string),
 			},
-			cfg:      &config.Config{},
 			perKey:   []string{"model-a", "model-b"},
 			authKind: "apikey",
 			wantHash: true,
 			wantKind: "apikey",
 		},
 		{
-			name: "oauth with provider excluded models",
+			name: "oauth without credential rules",
 			auth: &coreauth.Auth{
 				Provider:   "claude",
 				Attributes: make(map[string]string),
 			},
-			cfg: &config.Config{
-				OAuthExcludedModels: map[string][]string{
-					"claude": {"claude-2.0"},
-				},
-			},
 			perKey:   nil,
 			authKind: "oauth",
-			wantHash: true,
+			wantHash: false,
 			wantKind: "oauth",
 		},
 		{
 			name: "nil auth",
 			auth: nil,
-			cfg:  &config.Config{},
-		},
-		{
-			name:     "nil config",
-			auth:     &coreauth.Auth{Provider: "test"},
-			cfg:      nil,
-			authKind: "apikey",
 		},
 		{
 			name: "nil attributes initialized",
@@ -161,7 +146,6 @@ func TestApplyAuthExcludedModelsMeta(t *testing.T) {
 				Provider:   "gemini",
 				Attributes: nil,
 			},
-			cfg:      &config.Config{},
 			perKey:   []string{"model-x"},
 			authKind: "apikey",
 			wantHash: true,
@@ -173,7 +157,6 @@ func TestApplyAuthExcludedModelsMeta(t *testing.T) {
 				Provider:   "gemini",
 				Attributes: make(map[string]string),
 			},
-			cfg:      &config.Config{},
 			perKey:   []string{"model-a", "MODEL-A", "model-b", "model-a"},
 			authKind: "apikey",
 			wantHash: true,
@@ -183,9 +166,9 @@ func TestApplyAuthExcludedModelsMeta(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ApplyAuthExcludedModelsMeta(tt.auth, tt.cfg, tt.perKey, tt.authKind)
+			ApplyAuthExcludedModelsMeta(tt.auth, tt.perKey, tt.authKind)
 
-			if tt.auth != nil && tt.cfg != nil {
+			if tt.auth != nil {
 				if tt.wantHash {
 					if _, ok := tt.auth.Attributes["excluded_models_hash"]; !ok {
 						t.Error("expected excluded_models_hash in attributes")
@@ -201,27 +184,42 @@ func TestApplyAuthExcludedModelsMeta(t *testing.T) {
 	}
 }
 
-func TestApplyAuthExcludedModelsMeta_OAuthMergeWritesCombinedModels(t *testing.T) {
+func TestApplyAuthExcludedModelsMeta_StoresOnlyCredentialRules(t *testing.T) {
 	auth := &coreauth.Auth{
 		Provider:   "claude",
 		Attributes: make(map[string]string),
 	}
-	cfg := &config.Config{
-		OAuthExcludedModels: map[string][]string{
-			"claude": {"global-a", "shared"},
-		},
-	}
 
-	ApplyAuthExcludedModelsMeta(auth, cfg, []string{"per", "SHARED"}, "oauth")
+	ApplyAuthExcludedModelsMeta(auth, []string{"per", "SHARED"}, "oauth")
 
-	const wantCombined = "global-a,per,shared"
+	const wantCombined = "per,shared"
 	if gotCombined := auth.Attributes["excluded_models"]; gotCombined != wantCombined {
 		t.Fatalf("expected excluded_models=%q, got %q", wantCombined, gotCombined)
 	}
 
-	expectedHash := diff.ComputeExcludedModelsHash([]string{"global-a", "per", "shared"})
+	expectedHash := diff.ComputeExcludedModelsHash([]string{"per", "shared"})
 	if gotHash := auth.Attributes["excluded_models_hash"]; gotHash != expectedHash {
 		t.Fatalf("expected excluded_models_hash=%q, got %q", expectedHash, gotHash)
+	}
+}
+
+func TestApplyAuthExcludedModelsMeta_EmptyRulesKeepExistingAttributes(t *testing.T) {
+	for _, rules := range [][]string{nil, {}, {" ", "\t"}} {
+		auth := &coreauth.Auth{
+			Provider: "codex",
+			Attributes: map[string]string{
+				"auth_kind":            "oauth",
+				"excluded_models":      "existing",
+				"excluded_models_hash": "existing",
+			},
+		}
+		// Callers that rebuild attributes on an existing auth must clear stale values themselves.
+		ApplyAuthExcludedModelsMeta(auth, rules, "oauth")
+		for _, key := range []string{"excluded_models", "excluded_models_hash"} {
+			if _, exists := auth.Attributes[key]; !exists {
+				t.Fatalf("rules %#v cleared %s", rules, key)
+			}
+		}
 	}
 }
 

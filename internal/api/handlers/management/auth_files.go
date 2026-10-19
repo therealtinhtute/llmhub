@@ -35,6 +35,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	runtimeexecutor "github.com/therealtinhtute/llmhub/internal/runtime/executor"
 	"github.com/therealtinhtute/llmhub/internal/util"
+	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/tidwall/gjson"
@@ -1256,6 +1257,10 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "file must be .json"})
 				return
 			}
+			if isInvalidAuthFileError(errUpload) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": errUpload.Error()})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": errUpload.Error()})
 			return
 		}
@@ -1697,6 +1702,10 @@ func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Aut
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return nil, fmt.Errorf("invalid auth file: %w", err)
 	}
+	// Loading tolerates invalid exclusion rules, so reject them here before anything is persisted.
+	if _, errExcluded := synthesizer.ExtractExcludedModelsFromMetadata(metadata); errExcluded != nil {
+		return nil, fmt.Errorf("invalid auth file: %w", errExcluded)
+	}
 	provider, _ := metadata["type"].(string)
 	if provider == "" {
 		provider = "unknown"
@@ -1858,7 +1867,8 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	ctx := c.Request.Context()
 	targetAuth := h.findAuthFileBySelector(selector)
 
-	if targetAuth == nil {
+	// Config-sourced credentials are managed through config endpoints, not as auth files.
+	if targetAuth == nil || targetAuth.AuthSourceKind() == coreauth.AuthSourceConfig {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
 		return
 	}
@@ -1880,6 +1890,26 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		if targetAuth.Metadata == nil {
 			targetAuth.Metadata = make(map[string]any)
 		}
+		if rootAuthFileField(fieldPath) == "excluded_models" {
+			if fieldPath != "excluded_models" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models does not support nested fields"})
+				return
+			}
+			if value != nil {
+				models, okModels := value.([]any)
+				validModels := okModels
+				for _, model := range models {
+					if _, okString := model.(string); !okString {
+						validModels = false
+						break
+					}
+				}
+				if !validModels {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models must be a string array or null"})
+					return
+				}
+			}
+		}
 
 		if fieldPath == "headers" {
 			applyAuthFileHeadersPatch(targetAuth, value)
@@ -1896,6 +1926,18 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		if errSync := syncAuthFileMetadataFields(targetAuth, touchedRoots); errSync != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": errSync.Error()})
 			return
+		}
+		if _, touched := touchedRoots["excluded_models"]; touched {
+			excluded, errExcluded := synthesizer.ExtractExcludedModelsFromMetadata(targetAuth.Metadata)
+			if errExcluded != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": errExcluded.Error()})
+				return
+			}
+			if targetAuth.Attributes != nil {
+				delete(targetAuth.Attributes, "excluded_models")
+				delete(targetAuth.Attributes, "excluded_models_hash")
+			}
+			synthesizer.ApplyAuthExcludedModelsMeta(targetAuth, excluded, "")
 		}
 	}
 

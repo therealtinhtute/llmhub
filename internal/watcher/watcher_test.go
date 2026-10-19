@@ -24,10 +24,9 @@ import (
 
 func TestApplyAuthExcludedModelsMeta_APIKey(t *testing.T) {
 	auth := &coreauth.Auth{Attributes: map[string]string{}}
-	cfg := &config.Config{}
 	perKey := []string{" Model-1 ", "model-2"}
 
-	synthesizer.ApplyAuthExcludedModelsMeta(auth, cfg, perKey, "apikey")
+	synthesizer.ApplyAuthExcludedModelsMeta(auth, perKey, "apikey")
 
 	expected := diff.ComputeExcludedModelsHash([]string{"model-1", "model-2"})
 	if got := auth.Attributes["excluded_models_hash"]; got != expected {
@@ -43,17 +42,14 @@ func TestApplyAuthExcludedModelsMeta_OAuthProvider(t *testing.T) {
 		Provider:   "TestProv",
 		Attributes: map[string]string{},
 	}
-	cfg := &config.Config{
-		OAuthExcludedModels: map[string][]string{
-			"testprov": {"A", "b"},
-		},
-	}
 
-	synthesizer.ApplyAuthExcludedModelsMeta(auth, cfg, nil, "oauth")
+	synthesizer.ApplyAuthExcludedModelsMeta(auth, nil, "oauth")
 
-	expected := diff.ComputeExcludedModelsHash([]string{"a", "b"})
-	if got := auth.Attributes["excluded_models_hash"]; got != expected {
-		t.Fatalf("expected hash %s, got %s", expected, got)
+	// Global oauth-excluded-models are resolved at model registration, not stored on the auth.
+	for _, key := range []string{"excluded_models", "excluded_models_hash"} {
+		if got, ok := auth.Attributes[key]; ok {
+			t.Fatalf("expected %s to be absent, got %q", key, got)
+		}
 	}
 	if got := auth.Attributes["auth_kind"]; got != "oauth" {
 		t.Fatalf("expected auth_kind=oauth, got %s", got)

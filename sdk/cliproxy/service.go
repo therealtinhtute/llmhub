@@ -507,11 +507,10 @@ func (s *Service) registerComboModels(cfg *config.Config) {
 	GlobalModelRegistry().RegisterClient(comboModelsClientID, "combo", models)
 }
 
-func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, providerKey string, models []*ModelInfo) {
+func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) {
 	if a == nil || a.ID == "" {
 		return
 	}
-	fence := newModelRegistrationFence(a, s.cfg)
 	if !s.registerResolvedModelsForAuthFenced(a, fence, providerKey, models) {
 		s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 	}
@@ -1272,8 +1271,9 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	if a == nil || a.ID == "" {
 		return
 	}
+	// Capture the publication fence once before any runtime read or model resolution.
+	fence := newModelRegistrationFence(a, s.cfg)
 	if a.Disabled {
-		fence := newModelRegistrationFence(a, s.cfg)
 		if !s.unregisterModelsForAuthFenced(a, fence) {
 			s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 		}
@@ -1287,7 +1287,6 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	}
 	if a.Attributes != nil {
 		if v := strings.TrimSpace(a.Attributes["gemini_virtual_primary"]); strings.EqualFold(v, "true") {
-			fence := newModelRegistrationFence(a, s.cfg)
 			if !s.unregisterModelsForAuthFenced(a, fence) {
 				s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 			}
@@ -1308,8 +1307,8 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		provider = "openai-compatibility"
 	}
 	excluded := s.oauthExcludedModels(provider, authKind)
-	// The synthesizer pre-merges per-account and global exclusions into the "excluded_models" attribute.
-	// If this attribute is present, it represents the complete list of exclusions and overrides the global config.
+	// Credential-specific exclusions take priority and override the global config.
+	// If this attribute is present, it represents the effective list of exclusions for this credential.
 	if a.Attributes != nil {
 		if val, ok := a.Attributes["excluded_models"]; ok && strings.TrimSpace(val) != "" {
 			excluded = strings.Split(val, ",")
@@ -1468,10 +1467,9 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 						if providerKey == "" {
 							providerKey = "openai-compatibility"
 						}
-						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
+						s.registerResolvedModelsForAuth(a, fence, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					} else {
 						// Ensure stale registrations are cleared when model list becomes empty.
-						fence := newModelRegistrationFence(a, s.cfg)
 						if !s.unregisterModelsForAuthFenced(a, fence) {
 							s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 						}
@@ -1481,7 +1479,6 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 			}
 			if isCompatAuth {
 				// No matching provider found or models removed entirely; drop any prior registration.
-				fence := newModelRegistrationFence(a, s.cfg)
 				if !s.unregisterModelsForAuthFenced(a, fence) {
 					s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 				}
@@ -1495,11 +1492,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		if key == "" {
 			key = strings.ToLower(strings.TrimSpace(a.Provider))
 		}
-		s.registerResolvedModelsForAuth(a, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
+		s.registerResolvedModelsForAuth(a, fence, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
 		return
 	}
 
-	fence := newModelRegistrationFence(a, s.cfg)
 	if !s.unregisterModelsForAuthFenced(a, fence) {
 		s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 	}
@@ -1551,8 +1547,12 @@ func (s *Service) refreshModelRegistrationForAuth(current *coreauth.Auth) bool {
 	s.coreManager.ReconcileRegistryModelStates(context.Background(), current.ID)
 
 	latest, ok := s.latestAuthForModelRegistration(current.ID)
-	if !ok || latest.Disabled {
-		GlobalModelRegistry().UnregisterClient(current.ID)
+	if !ok || latest == nil {
+		// If the auth is absent, applyCoreAuthRemoval owns unregistration.
+		return false
+	}
+	if latest.Disabled {
+		s.unregisterModelsForAuthFenced(latest, newModelRegistrationFence(latest, s.cfg))
 		s.coreManager.RefreshSchedulerEntry(current.ID)
 		return false
 	}

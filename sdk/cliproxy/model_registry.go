@@ -48,6 +48,7 @@ type RegistrationGateKeeper interface {
 }
 
 var _ RegistrationGateKeeper = (*coreauth.Manager)(nil)
+
 // GlobalModelRegistry returns the shared registry instance.
 func GlobalModelRegistry() ModelRegistry {
 	return registry.GetGlobalRegistry()
@@ -60,7 +61,7 @@ func SetGlobalModelRegistryHook(hook ModelRegistryHook) {
 
 // modelRegistrationFence captures the model-registration inputs and the
 // global exclusion summaries and registry epoch observed when registration began.
-// Publication takes the auth mutation lock, then the config read lock, then the
+// Publication takes the auth manager lock, then the config read lock, then the
 // registry lock. Obsolete inherited exclusions must not advance the registry epoch
 // and invalidate newer work, even if the credential attributes are unchanged.
 type modelRegistrationFence struct {
@@ -104,20 +105,6 @@ func newModelRegistrationFence(a *coreauth.Auth, cfg *config.Config) modelRegist
 	}
 }
 
-// withAuth returns a copy of f with the auth-input fields replaced by a's
-// current values. Exclusion summaries and the registry epoch intentionally remain
-// unchanged so stale work cannot adopt newer global rules or publications.
-func (f modelRegistrationFence) withAuth(a *coreauth.Auth) modelRegistrationFence {
-	if a == nil {
-		return f
-	}
-	next := newModelRegistrationFence(a, nil)
-	next.globalExclusions = f.globalExclusions
-	next.fallbackExclusionProvider = f.fallbackExclusionProvider
-	next.registryEpoch = f.registryEpoch
-	return next
-}
-
 func (f modelRegistrationFence) publishModels(s *Service, authID, providerKey string, models []*ModelInfo) bool {
 	return f.publishIfCurrent(s, authID, func() bool {
 		return GlobalModelRegistry().RegisterClientIfEpochCurrent(authID, providerKey, f.registryEpoch, models, func() bool { return true })
@@ -137,8 +124,7 @@ func (f modelRegistrationFence) publishIfCurrent(s *Service, authID string, publ
 			defer s.cfgMu.RUnlock()
 			// Match the watcher's normalization so no-op and unrelated reloads do not
 			// discard work. A real change always schedules a replacement: the watcher
-			// redispatches affected auths, and applyConfigRuntime re-registers every
-			// auth (which also covers Home mode, where no watcher runs).
+			// redispatches affected auths, and config reloads re-register affected auths.
 			for _, provider := range [2]string{f.exclusionProvider, f.fallbackExclusionProvider} {
 				if provider == "" {
 					continue
@@ -195,43 +181,5 @@ func (s *Service) reconcileSupersededAuthRegistration(ctx context.Context, authI
 	s.registerModelsForAuth(latest)
 	s.coreManager.ReconcileRegistryModelStates(ctx, latest.ID)
 	s.coreManager.RefreshSchedulerEntry(authID)
-	return true
-}
-
-func (s *Service) completeModelRegistrationForAuth(ctx context.Context, auth *coreauth.Auth) bool {
-	if s == nil || s.coreManager == nil || auth == nil || auth.ID == "" {
-		return false
-	}
-	if ctx != nil && ctx.Err() != nil {
-		return false
-	}
-	targetAuth := auth
-	if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
-		targetAuth = latest
-	}
-	fence := newModelRegistrationFence(targetAuth, s.cfg)
-	if targetAuth.Disabled {
-		published := s.unregisterModelsForAuthFenced(targetAuth, fence)
-		if !published {
-			return s.reconcileSupersededAuthRegistration(ctx, auth.ID)
-		}
-		return true
-	}
-	s.registerModelsForAuth(targetAuth)
-	s.coreManager.ReconcileRegistryModelStates(ctx, targetAuth.ID)
-	s.coreManager.RefreshSchedulerEntry(targetAuth.ID)
-
-	// Check if auth state changed mid-computation; reconcile latest auth state if superseded
-	if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
-		currentFence := newModelRegistrationFence(latest, s.cfg)
-		if currentFence.registrationEpoch != fence.registrationEpoch ||
-			currentFence.registryEpoch != fence.registryEpoch ||
-			currentFence.disabled != fence.disabled ||
-			currentFence.prefix != fence.prefix ||
-			currentFence.provider != fence.provider ||
-			!maps.Equal(currentFence.attributes, fence.attributes) {
-			return s.reconcileSupersededAuthRegistration(ctx, auth.ID)
-		}
-	}
 	return true
 }

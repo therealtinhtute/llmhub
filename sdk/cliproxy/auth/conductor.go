@@ -5465,11 +5465,10 @@ func (m *Manager) PublishIfRegistrationCurrent(id string, registrationEpoch uint
 	if m == nil || id == "" || publish == nil {
 		return false
 	}
-	m.mu.RLock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	current, ok := m.auths[id]
-	matches := ok && current != nil && modelRegistrationInputsMatch(current, registrationEpoch, prefix, provider, disabled, authKind, attributes)
-	m.mu.RUnlock()
-	if !matches {
+	if !ok || current == nil || !modelRegistrationInputsMatch(current, registrationEpoch, prefix, provider, disabled, authKind, attributes) {
 		return false
 	}
 	return publish()
@@ -5487,6 +5486,7 @@ func modelRegistrationInputsMatch(current *Auth, registrationEpoch uint64, prefi
 		current.AuthKind() == authKind &&
 		maps.Equal(current.Attributes, attributes)
 }
+
 // GetExecutionSessionAuthByID retrieves a Home runtime auth scoped to an execution session.
 func (m *Manager) GetExecutionSessionAuthByID(sessionID string, authID string) (*Auth, bool) {
 	sessionID = strings.TrimSpace(sessionID)

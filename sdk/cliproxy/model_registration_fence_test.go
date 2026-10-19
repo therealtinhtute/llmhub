@@ -144,13 +144,10 @@ func TestModelRegistrationSupersededReconcilesLatest_Issue6718(t *testing.T) {
 		t.Fatalf("failed to update auth: %v", errUpdate)
 	}
 
-	// Run completeModelRegistrationForAuth with the older registered reference
-	ok := service.completeModelRegistrationForAuth(context.Background(), registered)
-	if !ok {
-		t.Fatal("expected completeModelRegistrationForAuth to succeed")
-	}
+	// Run live registerModelsForAuth with the older registered reference
+	service.registerModelsForAuth(registered)
 
-	// Verify that models for the client are registered and available
+	// Verify that models for the client are registered and available via reconciliation
 	waitForClientModel(t, clientID, "gemini-2.5-flash")
 	if !reg.ClientSupportsModel(clientID, "gemini-2.5-flash") {
 		t.Fatal("expected gemini-2.5-flash to be available after reconciliation")
@@ -197,12 +194,69 @@ func TestRegisterResolvedModelsForAuth_LiveFencingReconcilesSuperseded(t *testin
 		t.Fatalf("failed to update auth: %v", errUpdate)
 	}
 
-	// A stale concurrent resolution pass tries to publish models using the old registered auth
+	// A stale concurrent resolution pass tries to publish models using the old registered auth and old fence
+	staleFence := newModelRegistrationFence(registered, service.cfg)
 	staleModels := []*ModelInfo{{ID: "stale-model"}}
-	service.registerResolvedModelsForAuth(registered, "gemini", staleModels)
+	service.registerResolvedModelsForAuth(registered, staleFence, "gemini", staleModels)
 
 	// The stale publication must be rejected and latest auth reconciled (client unregistered)
 	if reg.ClientSupportsModel(clientID, "stale-model") {
 		t.Fatal("stale model should not be registered when auth identity was superseded in manager")
+	}
+	if reg.ClientSupportsModel(clientID, "gemini-2.5-flash") {
+		t.Fatal("expected gemini-2.5-flash to be unregistered after reconcile of disabled latest auth")
+	}
+}
+
+func TestRegisterResolvedModelsForAuth_LiveFencingReconcilesEnabledLatest(t *testing.T) {
+	clientID := "live-fencing-enabled-test-client"
+	reg := GlobalModelRegistry()
+	reg.UnregisterClient(clientID)
+	t.Cleanup(func() {
+		reg.UnregisterClient(clientID)
+	})
+
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{ForceModelPrefix: false},
+	}
+	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
+	service := &Service{cfg: cfg, coreManager: manager}
+
+	auth := &coreauth.Auth{
+		ID:       clientID,
+		Provider: "gemini",
+		Status:   coreauth.StatusActive,
+		Attributes: map[string]string{
+			"auth_kind": "apikey",
+		},
+	}
+
+	registered, errRegister := manager.Register(context.Background(), auth)
+	if errRegister != nil {
+		t.Fatalf("failed to register auth: %v", errRegister)
+	}
+
+	// Capture old fence
+	oldFence := newModelRegistrationFence(registered, cfg)
+
+	// Interleaving: manager updates auth with an exclusion attribute
+	updatedAuth := registered.Clone()
+	updatedAuth.Attributes["excluded_models"] = "gemini-2.5-flash"
+	if _, errUpdate := manager.Update(context.Background(), updatedAuth); errUpdate != nil {
+		t.Fatalf("failed to update auth: %v", errUpdate)
+	}
+
+	// Stale resolution tries to publish gemini-2.5-flash using old fence
+	staleModels := []*ModelInfo{{ID: "gemini-2.5-flash"}}
+	service.registerResolvedModelsForAuth(registered, oldFence, "gemini", staleModels)
+
+	// Stale publication was superseded; latest was reconciled with excluded_models="gemini-2.5-flash".
+	// So gemini-2.5-flash must NOT be supported!
+	if reg.ClientSupportsModel(clientID, "gemini-2.5-flash") {
+		t.Fatal("gemini-2.5-flash should be excluded after reconciliation of latest auth")
+	}
+	// But gemini-2.5-pro should be supported!
+	if !reg.ClientSupportsModel(clientID, "gemini-2.5-pro") {
+		t.Fatal("expected gemini-2.5-pro to be registered after reconciliation of latest auth")
 	}
 }

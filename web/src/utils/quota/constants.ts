@@ -55,10 +55,16 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
 };
 
 // Antigravity API configuration
+// Production is asked first: the daily host can return HTTP 200 with only the
+// Claude/GPT summary group. fetchAvailableModels entries are the last resort
+// when every summary host omits Gemini quota.
 export const ANTIGRAVITY_QUOTA_URLS = [
+  'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
   'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
   'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary',
-  'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+  'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
 ];
 
 export const ANTIGRAVITY_CODE_ASSIST_URL =
@@ -67,6 +73,7 @@ export const ANTIGRAVITY_CODE_ASSIST_URL =
 export const ANTIGRAVITY_GROUP_LABEL_KEYS: Record<string, string> = {
   'gemini models': 'group_gemini_models',
   'claude and gpt models': 'group_claude_gpt_models',
+  'gemini (other)': 'group_gemini_other',
 };
 
 export const ANTIGRAVITY_BUCKET_LABEL_KEYS: Record<string, string> = {
@@ -75,10 +82,13 @@ export const ANTIGRAVITY_BUCKET_LABEL_KEYS: Record<string, string> = {
   'weekly limit': 'weekly_limit',
 };
 
+export const ANTIGRAVITY_CLIENT_VERSION = '2.9.1';
+
 export const ANTIGRAVITY_REQUEST_HEADERS = {
   Authorization: 'Bearer $TOKEN$',
   'Content-Type': 'application/json',
-  'User-Agent': 'antigravity/1.11.5 windows/amd64',
+  // Upstream omits the Gemini quota group for clients older than 1.2.0.
+  'User-Agent': `antigravity/${ANTIGRAVITY_CLIENT_VERSION} darwin/arm64`,
 };
 
 export const ANTIGRAVITY_QUOTA_GROUPS: AntigravityQuotaGroupDefinition[] = [

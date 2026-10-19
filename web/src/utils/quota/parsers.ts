@@ -12,6 +12,10 @@ import type {
   XaiBillingPayload,
 } from '@/types';
 import { normalizeAuthIndex } from '@/utils/authIndex';
+import {
+  buildAntigravitySummaryGroupsFromModels,
+  hasAntigravityGeminiGroup,
+} from './antigravityModels';
 
 const GEMINI_CLI_MODEL_SUFFIX = '_vertex';
 export { normalizeAuthIndex };
@@ -136,16 +140,27 @@ export function parseAntigravityPayload(payload: unknown): Record<string, unknow
   const parsed = toRecord(payload);
   if (!parsed) return null;
 
-  if ('models' in parsed) {
-    return parsed;
+  const candidate = 'models' in parsed ? parsed : (toRecord(parsed.body) ?? parsed);
+
+  // fetchAvailableModels fallback: synthesize summary-shaped groups from the
+  // per-model quota map, including the unmatched-gemini fallback group.
+  const models = toRecord(candidate.models);
+  if (models && Object.keys(models).length > 0) {
+    const groups = buildAntigravitySummaryGroupsFromModels(models);
+    if (groups.length > 0) {
+      return { ...candidate, groups };
+    }
   }
 
-  const nested = toRecord(parsed.body);
-  if (nested) {
-    return nested;
+  const groups = Array.isArray(candidate.groups) ? candidate.groups : null;
+  if (groups && groups.length > 0 && !hasAntigravityGeminiGroup(groups)) {
+    // A partial summary (typically Claude/GPT only) must not short-circuit
+    // the endpoint list: returning null lets the loader try the remaining
+    // hosts and the fetchAvailableModels fallback.
+    return null;
   }
 
-  return parsed;
+  return candidate;
 }
 
 export function parseClaudeUsagePayload(payload: unknown): ClaudeUsagePayload | null {

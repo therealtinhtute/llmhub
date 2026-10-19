@@ -10,7 +10,12 @@ import {
   parseAntigravityPartialSummary,
   parseAntigravityPayload,
 } from '../src/utils/quota/parsers';
-import { ANTIGRAVITY_QUOTA_URLS } from '../src/utils/quota/constants';
+import {
+  ANTIGRAVITY_BUCKET_LABEL_KEYS,
+  ANTIGRAVITY_QUOTA_URLS,
+} from '../src/utils/quota/constants';
+import en from '../src/i18n/locales/en.json';
+import vi from '../src/i18n/locales/vi.json';
 import type { AntigravityQuotaSummaryPayload } from '../src/types/quota';
 
 type SummaryGroup = {
@@ -175,6 +180,73 @@ describe('parseAntigravityPartialSummary', () => {
   });
 });
 
+describe('ANTIGRAVITY_QUOTA_URLS order', () => {
+  test('polls the daily host before production, matching the inference executor', () => {
+    expect(ANTIGRAVITY_QUOTA_URLS[0]).toBe(
+      'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'
+    );
+    const summaryHosts = ANTIGRAVITY_QUOTA_URLS.filter((url) =>
+      url.includes('retrieveUserQuotaSummary')
+    ).map((url) => new URL(url).host);
+    expect(summaryHosts).toEqual([
+      'daily-cloudcode-pa.googleapis.com',
+      'daily-cloudcode-pa.sandbox.googleapis.com',
+      'cloudcode-pa.googleapis.com',
+    ]);
+
+    const modelHosts = ANTIGRAVITY_QUOTA_URLS.filter((url) =>
+      url.includes('fetchAvailableModels')
+    ).map((url) => new URL(url).host);
+    expect(modelHosts).toEqual([
+      'daily-cloudcode-pa.googleapis.com',
+      'daily-cloudcode-pa.sandbox.googleapis.com',
+      'cloudcode-pa.googleapis.com',
+    ]);
+    // fetchAvailableModels stays the last resort after every summary host.
+    expect(ANTIGRAVITY_QUOTA_URLS.findIndex((url) => url.includes('fetchAvailableModels'))).toBe(
+      summaryHosts.length
+    );
+  });
+});
+
+describe('ANTIGRAVITY_BUCKET_LABEL_KEYS', () => {
+  test('resolves upstream window values to keys present in en and vi', () => {
+    const enQuota = en.antigravity_quota as Record<string, string>;
+    const viQuota = vi.antigravity_quota as Record<string, string>;
+
+    for (const window of ['5h', '5 hour limit', 'daily limit', 'weekly', 'weekly limit']) {
+      const key = ANTIGRAVITY_BUCKET_LABEL_KEYS[window];
+      expect(key).toBeDefined();
+      expect(enQuota[key]).toBeTruthy();
+      expect(viQuota[key]).toBeTruthy();
+    }
+
+    expect(ANTIGRAVITY_BUCKET_LABEL_KEYS['5h']).toBe('five_hour_limit');
+    expect(ANTIGRAVITY_BUCKET_LABEL_KEYS.weekly).toBe('weekly_limit');
+  });
+
+  test('renders upstream windows through the same lookup the quota card uses', () => {
+    const lookup = (locale: unknown, key: string): unknown =>
+      key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) =>
+            node && typeof node === 'object'
+              ? (node as Record<string, unknown>)[part]
+              : undefined,
+          locale
+        );
+
+    const label = (locale: unknown, window: string) =>
+      lookup(locale, `antigravity_quota.${ANTIGRAVITY_BUCKET_LABEL_KEYS[window.toLowerCase()]}`);
+
+    expect(label(en, '5h')).toBe('5-hour limit');
+    expect(label(en, 'weekly')).toBe('Weekly limit');
+    expect(label(vi, '5h')).toBe('Giới hạn 5 giờ');
+    expect(label(vi, 'weekly')).toBe('Giới hạn tuần');
+  });
+});
+
 type FakeApiResult = {
   statusCode: number;
   header: Record<string, string[]>;
@@ -279,6 +351,7 @@ describe('fetchAntigravityQuota partial-summary fallback', () => {
     const data = await fetchQuota();
 
     expect(requestedUrls).toEqual([ANTIGRAVITY_QUOTA_URLS[0]]);
+    expect(new URL(requestedUrls[0]!).host).toBe('daily-cloudcode-pa.googleapis.com');
     expect(data.groups.map((group) => group.label)).toEqual([
       'Gemini models',
       'Claude and GPT models',

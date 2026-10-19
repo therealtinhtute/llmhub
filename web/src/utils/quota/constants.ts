@@ -55,16 +55,17 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
 };
 
 // Antigravity API configuration
-// Production is asked first: the daily host can return HTTP 200 with only the
-// Claude/GPT summary group. fetchAvailableModels entries are the last resort
-// when every summary host omits Gemini quota.
+// The daily host is asked first because that is the pool inference actually
+// consumes (antigravity_executor.go baseURLFallbackOrder, quotaalert collector);
+// the production host stays idle and would report 100%. fetchAvailableModels
+// entries are the last resort when every summary host omits Gemini quota.
 export const ANTIGRAVITY_QUOTA_URLS = [
-  'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
   'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
   'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary',
-  'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
   'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
   'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
+  'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
 ];
 
 export const ANTIGRAVITY_CODE_ASSIST_URL =
@@ -77,8 +78,12 @@ export const ANTIGRAVITY_GROUP_LABEL_KEYS: Record<string, string> = {
 };
 
 export const ANTIGRAVITY_BUCKET_LABEL_KEYS: Record<string, string> = {
+  // Upstream summary buckets carry short window values ("5h", "weekly") and
+  // English displayName fallbacks; both spellings map to the same i18n keys.
+  '5h': 'five_hour_limit',
   '5 hour limit': 'five_hour_limit',
   'daily limit': 'daily_limit',
+  weekly: 'weekly_limit',
   'weekly limit': 'weekly_limit',
 };
 

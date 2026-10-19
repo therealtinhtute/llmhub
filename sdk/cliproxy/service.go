@@ -365,7 +365,6 @@ func (s *Service) applyCoreAuthAddOrUpdate(ctx context.Context, auth *coreauth.A
 		if err == nil && updated != nil {
 			if updated.Generation == existing.Generation {
 				log.Debugf("skipping stale auth update for %s: incoming snapshot did not advance generation (gen=%d)", auth.ID, existing.Generation)
-				return
 			}
 			auth = updated
 		}

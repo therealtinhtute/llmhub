@@ -168,10 +168,6 @@ func (w *storageWatcher) snapshotAuthFile(path string) ([]*coreauth.Auth, error)
 	if cleanPath == "" || cleanPath == "." {
 		return nil, fmt.Errorf("file path is empty")
 	}
-	data, err := os.ReadFile(cleanPath)
-	if err != nil {
-		return nil, fmt.Errorf("read auth file: %w", err)
-	}
 	w.mu.Lock()
 	cfg := w.cfg
 	w.mu.Unlock()
@@ -181,6 +177,16 @@ func (w *storageWatcher) snapshotAuthFile(path string) ([]*coreauth.Auth, error)
 	}
 	if authDir == "" {
 		authDir = filepath.Dir(cleanPath)
+	}
+	if absAuthDir, err := filepath.Abs(authDir); err == nil {
+		authDir = filepath.Clean(absAuthDir)
+	}
+	if absPath, err := filepath.Abs(cleanPath); err == nil {
+		cleanPath = filepath.Clean(absPath)
+	}
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("read auth file: %w", err)
 	}
 	return synthesizer.SynthesizeAuthFile(&synthesizer.SynthesisContext{
 		Config:            cfg,

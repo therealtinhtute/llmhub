@@ -373,7 +373,8 @@ type Manager struct {
 	// persistLocks serializes disk persistence per auth ID and guards against out-of-order writes.
 	// Ported from upstream CLIProxyAPI commit 4c1bebe837a6.
 	persistLocks sync.Map
-	// authEpochs tracks the latest registration epoch per auth ID so stale updates
+	// authMutationLocks serializes mutations per auth ID (upstream lockAuthMutationContext).
+	authMutationLocks sync.Map
 	// from a previous registration cycle are rejected (upstream 4c1bebe837a6).
 	authEpochs map[string]uint64
 }
@@ -2024,6 +2025,11 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
+	releaseMutation, errMutation := m.lockAuthMutationContext(ctx, auth.ID)
+	if errMutation != nil {
+		return nil, errMutation
+	}
+	defer releaseMutation()
 	now := time.Now()
 	if auth.Generation == 0 {
 		auth.Generation = 1
@@ -2093,10 +2099,43 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 	return m.updateInternal(ctx, nil, auth, updateModeReplace)
 }
 
+func (m *Manager) lockAuthMutationContext(ctx context.Context, id string) (func(), error) {
+	if m == nil || id == "" {
+		return func() {}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	val, _ := m.authMutationLocks.LoadOrStore(id, make(chan struct{}, 1))
+	gate := val.(chan struct{})
+	select {
+	case gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-gate
+			return nil, err
+		}
+		return func() {
+			<-gate
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (m *Manager) lockAuthMutation(id string) func() {
+	release, _ := m.lockAuthMutationContext(context.Background(), id)
+	return release
+}
+
 func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode updateAuthMode) (*Auth, error) {
 	if auth == nil || auth.ID == "" {
 		return nil, nil
 	}
+	releaseMutation, errMutation := m.lockAuthMutationContext(ctx, auth.ID)
+	if errMutation != nil {
+		return nil, errMutation
+	}
+	defer releaseMutation()
 	NormalizeCredentialMetadata(auth.Metadata)
 	if mode == updateModeReplace && auth.HasFileSnapshot() {
 		m.mu.RLock()

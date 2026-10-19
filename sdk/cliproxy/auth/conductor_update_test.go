@@ -372,3 +372,91 @@ func TestManager_Update_StaleFileSnapshotRejected(t *testing.T) {
 		t.Fatalf("current manager state corrupted by stale snapshot: prefix=%s gen=%d", current.Prefix, current.Generation)
 	}
 }
+
+func TestManager_Update_PerAuthMutationSerializesCheckAndCommit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "account.json")
+	if errWrite := os.WriteFile(path, []byte(`{"type":"codex","prefix":"pfx-initial"}`), 0o600); errWrite != nil {
+		t.Fatal(errWrite)
+	}
+
+	ctx := WithSkipPersist(context.Background())
+	m := NewManager(nil, nil, nil)
+	auth := &Auth{
+		ID:         "account.json",
+		Provider:   "codex",
+		Prefix:     "pfx-initial",
+		Status:     StatusActive,
+		Attributes: map[string]string{AttributePath: path},
+	}
+	auth.BindFileSnapshot(path, []byte(`{"type":"codex","prefix":"pfx-initial"}`))
+	if _, errReg := m.Register(ctx, auth); errReg != nil {
+		t.Fatal(errReg)
+	}
+
+	readStarted := make(chan struct{})
+	releaseRead := make(chan struct{})
+	origRead := readAuthSnapshotFileFunc
+	t.Cleanup(func() {
+		readAuthSnapshotFileFunc = origRead
+	})
+	var once sync.Once
+	readAuthSnapshotFileFunc = func(p string) ([]byte, error) {
+		if p == path {
+			once.Do(func() {
+				close(readStarted)
+			})
+			<-releaseRead
+		}
+		return origRead(p)
+	}
+
+	snapshotA := &Auth{
+		ID:         "account.json",
+		Provider:   "codex",
+		Prefix:     "pfx-snapshot-a",
+		Status:     StatusActive,
+		Attributes: map[string]string{AttributePath: path},
+	}
+	snapshotA.BindFileSnapshot(path, []byte(`{"type":"codex","prefix":"pfx-initial"}`))
+
+	doneA := make(chan struct{})
+	go func() {
+		defer close(doneA)
+		_, _ = m.Update(ctx, snapshotA)
+	}()
+
+	select {
+	case <-readStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for snapshot A read to start")
+	}
+
+	// While snapshot A is reading, a concurrent management Update for the SAME auth ID must be blocked waiting on the per-auth mutation lock
+	doneB := make(chan struct{})
+	go func() {
+		defer close(doneB)
+		_, _ = m.Update(ctx, &Auth{
+			ID:       "account.json",
+			Provider: "codex",
+			Prefix:   "pfx-management-b",
+			Status:   StatusActive,
+		})
+	}()
+
+	select {
+	case <-doneB:
+		t.Fatal("management update on the SAME ID completed before snapshot A released its mutation gate")
+	case <-time.After(50 * time.Millisecond):
+		// Expected: B is blocked waiting for A's mutation lock
+	}
+
+	close(releaseRead)
+	<-doneA
+	<-doneB
+
+	current, _ := m.GetByID("account.json")
+	if current == nil || current.Prefix != "pfx-management-b" {
+		t.Fatalf("expected prefix=pfx-management-b, got %+v", current)
+	}
+}

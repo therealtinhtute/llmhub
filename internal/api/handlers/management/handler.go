@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/gin-gonic/gin"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/config"
@@ -54,6 +56,7 @@ type Handler struct {
 	runtimeStoragePolicy runtimepolicy.RuntimeStorage
 	postAuthHook         coreauth.PostAuthHook
 	configStore          ManagementConfigStore
+	configVersion        int64
 	nativeProviderStore  nativeproviders.Store
 	configChangeHook     func(*config.Config)
 	quotaAlertStore      quotaalert.Store
@@ -67,6 +70,11 @@ type Handler struct {
 type ManagementConfigStore interface {
 	LoadConfigBytes(ctx context.Context) ([]byte, error)
 	SaveConfig(ctx context.Context, data []byte) (int64, error)
+}
+
+// ConfigVersionProvider optionally provides the current monotonic version of the persisted config.
+type ConfigVersionProvider interface {
+	CurrentVersion(ctx context.Context) (int64, error)
 }
 
 // NewHandler creates a new management handler instance.
@@ -131,8 +139,108 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 	}
 	cloned := cfg.CloneForRuntime()
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.isStaleConfigSnapshotLocked(cloned) {
+		log.Debug("management: ignoring config reload parsed from an older config store version")
+		return
+	}
+	if cloned.ConfigVersion > h.configVersion {
+		h.configVersion = cloned.ConfigVersion
+	}
 	h.cfg = cloned
-	h.mu.Unlock()
+}
+
+// isStaleConfigSnapshotLocked reports whether cfg was parsed from an older
+// store version than the current store version. Management saves hold h.mu,
+// so none can land during the check. Callers must hold h.mu.
+func (h *Handler) isStaleConfigSnapshotLocked(cfg *config.Config) bool {
+	if cfg == nil || h.configStore == nil {
+		return false
+	}
+	currentVersion, err := h.currentConfigVersionLocked(context.Background())
+	if err != nil || currentVersion == 0 {
+		return false
+	}
+	if cfg.ConfigVersion > 0 && cfg.ConfigVersion < currentVersion {
+		return true
+	}
+	return false
+}
+
+func (h *Handler) currentConfigVersionLocked(ctx context.Context) (int64, error) {
+	if h.configStore != nil {
+		if vp, ok := h.configStore.(ConfigVersionProvider); ok {
+			v, err := vp.CurrentVersion(ctx)
+			if err == nil {
+				if v > h.configVersion {
+					h.configVersion = v
+				}
+				return v, nil
+			}
+			return h.configVersion, err
+		}
+	}
+	if h.cfg != nil && h.cfg.ConfigVersion > h.configVersion {
+		h.configVersion = h.cfg.ConfigVersion
+	}
+	return h.configVersion, nil
+}
+
+func (h *Handler) currentConfigVersion(ctx context.Context) (int64, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.currentConfigVersionLocked(ctx)
+}
+
+// formatConfigETag renders a config version as a strong ETag.
+func formatConfigETag(version int64) string {
+	return fmt.Sprintf(`"%d"`, version)
+}
+
+// ifMatchSatisfied reports whether the optional If-Match header lines pass
+// the RFC 9110 strong comparison against currentVersion. Repeated lines form
+// one list. An absent header always passes; a present but blank header
+// carries no tag and fails; the whole field "*" matches any current
+// version; weak and malformed entity tags never match.
+func ifMatchSatisfied(values []string, currentVersion int64) bool {
+	if len(values) == 0 {
+		return true
+	}
+	field := strings.TrimSpace(strings.Join(values, ","))
+	if field == "*" {
+		return true
+	}
+	expected := strconv.FormatInt(currentVersion, 10)
+	for _, tag := range splitEntityTagList(field) {
+		tag = strings.TrimSpace(tag)
+		if len(tag) >= 2 && tag[0] == '"' && tag[len(tag)-1] == '"' && !strings.Contains(tag[1:len(tag)-1], `"`) {
+			val := tag[1 : len(tag)-1]
+			if val == expected || (val != "" && val == "v"+expected) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// splitEntityTagList splits an If-Match field value on list commas. A comma
+// inside a quoted entity tag is tag content, not a separator.
+func splitEntityTagList(field string) []string {
+	parts := []string{}
+	start := 0
+	quoted := false
+	for i := range len(field) {
+		switch field[i] {
+		case '"':
+			quoted = !quoted
+		case ',':
+			if !quoted {
+				parts = append(parts, field[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(parts, field[start:])
 }
 
 // SetAuthManager updates the auth manager reference used by management endpoints.
@@ -368,19 +476,45 @@ func (h *Handler) persist(c *gin.Context) bool {
 // after h.mu has been released.
 func (h *Handler) persistLocked(c *gin.Context) (*config.Config, func(*config.Config), bool) {
 	if h.configStore == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "management config store is not configured"})
+		if c != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "management config store is not configured"})
+		}
 		return nil, nil, false
+	}
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+		currentVersion, errVer := h.currentConfigVersionLocked(ctx)
+		if errVer == nil && currentVersion > 0 {
+			if !ifMatchSatisfied(c.Request.Header.Values("If-Match"), currentVersion) {
+				c.Header("ETag", formatConfigETag(currentVersion))
+				c.JSON(http.StatusPreconditionFailed, gin.H{"error": "precondition_failed"})
+				return nil, nil, false
+			}
+		}
 	}
 	persistedCfg := *h.cfg
 	persistedCfg.OpenAICompatibility = nativeproviders.StripProjectedEntries(h.cfg.OpenAICompatibility)
 	data, errMarshal := yaml.Marshal(&persistedCfg)
 	if errMarshal != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to encode config: %v", errMarshal)})
+		if c != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to encode config: %v", errMarshal)})
+		}
 		return nil, nil, false
 	}
-	if _, errSave := h.configStore.SaveConfig(c.Request.Context(), data); errSave != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", errSave)})
+	version, errSave := h.configStore.SaveConfig(ctx, data)
+	if errSave != nil {
+		if c != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", errSave)})
+		}
 		return nil, nil, false
+	}
+	h.configVersion = version
+	if h.cfg != nil {
+		h.cfg.ConfigVersion = version
+	}
+	if c != nil {
+		c.Header("ETag", formatConfigETag(version))
 	}
 	return h.cfg, h.configChangeHook, true
 }
@@ -402,7 +536,8 @@ func (h *Handler) persistLockedAndRespond(c *gin.Context) bool {
 	return true
 }
 
-// Helper methods for simple types
+// Helper methods for simple types. The setter and the save run under h.mu, so a
+// reload publishing h.cfg cannot replace it between the change and the save.
 func (h *Handler) updateBoolField(c *gin.Context, set func(bool)) {
 	var body struct {
 		Value *bool `json:"value"`
@@ -411,8 +546,10 @@ func (h *Handler) updateBoolField(c *gin.Context, set func(bool)) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	set(*body.Value)
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) updateIntField(c *gin.Context, set func(int)) {
@@ -423,8 +560,10 @@ func (h *Handler) updateIntField(c *gin.Context, set func(int)) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	set(*body.Value)
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 func (h *Handler) updateStringField(c *gin.Context, set func(string)) {
@@ -435,6 +574,8 @@ func (h *Handler) updateStringField(c *gin.Context, set func(string)) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	set(*body.Value)
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }

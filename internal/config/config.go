@@ -6,6 +6,8 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -240,6 +242,20 @@ type Config struct {
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
 	legacyMigrationPending bool `yaml:"-" json:"-"`
+
+	// SourceHash is runtime-only: the SHA-256 of the config file bytes this config was
+	// parsed from, or empty when the config was not loaded from a file.
+	SourceHash string `yaml:"-" json:"-"`
+
+	// ConfigVersion is runtime-only: the store version this config was loaded from,
+	// or 0 when not loaded from a versioned store.
+	ConfigVersion int64 `yaml:"-" json:"-"`
+}
+
+// ComputeSourceHash returns the Config.SourceHash value for config file bytes.
+func ComputeSourceHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // CodexMultiAgentV2Enabled reports whether Codex multi-agent v2 optimization is
@@ -1058,6 +1074,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// }
 
 	// Return the populated configuration struct.
+	// Record the exact bytes this config was parsed from, so a consumer can tell
+	// it apart from a newer version of the file.
+	cfg.SourceHash = ComputeSourceHash(data)
 	return &cfg, nil
 }
 

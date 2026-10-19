@@ -27,6 +27,13 @@ func (h *Handler) GetConfig(c *gin.Context) {
 		c.JSON(200, gin.H{})
 		return
 	}
+	h.mu.Lock()
+	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
+	h.mu.Unlock()
+	if currentVersion > 0 {
+		c.Header("ETag", formatConfigETag(currentVersion))
+	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(200, new(*h.cfg))
 }
 
@@ -128,11 +135,24 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		return
 	}
 	h.mu.Lock()
-	if _, errSave := h.configStore.SaveConfig(c.Request.Context(), body); errSave != nil {
+	currentVersion, errVer := h.currentConfigVersionLocked(c.Request.Context())
+	if errVer == nil && currentVersion > 0 {
+		if !ifMatchSatisfied(c.Request.Header.Values("If-Match"), currentVersion) {
+			c.Header("ETag", formatConfigETag(currentVersion))
+			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "precondition_failed"})
+			h.mu.Unlock()
+			return
+		}
+	}
+	version, errSave := h.configStore.SaveConfig(c.Request.Context(), body)
+	if errSave != nil {
 		h.mu.Unlock()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errSave.Error()})
 		return
 	}
+	h.configVersion = version
+	newCfg.ConfigVersion = version
+	c.Header("ETag", formatConfigETag(version))
 	h.cfg = newCfg
 	hook := h.configChangeHook
 	h.mu.Unlock()
@@ -161,6 +181,12 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": err.Error()})
 		return
+	}
+	h.mu.Lock()
+	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
+	h.mu.Unlock()
+	if currentVersion > 0 {
+		c.Header("ETag", formatConfigETag(currentVersion))
 	}
 	c.Header("Content-Type", "application/yaml; charset=utf-8")
 	c.Header("Cache-Control", "no-store")
@@ -205,8 +231,10 @@ func (h *Handler) PutLogsMaxTotalSizeMB(c *gin.Context) {
 	if value < 0 {
 		value = 0
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cfg.LogsMaxTotalSizeMB = value
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 // ErrorLogsMaxFiles
@@ -225,8 +253,10 @@ func (h *Handler) PutErrorLogsMaxFiles(c *gin.Context) {
 	if value < 0 {
 		value = 10
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cfg.ErrorLogsMaxFiles = value
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 // Request log
@@ -301,8 +331,10 @@ func (h *Handler) PutRoutingStrategy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid strategy"})
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cfg.Routing.Strategy = normalized
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 // Proxy URL
@@ -311,6 +343,8 @@ func (h *Handler) PutProxyURL(c *gin.Context) {
 	h.updateStringField(c, func(v string) { h.cfg.ProxyURL = v })
 }
 func (h *Handler) DeleteProxyURL(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cfg.ProxyURL = ""
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }

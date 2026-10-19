@@ -7,14 +7,19 @@ import (
 	"encoding/hex"
 	"os"
 	"reflect"
+	"sync"
 	"time"
-
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/util"
 	"github.com/therealtinhtute/llmhub/internal/watcher/diff"
 	"gopkg.in/yaml.v3"
 
 	log "github.com/sirupsen/logrus"
+)
+
+var (
+	configApplyMu      sync.Mutex
+	loadConfigFileFunc = config.LoadConfig
 )
 
 func (w *Watcher) stopConfigReloadTimer() {
@@ -40,7 +45,20 @@ func (w *Watcher) scheduleConfigReload() {
 	})
 }
 
+// ReloadConfigIfChanged runs the same config reload path used by filesystem events.
+func (w *Watcher) ReloadConfigIfChanged() {
+	if w == nil {
+		return
+	}
+	w.reloadConfigIfChanged()
+}
+
 func (w *Watcher) reloadConfigIfChanged() {
+	// File events and post-save reloads may arrive together; an older read must
+	// not apply after a newer one.
+	configApplyMu.Lock()
+	defer configApplyMu.Unlock()
+
 	data, err := os.ReadFile(w.configPath)
 	if err != nil {
 		log.Errorf("failed to read config file for hash check: %v", err)
@@ -63,15 +81,15 @@ func (w *Watcher) reloadConfigIfChanged() {
 	}
 	log.Infof("config file changed, reloading: %s", w.configPath)
 	if w.reloadConfig() {
-		finalHash := newHash
-		if updatedData, errRead := os.ReadFile(w.configPath); errRead == nil && len(updatedData) > 0 {
-			sumUpdated := sha256.Sum256(updatedData)
-			finalHash = hex.EncodeToString(sumUpdated[:])
-		} else if errRead != nil {
-			log.WithError(errRead).Debug("failed to compute updated config hash after reload")
-		}
+		// Record the bytes the reload actually parsed, not the change-check read or a
+		// later re-read: a write landing between them must not count as applied. A
+		// write-back during load only costs one extra reload.
 		w.clientsMutex.Lock()
-		w.lastConfigHash = finalHash
+		appliedHash := newHash
+		if w.config != nil && w.config.SourceHash != "" {
+			appliedHash = w.config.SourceHash
+		}
+		w.lastConfigHash = appliedHash
 		w.clientsMutex.Unlock()
 		w.persistConfigAsync()
 	}
@@ -81,7 +99,7 @@ func (w *Watcher) reloadConfig() bool {
 	log.Debug("=========================== CONFIG RELOAD ============================")
 	log.Debugf("starting config reload from: %s", w.configPath)
 
-	newConfig, errLoadConfig := config.LoadConfig(w.configPath)
+	newConfig, errLoadConfig := loadConfigFileFunc(w.configPath)
 	if errLoadConfig != nil {
 		log.Errorf("failed to reload config: %v", errLoadConfig)
 		return false

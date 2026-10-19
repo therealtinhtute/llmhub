@@ -42,6 +42,12 @@ type ModelRegistry interface {
 	GetAvailableModelsByProvider(provider string) []*ModelInfo
 }
 
+// RegistrationGateKeeper verifies auth registration inputs before publication.
+type RegistrationGateKeeper interface {
+	PublishIfRegistrationCurrent(id string, registrationEpoch uint64, prefix, provider string, disabled bool, authKind string, attributes map[string]string, publish func() bool) bool
+}
+
+var _ RegistrationGateKeeper = (*coreauth.Manager)(nil)
 // GlobalModelRegistry returns the shared registry instance.
 func GlobalModelRegistry() ModelRegistry {
 	return registry.GetGlobalRegistry()
@@ -150,13 +156,7 @@ func (f modelRegistrationFence) publishIfCurrent(s *Service, authID string, publ
 	if s == nil || s.coreManager == nil {
 		return publishWithConfig()
 	}
-	type registrationGateKeeper interface {
-		PublishIfRegistrationCurrent(id string, registrationEpoch uint64, prefix, provider string, disabled bool, authKind string, attributes map[string]string, publish func() bool) bool
-	}
-	if gate, ok := any(s.coreManager).(registrationGateKeeper); ok {
-		return gate.PublishIfRegistrationCurrent(authID, f.registrationEpoch, f.prefix, f.provider, f.disabled, f.authKind, f.attributes, publishWithConfig)
-	}
-	return publishWithConfig()
+	return s.coreManager.PublishIfRegistrationCurrent(authID, f.registrationEpoch, f.prefix, f.provider, f.disabled, f.authKind, f.attributes, publishWithConfig)
 }
 
 func (s *Service) registerResolvedModelsForAuthFenced(a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) bool {

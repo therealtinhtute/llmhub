@@ -156,3 +156,53 @@ func TestModelRegistrationSupersededReconcilesLatest_Issue6718(t *testing.T) {
 		t.Fatal("expected gemini-2.5-flash to be available after reconciliation")
 	}
 }
+
+func TestRegisterResolvedModelsForAuth_LiveFencingReconcilesSuperseded(t *testing.T) {
+	clientID := "live-fencing-test-client"
+	reg := GlobalModelRegistry()
+	reg.UnregisterClient(clientID)
+	t.Cleanup(func() {
+		reg.UnregisterClient(clientID)
+	})
+
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{ForceModelPrefix: false},
+	}
+	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
+	service := &Service{cfg: cfg, coreManager: manager}
+
+	auth := &coreauth.Auth{
+		ID:       clientID,
+		Provider: "gemini",
+		Status:   coreauth.StatusActive,
+		Attributes: map[string]string{
+			"auth_kind": "apikey",
+		},
+	}
+
+	registered, errRegister := manager.Register(context.Background(), auth)
+	if errRegister != nil {
+		t.Fatalf("failed to register auth: %v", errRegister)
+	}
+
+	// Initial registration through live registerModelsForAuth
+	service.registerModelsForAuth(registered)
+	waitForClientModel(t, clientID, "gemini-2.5-flash")
+
+	// Interleaving: manager auth is updated to disabled
+	disabledAuth := registered.Clone()
+	disabledAuth.Disabled = true
+	disabledAuth.Status = coreauth.StatusDisabled
+	if _, errUpdate := manager.Update(context.Background(), disabledAuth); errUpdate != nil {
+		t.Fatalf("failed to update auth: %v", errUpdate)
+	}
+
+	// A stale concurrent resolution pass tries to publish models using the old registered auth
+	staleModels := []*ModelInfo{{ID: "stale-model"}}
+	service.registerResolvedModelsForAuth(registered, "gemini", staleModels)
+
+	// The stale publication must be rejected and latest auth reconciled (client unregistered)
+	if reg.ClientSupportsModel(clientID, "stale-model") {
+		t.Fatal("stale model should not be registered when auth identity was superseded in manager")
+	}
+}

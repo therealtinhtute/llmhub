@@ -511,11 +511,10 @@ func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, providerKey st
 	if a == nil || a.ID == "" {
 		return
 	}
-	if len(models) == 0 {
-		GlobalModelRegistry().UnregisterClient(a.ID)
-		return
+	fence := newModelRegistrationFence(a, s.cfg)
+	if !s.registerResolvedModelsForAuthFenced(a, fence, providerKey, models) {
+		s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
 	}
-	GlobalModelRegistry().RegisterClient(a.ID, providerKey, models)
 }
 
 // rebindExecutors refreshes provider executors so they observe the latest configuration.
@@ -1274,7 +1273,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		return
 	}
 	if a.Disabled {
-		GlobalModelRegistry().UnregisterClient(a.ID)
+		fence := newModelRegistrationFence(a, s.cfg)
+		if !s.unregisterModelsForAuthFenced(a, fence) {
+			s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+		}
 		return
 	}
 	authKind := strings.ToLower(strings.TrimSpace(a.Attributes["auth_kind"]))
@@ -1285,7 +1287,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	}
 	if a.Attributes != nil {
 		if v := strings.TrimSpace(a.Attributes["gemini_virtual_primary"]); strings.EqualFold(v, "true") {
-			GlobalModelRegistry().UnregisterClient(a.ID)
+			fence := newModelRegistrationFence(a, s.cfg)
+			if !s.unregisterModelsForAuthFenced(a, fence) {
+				s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+			}
 			return
 		}
 	}
@@ -1466,14 +1471,20 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					} else {
 						// Ensure stale registrations are cleared when model list becomes empty.
-						GlobalModelRegistry().UnregisterClient(a.ID)
+						fence := newModelRegistrationFence(a, s.cfg)
+						if !s.unregisterModelsForAuthFenced(a, fence) {
+							s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+						}
 					}
 					return
 				}
 			}
 			if isCompatAuth {
 				// No matching provider found or models removed entirely; drop any prior registration.
-				GlobalModelRegistry().UnregisterClient(a.ID)
+				fence := newModelRegistrationFence(a, s.cfg)
+				if !s.unregisterModelsForAuthFenced(a, fence) {
+					s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+				}
 				return
 			}
 		}
@@ -1488,7 +1499,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		return
 	}
 
-	GlobalModelRegistry().UnregisterClient(a.ID)
+	fence := newModelRegistrationFence(a, s.cfg)
+	if !s.unregisterModelsForAuthFenced(a, fence) {
+		s.reconcileSupersededAuthRegistration(context.Background(), a.ID)
+	}
 }
 
 func (s *Service) resolveKiroModelsForAuth(a *coreauth.Auth) ([]*ModelInfo, *coreauth.Auth, error) {

@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/buildinfo"
 	"github.com/therealtinhtute/llmhub/internal/config"
 	"github.com/therealtinhtute/llmhub/internal/nativeproviders"
@@ -516,7 +516,6 @@ func (h *Handler) AuthenticateManagementKey(clientIP string, localClient bool, p
 
 	return true, 0, ""
 }
-
 
 // persistLocked saves the current in-memory config to the configured store.
 // It expects the caller to hold h.mu. The returned hook must be invoked only

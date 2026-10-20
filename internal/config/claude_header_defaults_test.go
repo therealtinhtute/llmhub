@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,58 @@ func TestParseConfigBytes_NestedHeaderDefaultsClearedAfterMerge(t *testing.T) {
 	cfg.SanitizeClaudeHeaderDefaults()
 	if got := cfg.ClaudeHeaderDefaults.ClientRequestID; got != ClaudeClientRequestIDOff {
 		t.Fatalf("ClientRequestID = %q, want %q after flat edit", got, ClaudeClientRequestIDOff)
+	}
+}
+
+func TestSaveConfigPreserveComments_NestedHeaderDefaultsPrunedAndFlatEditPersists(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	initialYAML := []byte(`
+upstream:
+  claude:
+    header-defaults:
+      client-request-id: "passthrough"
+      anthropic-beta-strip: ["beta-strip-1"]
+`)
+	if err := os.WriteFile(configPath, initialYAML, 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfigOptional(configPath, false)
+	if err != nil {
+		t.Fatalf("LoadConfigOptional() error = %v", err)
+	}
+	if cfg.ClaudeHeaderDefaults.ClientRequestID != ClaudeClientRequestIDPassthrough {
+		t.Fatalf("ClientRequestID = %q, want passthrough", cfg.ClaudeHeaderDefaults.ClientRequestID)
+	}
+
+	// Save back to file using SaveConfigPreserveComments.
+	if err := SaveConfigPreserveComments(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfigPreserveComments() error = %v", err)
+	}
+
+	savedBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(savedBytes), "upstream:") {
+		t.Fatalf("saved file still contains upstream section: %s", string(savedBytes))
+	}
+
+	// Now modify the flat claude-header-defaults in the file and reload.
+	flatEditedYAML := []byte(`
+claude-header-defaults:
+  client-request-id: "off"
+`)
+	if err := os.WriteFile(configPath, flatEditedYAML, 0o600); err != nil {
+		t.Fatalf("failed to write edited config: %v", err)
+	}
+
+	reloaded, err := LoadConfigOptional(configPath, false)
+	if err != nil {
+		t.Fatalf("LoadConfigOptional() reload error = %v", err)
+	}
+	if got := reloaded.ClaudeHeaderDefaults.ClientRequestID; got != ClaudeClientRequestIDOff {
+		t.Fatalf("reloaded ClientRequestID = %q, want off (flat edit was shadowed)", got)
 	}
 }

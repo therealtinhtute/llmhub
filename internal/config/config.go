@@ -1672,6 +1672,7 @@ func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-excluded-models")
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-model-alias")
+	pruneNestedClaudeHeaderDefaults(original.Content[0])
 
 	// Merge generated into original in-place, preserving comments/order of existing nodes.
 	mergeMappingPreserve(original.Content[0], generated.Content[0])
@@ -2288,6 +2289,35 @@ func pruneMappingToGeneratedKeys(dstRoot, srcRoot *yaml.Node, key string) {
 		return
 	}
 	pruneMissingMapKeys(dstVal, srcVal)
+}
+
+func pruneNestedClaudeHeaderDefaults(root *yaml.Node) {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return
+	}
+	upstreamIdx := findMapKeyIndex(root, "upstream")
+	if upstreamIdx < 0 || upstreamIdx+1 >= len(root.Content) {
+		return
+	}
+	upstreamNode := root.Content[upstreamIdx+1]
+	if upstreamNode == nil || upstreamNode.Kind != yaml.MappingNode {
+		return
+	}
+	claudeIdx := findMapKeyIndex(upstreamNode, "claude")
+	if claudeIdx < 0 || claudeIdx+1 >= len(upstreamNode.Content) {
+		return
+	}
+	claudeNode := upstreamNode.Content[claudeIdx+1]
+	if claudeNode == nil || claudeNode.Kind != yaml.MappingNode {
+		return
+	}
+	removeMapKey(claudeNode, "header-defaults")
+	if len(claudeNode.Content) == 0 {
+		removeMapKey(upstreamNode, "claude")
+	}
+	if len(upstreamNode.Content) == 0 {
+		removeMapKey(root, "upstream")
+	}
 }
 
 func pruneMissingMapKeys(dstMap, srcMap *yaml.Node) {

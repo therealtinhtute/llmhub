@@ -294,7 +294,7 @@ payload:
 				},
 			}
 			executor := NewClaudeExecutor(cfg)
-			request := cliproxyexecutor.Request{Model: "claude-opus-5", Payload: []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"x"}],"max_tokens":1}`)}
+			request := cliproxyexecutor.Request{Model: "claude-opus-5", Payload: []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"quota"}],"max_tokens":1}`)}
 			options := cliproxyexecutor.Options{
 				SourceFormat: sdktranslator.FormatClaude,
 				Stream:       stream,
@@ -391,6 +391,87 @@ func TestApplyClaudeHeaders_ClientRequestIDModes(t *testing.T) {
 			req := newClaudeHeaderTestRequest(t, tc.incoming)
 			applyClaudeHeaders(req, tc.auth, tc.apiKey, false, nil, []byte(`{"model":"claude-opus-5"}`), cfg, tc.incoming)
 			values, present := req.Header["X-Client-Request-Id"]
+			got := strings.Join(values, ",")
+			tc.check(t, got, present)
+		})
+	}
+}
+
+// TestApplyClaudeHeaders_GatewayClientRequestIDModes pins the behavior on non-Anthropic
+// gateway URLs:
+// - "on" (default) mode without caller ID: header remains omitted (no synthesized UUID).
+// - "on" (default) mode with caller ID: forwards caller ID (preserves trace).
+// - "passthrough" mode with caller ID: forwards caller ID.
+// - "passthrough" mode without caller ID: header remains omitted.
+// - "off" mode with caller ID: removes header.
+func TestApplyClaudeHeaders_GatewayClientRequestIDModes(t *testing.T) {
+	const callerRequestID = "caller-gateway-id-5093"
+	withCallerID := http.Header{}
+	withCallerID.Set("X-Client-Request-Id", callerRequestID)
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-gateway", "caller_owned": "true"}}
+
+	tests := []struct {
+		name     string
+		mode     string
+		incoming http.Header
+		check    func(t *testing.T, got string, present bool)
+	}{
+		{
+			name: "default without caller ID stays absent", mode: "", incoming: nil,
+			check: func(t *testing.T, got string, present bool) {
+				if present {
+					t.Fatalf("x-client-request-id = %q, want omitted on gateway without caller ID", got)
+				}
+			},
+		},
+		{
+			name: "default with caller ID forwards caller ID", mode: "", incoming: withCallerID,
+			check: func(t *testing.T, got string, present bool) {
+				if !present || got != callerRequestID {
+					t.Fatalf("x-client-request-id = %q, want caller ID %q forwarded", got, callerRequestID)
+				}
+			},
+		},
+		{
+			name: "passthrough with caller ID forwards caller ID", mode: "passthrough", incoming: withCallerID,
+			check: func(t *testing.T, got string, present bool) {
+				if !present || got != callerRequestID {
+					t.Fatalf("x-client-request-id = %q, want caller ID %q forwarded", got, callerRequestID)
+				}
+			},
+		},
+		{
+			name: "passthrough without caller ID stays absent", mode: "passthrough", incoming: nil,
+			check: func(t *testing.T, got string, present bool) {
+				if present {
+					t.Fatalf("x-client-request-id = %q, want omitted on gateway in passthrough", got)
+				}
+			},
+		},
+		{
+			name: "off removes caller ID on gateway", mode: "off", incoming: withCallerID,
+			check: func(t *testing.T, got string, present bool) {
+				if present {
+					t.Fatalf("x-client-request-id = %q, want omitted on gateway in off mode", got)
+				}
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg *config.Config
+			if tc.mode != "" {
+				cfg = parseIssue5093Config(t, "upstream: {claude: {header-defaults: {client-request-id: "+tc.mode+"}}}\n")
+			}
+			req, err := http.NewRequest(http.MethodPost, "https://gateway.example.com/v1/messages", nil)
+			if err != nil {
+				t.Fatalf("http.NewRequest error: %v", err)
+			}
+			applyClaudeHeaders(req, auth, "key-gateway", false, nil, []byte(`{"model":"claude-opus-5"}`), cfg, tc.incoming)
+			values, present := req.Header["X-Client-Request-Id"]
+			if !present {
+				values, present = req.Header["x-client-request-id"]
+			}
 			got := strings.Join(values, ",")
 			tc.check(t, got, present)
 		})

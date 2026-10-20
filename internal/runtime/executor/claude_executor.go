@@ -2188,6 +2188,12 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	// Session ID: stable per auth/apiKey, matches Claude Code's X-Claude-Code-Session-Id header.
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Claude-Code-Session-Id", helps.CachedSessionID(apiKey))
 	// Per-request UUID, matches Claude Code's x-client-request-id for first-party API.
+	// On api.anthropic.com, synthesize a fresh UUID unless passthrough mode is configured.
+	// On non-Anthropic bases (third-party gateways), unsolicited UUIDs are never synthesized,
+	// but when the client explicitly supplies an x-client-request-id, it is forwarded in both
+	// "on" and "passthrough" modes to preserve caller trace continuity across proxies (pinned
+	// by TestClaudeP4_HelperRequestIDFollowsUpstreamBase and TestApplyClaudeHeaders_GatewayClientRequestIDModes).
+	// Setting client-request-id="off" removes the header on both first-party and gateway endpoints.
 	incomingClientRequestID := claudeIncomingHeaderValue(ginHeaders, "x-client-request-id")
 	if hd.ClientRequestID != config.ClaudeClientRequestIDOff {
 		if hd.ClientRequestID == config.ClaudeClientRequestIDPassthrough {

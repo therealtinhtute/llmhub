@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/runtime/executor/helps"
+	"github.com/therealtinhtute/llmhub/internal/thinking"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
 	"github.com/tidwall/gjson"
@@ -29,6 +31,38 @@ type codexDuplexConnectionError struct{ cause error }
 func (e *codexDuplexConnectionError) Error() string         { return e.cause.Error() }
 func (e *codexDuplexConnectionError) Unwrap() error         { return e.cause }
 func (e *codexDuplexConnectionError) IsRequestScoped() bool { return true }
+
+// codexAuthUsesSIWC reports whether the credential explicitly opted into the
+// Sign in with ChatGPT request-body rules. SIWC subscriptions reject
+// configuration_update input items, so only those credentials need the duplex
+// steer strip. Credentials without the flag keep the native frame unchanged.
+//
+// Ported from upstream CLIProxyAPI commit 355fd10e76b8
+// (codex_executor_auth.go codexUseSIWC).
+func codexAuthUsesSIWC(auth *cliproxyauth.Auth) bool {
+	if auth == nil {
+		return false
+	}
+	enabled := false
+	if len(auth.Attributes) > 0 {
+		if raw := strings.TrimSpace(auth.Attributes["use_siwc"]); raw != "" {
+			if parsed, errParse := strconv.ParseBool(raw); errParse == nil {
+				enabled = parsed
+			}
+		}
+	}
+	if !enabled && auth.Metadata != nil {
+		switch v := auth.Metadata["use_siwc"].(type) {
+		case bool:
+			enabled = v
+		case string:
+			if parsed, errParse := strconv.ParseBool(strings.TrimSpace(v)); errParse == nil {
+				enabled = parsed
+			}
+		}
+	}
+	return enabled
+}
 
 // streamCodexDuplex owns the already authenticated socket until downstream
 // disconnect. A response terminal event is not a connection terminal event:
@@ -279,6 +313,13 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 				}
 				switch gjson.GetBytes(payload, "type").String() {
 				case "response.steer":
+					// SIWC subscriptions reject configuration_update input items.
+					// Drop them before recording and forwarding so the control frame
+					// carries only items the upstream accepts; the top-level effort and
+					// every other field stay exactly as the client sent them.
+					if codexAuthUsesSIWC(auth) {
+						payload = thinking.StripConfigurationUpdates(payload)
+					}
 					parent := gjson.GetBytes(payload, "previous_response_id").String()
 					metadataMu.Lock()
 					settings := responseSettings[parent]
@@ -298,7 +339,8 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 					}
 					metadataMu.Unlock()
 					// Control frames bypass ALL response.create translations and defaults.
-					// Unknown fields and unsupported input are left to upstream validation.
+					// Except for SIWC configuration_update stripping, unknown fields and
+					// unsupported input are left to upstream validation.
 					if !cliproxyexecutor.WebsocketAuthEnabled(streamCtx, auth.ID) {
 						fail(fmt.Errorf("websocket credential is no longer enabled"))
 						return

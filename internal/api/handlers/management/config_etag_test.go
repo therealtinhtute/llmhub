@@ -122,6 +122,8 @@ func TestConfigETagIfMatch(t *testing.T) {
 		`"stale,*,tag"`,
 		`W/"stale,*,tag"`,
 		`"stale", *`,
+		`"v4"`,
+		`v"4"`,
 	} {
 		rec := do(http.MethodPut, "/v0/management/config.yaml", "port: 8322\n", badIfMatch)
 		wantStatus(rec, http.StatusPreconditionFailed)
@@ -195,4 +197,129 @@ func TestConfigETagIfMatch(t *testing.T) {
 	if len(saved.APIKeys) != 0 {
 		t.Fatalf("expected API keys to be empty after delete, got %v", saved.APIKeys)
 	}
+}
+
+// TestStaleIfMatchRejectsWithoutMutatingMemory proves a 412 status code leaves
+// the live in-memory config untouched across DELETE, PATCH, and PUT.
+func TestStaleIfMatchRejectsWithoutMutatingMemory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &recordingConfigStore{
+		data:      []byte("port: 8317\naccess:\n  api-keys:\n    - keep-me\n"),
+		saveCount: 1,
+		version:   1,
+	}
+	cfg := &config.Config{Port: 8317, ConfigVersion: 1}
+	cfg.APIKeys = []string{"keep-me"}
+	h := NewHandlerWithoutConfigFilePath(cfg, nil)
+	h.SetConfigStore(store)
+
+	router := gin.New()
+	router.DELETE("/v0/management/api-keys", h.DeleteAPIKeys)
+	router.PATCH("/v0/management/api-keys", h.PatchAPIKeys)
+	router.PUT("/v0/management/api-keys", h.PutAPIKeys)
+	router.PUT("/v0/management/debug", h.PutDebug)
+
+	do := func(method, url, body, ifMatch string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, url, strings.NewReader(body))
+		if ifMatch != "" {
+			req.Header.Set("If-Match", ifMatch)
+		}
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A rejected DELETE must not remove the key from the live config.
+	rec := do(http.MethodDelete, "/v0/management/api-keys?value=keep-me", "", `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale DELETE status=%d, want 412", rec.Code)
+	}
+	if got := h.cfg.APIKeys; len(got) != 1 || got[0] != "keep-me" {
+		t.Fatalf("412 DELETE still mutated in-memory config: APIKeys=%v", got)
+	}
+
+	// A rejected PATCH must not rewrite the entry in the live config.
+	rec = do(http.MethodPatch, "/v0/management/api-keys", `{"old":"keep-me","new":"rewritten"}`, `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale PATCH status=%d, want 412", rec.Code)
+	}
+	if got := h.cfg.APIKeys; len(got) != 1 || got[0] != "keep-me" {
+		t.Fatalf("412 PATCH still mutated in-memory config: APIKeys=%v", got)
+	}
+
+	// A rejected PUT must not replace the live config.
+	rec = do(http.MethodPut, "/v0/management/api-keys", `["replaced"]`, `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale PUT status=%d, want 412", rec.Code)
+	}
+	if got := h.cfg.APIKeys; len(got) != 1 || got[0] != "keep-me" {
+		t.Fatalf("412 PUT still mutated in-memory config: APIKeys=%v", got)
+	}
+}
+
+// TestStale412DeletePersistsOnNextSave proves that a rejected 412 mutation does not
+// leak into the store on the next unrelated successful save.
+func TestStale412DeletePersistsOnNextSave(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &recordingConfigStore{
+		data:      []byte("port: 8317\n"),
+		saveCount: 1,
+		version:   1,
+	}
+	cfg := &config.Config{Port: 8317, ConfigVersion: 1}
+	cfg.APIKeys = []string{"keep-me"}
+	h := NewHandlerWithoutConfigFilePath(cfg, nil)
+	h.SetConfigStore(store)
+
+	router := gin.New()
+	router.DELETE("/v0/management/api-keys", h.DeleteAPIKeys)
+	router.PUT("/v0/management/debug", h.PutDebug)
+
+	do := func(method, url, body, ifMatch string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, url, strings.NewReader(body))
+		if ifMatch != "" {
+			req.Header.Set("If-Match", ifMatch)
+		}
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := do(http.MethodDelete, "/v0/management/api-keys?value=keep-me", "", `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale DELETE status=%d, want 412", rec.Code)
+	}
+
+	rec = do(http.MethodPut, "/v0/management/debug", `{"value":true}`, `"1"`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("next save status=%d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(string(store.data), "keep-me") {
+		t.Fatalf("412 DELETE was persisted by the next save: %s", store.data)
+	}
+}
+
+// TestGetConfigRacesWithSetConfig ensures GetConfig synchronized under h.mu
+// does not race against concurrent SetConfig hot reloads.
+func TestGetConfigRacesWithSetConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{Port: 8317}
+	h := NewHandlerWithoutConfigFilePath(cfg, nil)
+	router := gin.New()
+	router.GET("/v0/management/config", h.GetConfig)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 200 {
+			h.SetConfig(&config.Config{Port: 8317 + i})
+		}
+	}()
+	for range 200 {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v0/management/config", nil))
+	}
+	<-done
 }

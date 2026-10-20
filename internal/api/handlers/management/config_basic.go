@@ -23,18 +23,25 @@ const (
 )
 
 func (h *Handler) GetConfig(c *gin.Context) {
-	if h == nil || h.cfg == nil {
-		c.JSON(200, gin.H{})
+	if h == nil {
+		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
 	h.mu.Lock()
+	if h.cfg == nil {
+		h.mu.Unlock()
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
 	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
+	snapshot := h.cfg.CloneForRuntime()
 	h.mu.Unlock()
+
+	c.Header("Cache-Control", "no-store")
 	if currentVersion > 0 {
 		c.Header("ETag", formatConfigETag(currentVersion))
 	}
-	c.Header("Cache-Control", "no-store")
-	c.JSON(200, new(*h.cfg))
+	c.JSON(http.StatusOK, snapshot)
 }
 
 type releaseInfo struct {
@@ -135,14 +142,9 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		return
 	}
 	h.mu.Lock()
-	currentVersion, errVer := h.currentConfigVersionLocked(c.Request.Context())
-	if errVer == nil && currentVersion > 0 {
-		if !ifMatchSatisfied(c.Request.Header.Values("If-Match"), currentVersion) {
-			c.Header("ETag", formatConfigETag(currentVersion))
-			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "precondition_failed"})
-			h.mu.Unlock()
-			return
-		}
+	if !h.validateIfMatchLocked(c) {
+		h.mu.Unlock()
+		return
 	}
 	version, errSave := h.configStore.SaveConfig(c.Request.Context(), body)
 	if errSave != nil {
@@ -169,12 +171,10 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 		data []byte
 		err  error
 	)
-	if h.configStore == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": "management config store is not configured"})
-		return
-	}
+	h.mu.Lock()
 	data, err = h.configStore.LoadConfigBytes(c.Request.Context())
 	if err != nil {
+		h.mu.Unlock()
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "config file not found"})
 			return
@@ -182,9 +182,9 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": err.Error()})
 		return
 	}
-	h.mu.Lock()
 	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
 	h.mu.Unlock()
+
 	if currentVersion > 0 {
 		c.Header("ETag", formatConfigETag(currentVersion))
 	}
@@ -233,6 +233,9 @@ func (h *Handler) PutLogsMaxTotalSizeMB(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.LogsMaxTotalSizeMB = value
 	h.persistLockedAndRespond(c)
 }
@@ -255,6 +258,9 @@ func (h *Handler) PutErrorLogsMaxFiles(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.ErrorLogsMaxFiles = value
 	h.persistLockedAndRespond(c)
 }
@@ -333,6 +339,9 @@ func (h *Handler) PutRoutingStrategy(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.Routing.Strategy = normalized
 	h.persistLockedAndRespond(c)
 }
@@ -345,6 +354,9 @@ func (h *Handler) PutProxyURL(c *gin.Context) {
 func (h *Handler) DeleteProxyURL(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.ProxyURL = ""
 	h.persistLockedAndRespond(c)
 }

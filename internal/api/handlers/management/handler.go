@@ -3,6 +3,7 @@
 package management
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"fmt"
@@ -161,10 +162,45 @@ func (h *Handler) isStaleConfigSnapshotLocked(cfg *config.Config) bool {
 	if err != nil || currentVersion == 0 {
 		return false
 	}
-	if cfg.ConfigVersion > 0 && cfg.ConfigVersion < currentVersion {
+	if cfg.ConfigVersion > 0 {
+		return cfg.ConfigVersion < currentVersion
+	}
+	// Fallback for reload snapshots that omit ConfigVersion (e.g. unversioned
+	// ParseConfigBytes callers): compare against the store's current content.
+	// If the store already holds newer content, this reload is stale.
+	data, errLoad := h.configStore.LoadConfigBytes(context.Background())
+	if errLoad != nil || len(data) == 0 {
+		return false
+	}
+	if cfg.SourceHash != "" && cfg.SourceHash == config.ComputeSourceHash(data) {
+		return false
+	}
+	storeCfg, errParse := config.ParseConfigBytes(data)
+	if errParse != nil {
+		return false
+	}
+	if h.cfg != nil && !configsEqual(cfg, storeCfg) {
 		return true
 	}
 	return false
+}
+
+func configsEqual(a, b *config.Config) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	normA := *a
+	normB := *b
+	normA.SourceHash, normA.ConfigVersion = "", 0
+	normB.SourceHash, normB.ConfigVersion = "", 0
+	normA.OpenAICompatibility = nativeproviders.StripProjectedEntries(normA.OpenAICompatibility)
+	normB.OpenAICompatibility = nativeproviders.StripProjectedEntries(normB.OpenAICompatibility)
+	bytesA, errA := yaml.Marshal(&normA)
+	bytesB, errB := yaml.Marshal(&normB)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return bytes.Equal(bytesA, bytesB)
 }
 
 func (h *Handler) currentConfigVersionLocked(ctx context.Context) (int64, error) {
@@ -186,10 +222,36 @@ func (h *Handler) currentConfigVersionLocked(ctx context.Context) (int64, error)
 	return h.configVersion, nil
 }
 
-func (h *Handler) currentConfigVersion(ctx context.Context) (int64, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.currentConfigVersionLocked(ctx)
+// validateIfMatchLocked validates the optional If-Match header against the current
+// store version. When an If-Match header is present, comparison is strictly fail-closed:
+// if current version cannot be read, is zero, or does not match, a 412 status is set on c and
+// false is returned.
+func (h *Handler) validateIfMatchLocked(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return true
+	}
+	values := c.Request.Header.Values("If-Match")
+	if len(values) == 0 {
+		return true
+	}
+	if h.configStore == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "management config store is not configured"})
+		return false
+	}
+	currentVersion, errVer := h.currentConfigVersionLocked(c.Request.Context())
+	if errVer != nil || currentVersion == 0 {
+		if currentVersion > 0 {
+			c.Header("ETag", formatConfigETag(currentVersion))
+		}
+		c.JSON(http.StatusPreconditionFailed, gin.H{"error": "precondition_failed"})
+		return false
+	}
+	if !ifMatchSatisfied(values, currentVersion) {
+		c.Header("ETag", formatConfigETag(currentVersion))
+		c.JSON(http.StatusPreconditionFailed, gin.H{"error": "precondition_failed"})
+		return false
+	}
+	return true
 }
 
 // formatConfigETag renders a config version as a strong ETag.
@@ -200,22 +262,22 @@ func formatConfigETag(version int64) string {
 // ifMatchSatisfied reports whether the optional If-Match header lines pass
 // the RFC 9110 strong comparison against currentVersion. Repeated lines form
 // one list. An absent header always passes; a present but blank header
-// carries no tag and fails; the whole field "*" matches any current
-// version; weak and malformed entity tags never match.
+// carries no tag and fails; the whole field "*" matches any existing
+// representation (version > 0); weak and malformed entity tags never match.
 func ifMatchSatisfied(values []string, currentVersion int64) bool {
 	if len(values) == 0 {
 		return true
 	}
 	field := strings.TrimSpace(strings.Join(values, ","))
 	if field == "*" {
-		return true
+		return currentVersion > 0
 	}
 	expected := strconv.FormatInt(currentVersion, 10)
 	for _, tag := range splitEntityTagList(field) {
 		tag = strings.TrimSpace(tag)
 		if len(tag) >= 2 && tag[0] == '"' && tag[len(tag)-1] == '"' && !strings.Contains(tag[1:len(tag)-1], `"`) {
 			val := tag[1 : len(tag)-1]
-			if val == expected || (val != "" && val == "v"+expected) {
+			if val == expected {
 				return true
 			}
 		}
@@ -455,21 +517,6 @@ func (h *Handler) AuthenticateManagementKey(clientIP string, localClient bool, p
 	return true, 0, ""
 }
 
-// persist saves the current in-memory config to the configured store and then
-// notifies the runtime after the handler mutex is released.
-func (h *Handler) persist(c *gin.Context) bool {
-	h.mu.Lock()
-	cfgForHook, hook, ok := h.persistLocked(c)
-	h.mu.Unlock()
-	if !ok {
-		return false
-	}
-	if hook != nil {
-		hook(cfgForHook)
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	return true
-}
 
 // persistLocked saves the current in-memory config to the configured store.
 // It expects the caller to hold h.mu. The returned hook must be invoked only
@@ -481,17 +528,12 @@ func (h *Handler) persistLocked(c *gin.Context) (*config.Config, func(*config.Co
 		}
 		return nil, nil, false
 	}
+	if !h.validateIfMatchLocked(c) {
+		return nil, nil, false
+	}
 	ctx := context.Background()
 	if c != nil && c.Request != nil {
 		ctx = c.Request.Context()
-		currentVersion, errVer := h.currentConfigVersionLocked(ctx)
-		if errVer == nil && currentVersion > 0 {
-			if !ifMatchSatisfied(c.Request.Header.Values("If-Match"), currentVersion) {
-				c.Header("ETag", formatConfigETag(currentVersion))
-				c.JSON(http.StatusPreconditionFailed, gin.H{"error": "precondition_failed"})
-				return nil, nil, false
-			}
-		}
 	}
 	persistedCfg := *h.cfg
 	persistedCfg.OpenAICompatibility = nativeproviders.StripProjectedEntries(h.cfg.OpenAICompatibility)
@@ -548,6 +590,9 @@ func (h *Handler) updateBoolField(c *gin.Context, set func(bool)) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	set(*body.Value)
 	h.persistLockedAndRespond(c)
 }
@@ -562,6 +607,9 @@ func (h *Handler) updateIntField(c *gin.Context, set func(int)) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	set(*body.Value)
 	h.persistLockedAndRespond(c)
 }
@@ -576,6 +624,9 @@ func (h *Handler) updateStringField(c *gin.Context, set func(string)) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	set(*body.Value)
 	h.persistLockedAndRespond(c)
 }

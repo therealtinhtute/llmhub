@@ -49,6 +49,9 @@ func (h *Handler) putStringList(c *gin.Context, set func([]string), after func()
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	set(arr)
 	if after != nil {
 		after()
@@ -71,6 +74,9 @@ func (h *Handler) patchStringList(c *gin.Context, targetOf func() *[]string, aft
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	target := targetOf()
 	if body.Index != nil && body.Value != nil && *body.Index >= 0 && *body.Index < len(*target) {
 		(*target)[*body.Index] = *body.Value
@@ -106,6 +112,9 @@ func (h *Handler) patchStringList(c *gin.Context, targetOf func() *[]string, aft
 func (h *Handler) deleteFromStringList(c *gin.Context, targetOf func() *[]string, after func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	target := targetOf()
 	if idxStr := c.Query("index"); idxStr != "" {
 		var idx int
@@ -179,6 +188,9 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.GeminiKey = append([]config.GeminiKey(nil), arr...)
 	h.cfg.SanitizeGeminiKeys()
 	h.persistLockedAndRespond(c)
@@ -209,6 +221,9 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.GeminiKey) {
 		targetIndex = *body.Index
@@ -292,6 +307,9 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 func (h *Handler) DeleteGeminiKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
 		if baseRaw, okBase := c.GetQuery("base-url"); okBase {
 			base := strings.TrimSpace(baseRaw)
@@ -382,6 +400,9 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.ClaudeKey = arr
 	h.cfg.SanitizeClaudeKeys()
 	h.persistLockedAndRespond(c)
@@ -413,6 +434,9 @@ func (h *Handler) PatchClaudeKey(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.ClaudeKey) {
 		targetIndex = *body.Index
@@ -493,6 +517,9 @@ func (h *Handler) PatchClaudeKey(c *gin.Context) {
 func (h *Handler) DeleteClaudeKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
 		if baseRaw, okBase := c.GetQuery("base-url"); okBase {
 			base := strings.TrimSpace(baseRaw)
@@ -586,6 +613,9 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	nativeEntries := make([]config.OpenAICompatibility, 0)
 	for _, entry := range h.cfg.OpenAICompatibility {
 		if nativeproviders.IsProjectedName(entry.Name) {
@@ -624,6 +654,9 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 {
 		genericIndex := 0
@@ -712,6 +745,9 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 func (h *Handler) DeleteOpenAICompat(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if name := c.Query("name"); name != "" {
 		out := make([]config.OpenAICompatibility, 0, len(h.cfg.OpenAICompatibility))
 		for _, v := range h.cfg.OpenAICompatibility {
@@ -780,6 +816,9 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.VertexCompatAPIKey = append([]config.VertexCompatKey(nil), arr...)
 	h.cfg.SanitizeVertexCompatKeys()
 	h.persistLockedAndRespond(c)
@@ -810,6 +849,9 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.VertexCompatAPIKey) {
 		targetIndex = *body.Index
@@ -901,6 +943,9 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 func (h *Handler) DeleteVertexCompatKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
 		if baseRaw, okBase := c.GetQuery("base-url"); okBase {
 			base := strings.TrimSpace(baseRaw)
@@ -984,6 +1029,9 @@ func (h *Handler) PutOAuthExcludedModels(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.OAuthExcludedModels = config.NormalizeOAuthExcludedModels(entries)
 	h.persistLockedAndRespond(c)
 }
@@ -1005,6 +1053,9 @@ func (h *Handler) PatchOAuthExcludedModels(c *gin.Context) {
 	normalized := config.NormalizeExcludedModels(body.Models)
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if len(normalized) == 0 {
 		if h.cfg.OAuthExcludedModels == nil {
 			c.JSON(404, gin.H{"error": "provider not found"})
@@ -1036,6 +1087,9 @@ func (h *Handler) DeleteOAuthExcludedModels(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if h.cfg.OAuthExcludedModels == nil {
 		c.JSON(404, gin.H{"error": "provider not found"})
 		return
@@ -1075,6 +1129,9 @@ func (h *Handler) PutOAuthRequestScopedErrors(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.OAuthRequestScopedErrors = sanitizedOAuthRequestScopedErrors(entries)
 	h.persistLockedAndRespond(c)
 }
@@ -1105,6 +1162,9 @@ func (h *Handler) PatchOAuthRequestScopedErrors(c *gin.Context) {
 	normalized := normalizedMap[channel]
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if len(normalized) == 0 {
 		if h.cfg.OAuthRequestScopedErrors == nil {
 			c.JSON(404, gin.H{"error": "channel not found"})
@@ -1139,6 +1199,9 @@ func (h *Handler) DeleteOAuthRequestScopedErrors(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if h.cfg.OAuthRequestScopedErrors == nil {
 		c.JSON(404, gin.H{"error": "channel not found"})
 		return
@@ -1178,6 +1241,9 @@ func (h *Handler) PutOAuthModelAlias(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.OAuthModelAlias = sanitizedOAuthModelAlias(entries)
 	h.persistLockedAndRespond(c)
 }
@@ -1208,6 +1274,9 @@ func (h *Handler) PatchOAuthModelAlias(c *gin.Context) {
 	normalized := normalizedMap[channel]
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if len(normalized) == 0 {
 		if h.cfg.OAuthModelAlias == nil {
 			c.JSON(404, gin.H{"error": "channel not found"})
@@ -1242,6 +1311,9 @@ func (h *Handler) DeleteOAuthModelAlias(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if h.cfg.OAuthModelAlias == nil {
 		c.JSON(404, gin.H{"error": "channel not found"})
 		return
@@ -1294,6 +1366,9 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.CodexKey = filtered
 	h.cfg.SanitizeCodexKeys()
 	h.persistLockedAndRespond(c)
@@ -1327,6 +1402,9 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.CodexKey) {
 		targetIndex = *body.Index
@@ -1418,6 +1496,9 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 func (h *Handler) DeleteCodexKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
 		if baseRaw, okBase := c.GetQuery("base-url"); okBase {
 			base := strings.TrimSpace(baseRaw)

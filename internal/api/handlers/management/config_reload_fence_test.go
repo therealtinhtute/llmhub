@@ -113,3 +113,47 @@ func TestManagementSaveSerializesAgainstReload(t *testing.T) {
 		t.Fatalf("in-flight reload overwritten saved config: got port=%d, want 8320", h.cfg.Port)
 	}
 }
+
+// TestUnversionedProductionReload_StaleSnapshotRejected tests the production reload shape
+// where ParseConfigBytes leaves ConfigVersion as 0, but the store has newer content.
+func TestUnversionedProductionReload_StaleSnapshotRejected(t *testing.T) {
+	store := &recordingConfigStore{
+		data:      []byte("port: 8317\n"),
+		saveCount: 1,
+		version:   1,
+	}
+	cfg := &config.Config{Port: 8317, ConfigVersion: 1}
+	h := NewHandlerWithoutConfigFilePath(cfg, nil)
+	h.SetConfigStore(store)
+
+	// Save updates the store to port 8320 and version 2
+	h.mu.Lock()
+	h.cfg.Port = 8320
+	_, _, ok := h.persistLocked(nil)
+	h.mu.Unlock()
+	if !ok {
+		t.Fatal("persistLocked failed")
+	}
+
+	// An in-flight unversioned production reload parses port 8317
+	reload, err := config.ParseConfigBytes([]byte("port: 8317\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetConfig(reload)
+
+	// The stale unversioned reload must be rejected; port 8320 must be preserved
+	if h.cfg.Port != 8320 {
+		t.Fatalf("stale unversioned reload overwrote saved config: got port=%d, want 8320", h.cfg.Port)
+	}
+
+	// When a reload arrives matching the current store content, it is accepted
+	matchingReload, err := config.ParseConfigBytes(store.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetConfig(matchingReload)
+	if h.cfg.Port != 8320 {
+		t.Fatalf("matching reload rejected: got port=%d, want 8320", h.cfg.Port)
+	}
+}

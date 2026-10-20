@@ -339,3 +339,47 @@ func TestCodexConfigurationUpdateCapability(t *testing.T) {
 		})
 	}
 }
+
+func TestR16RegistryCatalogAdditions(t *testing.T) {
+	// Gemini 4 Argon in standard gemini section
+	geminiArgon := requireModelDefinition(t, GetGeminiModels(), "gemini-4-argon")
+	if geminiArgon.Name != "models/gemini-4-argon" {
+		t.Fatalf("gemini-4-argon name = %q, want models/gemini-4-argon", geminiArgon.Name)
+	}
+	if geminiArgon.ContextLength != 1048576 || geminiArgon.MaxCompletionTokens != 1048576 {
+		t.Fatalf("gemini-4-argon limits = %d/%d, want 1048576/1048576", geminiArgon.ContextLength, geminiArgon.MaxCompletionTokens)
+	}
+	if !geminiArgon.HasNativeWebSearch() {
+		t.Fatal("gemini-4-argon should have native web search")
+	}
+
+	// Meta Muse Wonder Full 1.0 variants
+	for _, id := range []string{"muse-wonder-full-1.0", "muse-wonder-full-1.0-contributor"} {
+		got := requireModelDefinition(t, GetMetaModels(), id)
+		if got.ContextLength != 1007997 || got.MaxCompletionTokens != 128000 {
+			t.Fatalf("%s limits = %d/%d, want 1007997/128000", id, got.ContextLength, got.MaxCompletionTokens)
+		}
+		if got.Thinking == nil || len(got.Thinking.Levels) != 6 {
+			t.Fatalf("%s thinking levels = %#v, want 6 levels", id, got.Thinking)
+		}
+	}
+
+	// Claude capability facts in static catalog
+	sonnet55 := requireModelDefinition(t, GetClaudeModels(), "claude-sonnet-5-5")
+	if sonnet55.Thinking == nil || sonnet55.Thinking.DisableType != "between_tools" {
+		t.Fatalf("claude-sonnet-5-5 disable_type = %q, want between_tools", sonnet55.Thinking.DisableType)
+	}
+	if !sonnet55.Thinking.ZeroAllowed || !sonnet55.Thinking.DynamicAllowed {
+		t.Fatalf("claude-sonnet-5-5 zero/dynamic = %v/%v, want true/true", sonnet55.Thinking.ZeroAllowed, sonnet55.Thinking.DynamicAllowed)
+	}
+
+	opus55 := requireModelDefinition(t, GetClaudeModels(), "claude-opus-5-5")
+	if opus55.Thinking == nil || opus55.Thinking.ZeroAllowed || !opus55.Thinking.DynamicAllowed {
+		t.Fatalf("claude-opus-5-5 zero/dynamic = %v/%v, want false/true", opus55.Thinking.ZeroAllowed, opus55.Thinking.DynamicAllowed)
+	}
+
+	opus47 := requireModelDefinition(t, GetClaudeModels(), "claude-opus-4-7")
+	if opus47.Thinking == nil || !opus47.Thinking.ZeroAllowed || !opus47.Thinking.DynamicAllowed {
+		t.Fatalf("claude-opus-4-7 zero/dynamic = %v/%v, want true/true", opus47.Thinking.ZeroAllowed, opus47.Thinking.DynamicAllowed)
+	}
+}

@@ -50,8 +50,8 @@ func TestClaudeFable51DefinitionShape(t *testing.T) {
 	if got.ContextLength != 1000000 || got.MaxCompletionTokens != 128000 {
 		t.Fatalf("claude-fable-5-1 limits = %d/%d, want 1000000/128000", got.ContextLength, got.MaxCompletionTokens)
 	}
-	if got.Thinking == nil || !got.Thinking.ZeroAllowed || len(got.Thinking.Levels) != 5 {
-		t.Fatalf("claude-fable-5-1 thinking = %#v, want zero-allowed 5-level config", got.Thinking)
+	if got.Thinking == nil || got.Thinking.ZeroAllowed || !got.Thinking.DynamicAllowed || len(got.Thinking.Levels) != 5 {
+		t.Fatalf("claude-fable-5-1 thinking = %#v, want zero-disallowed dynamic 5-level config", got.Thinking)
 	}
 	if len(got.SupportedInputModalities) != 2 {
 		t.Fatalf("claude-fable-5-1 input modalities = %#v, want [text image]", got.SupportedInputModalities)

@@ -2898,82 +2898,11 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 	return httpReq, nil
 }
 
-// sanitizeAntigravityRequestSchemas cleans the JSON schemas carried by an Antigravity request.
-//
-// Cleaning is applied only to the payload locations that actually hold a JSON schema. The schema
-// cleaner rewrites keys such as "title", "format", "default" and "const", which are also ordinary
-// data keys inside functionCall arguments replayed from conversation history.
-func sanitizeAntigravityRequestSchemas(payloadStr string, useAntigravitySchema bool) string {
-	return sanitizeAntigravityRequestSchemasForModel(payloadStr, useAntigravitySchema, false)
-}
-
 func sanitizeAntigravityRequestSchemasForModel(payloadStr string, useAntigravitySchema, isClaudeModel bool) string {
 	return util.SanitizeAntigravityRequestSchemasForModel(payloadStr, useAntigravitySchema, isClaudeModel)
 }
 
-const antigravitySchemaWrapperKey = "schema"
-
-func cleanNestedSchema(clean func(string) string, schemaRaw string) string {
-	wrapped, errWrap := sjson.SetRaw("{}", antigravitySchemaWrapperKey, schemaRaw)
-	if errWrap != nil {
-		return clean(schemaRaw)
-	}
-	if unwrapped := gjson.Get(clean(wrapped), antigravitySchemaWrapperKey); unwrapped.Exists() {
-		return unwrapped.Raw
-	}
-	return clean(schemaRaw)
-}
-
-func antigravityFunctionDeclarationPaths(payloadStr string) []string {
-	tools := gjson.Get(payloadStr, "request.tools")
-	if !tools.IsArray() {
-		return nil
-	}
-	paths := make([]string, 0, len(tools.Array()))
-	for i, tool := range tools.Array() {
-		for _, declKey := range []string{"functionDeclarations", "function_declarations"} {
-			decls := tool.Get(declKey)
-			if !decls.IsArray() {
-				continue
-			}
-			for j := range decls.Array() {
-				paths = append(paths, fmt.Sprintf("request.tools.%d.%s.%d", i, declKey, j))
-			}
-		}
-	}
-	return paths
-}
-
-func antigravityDeclarationSchemaPaths(payloadStr string) []string {
-	paths := make([]string, 0, 8)
-	for _, base := range antigravityFunctionDeclarationPaths(payloadStr) {
-		for _, key := range antigravityDeclarationSchemaKeys {
-			if gjson.Get(payloadStr, base+"."+key).IsObject() {
-				paths = append(paths, base+"."+key)
-			}
-		}
-	}
-	return paths
-}
-
-func antigravityGenerationSchemaPaths(payloadStr string) []string {
-	paths := make([]string, 0, len(antigravityGenerationConfigContainers)*len(antigravityGenerationSchemaKeys))
-	for _, container := range antigravityGenerationConfigContainers {
-		for _, key := range antigravityGenerationSchemaKeys {
-			path := container + "." + key
-			if gjson.Get(payloadStr, path).IsObject() {
-				paths = append(paths, path)
-			}
-		}
-	}
-	return paths
-}
-
 var (
-	antigravityDeclarationSchemaKeys = []string{
-		"parameters", "parametersJsonSchema", "parameters_json_schema",
-		"response", "responseJsonSchema", "response_json_schema",
-	}
 	antigravityGenerationConfigContainers = []string{
 		"request.generationConfig", "request.generation_config",
 	}

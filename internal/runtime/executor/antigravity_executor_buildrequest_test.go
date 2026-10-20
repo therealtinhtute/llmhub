@@ -704,7 +704,7 @@ func TestSanitizeAntigravityRequestSchemasNormalizesTrueBooleanSubschemas(t *tes
 	}}`
 
 	for _, useAntigravitySchema := range []bool{false, true} {
-		got := sanitizeAntigravityRequestSchemas(payload, useAntigravitySchema)
+		got := sanitizeAntigravityRequestSchemasForModel(payload, useAntigravitySchema, false)
 		decl := gjson.Get(got, "request.tools.0.functionDeclarations.0")
 		params := decl.Get("parameters")
 		if !params.Exists() {
@@ -844,5 +844,46 @@ func TestAntigravityBuildRequest_NonClaudeSourceTargetingClaudeModel_FlattensToo
 	geminiItem := gjson.GetBytes(geminiBody, "request.tools.0.functionDeclarations.0.parameters.properties.item")
 	if !geminiItem.Get("anyOf").Exists() {
 		t.Fatalf("Gemini model tool union should be preserved: %s", geminiBody)
+	}
+}
+
+func TestAntigravityBuildRequestGenerationSchemaAllEightSpellings(t *testing.T) {
+	cases := []string{
+		"request.generationConfig.responseSchema",
+		"request.generationConfig.response_schema",
+		"request.generationConfig.responseJsonSchema",
+		"request.generationConfig.response_json_schema",
+		"request.generation_config.responseSchema",
+		"request.generation_config.response_schema",
+		"request.generation_config.responseJsonSchema",
+		"request.generation_config.response_json_schema",
+	}
+	exec := NewAntigravityExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{ID: "test-auth", Provider: "antigravity", Metadata: map[string]any{"project_id": "test-project"}}
+
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			container := ""
+			key := ""
+			for i := len(path) - 1; i >= 0; i-- {
+				if path[i] == '.' {
+					container = path[:i]
+					key = path[i+1:]
+					break
+				}
+			}
+			payload := []byte(`{"request":{"` + container[len("request."):] + `":{"` + key + `":{"type":"object","$id":"drop","properties":{"d":{"type":"string"}}}}}}`)
+			req, err := exec.buildRequest(context.Background(), auth, "token", "gemini-3.1-pro", payload, false, "", "")
+			if err != nil {
+				t.Fatalf("buildRequest() error = %v", err)
+			}
+			raw, _ := io.ReadAll(req.Body)
+			if gjson.GetBytes(raw, path+".\\$id").Exists() {
+				t.Fatalf("unsupported keyword $id survived cleaning at %s: %s", path, raw)
+			}
+			if !gjson.GetBytes(raw, path+".properties.d").Exists() {
+				t.Fatalf("property d was lost at %s: %s", path, raw)
+			}
+		})
 	}
 }

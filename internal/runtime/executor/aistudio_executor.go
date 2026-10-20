@@ -305,9 +305,6 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 		metadataLogged := false
 		processEvent := func(event wsrelay.StreamEvent) bool {
 			if event.Err != nil {
-				if helps.StopTranslatedClaudeStreamWithDetail(ctx, &streamErr, reporter, streamUsage, out) {
-					return false
-				}
 				helps.RecordAPIResponseError(ctx, e.cfg, event.Err)
 				reporter.PublishFailure(ctx, event.Err)
 				select {

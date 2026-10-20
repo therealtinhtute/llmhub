@@ -1884,8 +1884,12 @@ func cleanNestedSchema(clean func(string) string, schemaRaw string) string {
 
 var antigravityGenerationSchemaPaths = []string{
 	"request.generationConfig.responseSchema",
+	"request.generationConfig.response_schema",
 	"request.generationConfig.responseJsonSchema",
+	"request.generationConfig.response_json_schema",
+	"request.generation_config.responseSchema",
 	"request.generation_config.response_schema",
+	"request.generation_config.responseJsonSchema",
 	"request.generation_config.response_json_schema",
 }
 

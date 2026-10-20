@@ -278,11 +278,6 @@ func TestCleanClaudeToolArguments(t *testing.T) {
 			{"name": "ConstTool", "parametersJsonSchema": {"type": "object", "properties": {"reason": {"type": "string"}}, "required": ["reason"]}}
 		]}]}
 	}`)
-	translatedCollisionDynamic := func() []byte {
-		collisionSeed := []byte(`{"tools":[{"name":"1"},{"name":"_1"}]}`)
-		sentName := SanitizedFunctionNameMap(collisionSeed)["1"]
-		return []byte(`{"model":"claude-sonnet-4-6","request":{"tools":[{"functionDeclarations":[{"name":"` + sentName + `","parametersJsonSchema":{"type":"object","properties":{"reason":{"type":"string"}},"required":["reason"]}}]}]}}`)
-	}()
 	collisionRequest := []byte(`{
 		"tools": [
 			{"name": "1", "input_schema": {"type": "object", "properties": {}, "required": ["reason"]}},
@@ -547,13 +542,85 @@ func TestCleanClaudeToolArguments(t *testing.T) {
 		{"uniqueItems elements preserved fallback", `{"rows":[{"tag":"same","_":true},{"tag":"same","_":false}]}`, "BatchUnique", uniqueItemsRequest, `{"rows":[{"tag":"same","_":true},{"tag":"same","_":false}]}`, nil},
 		{"object enum value preserved fallback", `{"reason":"business"}`, "ExplainFixed", enumRequest, `{"reason":"business"}`, nil},
 		{"object const value preserved", `{"reason":"fixed"}`, "ConstTool", enumRequest, `{"reason":"fixed"}`, translatedEnum},
-		{"disambiguated name uses translated schema", `{"reason":"business"}`, "1", collisionRequest, `{"reason":"business"}`, translatedCollisionDynamic},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := CleanClaudeToolArgumentsWithTranslated(tt.rawArgs, tt.toolName, tt.origReq, tt.transferred); got != tt.want {
 				t.Errorf("CleanClaudeToolArguments(%q, %q) = %q, want %q", tt.rawArgs, tt.toolName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMapClaudeToolName(t *testing.T) {
+	origReq := []byte(`{
+		"tools": [
+			{"name": "Read", "input_schema": {"type": "object"}},
+			{"name": "mcp/server/read", "input_schema": {"type": "object"}},
+			{"name": "duplicate_case", "input_schema": {"type": "object"}},
+			{"name": "Duplicate_Case", "input_schema": {"type": "object"}}
+		]
+	}`)
+	toolMap := map[string]string{
+		"read":            "Read",
+		"mcp_server_read": "mcp/server/read",
+	}
+
+	tests := []struct {
+		name     string
+		toolName string
+		want     string
+	}{
+		{"exact match in request", "Read", "Read"},
+		{"canonical map match", "read", "Read"},
+		{"namespaced tool exact", "mcp/server/read", "mcp/server/read"},
+		{"namespaced tool mapped from sanitized", "mcp_server_read", "mcp/server/read"},
+		{"ambiguous collision bypassed", "DUPLICATE_CASE", "DUPLICATE_CASE"},
+		{"empty name", "", ""},
+		{"unmatched fallback", "unknown_tool", "unknown_tool"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := MapClaudeToolName(toolMap, origReq, tt.toolName); got != tt.want {
+				t.Errorf("MapClaudeToolName(%q) = %q, want %q", tt.toolName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClaudeToolIsParameterless(t *testing.T) {
+	origReq := []byte(`{
+		"tools": [
+			{"name": "EmptyProperties", "input_schema": {"type": "object", "properties": {}}},
+			{"name": "MissingProperties", "input_schema": {"type": "object"}},
+			{"name": "NoSchema"},
+			{"name": "HasProperties", "input_schema": {"type": "object", "properties": {"cmd": {"type": "string"}}}},
+			{"name": "DynamicTool", "input_schema": {"type": "object", "properties": {}, "additionalProperties": true}},
+			{"name": "PatternTool", "input_schema": {"type": "object", "patternProperties": {"^x-": {"type": "string"}}}}
+		]
+	}`)
+
+	tests := []struct {
+		name     string
+		toolName string
+		want     bool
+	}{
+		{"empty properties", "EmptyProperties", true},
+		{"missing properties", "MissingProperties", true},
+		{"no schema", "NoSchema", true},
+		{"has properties", "HasProperties", false},
+		{"dynamic tool", "DynamicTool", false},
+		{"pattern tool", "PatternTool", false},
+		{"unknown tool", "NonExistent", false},
+		{"empty tool name", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClaudeToolIsParameterless(tt.toolName, origReq); got != tt.want {
+				t.Errorf("ClaudeToolIsParameterless(%q) = %v, want %v", tt.toolName, got, tt.want)
 			}
 		})
 	}

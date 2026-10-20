@@ -419,12 +419,12 @@ func sseDataForEvent(t *testing.T, output string, eventName string) string {
 	return ""
 }
 
-func TestConvertAntigravityResponseToClaudeStream_ZeroCandidatesDoesNotCountCachedAsOutput(t *testing.T) {
+func TestConvertAntigravityResponseToClaude_CachedToken_ZeroCandidatesDoesNotCountCachedAsOutput(t *testing.T) {
 	requestJSON := []byte(`{"model":"gemini-3.8-flash-high"}`)
 	responseJSON := []byte(`{
 		"response": {
 			"candidates": [{
-				"content": {"role": "model", "parts": [{"text": ""}]},
+				"content": {"role": "model", "parts": [{"text": "ok"}]},
 				"finishReason": "STOP"
 			}],
 			"usageMetadata": {"promptTokenCount": 142871, "cachedContentTokenCount": 140830, "candidatesTokenCount": 0, "thoughtsTokenCount": 0, "totalTokenCount": 142871},
@@ -449,7 +449,7 @@ func TestConvertAntigravityResponseToClaudeStream_ZeroCandidatesDoesNotCountCach
 	}
 }
 
-func TestConvertAntigravityResponseToClaudeStream_AppendFinalEventsFallbackUsesRawPrompt(t *testing.T) {
+func TestConvertAntigravityResponseToClaude_CachedToken_AppendFinalEventsFallbackUsesRawPrompt(t *testing.T) {
 	params := &Params{
 		HasUsageMetadata:     true,
 		HasContent:           true,
@@ -471,7 +471,7 @@ func TestConvertAntigravityResponseToClaudeStream_AppendFinalEventsFallbackUsesR
 	}
 }
 
-func TestConvertAntigravityResponseToClaude_SanitizesParameterlessToolArguments(t *testing.T) {
+func TestConvertAntigravityResponseToClaude_ClaudeTool_SanitizesParameterlessToolArguments(t *testing.T) {
 	origRequest := []byte(`{"model":"claude-sonnet-4-6","tools":[{"name":"EnterPlanMode","input_schema":{"type":"object","properties":{}}}]}`)
 	translatedRequest := []byte(`{"model":"gemini-3.8-flash-high"}`)
 	responseJSON := []byte(`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"EnterPlanMode","args":{"reason":"Switching to plan mode to inspect files"}}}]},"finishReason":"STOP"}],"modelVersion":"gemini-3.8-flash-high","responseId":"resp-1"}}`)
@@ -498,7 +498,7 @@ func TestConvertAntigravityResponseToClaude_SanitizesParameterlessToolArguments(
 	}
 }
 
-func TestConvertAntigravityResponseToClaude_StripsExecutorInjectedUnderscore(t *testing.T) {
+func TestConvertAntigravityResponseToClaude_ClaudeTool_StripsExecutorInjectedUnderscore(t *testing.T) {
 	origRequest := []byte(`{"model":"claude-sonnet-4-6","tools":[{"name":"WrappedPlaceholder","input_schema":{"type":"object","properties":{"flag":{"type":"string"}},"additionalProperties":false}}]}`)
 	translatedRequest := ConvertClaudeRequestToAntigravity("claude-sonnet-4-6", origRequest, false)
 	responseJSON := []byte(`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"WrappedPlaceholder","args":{"flag":"x","_":true}}}]},"finishReason":"STOP"}],"modelVersion":"gemini-3.8-flash-high","responseId":"resp-wrapped"}}`)
@@ -509,7 +509,7 @@ func TestConvertAntigravityResponseToClaude_StripsExecutorInjectedUnderscore(t *
 	}
 }
 
-func TestConvertAntigravityResponseToClaude_ParameterlessContinuationDoesNotDuplicateEmptyObject(t *testing.T) {
+func TestConvertAntigravityResponseToClaude_ClaudeTool_ParameterlessContinuationDoesNotDuplicateEmptyObject(t *testing.T) {
 	origRequest := []byte(`{"model":"claude-sonnet-4-6","tools":[{"name":"EnterPlanMode","input_schema":{"type":"object","properties":{}}}]}`)
 	translatedRequest := []byte(`{"model":"gemini-3.8-flash-high"}`)
 	firstChunk := []byte(`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"EnterPlanMode","args":{"reason":"Switching to plan mode"}}}]}}],"modelVersion":"gemini-3.8-flash-high","responseId":"resp-1"}}`)

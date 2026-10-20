@@ -115,11 +115,6 @@ func ConvertAntigravityResponseToClaude(_ context.Context, _ string, originalReq
 
 	if bytes.Equal(rawJSON, []byte("[DONE]")) {
 		output := make([]byte, 0, 256)
-		if params.HasFirstResponse && !params.HasContent {
-			output = translatorcommon.AppendSSEEventString(output, "content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"text","text":""}}`, params.ResponseIndex), 3)
-			params.ResponseType = 1
-			params.HasContent = true
-		}
 		if params.HasContent {
 			appendFinalEvents(params, &output, true)
 			output = translatorcommon.AppendSSEEventString(output, "message_stop", `{"type":"message_stop"}`, 3)

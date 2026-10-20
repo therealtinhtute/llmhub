@@ -5,8 +5,6 @@ package util
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"strconv"
@@ -363,179 +361,6 @@ func RestoreSanitizedToolName(toolNameMap map[string]string, sanitizedName strin
 	}
 	return sanitizedName
 }
-
-func SanitizedFunctionNameMap(rawJSON []byte) map[string]string {
-	names := functionNamesFromRequest(rawJSON)
-	if len(names) == 0 {
-		return nil
-	}
-
-	uniqueNames := make(map[string]struct{}, len(names))
-	baseCounts := make(map[string]int, len(names))
-	for _, name := range names {
-		if name == "" {
-			continue
-		}
-		if _, exists := uniqueNames[name]; exists {
-			continue
-		}
-		uniqueNames[name] = struct{}{}
-		baseCounts[SanitizeFunctionName(name)]++
-	}
-
-	sortedNames := make([]string, 0, len(uniqueNames))
-	for name := range uniqueNames {
-		sortedNames = append(sortedNames, name)
-	}
-	sort.Strings(sortedNames)
-
-	out := make(map[string]string, len(sortedNames))
-	used := make(map[string]string, len(sortedNames))
-	for _, name := range sortedNames {
-		base := SanitizeFunctionName(name)
-		mapped := base
-		_, baseUsed := used[base]
-		if baseCounts[base] > 1 || baseUsed {
-			mapped = disambiguateSanitizedFunctionName(base, name, used)
-		}
-		out[name] = mapped
-		used[mapped] = name
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// MapSanitizedFunctionName returns the request-specific sanitized name when available.
-func MapSanitizedFunctionName(nameMap map[string]string, name string) string {
-	if mapped := nameMap[name]; mapped != "" {
-		return mapped
-	}
-	return SanitizeFunctionName(name)
-}
-
-// DisambiguatedToolNameMap builds a sanitized-name → original-name map using the
-// same collision-aware mapping as SanitizedFunctionNameMap.
-func DisambiguatedToolNameMap(rawJSON []byte) map[string]string {
-	forward := SanitizedFunctionNameMap(rawJSON)
-	if len(forward) == 0 {
-		return nil
-	}
-
-	out := make(map[string]string, len(forward))
-	for original, sanitized := range forward {
-		if sanitized != original {
-			out[sanitized] = original
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// SanitizedToolNameMap builds the legacy sanitized-name → original-name map from
-// top-level Claude-style tools. Collision-aware translators should use
-// DisambiguatedToolNameMap instead.
-
-func functionNamesFromRequest(rawJSON []byte) []string {
-	if len(rawJSON) == 0 || !gjson.ValidBytes(rawJSON) {
-		return nil
-	}
-	tools := gjson.GetBytes(rawJSON, "tools")
-	if !tools.IsArray() {
-		return nil
-	}
-
-	names := make([]string, 0, len(tools.Array()))
-	var collectTool func(gjson.Result)
-	collectDeclarations := func(declarations gjson.Result) {
-		if !declarations.IsArray() {
-			return
-		}
-		declarations.ForEach(func(_, declaration gjson.Result) bool {
-			if name := declaration.Get("name").String(); name != "" {
-				names = append(names, name)
-			}
-			return true
-		})
-	}
-	collectTool = func(tool gjson.Result) {
-		if nestedTools := tool.Get("tools"); nestedTools.IsArray() {
-			nestedTools.ForEach(func(_, nestedTool gjson.Result) bool {
-				collectTool(nestedTool)
-				return true
-			})
-			return
-		}
-		hasDeclarations := false
-		if declarations := tool.Get("functionDeclarations"); declarations.IsArray() {
-			collectDeclarations(declarations)
-			hasDeclarations = true
-		}
-		if declarations := tool.Get("function_declarations"); declarations.IsArray() {
-			collectDeclarations(declarations)
-			hasDeclarations = true
-		}
-		if hasDeclarations {
-			return
-		}
-		if name := tool.Get("function.name").String(); name != "" {
-			names = append(names, name)
-			return
-		}
-		if name := tool.Get("name").String(); name != "" {
-			names = append(names, name)
-		}
-	}
-	tools.ForEach(func(_, tool gjson.Result) bool {
-		collectTool(tool)
-		return true
-	})
-	return names
-}
-
-func disambiguateSanitizedFunctionName(base, original string, used map[string]string) string {
-	for attempt := 0; ; attempt++ {
-		digest := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d", original, attempt)))
-		suffix := "_" + hex.EncodeToString(digest[:6])
-		prefix := base
-		if maxPrefix := 64 - len(suffix); len(prefix) > maxPrefix {
-			prefix = prefix[:maxPrefix]
-		}
-		candidate := prefix + suffix
-		if _, exists := used[candidate]; !exists {
-			return candidate
-		}
-	}
-}
-
-// DeduplicateFunctionDeclarations removes duplicate named declarations while preserving order.
-func DeduplicateFunctionDeclarations(raw []byte) []byte {
-	result := gjson.ParseBytes(raw)
-	if !result.IsArray() {
-		return raw
-	}
-
-	seen := make(map[string]struct{}, len(result.Array()))
-	parts := make([]string, 0, len(result.Array()))
-	for _, declaration := range result.Array() {
-		name := declaration.Get("name").String()
-		if name != "" {
-			if _, exists := seen[name]; exists {
-				continue
-			}
-			seen[name] = struct{}{}
-		}
-		parts = append(parts, declaration.Raw)
-	}
-	return []byte("[" + strings.Join(parts, ",") + "]")
-}
-
-// RestoreSanitizedToolName looks up a sanitized function name in the provided map
-// and returns the original client-facing name. If no mapping exists, it returns
-// the sanitized name unchanged.
 
 type claudeObjectSchemaInfo struct {
 	properties           map[string][]gjson.Result
@@ -1204,17 +1029,10 @@ func findTranslatedClaudeToolSchemas(translatedRequestRawJSON []byte, toolName s
 	}
 	canonicalToolName := CanonicalToolName(toolName)
 	sanitizedToolName := SanitizeFunctionName(toolName)
-	// Request translation renames colliding tool names via the request-wide
-	// disambiguated map (hash suffixes); the response name is the restored
-	// client name, so match the actually-sent name when it can be derived.
-	sentName := ""
-	if forward := SanitizedFunctionNameMap(originalRequestRawJSON); forward != nil {
-		sentName = forward[toolName]
-	}
 	var exact []gjson.Result
 	canonicalByName := map[string][]gjson.Result{}
 	for _, entry := range named {
-		if entry.name == toolName || (sentName != "" && entry.name == sentName) {
+		if entry.name == toolName || entry.name == sanitizedToolName {
 			exact = append(exact, entry.schema)
 		}
 		if CanonicalToolName(entry.name) == canonicalToolName || entry.name == sanitizedToolName || SanitizeFunctionName(entry.name) == sanitizedToolName {

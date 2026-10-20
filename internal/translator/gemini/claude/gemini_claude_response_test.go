@@ -164,32 +164,34 @@ func geminiClaudeInputJSONDeltas(t *testing.T, streamText string) string {
 	return builder.String()
 }
 
-func TestConvertGeminiResponseToClaude_SanitizesParameterlessToolArguments(t *testing.T) {
+func TestConvertGeminiResponseToClaude_ClaudeTool_SanitizesParameterlessToolArguments(t *testing.T) {
 	origRequest := []byte(`{"model":"gemini-3-flash","tools":[{"name":"EnterPlanMode","input_schema":{"type":"object","properties":{}}}]}`)
 	rawResponse := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"EnterPlanMode","args":{"reason":"Plan mode switch"}}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-3-flash","responseId":"resp-zero-arg"}`)
 
 	ctx := context.Background()
+	translatedRequest := ConvertClaudeRequestToGemini("gemini-3-flash", origRequest, false)
 
-	nonStream := ConvertGeminiResponseToClaudeNonStream(ctx, "gemini-3-flash", origRequest, origRequest, rawResponse, nil)
+	nonStream := ConvertGeminiResponseToClaudeNonStream(ctx, "gemini-3-flash", origRequest, translatedRequest, rawResponse, nil)
 	if got := gjson.GetBytes(nonStream, "content.0.input").Raw; got != "{}" {
 		t.Fatalf("expected non-streaming input {}, got %s", got)
 	}
 
 	var param any
-	streamBytes := bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, origRequest, rawResponse, &param), nil)
+	streamBytes := bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, translatedRequest, rawResponse, &param), nil)
 	if got := geminiClaudeInputJSONDeltas(t, string(streamBytes)); got != "{}" {
 		t.Fatalf("expected streaming partial_json {}, got %q (stream: %s)", got, string(streamBytes))
 	}
 }
 
-func TestConvertGeminiResponseToClaude_CanonicalNameCollisionKeepsExactToolArguments(t *testing.T) {
+func TestConvertGeminiResponseToClaude_ClaudeTool_CanonicalNameCollisionKeepsExactToolArguments(t *testing.T) {
 	origRequest := []byte(`{"model":"gemini-3-flash","tools":[{"name":"Read","input_schema":{"type":"object","properties":{}}},{"name":"read","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 	readWithArgs := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"/tmp/a"}}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-3-flash","responseId":"resp-collision"}`)
 	readParameterless := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"Read","args":{"reason":"x"}}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-3-flash","responseId":"resp-collision-2"}`)
 
 	ctx := context.Background()
+	translatedRequest := ConvertClaudeRequestToGemini("gemini-3-flash", origRequest, false)
 
-	nonStream := ConvertGeminiResponseToClaudeNonStream(ctx, "gemini-3-flash", origRequest, origRequest, readWithArgs, nil)
+	nonStream := ConvertGeminiResponseToClaudeNonStream(ctx, "gemini-3-flash", origRequest, translatedRequest, readWithArgs, nil)
 	if got := gjson.GetBytes(nonStream, "content.0.input").Raw; got != `{"path":"/tmp/a"}` {
 		t.Fatalf("expected exact read tool args preserved, got %s (%s)", got, string(nonStream))
 	}
@@ -198,22 +200,22 @@ func TestConvertGeminiResponseToClaude_CanonicalNameCollisionKeepsExactToolArgum
 	}
 
 	var param any
-	streamBytes := bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, origRequest, readWithArgs, &param), nil)
+	streamBytes := bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, translatedRequest, readWithArgs, &param), nil)
 	if got := geminiClaudeInputJSONDeltas(t, string(streamBytes)); got != `{"path":"/tmp/a"}` {
 		t.Fatalf("expected streaming exact read args preserved, got %q (stream: %s)", got, string(streamBytes))
 	}
 
-	nonStreamParameterless := ConvertGeminiResponseToClaudeNonStream(ctx, "gemini-3-flash", origRequest, origRequest, readParameterless, nil)
+	nonStreamParameterless := ConvertGeminiResponseToClaudeNonStream(ctx, "gemini-3-flash", origRequest, translatedRequest, readParameterless, nil)
 	if got := gjson.GetBytes(nonStreamParameterless, "content.0.input").Raw; got != "{}" {
 		t.Fatalf("expected exact Read tool normalized to {}, got %s", got)
 	}
 }
 
-func TestConvertGeminiResponseToClaude_AmbiguousCanonicalNameKeepsUpstreamNameAndArguments(t *testing.T) {
+func TestConvertGeminiResponseToClaude_ClaudeTool_AmbiguousCanonicalNameKeepsUpstreamNameAndArguments(t *testing.T) {
 	origRequest := []byte(`{"model":"gemini-3-flash","tools":[{"name":"Read","input_schema":{"type":"object","properties":{}}},{"name":"read","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 	ambiguousResponse := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"READ","args":{"path":"/tmp/a"}}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-3-flash","responseId":"resp-ambiguous"}`)
-
-	nonStream := ConvertGeminiResponseToClaudeNonStream(context.Background(), "gemini-3-flash", origRequest, origRequest, ambiguousResponse, nil)
+	translatedRequest := ConvertClaudeRequestToGemini("gemini-3-flash", origRequest, false)
+	nonStream := ConvertGeminiResponseToClaudeNonStream(context.Background(), "gemini-3-flash", origRequest, translatedRequest, ambiguousResponse, nil)
 	if got := gjson.GetBytes(nonStream, "content.0.name").String(); got != "READ" {
 		t.Fatalf("expected ambiguous upstream name READ preserved, got %q (%s)", got, string(nonStream))
 	}
@@ -222,7 +224,7 @@ func TestConvertGeminiResponseToClaude_AmbiguousCanonicalNameKeepsUpstreamNameAn
 	}
 }
 
-func TestConvertGeminiResponseToClaude_KeepsReasonWhenTranslatedSchemaHasNoPlaceholder(t *testing.T) {
+func TestConvertGeminiResponseToClaude_ClaudeTool_KeepsReasonWhenTranslatedSchemaHasNoPlaceholder(t *testing.T) {
 	origRequest := []byte(`{"model":"gemini-3-flash","tools":[{"name":"Bash","input_schema":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}]}`)
 	ctx := context.Background()
 	translatedRequest := ConvertClaudeRequestToGemini("gemini-3-flash", origRequest, false)
@@ -234,15 +236,16 @@ func TestConvertGeminiResponseToClaude_KeepsReasonWhenTranslatedSchemaHasNoPlace
 	}
 }
 
-func TestConvertGeminiResponseToClaude_ParameterlessToolContinuationDoesNotDuplicateEmptyObject(t *testing.T) {
+func TestConvertGeminiResponseToClaude_ClaudeTool_ParameterlessToolContinuationDoesNotDuplicateEmptyObject(t *testing.T) {
 	origRequest := []byte(`{"model":"gemini-3-flash","tools":[{"name":"EnterPlanMode","input_schema":{"type":"object","properties":{}}}]}`)
 	firstChunk := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"EnterPlanMode","args":{"reason":"Plan mode switch"}}}],"role":"model"}}],"modelVersion":"gemini-3-flash","responseId":"resp-zero-arg"}`)
 	continuationChunk := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"args":{"reason":"more"}}}]},"finishReason":"STOP"}],"modelVersion":"gemini-3-flash","responseId":"resp-zero-arg"}`)
 
 	ctx := context.Background()
+	translatedRequest := ConvertClaudeRequestToGemini("gemini-3-flash", origRequest, false)
 	var param any
-	streamBytes := bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, origRequest, firstChunk, &param), nil)
-	streamBytes = append(streamBytes, bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, origRequest, continuationChunk, &param), nil)...)
+	streamBytes := bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, translatedRequest, firstChunk, &param), nil)
+	streamBytes = append(streamBytes, bytes.Join(ConvertGeminiResponseToClaude(ctx, "gemini-3-flash", origRequest, translatedRequest, continuationChunk, &param), nil)...)
 	if got := geminiClaudeInputJSONDeltas(t, string(streamBytes)); got != "{}" {
 		t.Fatalf("expected concatenated partial_json {}, got %q (stream: %s)", got, string(streamBytes))
 	}

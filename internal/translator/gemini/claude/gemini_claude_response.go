@@ -21,14 +21,14 @@ import (
 
 // Params holds parameters for response conversion.
 type Params struct {
-	IsGlAPIKey       bool
-	HasFirstResponse bool
-	ResponseType     int
-	ResponseIndex    int
-	HasContent       bool // Tracks whether any content (text, thinking, or tool use) has been output
-	ToolNameMap      map[string]string
-	SanitizedNameMap map[string]string
-	SawToolCall      bool
+	IsGlAPIKey                 bool
+	HasFirstResponse           bool
+	ResponseType               int
+	ResponseIndex              int
+	HasContent                 bool // Tracks whether any content (text, thinking, or tool use) has been output
+	ToolNameMap                map[string]string
+	SanitizedNameMap           map[string]string
+	SawToolCall                bool
 	CurrentToolName            string // Client-facing name of the currently open tool_use block
 	CurrentToolIsParameterless bool   // Whether the open tool_use block was declared parameterless
 	CurrentToolInputEmitted    bool   // Whether cleaned input JSON was already emitted for the open tool_use block

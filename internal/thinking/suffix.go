@@ -43,6 +43,20 @@ func ParseSuffix(model string) SuffixResult {
 	}
 }
 
+// HasThinkingSuffix reports whether the model suffix defines a thinking configuration.
+func HasThinkingSuffix(model string) bool {
+	result := ParseSuffix(model)
+	return result.HasSuffix && hasThinkingConfig(parseSuffixToConfig(result.RawSuffix, "", result.ModelName))
+}
+
+// StripConfigurationUpdates removes configuration_update input items without
+// changing the top-level reasoning fields. It is the exported form of the
+// Responses cleanup implemented in configuration_update.go, used by transports
+// that forward client control frames without running the thinking applier.
+func StripConfigurationUpdates(body []byte) []byte {
+	return stripConfigurationUpdates(body)
+}
+
 // ParseNumericSuffix attempts to parse a raw suffix as a numeric budget value.
 //
 // This function parses the raw suffix content (from ParseSuffix.RawSuffix) as an integer.

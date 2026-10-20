@@ -70,7 +70,6 @@ func cleanJSONSchemaForAntigravityTool(jsonStr string, requirePlaceholder, flatt
 	})
 }
 
-
 // CleanJSONSchemaForAntigravityResponse transforms a response schema without applying
 // tool-only compatibility rewrites that would alter the client's structured output contract.
 func CleanJSONSchemaForAntigravityResponse(jsonStr string) string {
@@ -1696,6 +1695,8 @@ var antigravityDeclarationContainers = []string{"functionDeclarations", "functio
 
 var antigravityDeclarationSchemaKeys = []string{
 	"parameters",
+	"parametersJsonSchema",
+	"parameters_json_schema",
 	"response",
 	"responseJsonSchema",
 	"response_json_schema",
@@ -1711,7 +1712,7 @@ type AntigravityElementEdit struct {
 }
 
 func isParameterSchemaPath(key string) bool {
-	return key == "parameters" || key == "parametersJsonSchema"
+	return key == "parameters" || key == "parametersJsonSchema" || key == "parameters_json_schema"
 }
 
 // SanitizeAntigravityToolSchemaDocumentForModel renames and cleans every
@@ -1838,6 +1839,13 @@ func SanitizeAntigravityDeclaration(decl gjson.Result, clean func(schemaRaw stri
 	declRaw := decl.Raw
 	if decl.Get("parametersJsonSchema").Exists() {
 		renamed, errRename := RenameKey(declRaw, "parametersJsonSchema", "parameters")
+		if errRename == nil {
+			declRaw = renamed
+			decl = gjson.Parse(declRaw)
+		}
+	}
+	if decl.Get("parameters_json_schema").Exists() {
+		renamed, errRename := RenameKey(declRaw, "parameters_json_schema", "parameters")
 		if errRename == nil {
 			declRaw = renamed
 			decl = gjson.Parse(declRaw)

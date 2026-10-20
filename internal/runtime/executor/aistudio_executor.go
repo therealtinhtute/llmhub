@@ -20,8 +20,8 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/wsrelay"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
-	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
+	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -305,6 +305,9 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 		metadataLogged := false
 		processEvent := func(event wsrelay.StreamEvent) bool {
 			if event.Err != nil {
+				if helps.StopTranslatedClaudeStreamWithDetail(ctx, &streamErr, reporter, streamUsage, out) {
+					return false
+				}
 				helps.RecordAPIResponseError(ctx, e.cfg, event.Err)
 				reporter.PublishFailure(ctx, event.Err)
 				select {

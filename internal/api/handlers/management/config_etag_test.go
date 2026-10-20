@@ -323,3 +323,99 @@ func TestGetConfigRacesWithSetConfig(t *testing.T) {
 	}
 	<-done
 }
+
+// TestMetaKeyStaleIfMatchNoMutation ensures that a stale If-Match on meta-api-key
+// endpoints rejects with 412 without mutating in-memory config or leaking to next save.
+func TestMetaKeyStaleIfMatchNoMutation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &recordingConfigStore{
+		data:      []byte("port: 8317\nmeta-api-key:\n  - api-key: keep-me\n    base-url: https://api.meta.ai/v1\n"),
+		saveCount: 1,
+		version:   1,
+	}
+	cfg := &config.Config{Port: 8317, ConfigVersion: 1}
+	cfg.MetaKey = []config.MetaKey{{APIKey: "keep-me", BaseURL: metaDefaultBaseURL}}
+	h := NewHandlerWithoutConfigFilePath(cfg, nil)
+	h.SetConfigStore(store)
+
+	r := gin.New()
+	r.PUT("/v0/management/meta-api-key", h.PutMetaKeys)
+	r.PATCH("/v0/management/meta-api-key", h.PatchMetaKey)
+	r.DELETE("/v0/management/meta-api-key", h.DeleteMetaKey)
+	r.PUT("/v0/management/debug", h.PutDebug)
+
+	do := func(method, url, body, ifMatch string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, url, strings.NewReader(body))
+		if ifMatch != "" {
+			req.Header.Set("If-Match", ifMatch)
+		}
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. Rejected PUT must not overwrite memory.
+	rec := do(http.MethodPut, "/v0/management/meta-api-key", `[{"api-key":"new-key"}]`, `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale PUT meta status=%d, want 412", rec.Code)
+	}
+	if len(h.cfg.MetaKey) != 1 || h.cfg.MetaKey[0].APIKey != "keep-me" {
+		t.Fatalf("412 PUT meta mutated memory: %+v", h.cfg.MetaKey)
+	}
+
+	// 2. Rejected PATCH must not overwrite memory.
+	rec = do(http.MethodPatch, "/v0/management/meta-api-key", `{"index":0,"value":{"api-key":"patched"}}`, `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale PATCH meta status=%d, want 412", rec.Code)
+	}
+	if len(h.cfg.MetaKey) != 1 || h.cfg.MetaKey[0].APIKey != "keep-me" {
+		t.Fatalf("412 PATCH meta mutated memory: %+v", h.cfg.MetaKey)
+	}
+
+	// 3. Rejected DELETE must not remove entry from memory.
+	rec = do(http.MethodDelete, "/v0/management/meta-api-key?api-key=keep-me", "", `"stale"`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale DELETE meta status=%d, want 412", rec.Code)
+	}
+	if len(h.cfg.MetaKey) != 1 || h.cfg.MetaKey[0].APIKey != "keep-me" {
+		t.Fatalf("412 DELETE meta mutated memory: %+v", h.cfg.MetaKey)
+	}
+
+	// 4. Next unrelated successful save must not persist rejected meta mutation.
+	rec = do(http.MethodPut, "/v0/management/debug", `{"value":true}`, `"1"`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("next save status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(string(store.data), "keep-me") || strings.Contains(string(store.data), "new-key") || strings.Contains(string(store.data), "patched") {
+		t.Fatalf("rejected meta mutation leaked into store: %s", store.data)
+	}
+}
+
+// TestGetConfigYAMLNilStore ensures GetConfigYAML with an unset store returns
+// a clean 500 JSON without panicking and without leaking h.mu.
+func TestGetConfigYAMLNilStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{Port: 8317}, nil)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.GET("/v0/management/config.yaml", h.GetConfigYAML)
+	r.GET("/v0/management/config", h.GetConfig)
+
+	// First request with nil store returns clean 500 JSON.
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v0/management/config.yaml", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("nil-store config.yaml status=%d, want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "management config store is not configured") {
+		t.Fatalf("nil-store config.yaml body=%s", rec.Body.String())
+	}
+
+	// Second request succeeds, proving h.mu was not leaked by the first request.
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/v0/management/config", nil))
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("subsequent GetConfig status=%d, want 200 (lock leak suspected)", rec2.Code)
+	}
+}

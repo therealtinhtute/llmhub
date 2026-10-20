@@ -167,14 +167,14 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 // GetConfigYAML returns the raw config.yaml file bytes without re-encoding.
 // It preserves comments and original formatting/styles.
 func (h *Handler) GetConfigYAML(c *gin.Context) {
-	var (
-		data []byte
-		err  error
-	)
 	h.mu.Lock()
-	data, err = h.configStore.LoadConfigBytes(c.Request.Context())
+	defer h.mu.Unlock()
+	if h.configStore == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": "management config store is not configured"})
+		return
+	}
+	data, err := h.configStore.LoadConfigBytes(c.Request.Context())
 	if err != nil {
-		h.mu.Unlock()
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "config file not found"})
 			return
@@ -183,8 +183,6 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 		return
 	}
 	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
-	h.mu.Unlock()
-
 	if currentVersion > 0 {
 		c.Header("ETag", formatConfigETag(currentVersion))
 	}

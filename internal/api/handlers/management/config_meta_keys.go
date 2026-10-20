@@ -57,6 +57,9 @@ func (h *Handler) PutMetaKeys(c *gin.Context) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.MetaKey = filtered
 	h.cfg.SanitizeMetaKeys()
 	h.persistLockedAndRespond(c)
@@ -89,6 +92,9 @@ func (h *Handler) PatchMetaKey(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.MetaKey) {
 		targetIndex = *body.Index
@@ -160,6 +166,9 @@ func (h *Handler) PatchMetaKey(c *gin.Context) {
 func (h *Handler) DeleteMetaKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
 		if baseRaw, okBase := c.GetQuery("base-url"); okBase {
 			base := strings.TrimSpace(baseRaw)

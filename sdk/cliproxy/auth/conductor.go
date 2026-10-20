@@ -317,13 +317,13 @@ type Manager struct {
 	hook      Hook
 	// lateHook carries hooks added via AddHook after construction; read under
 	// currentHook so the immutable construction hook always runs first.
-	lateHook  atomic.Pointer[hookBox]
-	mu        sync.RWMutex
-	auths     map[string]*Auth
+	lateHook atomic.Pointer[hookBox]
+	mu       sync.RWMutex
+	auths    map[string]*Auth
 	// executionSeq stamps upstream dispatches with a monotonic sequence used
 	// to reject cooldown clears from executions dispatched before the cooldown.
 	executionSeq atomic.Uint64
-	scheduler *authScheduler
+	scheduler    *authScheduler
 	// homeRuntimeAuths caches auths returned by Home so websocket sessions can
 	// reuse an established upstream credential without dispatching every turn.
 	homeRuntimeAuths      map[string]map[string]*Auth

@@ -117,9 +117,9 @@ type Auth struct {
 	// stamped at or below it were dispatched before the cooldown existed and
 	// must not clear it. Runtime only: zero after restart so restored
 	// cooldowns can still be cleared by any success.
-	cooldownRecordedSeq uint64 `json:"-"`
-	recentRequests recentRequestRing `json:"-"`
-	indexAssigned  bool              `json:"-"`
+	cooldownRecordedSeq uint64            `json:"-"`
+	recentRequests      recentRequestRing `json:"-"`
+	indexAssigned       bool              `json:"-"`
 	// fileSnapshotPath and fileSnapshotDigest bind an unversioned file-synthesized
 	// Auth snapshot to the source file path and SHA-256 byte digest it observed.
 	// Cleared when committed to a Manager so runtime clones are not treated as

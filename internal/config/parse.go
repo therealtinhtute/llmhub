@@ -207,17 +207,16 @@ func (cfg *Config) NormalizeClaudeConfig() {
 	if cfg == nil {
 		return
 	}
-	if cfg.Upstream.Claude.SessionDatePinDays != nil && cfg.Claude.SessionDatePinDays == nil {
+	if cfg.Upstream.Claude.SessionDatePinDays != nil {
 		cfg.Claude.SessionDatePinDays = cfg.Upstream.Claude.SessionDatePinDays
-	}
-	if cfg.ClaudeSessionDatePinDays != nil && cfg.Claude.SessionDatePinDays == nil {
+		cfg.Upstream.Claude.SessionDatePinDays = nil
+	} else if cfg.ClaudeSessionDatePinDays != nil && cfg.Claude.SessionDatePinDays == nil {
 		cfg.Claude.SessionDatePinDays = cfg.ClaudeSessionDatePinDays
 	}
 	if cfg.Claude.SessionDatePinDays == nil {
 		defaultDays := DefaultClaudeSessionDatePinDays
 		cfg.Claude.SessionDatePinDays = &defaultDays
 	}
-	cfg.ClaudeSessionDatePinDays = cfg.Claude.SessionDatePinDays
 }
 
 // ParseComboCandidate splits a combo candidate on the first "/" into provider and model.

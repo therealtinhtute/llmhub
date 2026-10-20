@@ -1144,3 +1144,27 @@ func TestClaudeExecutor_AuthManager_OverageSpendCapFirstRequestAllowsOpus_Issue5
 		t.Fatalf("Opus upstream attempts = %d, want 1", got)
 	}
 }
+
+func TestClassifyClaudeUpstreamError_PerMinuteNarrowedCooldown(t *testing.T) {
+	now := time.Now()
+	headers := make(http.Header)
+	headers.Set("Retry-After", "30")
+	headers.Set("Anthropic-Ratelimit-Unified-Reset", strconv.FormatInt(now.Add(4*time.Hour).Unix(), 10))
+
+	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed the requests per minute rate limit. Please try again later."}}`)
+
+	err := classifyClaudeUpstreamError(http.StatusTooManyRequests, headers, body)
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+
+	var rap retryAfterProvider
+	if !errors.As(err, &rap) || rap == nil || rap.RetryAfter() == nil {
+		t.Fatalf("expected error %T to implement RetryAfter() *time.Duration", err)
+	}
+
+	retryAfter := *rap.RetryAfter()
+	if retryAfter < 31*time.Second || retryAfter > 60*time.Second {
+		t.Fatalf("retryAfter = %v, want narrowed ~31s–60s (not 4h)", retryAfter)
+	}
+}

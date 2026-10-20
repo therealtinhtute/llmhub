@@ -1950,6 +1950,11 @@ func isKnownDefaultValue(path []string, node *yaml.Node) bool {
 	if len(path) > 0 && (path[len(path)-1] == "cache-user-id" || path[len(path)-1] == "disable-cooling") && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!bool" {
 		return false
 	}
+	// session-date-pin-days is pointer-backed: only an explicit zero is
+	// preserved; the default value must not pollute saves.
+	if len(path) > 0 && path[len(path)-1] == "session-date-pin-days" && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!int" && node.Value == "0" {
+		return false
+	}
 
 	// First check if it's a zero value
 	if isZeroValueNode(node) {
@@ -1978,6 +1983,8 @@ func isKnownDefaultValue(path []string, node *yaml.Node) bool {
 		switch fullPath {
 		case "error-logs-max-files":
 			return node.Value == "10"
+		case "claude.session-date-pin-days", "claude-session-date-pin-days":
+			return node.Value == strconv.Itoa(DefaultClaudeSessionDatePinDays)
 		}
 	}
 
@@ -2325,6 +2332,7 @@ func pruneNestedClaudeHeaderDefaults(root *yaml.Node) {
 		return
 	}
 	removeMapKey(claudeNode, "header-defaults")
+	removeMapKey(claudeNode, "session-date-pin-days")
 	if len(claudeNode.Content) == 0 {
 		removeMapKey(upstreamNode, "claude")
 	}

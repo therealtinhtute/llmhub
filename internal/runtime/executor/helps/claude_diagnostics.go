@@ -42,23 +42,9 @@ func ClaudeCodeLocalDate(now time.Time) string {
 	return fmt.Sprintf("%04d-%02d-%02d", year, int(month), day)
 }
 
-var claudeCodeCurrentTimeFunc func(cfg *config.Config, auth *cliproxyauth.Auth) time.Time
-
 // ClaudeCodeCurrentTime returns the current time in the configured Claude timezone.
 func ClaudeCodeCurrentTime(cfg *config.Config, auth *cliproxyauth.Auth) time.Time {
-	if claudeCodeCurrentTimeFunc != nil {
-		return claudeCodeCurrentTimeFunc(cfg, auth)
-	}
 	return time.Now().In(ClaudeCodeTimezone(cfg, auth))
-}
-
-// SetClaudeCodeCurrentTimeFuncForTest sets a temporary time override for tests.
-func SetClaudeCodeCurrentTimeFuncForTest(fn func(cfg *config.Config, auth *cliproxyauth.Auth) time.Time) func() {
-	prev := claudeCodeCurrentTimeFunc
-	claudeCodeCurrentTimeFunc = fn
-	return func() {
-		claudeCodeCurrentTimeFunc = prev
-	}
 }
 
 // ClaudeCodeTimezone returns the configured Claude timezone location, falling back
@@ -445,44 +431,6 @@ func evictClaudeSessionDatePinsLocked() {
 	for _, candidate := range candidates[:count] {
 		delete(claudeDiagnosticsState.datePins, candidate.key)
 	}
-}
-
-// ClaudeSessionDatePinExpiryForTest returns the expiry of the retained date
-// pin for a session, or the zero time when no pin exists.
-func ClaudeSessionDatePinExpiryForTest(sessionID string) time.Time {
-	pinKey := ClaudeSessionDatePinKey(sessionID)
-	if pinKey == "" {
-		return time.Time{}
-	}
-	claudeDiagnosticsState.Lock()
-	defer claudeDiagnosticsState.Unlock()
-	pin, okPin := claudeDiagnosticsState.datePins[pinKey]
-	if !okPin {
-		return time.Time{}
-	}
-	return pin.expiresAt
-}
-
-// ExpireClaudeDiagnosticsForTest expires continuity entries and retained date
-// pins without waiting for wall-clock TTLs. Pin expiry is relative to now.
-func ExpireClaudeDiagnosticsForTest(expireContinuity bool, pinExpiryOffset *time.Duration) {
-	claudeDiagnosticsState.Lock()
-	defer claudeDiagnosticsState.Unlock()
-	if expireContinuity {
-		past := time.Now().Add(-time.Second)
-		for key, entry := range claudeDiagnosticsState.entries {
-			entry.expiresAt = past
-			claudeDiagnosticsState.entries[key] = entry
-		}
-	}
-	if pinExpiryOffset != nil {
-		expiresAt := time.Now().Add(*pinExpiryOffset)
-		for key, pin := range claudeDiagnosticsState.datePins {
-			pin.expiresAt = expiresAt
-			claudeDiagnosticsState.datePins[key] = pin
-		}
-	}
-	claudeDiagnosticsState.lastCleanup = time.Time{}
 }
 
 // ResetClaudeDiagnosticsForTest resets in-memory continuity state for test isolation.

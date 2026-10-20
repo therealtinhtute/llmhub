@@ -88,3 +88,33 @@ func TestClaudeSessionDatePinRetention(t *testing.T) {
 		t.Fatalf("14 days retention = %v, want %v", got, 14*24*time.Hour)
 	}
 }
+
+func TestParseConfigBytesClaudeSessionDatePinDays_Precedence(t *testing.T) {
+	yamlInput := `
+claude-session-date-pin-days: 21
+upstream:
+  claude:
+    session-date-pin-days: 3
+`
+	cfg, errParse := ParseConfigBytes([]byte(yamlInput))
+	if errParse != nil {
+		t.Fatalf("ParseConfigBytes() error = %v", errParse)
+	}
+
+	// Canonical field adopts nested upstream value (3).
+	if got := cfg.Claude.SessionDatePinDays; got == nil || *got != 3 {
+		t.Fatalf("cfg.Claude.SessionDatePinDays = %v, want 3", got)
+	}
+	// Nested copy is cleared after merge.
+	if cfg.Upstream.Claude.SessionDatePinDays != nil {
+		t.Fatalf("cfg.Upstream.Claude.SessionDatePinDays = %v, want nil", cfg.Upstream.Claude.SessionDatePinDays)
+	}
+	// Operator's flat value is preserved as configured (21), not silently overwritten with 3.
+	if cfg.ClaudeSessionDatePinDays == nil || *cfg.ClaudeSessionDatePinDays != 21 {
+		t.Fatalf("cfg.ClaudeSessionDatePinDays = %v, want 21 (preserved)", cfg.ClaudeSessionDatePinDays)
+	}
+	// Retention helper returns canonical 3-day duration.
+	if got := cfg.ClaudeSessionDatePinRetention(); got != 3*24*time.Hour {
+		t.Fatalf("retention = %v, want %v", got, 3*24*time.Hour)
+	}
+}

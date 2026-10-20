@@ -1365,3 +1365,43 @@ func TestConvertOpenAIResponsesRequestToClaude_SupportedPrefillModelsPreserveAss
 		})
 	}
 }
+
+func TestConvertOpenAIResponsesRequestToClaude_IncompleteToolOutputIsError(t *testing.T) {
+	inputJSON := `{
+		"model": "gpt-4o",
+		"tools": [{"type":"function","name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],
+		"input": [
+			{"type":"message","role":"user","content":"Weather in Atlantis?"},
+			{"type":"function_call","call_id":"call_err1","name":"get_weather","arguments":"{\"city\":\"Atlantis\"}"},
+			{"type":"function_call_output","call_id":"call_err1","status":"incomplete","output":"City not found"},
+			{"type":"message","role":"user","content":"Did it fail?"}
+		],
+		"max_output_tokens": 128,
+		"stream": false
+	}`
+
+	result := ConvertOpenAIResponsesRequestToClaude("claude-opus-5-5", []byte(inputJSON), false)
+	resultJSON := gjson.ParseBytes(result)
+	var toolResult gjson.Result
+	found := false
+	resultJSON.Get("messages").ForEach(func(_, message gjson.Result) bool {
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() == "tool_result" && block.Get("tool_use_id").String() == "call_err1" {
+				toolResult = block
+				found = true
+				return false
+			}
+			return true
+		})
+		return !found
+	})
+	if !found {
+		t.Fatalf("expected tool_result for call_err1. Output: %s", string(result))
+	}
+	if got := toolResult.Get("content").String(); got != "City not found" {
+		t.Fatalf("tool_result content = %q, want %q. Output: %s", got, "City not found", string(result))
+	}
+	if !toolResult.Get("is_error").Bool() {
+		t.Fatalf("tool_result is_error should be true for status incomplete. Output: %s", string(result))
+	}
+}

@@ -206,6 +206,13 @@ type Config struct {
 	// this repository's flat schema keeps it as a top-level key. Default false keeps
 	// the credential-wide behavior.
 	ClaudeModelLevelCooling bool `yaml:"claude-model-level-cooling,omitempty" json:"claude-model-level-cooling,omitempty"`
+	// Claude holds Claude-specific provider configuration.
+	Claude ClaudeConfig `yaml:"claude,omitempty" json:"claude,omitempty"`
+
+	// ClaudeSessionDatePinDays retains the cloaked currentDate pin per session
+	// for this many days, independently of continuity expiry and credential switches.
+	// Nil defaults to 7 days; explicit 0 keeps continuity-scoped (1h) pin.
+	ClaudeSessionDatePinDays *int `yaml:"claude-session-date-pin-days,omitempty" json:"claude-session-date-pin-days,omitempty"`
 
 	// XAI holds xAI provider configuration settings.
 	XAI XAIConfig `yaml:"xai" json:"xai"`
@@ -300,6 +307,7 @@ type ClaudeHeaderDefaults struct {
 	AnthropicBetaAppend    []string `yaml:"anthropic-beta-append,omitempty" json:"anthropic-beta-append,omitempty"`
 	InjectDiagnostics      *bool    `yaml:"inject-diagnostics,omitempty" json:"inject-diagnostics,omitempty"`
 	ClientRequestID        string   `yaml:"client-request-id,omitempty" json:"client-request-id,omitempty"`
+	Timezone               string   `yaml:"timezone,omitempty" json:"timezone,omitempty"`
 }
 
 // Supported ClaudeHeaderDefaults.ClientRequestID values. An empty value means
@@ -317,7 +325,8 @@ type UpstreamConfig struct {
 
 // ClaudeUpstreamConfig configures Claude upstream settings.
 type ClaudeUpstreamConfig struct {
-	HeaderDefaults ClaudeHeaderDefaults `yaml:"header-defaults,omitempty" json:"header-defaults,omitempty"`
+	HeaderDefaults     ClaudeHeaderDefaults `yaml:"header-defaults,omitempty" json:"header-defaults,omitempty"`
+	SessionDatePinDays *int                 `yaml:"session-date-pin-days,omitempty" json:"session-date-pin-days,omitempty"`
 }
 
 // CodexHeaderDefaults configures fallback header values injected into Codex
@@ -1187,6 +1196,7 @@ func (cfg *Config) SanitizeClaudeHeaderDefaults() {
 	cfg.ClaudeHeaderDefaults.OS = strings.TrimSpace(cfg.ClaudeHeaderDefaults.OS)
 	cfg.ClaudeHeaderDefaults.Arch = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Arch)
 	cfg.ClaudeHeaderDefaults.Timeout = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timeout)
+	cfg.ClaudeHeaderDefaults.Timezone = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timezone)
 	cfg.ClaudeHeaderDefaults.AnthropicBetaStrip = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaStrip)
 	cfg.ClaudeHeaderDefaults.AnthropicBetaAppend = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaAppend)
 	mode := strings.ToLower(strings.TrimSpace(cfg.ClaudeHeaderDefaults.ClientRequestID))
@@ -1259,6 +1269,9 @@ func (cfg *Config) mergeUpstreamClaudeHeaderDefaults() {
 	}
 	if src.ClientRequestID != "" {
 		dst.ClientRequestID = src.ClientRequestID
+	}
+	if src.Timezone != "" {
+		dst.Timezone = src.Timezone
 	}
 	cfg.Upstream.Claude.HeaderDefaults = ClaudeHeaderDefaults{}
 }

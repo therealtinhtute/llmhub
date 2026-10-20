@@ -4,6 +4,10 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/therealtinhtute/llmhub/internal/config"
+	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 // Focused parity tests for Claude upstream request continuity and probe/helper
@@ -162,5 +166,103 @@ func TestExtractInjectStripBillingTags(t *testing.T) {
 	prevReq, promptID = ExtractClaudeBillingTags(reinjected)
 	if prevReq != "req_02y" || promptID != "4f4f4f4f-4f4f-44f4-84f4-4f4f4f4f4f4f" {
 		t.Fatalf("InjectClaudeBillingTags round trip = (%q, %q)", prevReq, promptID)
+	}
+}
+
+func TestPinClaudeSessionDateAnchorsFirstRequestAndReanchorsAfterTTL(t *testing.T) {
+	ResetClaudeDiagnosticsForTest()
+	defer ResetClaudeDiagnosticsForTest()
+
+	key, _, _ := BeginClaudeDiagnostics("credential", "session")
+	if got := PinClaudeSessionDate(key, "session", "2026-08-01", 0); got != "2026-08-01" {
+		t.Fatalf("first pin = %q, want 2026-08-01", got)
+	}
+	// Later requests of the same session keep the anchor even when the
+	// candidate date has flipped past local midnight.
+	if got := PinClaudeSessionDate(key, "session", "2026-08-02", 0); got != "2026-08-01" {
+		t.Fatalf("second pin = %q, want anchored 2026-08-01", got)
+	}
+
+	// With no retention, continuity TTL expiry preserves the legacy anchor.
+	claudeDiagnosticsState.Lock()
+	entry := claudeDiagnosticsState.entries[key]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	claudeDiagnosticsState.entries[key] = entry
+	claudeDiagnosticsState.Unlock()
+	BeginClaudeDiagnostics("credential", "session")
+	if got := PinClaudeSessionDate(key, "session", "2026-08-02", 0); got != "2026-08-02" {
+		t.Fatalf("post-TTL pin = %q, want re-anchored 2026-08-02", got)
+	}
+
+	// Unknown keys (no continuity entry) fall back to the candidate date,
+	// preserving the pre-pinning per-request behaviour.
+	if got := PinClaudeSessionDate("unknown-key", "", "2026-08-03", 0); got != "2026-08-03" {
+		t.Fatalf("unknown key pin = %q, want candidate 2026-08-03", got)
+	}
+}
+
+func TestPinClaudeSessionDateRetentionSurvivesContinuityTTLAndCredentialSwitch(t *testing.T) {
+	ResetClaudeDiagnosticsForTest()
+	defer ResetClaudeDiagnosticsForTest()
+
+	retention := 7 * 24 * time.Hour
+	keyA, _, _ := BeginClaudeDiagnostics("credential-a", "session")
+	if got := PinClaudeSessionDate(keyA, "session", "2026-08-01", retention); got != "2026-08-01" {
+		t.Fatalf("first pin = %q, want 2026-08-01", got)
+	}
+
+	claudeDiagnosticsState.Lock()
+	entry := claudeDiagnosticsState.entries[keyA]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	claudeDiagnosticsState.entries[keyA] = entry
+	claudeDiagnosticsState.lastCleanup = time.Time{}
+	claudeDiagnosticsState.Unlock()
+	BeginClaudeDiagnostics("credential-a", "session")
+	if got := PinClaudeSessionDate(keyA, "session", "2026-08-02", retention); got != "2026-08-01" {
+		t.Fatalf("post-continuity-TTL pin = %q, want anchored 2026-08-01", got)
+	}
+
+	keyB, _, _ := BeginClaudeDiagnostics("credential-b", "session")
+	if got := PinClaudeSessionDate(keyB, "session", "2026-08-02", retention); got != "2026-08-01" {
+		t.Fatalf("post-credential-switch pin = %q, want anchored 2026-08-01", got)
+	}
+
+	claudeDiagnosticsState.Lock()
+	delete(claudeDiagnosticsState.entries, keyA)
+	delete(claudeDiagnosticsState.entries, keyB)
+	for pinKey := range claudeDiagnosticsState.datePins {
+		pin := claudeDiagnosticsState.datePins[pinKey]
+		pin.expiresAt = time.Now().Add(-time.Second)
+		claudeDiagnosticsState.datePins[pinKey] = pin
+	}
+	claudeDiagnosticsState.lastCleanup = time.Time{}
+	claudeDiagnosticsState.Unlock()
+	keyC, _, _ := BeginClaudeDiagnostics("credential-c", "session")
+	if got := PinClaudeSessionDate(keyC, "session", "2026-08-02", retention); got != "2026-08-02" {
+		t.Fatalf("post-pin-TTL pin = %q, want re-anchored 2026-08-02", got)
+	}
+}
+
+func TestClaudeCodeTimezoneAndCurrentDate(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.ClaudeHeaderDefaults.Timezone = "Pacific/Honolulu"
+
+	loc := ClaudeCodeTimezone(cfg, nil)
+	if loc.String() != "Pacific/Honolulu" {
+		t.Fatalf("ClaudeCodeTimezone = %v, want Pacific/Honolulu", loc)
+	}
+
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{"timezone": "America/New_York"},
+	}
+	locAuth := ClaudeCodeTimezone(cfg, auth)
+	if locAuth.String() != "America/New_York" {
+		t.Fatalf("ClaudeCodeTimezone(auth) = %v, want America/New_York", locAuth)
+	}
+
+	now := time.Date(2026, 10, 20, 15, 30, 0, 0, time.UTC)
+	dateStr := ClaudeCodeLocalDate(now)
+	if dateStr != "2026-10-20" {
+		t.Fatalf("ClaudeCodeLocalDate = %q, want 2026-10-20", dateStr)
 	}
 }

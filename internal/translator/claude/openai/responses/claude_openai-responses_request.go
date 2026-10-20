@@ -254,6 +254,19 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 		contentPart, _ = sjson.SetBytes(contentPart, "text", input.String())
 		appendParts("user", contentPart)
 	}
+	lastToolResult := map[string]gjson.Result{}
+	if input := root.Get("input"); input.Exists() && input.IsArray() {
+		input.ForEach(func(_, item gjson.Result) bool {
+			switch item.Get("type").String() {
+			case "function_call_output", "custom_tool_call_output":
+				rawID := common.ExtractResponsesCallID(item)
+				if rawID != "" {
+					lastToolResult[rawID] = item
+				}
+			}
+			return true
+		})
+	}
 	if input := root.Get("input"); input.Exists() && input.IsArray() {
 		input.ForEach(func(_, item gjson.Result) bool {
 			if extractedFromSystem && strings.EqualFold(item.Get("role").String(), "system") {
@@ -411,7 +424,13 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 					}
 					emittedToolResults[rawID] = struct{}{}
 				}
-				output := item.Get("output")
+				outputItem := item
+				if rawID != "" {
+					if lastItem, exists := lastToolResult[rawID]; exists {
+						outputItem = lastItem
+					}
+				}
+				output := outputItem.Get("output")
 				// Standalone outputs (no call_id, or one that never paired with
 				// a function_call in this input) have no tool_use to attach to.
 				// Claude rejects orphan tool_result blocks, so surface them as
@@ -425,6 +444,12 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 				callID := util.SanitizeClaudeToolID(rawID)
 				toolResult := []byte(`{"type":"tool_result","tool_use_id":"","content":""}`)
 				toolResult, _ = sjson.SetBytes(toolResult, "tool_use_id", callID)
+				// Responses reports an unfinished tool output as status
+				// "incomplete"; Claude's only in-band equivalent is is_error
+				// on tool_result, so carry the signal over instead of dropping it.
+				if strings.EqualFold(strings.TrimSpace(outputItem.Get("status").String()), "incomplete") {
+					toolResult, _ = sjson.SetBytes(toolResult, "is_error", true)
+				}
 				toolResult = applyResponsesToolResultContent(toolResult, output)
 
 				appendParts("user", toolResult)

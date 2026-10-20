@@ -24,6 +24,12 @@ type jsonSchemaCleanOptions struct {
 	// addPlaceholder adds a placeholder property to empty object schemas
 	// (Claude VALIDATED mode requirement) and keeps nullable/placeholder fields.
 	addPlaceholder bool
+	// keepNullable preserves nullable:true fields (Antigravity semantics).
+	keepNullable bool
+	// flattenMultiBranchUnions forces multi-branch anyOf/oneOf unions down to a single
+	// strongest branch instead of preserving them. It is used on routes whose upstream
+	// rejects nested multi-branch unions even though they are valid JSON Schema.
+	flattenMultiBranchUnions bool
 	// preserveAllAdditionalProperties keeps additionalProperties (boolean and
 	// schema-valued) instead of deleting it or degrading it to a hint
 	// (upstream b532db9c).
@@ -38,8 +44,32 @@ type jsonSchemaCleanOptions struct {
 // It handles unsupported keywords, type flattening, and schema simplification while preserving
 // semantic information as description hints.
 func CleanJSONSchemaForAntigravity(jsonStr string) string {
-	return cleanJSONSchema(jsonStr, jsonSchemaCleanOptions{addPlaceholder: true})
+	return cleanJSONSchema(jsonStr, jsonSchemaCleanOptions{addPlaceholder: true, keepNullable: true})
 }
+
+// CleanJSONSchemaForAntigravityTool transforms an Antigravity function schema.
+func CleanJSONSchemaForAntigravityTool(jsonStr string, requirePlaceholder bool) string {
+	return cleanJSONSchemaForAntigravityTool(jsonStr, requirePlaceholder, false)
+}
+
+// CleanJSONSchemaForAntigravityClaudeTool is the Antigravity tool cleaner for Claude
+// models. It applies the same Antigravity schema cleanup, but flattens multi-branch
+// anyOf/oneOf unions to a single strongest branch: the Antigravity Claude backend
+// converts Gemini function declarations into Claude custom.input_schema and rejects
+// nested multi-branch unions with "JSON schema is invalid", while the Gemini
+// backends accept preserved unions (see Issue 3662 and its regression follow-up).
+func CleanJSONSchemaForAntigravityClaudeTool(jsonStr string, requirePlaceholder bool) string {
+	return cleanJSONSchemaForAntigravityTool(jsonStr, requirePlaceholder, true)
+}
+
+func cleanJSONSchemaForAntigravityTool(jsonStr string, requirePlaceholder, flattenMultiBranchUnions bool) string {
+	return cleanJSONSchema(jsonStr, jsonSchemaCleanOptions{
+		addPlaceholder:           requirePlaceholder,
+		keepNullable:             true,
+		flattenMultiBranchUnions: flattenMultiBranchUnions,
+	})
+}
+
 
 // CleanJSONSchemaForAntigravityResponse transforms a response schema without applying
 // tool-only compatibility rewrites that would alter the client's structured output contract.
@@ -96,14 +126,14 @@ func cleanJSONSchema(jsonStr string, options jsonSchemaCleanOptions) string {
 
 	// Phase 2: Flatten complex structures
 	jsonStr = mergeAllOf(jsonStr)
-	jsonStr = flattenAnyOfOneOf(jsonStr)
+	jsonStr = flattenAnyOfOneOf(jsonStr, options.preserveStandardConstraints, options.flattenMultiBranchUnions)
 	jsonStr = flattenTypeArrays(jsonStr)
 
 	// Phase 3: Cleanup
 	jsonStr = removeUnsupportedKeywords(jsonStr, options)
 	// Remove schema metadata title values while preserving properties named "title".
 	jsonStr = removeKeywords(jsonStr, []string{"title"})
-	if !options.addPlaceholder {
+	if !options.addPlaceholder && !options.keepNullable {
 		// Gemini schema cleanup: remove nullable and placeholder-only fields.
 		jsonStr = removeKeywords(jsonStr, []string{"nullable"})
 		jsonStr = removePlaceholderFields(jsonStr)
@@ -945,7 +975,7 @@ func preserveUnionBranches(jsonStr, parentPath, key, unionPath string, items []g
 	return jsonStr, true
 }
 
-func flattenAnyOfOneOf(jsonStr string) string {
+func flattenAnyOfOneOf(jsonStr string, preserveStandardConstraints, flattenMultiBranch bool) string {
 	for _, key := range []string{"anyOf", "oneOf"} {
 		paths := findPaths(jsonStr, key)
 		sortByDepth(paths)
@@ -965,20 +995,27 @@ func flattenAnyOfOneOf(jsonStr string) string {
 				parent = gjson.Parse(jsonStr)
 			}
 
-			items := arr.Array()
-
-			// Preserve multi-branch unions (2+ standalone non-null branches).
-			if next, preserved := preserveUnionBranches(jsonStr, parentPath, key, p, items, parent.Get("properties")); preserved {
-				jsonStr = next
+			if key == "oneOf" && !flattenMultiBranch && !preserveStandardConstraints && parent.Get("anyOf").IsArray() {
+				jsonStr = appendHint(jsonStr, parentPath, "oneOf: "+arr.Raw)
+				jsonStr, _ = sjson.Delete(jsonStr, p)
 				continue
 			}
 
-			if parentProps := parent.Get("properties"); parentProps.IsObject() {
-				hasNull := false
+			items := arr.Array()
+			parentProps := parent.Get("properties")
+			nonNullItems, hasNull, hasFilteredBranch := partitionUnionBranches(items, parentProps)
+			nullable := hasNull || parent.Get("nullable").Bool()
+
+			// Preserve multi-branch unions (2+ standalone non-null branches).
+			if len(nonNullItems) >= 2 && !flattenMultiBranch {
+				if next, preserved := preserveUnionBranches(jsonStr, parentPath, key, p, items, parentProps); preserved {
+					jsonStr = next
+					continue
+				}
+			}
+
+			if parentProps.IsObject() {
 				for _, item := range items {
-					if item.Get("type").String() == "null" {
-						hasNull = true
-					}
 					if branchProps := item.Get("properties"); branchProps.IsObject() {
 						branchProps.ForEach(func(propKey, propVal gjson.Result) bool {
 							destPath := joinPath(parentPath, "properties."+escapeGJSONPathKey(propKey.String()))
@@ -987,7 +1024,7 @@ func flattenAnyOfOneOf(jsonStr string) string {
 						})
 					}
 				}
-				if hasNull {
+				if nullable {
 					updated, _ := sjson.SetBytes([]byte(jsonStr), joinPath(parentPath, "nullable"), true)
 					jsonStr = string(updated)
 				}
@@ -995,9 +1032,30 @@ func flattenAnyOfOneOf(jsonStr string) string {
 				continue
 			}
 
+			candidateItems := items
+			if hasFilteredBranch || len(nonNullItems) >= 2 {
+				candidateItems = nonNullItems
+				if hasNull {
+					candidateItems = append(append([]gjson.Result(nil), nonNullItems...), gjson.Parse(`{"type":"null"}`))
+				}
+			}
+
 			parentDesc := gjson.Get(jsonStr, descriptionPath(parentPath)).String()
-			bestIdx, allTypes := selectBest(items)
-			selected := items[bestIdx].Raw
+			_, allTypes := selectBest(candidateItems)
+			selected := items[0].Raw
+			if len(nonNullItems) > 0 {
+				selected = nonNullItems[0].Raw
+				if bestIdx, _ := selectBest(nonNullItems); bestIdx >= 0 && bestIdx < len(nonNullItems) {
+					selected = nonNullItems[bestIdx].Raw
+				}
+			} else if bestIdx, _ := selectBest(items); bestIdx >= 0 && bestIdx < len(items) {
+				selected = items[bestIdx].Raw
+			}
+
+			if nullable {
+				updated, _ := sjson.SetBytes([]byte(selected), "nullable", true)
+				selected = string(updated)
+			}
 
 			if parentDesc != "" {
 				selected = mergeDescriptionRaw(selected, parentDesc)
@@ -1006,6 +1064,8 @@ func flattenAnyOfOneOf(jsonStr string) string {
 			if len(allTypes) > 1 {
 				hint := "Accepts: " + strings.Join(allTypes, " | ")
 				selected = appendHintRaw(selected, hint)
+			} else if nullable {
+				selected = appendHintRaw(selected, "(nullable)")
 			}
 
 			jsonStr = setRawAt(jsonStr, parentPath, selected)
@@ -1124,8 +1184,8 @@ func removeUnsupportedKeywords(jsonStr string, options jsonSchemaCleanOptions) s
 		"$anchor", "$vocabulary", "$dynamicRef", "$dynamicAnchor",
 		"$comment",
 		"propertyNames", "patternProperties", // Gemini doesn't support these schema keywords
-		"enumTitles", "prefill", "deprecated", "encrypted", // Schema metadata fields unsupported by Gemini
-		"additionalItems", "unevaluatedProperties", "unevaluatedItems", "contentSchema", // upstream c93978c4
+		"enumTitles", "prefill", "deprecated", "encrypted", "discriminator", // Schema metadata fields unsupported by Gemini
+		"additionalItems", "unevaluatedProperties", "unevaluatedItems", "contentSchema", "contentMediaType", "contentEncoding", // upstream c93978c4, e9ba5c507f46, a43026d75196
 	)
 
 	deletePaths := make([]string, 0)
@@ -1630,4 +1690,223 @@ func mergeHint(existing, hint string) string {
 		return existing
 	}
 	return fmt.Sprintf("%s (%s)", existing, hint)
+}
+
+var antigravityDeclarationContainers = []string{"functionDeclarations", "function_declarations"}
+
+var antigravityDeclarationSchemaKeys = []string{
+	"parameters",
+	"response",
+	"responseJsonSchema",
+	"response_json_schema",
+	"responseSchema",
+	"response_schema",
+}
+
+// AntigravityElementEdit replaces one array element with replacement.
+type AntigravityElementEdit struct {
+	Offset      int
+	Raw         string
+	Replacement string
+}
+
+func isParameterSchemaPath(key string) bool {
+	return key == "parameters" || key == "parametersJsonSchema"
+}
+
+// SanitizeAntigravityToolSchemaDocumentForModel renames and cleans every
+// declaration schema in the tools-only document. Each declaration is edited
+// on its own raw bytes and the results are spliced back into the tools array
+// in a single pass, so the cost stays linear in the document size instead of
+// scaling with declarations x document size (Issue 6714).
+func SanitizeAntigravityToolSchemaDocumentForModel(payloadStr string, useAntigravitySchema, isClaudeModel bool) string {
+	toolSchemaCleaner := func(schema string, isParameterSchema bool) string {
+		if isClaudeModel && isParameterSchema {
+			return CleanJSONSchemaForAntigravityClaudeTool(schema, useAntigravitySchema)
+		}
+		if useAntigravitySchema {
+			return CleanJSONSchemaForAntigravityTool(schema, useAntigravitySchema)
+		}
+		return CleanJSONSchemaForGemini(schema)
+	}
+	cleanNestedToolSchema := func(schemaRaw string, isParameterSchema bool) string {
+		return cleanNestedSchema(func(schema string) string {
+			return toolSchemaCleaner(schema, isParameterSchema)
+		}, schemaRaw)
+	}
+
+	tools := gjson.Parse(payloadStr).Get("request.tools")
+	if !tools.IsArray() {
+		return payloadStr
+	}
+	elements := make([]gjson.Result, 0)
+	edits := make([]AntigravityElementEdit, 0)
+	tools.ForEach(func(_, tool gjson.Result) bool {
+		elements = append(elements, tool)
+		if !tool.IsObject() {
+			return true
+		}
+		toolRaw := tool.Raw
+		for _, declKey := range antigravityDeclarationContainers {
+			decls := tool.Get(declKey)
+			if !decls.IsArray() {
+				continue
+			}
+			cleanedDecls, declsChanged := SanitizeAntigravityDeclarations(decls, cleanNestedToolSchema)
+			if !declsChanged {
+				continue
+			}
+			updated, errSet := sjson.SetRawBytes([]byte(toolRaw), declKey, []byte(cleanedDecls))
+			if errSet != nil {
+				continue
+			}
+			toolRaw = string(updated)
+		}
+		if toolRaw != tool.Raw {
+			edits = append(edits, AntigravityElementEdit{Offset: tool.Index - tools.Index, Raw: tool.Raw, Replacement: toolRaw})
+		}
+		return true
+	})
+	if len(edits) == 0 {
+		return payloadStr
+	}
+	updated, errSet := sjson.SetRawBytes([]byte(payloadStr), "request.tools", []byte(ApplyAntigravityElementEdits(tools.Raw, tools.Index, elements, edits)))
+	if errSet != nil {
+		return payloadStr
+	}
+	return string(updated)
+}
+
+func ApplyAntigravityElementEdits(arrayRaw string, arrayIndex int, elements []gjson.Result, edits []AntigravityElementEdit) string {
+	var rebuilt strings.Builder
+	rebuilt.Grow(len(arrayRaw))
+	cursor := 0
+	for _, edit := range edits {
+		if edit.Offset < cursor || edit.Offset+len(edit.Raw) > len(arrayRaw) || arrayRaw[edit.Offset:edit.Offset+len(edit.Raw)] != edit.Raw {
+			return joinAntigravityElements(arrayIndex, elements, edits)
+		}
+		rebuilt.WriteString(arrayRaw[cursor:edit.Offset])
+		rebuilt.WriteString(edit.Replacement)
+		cursor = edit.Offset + len(edit.Raw)
+	}
+	rebuilt.WriteString(arrayRaw[cursor:])
+	return rebuilt.String()
+}
+
+func joinAntigravityElements(arrayIndex int, elements []gjson.Result, edits []AntigravityElementEdit) string {
+	replacements := make(map[int]string, len(edits))
+	for _, edit := range edits {
+		replacements[edit.Offset] = edit.Replacement
+	}
+	var rebuilt strings.Builder
+	rebuilt.WriteByte('[')
+	for i, element := range elements {
+		if i > 0 {
+			rebuilt.WriteByte(',')
+		}
+		if replacement, ok := replacements[element.Index-arrayIndex]; ok {
+			rebuilt.WriteString(replacement)
+		} else {
+			rebuilt.WriteString(element.Raw)
+		}
+	}
+	rebuilt.WriteByte(']')
+	return rebuilt.String()
+}
+
+func SanitizeAntigravityDeclarations(decls gjson.Result, clean func(schemaRaw string, isParameterSchema bool) string) (string, bool) {
+	elements := make([]gjson.Result, 0)
+	edits := make([]AntigravityElementEdit, 0)
+	decls.ForEach(func(_, decl gjson.Result) bool {
+		elements = append(elements, decl)
+		if !decl.IsObject() {
+			return true
+		}
+		cleanedDecl := SanitizeAntigravityDeclaration(decl, clean)
+		if cleanedDecl != decl.Raw {
+			edits = append(edits, AntigravityElementEdit{Offset: decl.Index - decls.Index, Raw: decl.Raw, Replacement: cleanedDecl})
+		}
+		return true
+	})
+	if len(edits) == 0 {
+		return "", false
+	}
+	return ApplyAntigravityElementEdits(decls.Raw, decls.Index, elements, edits), true
+}
+
+func SanitizeAntigravityDeclaration(decl gjson.Result, clean func(schemaRaw string, isParameterSchema bool) string) string {
+	declRaw := decl.Raw
+	if decl.Get("parametersJsonSchema").Exists() {
+		renamed, errRename := RenameKey(declRaw, "parametersJsonSchema", "parameters")
+		if errRename == nil {
+			declRaw = renamed
+			decl = gjson.Parse(declRaw)
+		}
+	}
+	for _, key := range antigravityDeclarationSchemaKeys {
+		schema := decl.Get(key)
+		if !schema.IsObject() {
+			continue
+		}
+		cleanedSchema := clean(schema.Raw, isParameterSchemaPath(key))
+		if cleanedSchema == schema.Raw {
+			continue
+		}
+		updated, errSet := sjson.SetRawBytes([]byte(declRaw), key, []byte(cleanedSchema))
+		if errSet != nil {
+			continue
+		}
+		declRaw = string(updated)
+		decl = gjson.Parse(declRaw)
+	}
+	return declRaw
+}
+
+func cleanNestedSchema(clean func(string) string, schemaRaw string) string {
+	const antigravitySchemaWrapperKey = "schema"
+	wrapped, errWrap := sjson.SetRaw("{}", antigravitySchemaWrapperKey, schemaRaw)
+	if errWrap != nil {
+		return clean(schemaRaw)
+	}
+	if unwrapped := gjson.Get(clean(wrapped), antigravitySchemaWrapperKey); unwrapped.Exists() {
+		return unwrapped.Raw
+	}
+	return clean(schemaRaw)
+}
+
+var antigravityGenerationSchemaPaths = []string{
+	"request.generationConfig.responseSchema",
+	"request.generationConfig.responseJsonSchema",
+	"request.generation_config.response_schema",
+	"request.generation_config.response_json_schema",
+}
+
+func SanitizeAntigravityGenerationSchemas(payloadStr string) string {
+	for _, path := range antigravityGenerationSchemaPaths {
+		schema := gjson.Get(payloadStr, path)
+		if !schema.Exists() || !schema.IsObject() {
+			continue
+		}
+		cleaned := CleanJSONSchemaForAntigravityResponse(schema.Raw)
+		if cleaned == schema.Raw {
+			continue
+		}
+		updated, errSet := sjson.SetRawBytes([]byte(payloadStr), path, []byte(cleaned))
+		if errSet != nil {
+			continue
+		}
+		payloadStr = string(updated)
+	}
+	return payloadStr
+}
+
+// SanitizeAntigravityRequestSchemasForModel cleans with model-aware tool semantics.
+func SanitizeAntigravityRequestSchemasForModel(payloadStr string, useAntigravitySchema, isClaudeModel bool) string {
+	payloadStr = SanitizeAntigravityToolSchemaDocumentForModel(payloadStr, useAntigravitySchema, isClaudeModel)
+	payloadStr = SanitizeAntigravityGenerationSchemas(payloadStr)
+	return payloadStr
+}
+
+func sanitizeAntigravityRequestSchemasForModel(payloadStr string, useAntigravitySchema, isClaudeModel bool) string {
+	return SanitizeAntigravityRequestSchemasForModel(payloadStr, useAntigravitySchema, isClaudeModel)
 }

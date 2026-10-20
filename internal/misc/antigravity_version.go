@@ -18,9 +18,9 @@ const (
 	antigravityReleasesURL = "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases"
 	// antigravityFallbackVersion is the client version reported when the
 	// releases manifest has not been fetched yet or cannot be reached. The
-	// Antigravity backend rejects newer models for clients below 2.9.0, so
+	// Antigravity backend rejects newer models for clients below 2.23.0, so
 	// this floor must stay at or above that version (a834917e871d).
-	antigravityFallbackVersion = "2.9.1"
+	antigravityFallbackVersion = "2.23.0"
 	antigravityVersionCacheTTL = 6 * time.Hour
 	antigravityFetchTimeout    = 10 * time.Second
 	AntigravityNodeAPIClientUA = "google-api-nodejs-client/10.3.0"

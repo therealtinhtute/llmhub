@@ -585,3 +585,31 @@ func TestConvertAntigravityResponseToClaude_ClaudeTool_KeepsReasonWhenTranslated
 		t.Fatalf("expected fallback to strip reason, got %s", got)
 	}
 }
+
+func TestConvertAntigravityResponseToClaudeNonStream_ZeroCandidatesDoesNotCountCachedAsOutput(t *testing.T) {
+	requestJSON := []byte(`{"model":"gemini-3.8-flash-high"}`)
+	responseJSON := []byte(`{
+		"response": {
+			"candidates": [{
+				"content": {"role": "model", "parts": [{"text": "hi"}]},
+				"finishReason": "STOP"
+			}],
+			"usageMetadata": {"promptTokenCount": 142871, "cachedContentTokenCount": 140830, "candidatesTokenCount": 0, "thoughtsTokenCount": 0, "totalTokenCount": 142871},
+			"modelVersion": "gemini-3.8-flash-n",
+			"responseId": "resp_cached_zero_candidates"
+		}
+	}`)
+
+	ctx := context.Background()
+	out := ConvertAntigravityResponseToClaudeNonStream(ctx, "gemini-3.8-flash-high", requestJSON, requestJSON, responseJSON, nil)
+	usageJSON := gjson.GetBytes(out, "usage")
+	if got := usageJSON.Get("output_tokens").Int(); got != 0 {
+		t.Fatalf("output_tokens = %d, want 0 when candidatesTokenCount is 0. Output: %s", got, string(out))
+	}
+	if got := usageJSON.Get("input_tokens").Int(); got != 2041 {
+		t.Fatalf("input_tokens = %d, want 2041 (142871 - 140830). Output: %s", got, string(out))
+	}
+	if got := usageJSON.Get("cache_read_input_tokens").Int(); got != 140830 {
+		t.Fatalf("cache_read_input_tokens = %d, want 140830. Output: %s", got, string(out))
+	}
+}

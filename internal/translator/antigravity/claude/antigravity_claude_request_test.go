@@ -3111,3 +3111,42 @@ func TestConvertClaudeRequestToAntigravity_ClaudeThinkingPreservesToolResultAdja
 		t.Fatalf("text turn = %q, want text", got)
 	}
 }
+
+func TestConvertClaudeRequestToAntigravity_FlattensToolUnionsForClaudeModel(t *testing.T) {
+	unionToolInput := func(model string) []byte {
+		return []byte(`{
+			"model": "` + model + `",
+			"messages": [{"role": "user", "content": "hi"}],
+			"tools": [{
+				"name": "edit_item",
+				"input_schema": {
+					"type": "object",
+					"properties": {
+						"item": {
+							"anyOf": [
+								{"type": "object", "properties": {"image": {"type": "string"}}},
+								{"type": "object", "properties": {"audio": {"type": "string"}}},
+								{"type": "string"}
+							]
+						}
+					}
+				}
+			}]
+		}`)
+	}
+
+	claudeOut := ConvertClaudeRequestToAntigravity("claude-sonnet-4-6", unionToolInput("claude-sonnet-4-6"), false)
+	item := gjson.GetBytes(claudeOut, "request.tools.0.functionDeclarations.0.parametersJsonSchema.properties.item")
+	if item.Get("anyOf").Exists() || item.Get("oneOf").Exists() {
+		t.Fatalf("Claude model tool union was not flattened: %s", claudeOut)
+	}
+	if got := item.Get("type").String(); got != "object" {
+		t.Fatalf("Claude model tool item type = %q, want object: %s", got, claudeOut)
+	}
+
+	geminiOut := ConvertClaudeRequestToAntigravity("gemini-3-flash", unionToolInput("gemini-3-flash"), false)
+	geminiItem := gjson.GetBytes(geminiOut, "request.tools.0.functionDeclarations.0.parametersJsonSchema.properties.item")
+	if !geminiItem.Get("anyOf").Exists() {
+		t.Fatalf("Gemini model tool union should be preserved: %s", geminiOut)
+	}
+}

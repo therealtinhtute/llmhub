@@ -183,3 +183,45 @@ func TestEnsureGeminiBoundaryUserContent(t *testing.T) {
 		t.Fatalf("boundary user turns missing: %s", output)
 	}
 }
+
+func TestDropGeminiTrailingThoughtOnlyContent(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "drops trailing thought turns",
+			input: `{"contents":[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"text":"a","thought":true}]},{"role":"model","parts":[{"text":"b","thought":true,"thoughtSignature":"sig"}]}]}`,
+			want:  `[{"role":"user","parts":[{"text":"hi"}]}]`,
+		},
+		{
+			name:  "keeps visible model text",
+			input: `{"contents":[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"text":"a","thought":true},{"text":"answer"}]}]}`,
+			want:  `[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"text":"a","thought":true},{"text":"answer"}]}]`,
+		},
+		{
+			name:  "keeps function call",
+			input: `{"contents":[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"thought":true,"functionCall":{"name":"run","args":{}}}]}]}`,
+			want:  `[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"thought":true,"functionCall":{"name":"run","args":{}}}]}]`,
+		},
+		{
+			name:  "keeps earlier signed reasoning",
+			input: `{"contents":[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"text":"a","thought":true,"thoughtSignature":"sig"}]},{"role":"user","parts":[{"text":"next"}]},{"role":"model","parts":[{"text":"b","thought":true}]}]}`,
+			want:  `[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"text":"a","thought":true,"thoughtSignature":"sig"}]},{"role":"user","parts":[{"text":"next"}]}]`,
+		},
+		{
+			name:  "keeps the only turn",
+			input: `{"contents":[{"role":"model","parts":[{"text":"a","thought":true}]}]}`,
+			want:  `[{"role":"model","parts":[{"text":"a","thought":true}]}]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := DropGeminiTrailingThoughtOnlyContent([]byte(tt.input), "contents")
+			if got := gjson.GetBytes(out, "contents").Raw; got != tt.want {
+				t.Fatalf("contents = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

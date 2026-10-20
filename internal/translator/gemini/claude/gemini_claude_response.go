@@ -29,6 +29,9 @@ type Params struct {
 	ToolNameMap      map[string]string
 	SanitizedNameMap map[string]string
 	SawToolCall      bool
+	CurrentToolName            string // Client-facing name of the currently open tool_use block
+	CurrentToolIsParameterless bool   // Whether the open tool_use block was declared parameterless
+	CurrentToolInputEmitted    bool   // Whether cleaned input JSON was already emitted for the open tool_use block
 }
 
 // toolUseIDCounter provides a process-wide unique counter for tool use identifiers.
@@ -170,13 +173,23 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 				(*param).(*Params).SawToolCall = true
 				upstreamToolName := functionCallResult.Get("name").String()
 				upstreamToolName = util.RestoreSanitizedToolName((*param).(*Params).SanitizedNameMap, upstreamToolName)
-				clientToolName := util.MapToolName((*param).(*Params).ToolNameMap, upstreamToolName)
+				clientToolName := util.MapClaudeToolName((*param).(*Params).ToolNameMap, originalRequestRawJSON, upstreamToolName)
 
 				// FIX: Handle streaming split/delta where name might be empty in subsequent chunks.
 				// If we are already in tool use mode and name is empty, treat as continuation (delta).
 				if (*param).(*Params).ResponseType == 3 && upstreamToolName == "" {
 					if fcArgsResult := functionCallResult.Get("args"); fcArgsResult.Exists() {
-						data, _ := sjson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":""}}`, (*param).(*Params).ResponseIndex)), "delta.partial_json", fcArgsResult.Raw)
+						partialJSON := util.CleanClaudeToolArgumentsWithTranslated(fcArgsResult.Raw, (*param).(*Params).CurrentToolName, originalRequestRawJSON, requestRawJSON)
+						if (*param).(*Params).CurrentToolIsParameterless {
+							if (*param).(*Params).CurrentToolInputEmitted {
+								partialJSON = ""
+							} else {
+								(*param).(*Params).CurrentToolInputEmitted = true
+							}
+						} else if partialJSON != "" {
+							(*param).(*Params).CurrentToolInputEmitted = true
+						}
+						data, _ := sjson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":""}}`, (*param).(*Params).ResponseIndex)), "delta.partial_json", partialJSON)
 						appendEvent("content_block_delta", string(data))
 					}
 					// Continue to next part without closing/opening logic
@@ -204,6 +217,10 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 					(*param).(*Params).ResponseIndex++
 				}
 
+				(*param).(*Params).CurrentToolName = clientToolName
+				(*param).(*Params).CurrentToolIsParameterless = util.ClaudeToolIsParameterless(clientToolName, originalRequestRawJSON)
+				(*param).(*Params).CurrentToolInputEmitted = false
+
 				// Start a new tool use content block
 				// This creates the structure for a function call in Claude format
 				// Create the tool use block with unique ID and function details
@@ -213,7 +230,17 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 				appendEvent("content_block_start", string(data))
 
 				if fcArgsResult := functionCallResult.Get("args"); fcArgsResult.Exists() {
-					data, _ = sjson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":""}}`, (*param).(*Params).ResponseIndex)), "delta.partial_json", fcArgsResult.Raw)
+					partialJSON := util.CleanClaudeToolArgumentsWithTranslated(fcArgsResult.Raw, clientToolName, originalRequestRawJSON, requestRawJSON)
+					if (*param).(*Params).CurrentToolIsParameterless {
+						if (*param).(*Params).CurrentToolInputEmitted {
+							partialJSON = ""
+						} else {
+							(*param).(*Params).CurrentToolInputEmitted = true
+						}
+					} else if partialJSON != "" {
+						(*param).(*Params).CurrentToolInputEmitted = true
+					}
+					data, _ = sjson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":""}}`, (*param).(*Params).ResponseIndex)), "delta.partial_json", partialJSON)
 					appendEvent("content_block_delta", string(data))
 				}
 				(*param).(*Params).ResponseType = 3
@@ -356,14 +383,14 @@ func ConvertGeminiResponseToClaudeNonStream(_ context.Context, _ string, origina
 
 				upstreamToolName := functionCall.Get("name").String()
 				upstreamToolName = util.RestoreSanitizedToolName(sanitizedNameMap, upstreamToolName)
-				clientToolName := util.MapToolName(toolNameMap, upstreamToolName)
+				clientToolName := util.MapClaudeToolName(toolNameMap, originalRequestRawJSON, upstreamToolName)
 				toolIDCounter++
 				toolBlock := []byte(`{"type":"tool_use","id":"","name":"","input":{}}`)
 				toolBlock, _ = sjson.SetBytes(toolBlock, "id", util.SanitizeClaudeToolID(fmt.Sprintf("%s-%d", upstreamToolName, toolIDCounter)))
 				toolBlock, _ = sjson.SetBytes(toolBlock, "name", clientToolName)
 				inputRaw := "{}"
 				if args := functionCall.Get("args"); args.Exists() && gjson.Valid(args.Raw) && args.IsObject() {
-					inputRaw = args.Raw
+					inputRaw = util.CleanClaudeToolArgumentsWithTranslated(args.Raw, clientToolName, originalRequestRawJSON, requestRawJSON)
 				}
 				toolBlock, _ = sjson.SetRawBytes(toolBlock, "input", []byte(inputRaw))
 				out, _ = sjson.SetRawBytes(out, "content.-1", toolBlock)

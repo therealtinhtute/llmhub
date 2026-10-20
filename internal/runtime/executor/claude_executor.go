@@ -96,6 +96,37 @@ func (e *ClaudeExecutor) modelLevelCooling() bool {
 	return e != nil && e.cfg != nil && e.cfg.ClaudeModelLevelCooling
 }
 
+func (e *ClaudeExecutor) injectDiagnosticsEnabled() bool {
+	return e == nil || e.cfg == nil || e.cfg.ClaudeHeaderDefaults.InjectDiagnostics == nil || *e.cfg.ClaudeHeaderDefaults.InjectDiagnostics
+}
+
+// isClaudeCallerOwned reports whether the request preserves caller-supplied
+// headers and betas instead of synthesizing the full Claude Code CLI profile.
+// Real Claude OAuth tokens, credentials with fingerprint_profile="claude-code-cli",
+// and credentials with cloak_mode="always" use the CLI profile. An explicit
+// caller_owned attribute ("true" / "false") or cloak_mode="never" on an API-key
+// credential explicitly marks the credential as caller-owned or CLI-profile.
+func isClaudeCallerOwned(auth *cliproxyauth.Auth, apiKey string) bool {
+	if isClaudeOAuthToken(apiKey) {
+		return false
+	}
+	if auth != nil && auth.Attributes != nil {
+		if v, ok := auth.Attributes["caller_owned"]; ok {
+			return strings.EqualFold(strings.TrimSpace(v), "true")
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["cloak_mode"]), "never") {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["fingerprint_profile"]), "claude-code-cli") {
+			return false
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["cloak_mode"]), "always") {
+			return false
+		}
+	}
+	return false
+}
+
 // PrepareRequest injects Claude credentials into the outgoing HTTP request.
 func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
@@ -215,8 +246,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 	diagnosticsInjectedByCPA := false
 	oauthToken := isClaudeOAuthToken(apiKey)
-	injectDiagnosticsEnabled := e.cfg == nil || e.cfg.ClaudeHeaderDefaults.InjectDiagnostics == nil || *e.cfg.ClaudeHeaderDefaults.InjectDiagnostics
-	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper && injectDiagnosticsEnabled {
+	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper && e.injectDiagnosticsEnabled() {
 		diagnosticsInjectedByCPA = true
 		if continuityCtx.Initialized {
 			body, diagnosticsState = injectClaudeDiagnosticsWithState(body, continuityCtx.Key, continuityCtx.Sequence, continuityCtx.PreviousMessageID, continuityCtx.PromptID)
@@ -270,7 +300,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 					*continuityCtx = cCtx
 				}
 				body = helps.InjectClaudeBillingTags(body, prevReq, promptID)
-				if oauthToken && isAnthropicUpstreamBase(baseURL) {
+				if oauthToken && isAnthropicUpstreamBase(baseURL) && e.injectDiagnosticsEnabled() {
 					body, diagnosticsState = injectClaudeDiagnosticsWithState(body, cCtx.Key, cCtx.Sequence, cCtx.PreviousMessageID, promptID)
 				}
 			}
@@ -543,8 +573,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	}
 	diagnosticsInjectedByCPA := false
 	oauthToken := isClaudeOAuthToken(apiKey)
-	injectDiagnosticsEnabled := e.cfg == nil || e.cfg.ClaudeHeaderDefaults.InjectDiagnostics == nil || *e.cfg.ClaudeHeaderDefaults.InjectDiagnostics
-	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper && injectDiagnosticsEnabled {
+	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper && e.injectDiagnosticsEnabled() {
 		diagnosticsInjectedByCPA = true
 		if continuityCtx.Initialized {
 			body, diagnosticsState = injectClaudeDiagnosticsWithState(body, continuityCtx.Key, continuityCtx.Sequence, continuityCtx.PreviousMessageID, continuityCtx.PromptID)
@@ -596,7 +625,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 					*continuityCtx = cCtx
 				}
 				body = helps.InjectClaudeBillingTags(body, prevReq, promptID)
-				if oauthToken && isAnthropicUpstreamBase(baseURL) {
+				if oauthToken && isAnthropicUpstreamBase(baseURL) && e.injectDiagnosticsEnabled() {
 					body, diagnosticsState = injectClaudeDiagnosticsWithState(body, cCtx.Key, cCtx.Sequence, cCtx.PreviousMessageID, promptID)
 				}
 			}
@@ -2038,7 +2067,7 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 
 	incomingBetas := strings.TrimSpace(strings.Join(helps.HeaderValuesCaseInsensitive(ginHeaders, "Anthropic-Beta"), ","))
 	countTokens := r.URL != nil && strings.HasSuffix(r.URL.Path, "/count_tokens")
-	isCallerOwned := strings.Contains(apiKey, "caller-owned") || (auth != nil && auth.Attributes != nil && (strings.Contains(auth.Attributes["api_key"], "caller-owned") || strings.Contains(auth.Attributes["api_key"], "credential-headers")))
+	isCallerOwned := isClaudeCallerOwned(auth, apiKey)
 	var baseBetas string
 	if isCallerOwned {
 		baseBetas = incomingBetas

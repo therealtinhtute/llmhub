@@ -162,31 +162,34 @@ func ValidateConfig(config ThinkingConfig, modelInfo *registry.ModelInfo, fromFo
 	if config.Mode == ModeNone && toFormat == "claude" {
 		if !support.ZeroAllowed {
 			if lowest, ok := lowestSupportedLevel(support.Levels); ok {
+				// Adaptive-only Claude models (for example claude-opus-5-5, claude-fable-5,
+				// and claude-fable-5-1) reject thinking.type="disabled". Like other models
+				// that cannot be disabled, fall back to the lowest supported level.
 				config.Mode = ModeLevel
-				config.Level = lowest
 				config.Budget = 0
-				return &config, nil
-			}
-			if support.Min > 0 {
-				config.Mode = ModeBudget
-				config.Budget = support.Min
+				config.Level = lowest
+			} else {
+				config.Budget = 0
 				config.Level = ""
-				return &config, nil
 			}
+		} else {
+			// Claude supports explicit disable via thinking.type="disabled" (or the
+			// model's DisableType). Keep Budget=0 so applier can omit budget_tokens.
+			config.Budget = 0
+			config.Level = ""
 		}
-		// Claude supports explicit disable via thinking.type="disabled".
-		// Keep Budget=0 so applier can omit budget_tokens.
-		config.Budget = 0
-		config.Level = ""
 	} else {
 		switch config.Mode {
 		case ModeBudget, ModeAuto, ModeNone:
 			config.Budget = clampBudget(config.Budget, modelInfo, toFormat)
 		}
 
-		// ModeNone with clamped Budget > 0: set Level to lowest for Level-only/Hybrid models
-		// This ensures Apply layer doesn't need to access support.Levels
-		if config.Mode == ModeNone && config.Budget > 0 && len(support.Levels) > 0 {
+		// ModeNone for a model that cannot be disabled falls back to the lowest
+		// supported level. Budget-capable models reach this path with Budget > 0;
+		// level-only models need the capability flags checked explicitly because
+		// their Min/Max range is zero.
+		cannotDisableLevelModel := !support.ZeroAllowed && !isLevelSupported(string(LevelNone), support.Levels)
+		if config.Mode == ModeNone && len(support.Levels) > 0 && (config.Budget > 0 || cannotDisableLevelModel) {
 			if lowest, ok := lowestSupportedLevel(support.Levels); ok {
 				config.Level = lowest
 			}

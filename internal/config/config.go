@@ -295,7 +295,6 @@ type ClaudeHeaderDefaults struct {
 	OS                     string   `yaml:"os" json:"os"`
 	Arch                   string   `yaml:"arch" json:"arch"`
 	Timeout                string   `yaml:"timeout" json:"timeout"`
-	Timezone               string   `yaml:"timezone" json:"timezone"`
 	StabilizeDeviceProfile *bool    `yaml:"stabilize-device-profile,omitempty" json:"stabilize-device-profile,omitempty"`
 	AnthropicBetaStrip     []string `yaml:"anthropic-beta-strip,omitempty" json:"anthropic-beta-strip,omitempty"`
 	AnthropicBetaAppend    []string `yaml:"anthropic-beta-append,omitempty" json:"anthropic-beta-append,omitempty"`
@@ -1188,7 +1187,6 @@ func (cfg *Config) SanitizeClaudeHeaderDefaults() {
 	cfg.ClaudeHeaderDefaults.OS = strings.TrimSpace(cfg.ClaudeHeaderDefaults.OS)
 	cfg.ClaudeHeaderDefaults.Arch = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Arch)
 	cfg.ClaudeHeaderDefaults.Timeout = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timeout)
-	cfg.ClaudeHeaderDefaults.Timezone = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timezone)
 	cfg.ClaudeHeaderDefaults.AnthropicBetaStrip = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaStrip)
 	cfg.ClaudeHeaderDefaults.AnthropicBetaAppend = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaAppend)
 	mode := strings.ToLower(strings.TrimSpace(cfg.ClaudeHeaderDefaults.ClientRequestID))
@@ -1247,9 +1245,6 @@ func (cfg *Config) mergeUpstreamClaudeHeaderDefaults() {
 	if src.Timeout != "" {
 		dst.Timeout = src.Timeout
 	}
-	if src.Timezone != "" {
-		dst.Timezone = src.Timezone
-	}
 	if src.StabilizeDeviceProfile != nil {
 		dst.StabilizeDeviceProfile = src.StabilizeDeviceProfile
 	}
@@ -1265,6 +1260,7 @@ func (cfg *Config) mergeUpstreamClaudeHeaderDefaults() {
 	if src.ClientRequestID != "" {
 		dst.ClientRequestID = src.ClientRequestID
 	}
+	cfg.Upstream.Claude.HeaderDefaults = ClaudeHeaderDefaults{}
 }
 
 // SanitizeOAuthModelAlias normalizes and deduplicates global OAuth model name aliases.

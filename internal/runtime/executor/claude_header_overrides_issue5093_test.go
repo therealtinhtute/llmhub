@@ -86,7 +86,7 @@ func TestApplyClaudeHeaders_OperatorBetaOverridesStableAcrossReapplication(t *te
 	incoming := http.Header{}
 	incoming.Set("Anthropic-Beta", claudeCodeBeta)
 	callerReq := newClaudeHeaderTestRequest(t, incoming)
-	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-caller-owned"}}
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-caller-owned", "caller_owned": "true"}}
 	applyClaudeHeaders(callerReq, auth, "key-caller-owned", false, nil, []byte(`{"model":"claude-opus-5"}`), cfg, incoming)
 	if got, want := callerReq.Header.Get("Anthropic-Beta"), claudeCodeBeta+wantSuffix; got != want {
 		t.Fatalf("caller-owned Anthropic-Beta = %q, want %q", got, want)
@@ -106,6 +106,7 @@ func TestApplyClaudeHeaders_CredentialHeadersKeepPrecedenceOverOperatorDefaults(
 `)
 	auth := &cliproxyauth.Auth{Attributes: map[string]string{
 		"api_key":                    "key-credential-headers",
+		"caller_owned":               "true",
 		"header:Anthropic-Beta":      "credential-beta-2099-01-01",
 		"header:X-Client-Request-Id": "credential-request-id",
 	}}
@@ -143,7 +144,7 @@ func TestApplyClaudeHeaders_OperatorBetaStripAppliesToCallerOwnedBetas(t *testin
 `)
 	incoming := http.Header{}
 	incoming.Set("Anthropic-Beta", claudeCodeBeta+",fine-grained-tool-streaming-2025-05-14")
-	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-caller-owned"}}
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-caller-owned", "caller_owned": "true"}}
 	req := newClaudeHeaderTestRequest(t, incoming)
 	applyClaudeHeaders(req, auth, "key-caller-owned", false, nil, []byte(`{"model":"claude-opus-5"}`), cfg, incoming)
 	if got := req.Header.Get("Anthropic-Beta"); got != claudeCodeBeta {
@@ -245,6 +246,84 @@ func TestClaudeExecutor_InjectDiagnosticsDisabledOmitsDiagnosticsAndCacheDiagnos
 	}
 }
 
+func TestClaudeExecutor_InjectDiagnosticsDisabledOnProbeToNonProbePayloadRestore(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		name := "execute"
+		if stream {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := parseIssue5093Config(t, `upstream:
+  claude:
+    header-defaults:
+      inject-diagnostics: false
+payload:
+  override:
+    - models:
+        - name: "claude-opus-5"
+      params:
+        max_tokens: 64
+`)
+			var upstreamBody []byte
+			var upstreamBetas string
+			transport := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				body, errRead := io.ReadAll(req.Body)
+				if errRead != nil {
+					t.Fatal(errRead)
+				}
+				upstreamBody = body
+				upstreamBetas = req.Header.Get("Anthropic-Beta")
+				if upstreamBetas == "" {
+					upstreamBetas = strings.Join(req.Header["anthropic-beta"], ",")
+				}
+				if stream {
+					sse := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_restore\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n" +
+						"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+					return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(sse)), Request: req}, nil
+				}
+				response := `{"id":"msg_restore","type":"message","model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(response)), Request: req}, nil
+			})
+			ctx := context.WithValue(context.Background(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			testID := uuid.NewString()
+			auth := &cliproxyauth.Auth{
+				ID:         "restore-diagnostics-disabled-" + testID,
+				Attributes: map[string]string{"api_key": "sk-ant-oat-restore-disabled", "cloak_mode": "always"},
+				Metadata: map[string]any{
+					"account_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				},
+			}
+			executor := NewClaudeExecutor(cfg)
+			request := cliproxyexecutor.Request{Model: "claude-opus-5", Payload: []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"x"}],"max_tokens":1}`)}
+			options := cliproxyexecutor.Options{
+				SourceFormat: sdktranslator.FormatClaude,
+				Stream:       stream,
+				Metadata:     map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: "restore-diagnostics-disabled-" + testID},
+			}
+			if stream {
+				result, errStream := executor.ExecuteStream(ctx, auth, request, options)
+				if errStream != nil {
+					t.Fatalf("ExecuteStream() error = %v", errStream)
+				}
+				for range result.Chunks {
+				}
+			} else if _, errExecute := executor.Execute(ctx, auth, request, options); errExecute != nil {
+				t.Fatalf("Execute() error = %v", errExecute)
+			}
+
+			if len(upstreamBody) == 0 {
+				t.Fatal("upstream request was not captured")
+			}
+			if gjson.GetBytes(upstreamBody, "diagnostics").Exists() {
+				t.Fatalf("diagnostics present on restored non-probe when inject-diagnostics=false; body = %s", upstreamBody)
+			}
+			if strings.Contains(upstreamBetas, claudeCacheDiagnosisBeta) {
+				t.Fatalf("Anthropic-Beta = %q, want %s absent when inject-diagnostics=false", upstreamBetas, claudeCacheDiagnosisBeta)
+			}
+		})
+	}
+}
+
 // client-request-id selects whether first-party requests synthesize a fresh
 // x-client-request-id (on, the default), forward only the caller's value
 // (passthrough), or never send one (off).
@@ -252,7 +331,7 @@ func TestApplyClaudeHeaders_ClientRequestIDModes(t *testing.T) {
 	const callerRequestID = "caller-request-id-5093"
 	withCallerID := http.Header{}
 	withCallerID.Set("X-Client-Request-Id", callerRequestID)
-	apiKeyAuth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-caller-owned"}}
+	apiKeyAuth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-caller-owned", "caller_owned": "true"}}
 
 	tests := []struct {
 		name     string

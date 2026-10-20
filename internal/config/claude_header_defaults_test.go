@@ -18,7 +18,6 @@ claude-header-defaults:
   os: "  MacOS  "
   arch: "  arm64  "
   timeout: "  900  "
-  timezone: "  Pacific/Honolulu  "
   stabilize-device-profile: false
 `)
 	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
@@ -47,9 +46,6 @@ claude-header-defaults:
 	}
 	if got := cfg.ClaudeHeaderDefaults.Timeout; got != "900" {
 		t.Fatalf("Timeout = %q, want %q", got, "900")
-	}
-	if got := cfg.ClaudeHeaderDefaults.Timezone; got != "Pacific/Honolulu" {
-		t.Fatalf("Timezone = %q, want %q", got, "Pacific/Honolulu")
 	}
 	if cfg.ClaudeHeaderDefaults.StabilizeDeviceProfile == nil {
 		t.Fatal("StabilizeDeviceProfile = nil, want non-nil")
@@ -91,5 +87,26 @@ func TestParseConfigBytes_ClaudeHeaderDefaultsOperatorOverrides(t *testing.T) {
 	}
 	if got := cfg.ClaudeHeaderDefaults.ClientRequestID; got != "" {
 		t.Fatalf("ClientRequestID = %q, want unknown mode reset to default", got)
+	}
+}
+
+func TestParseConfigBytes_NestedHeaderDefaultsClearedAfterMerge(t *testing.T) {
+	cfg, err := ParseConfigBytes([]byte(`upstream:
+  claude:
+    header-defaults:
+      client-request-id: "passthrough"
+      anthropic-beta-strip: ["beta-1"]
+`))
+	if err != nil {
+		t.Fatalf("ParseConfigBytes() error = %v", err)
+	}
+	if !reflect.DeepEqual(cfg.Upstream.Claude.HeaderDefaults, ClaudeHeaderDefaults{}) {
+		t.Fatalf("Upstream.Claude.HeaderDefaults = %+v, want empty after merge", cfg.Upstream.Claude.HeaderDefaults)
+	}
+	// A later edit of flat ClaudeHeaderDefaults should not be overridden by a subsequent sanitize call.
+	cfg.ClaudeHeaderDefaults.ClientRequestID = ClaudeClientRequestIDOff
+	cfg.SanitizeClaudeHeaderDefaults()
+	if got := cfg.ClaudeHeaderDefaults.ClientRequestID; got != ClaudeClientRequestIDOff {
+		t.Fatalf("ClientRequestID = %q, want %q after flat edit", got, ClaudeClientRequestIDOff)
 	}
 }

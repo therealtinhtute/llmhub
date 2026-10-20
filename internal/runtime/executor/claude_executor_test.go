@@ -3265,11 +3265,21 @@ func TestClaudeExecutor_PayloadFilterRemovesPreservedThinkingInjection(t *testin
 
 func TestApplyClaudeHeaders_BlockBindingBodyAlwaysGetsBindingBeta(t *testing.T) {
 	body := []byte(`{"model":"claude-haiku-5-5","thinking":{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}},"messages":[{"role":"user","content":"hi"}]}`)
-	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "k"}}
-	req := newClaudeHeaderTestRequest(t, nil)
-	applyClaudeHeaders(req, auth, "k", false, nil, body, nil)
-	betas := req.Header.Get("Anthropic-Beta")
-	if !strings.Contains(betas, claudeThinkingBindingBeta) {
-		t.Fatalf("Anthropic-Beta = %q, want %s", betas, claudeThinkingBindingBeta)
+	for _, tc := range []struct {
+		name string
+		auth *cliproxyauth.Auth
+		key  string
+	}{
+		{name: "cli_profile", auth: &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "k", "fingerprint_profile": "claude-code-cli"}}, key: "k"},
+		{name: "caller_owned", auth: &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "k", "caller_owned": "true"}}, key: "k"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := newClaudeHeaderTestRequest(t, nil)
+			applyClaudeHeaders(req, tc.auth, tc.key, false, nil, body, nil)
+			betas := req.Header.Get("Anthropic-Beta")
+			if !strings.Contains(betas, claudeThinkingBindingBeta) {
+				t.Fatalf("%s: Anthropic-Beta = %q, want %s", tc.name, betas, claudeThinkingBindingBeta)
+			}
+		})
 	}
 }

@@ -302,3 +302,15 @@ func TestApplyThinking_ClaudeAdaptiveOnlyModelsConvertBudgetAndAuto(t *testing.T
 		})
 	}
 }
+
+func TestValidateConfig_NonClaudeTargetFallsBackToLowestLevelWhenDisabledUnsupported(t *testing.T) {
+	info := registry.LookupModelInfo("claude-opus-5-5", "claude")
+	cfg := thinking.ThinkingConfig{Mode: thinking.ModeNone}
+	validated, err := thinking.ValidateConfig(cfg, info, "openai", "openai", false)
+	if err != nil {
+		t.Fatalf("ValidateConfig error: %v", err)
+	}
+	if validated.Level != thinking.LevelLow {
+		t.Fatalf("validated.Level = %q, want low", validated.Level)
+	}
+}

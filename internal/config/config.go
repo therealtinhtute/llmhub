@@ -307,7 +307,6 @@ type ClaudeHeaderDefaults struct {
 	AnthropicBetaAppend    []string `yaml:"anthropic-beta-append,omitempty" json:"anthropic-beta-append,omitempty"`
 	InjectDiagnostics      *bool    `yaml:"inject-diagnostics,omitempty" json:"inject-diagnostics,omitempty"`
 	ClientRequestID        string   `yaml:"client-request-id,omitempty" json:"client-request-id,omitempty"`
-	Timezone               string   `yaml:"timezone,omitempty" json:"timezone,omitempty"`
 }
 
 // Supported ClaudeHeaderDefaults.ClientRequestID values. An empty value means
@@ -1196,7 +1195,6 @@ func (cfg *Config) SanitizeClaudeHeaderDefaults() {
 	cfg.ClaudeHeaderDefaults.OS = strings.TrimSpace(cfg.ClaudeHeaderDefaults.OS)
 	cfg.ClaudeHeaderDefaults.Arch = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Arch)
 	cfg.ClaudeHeaderDefaults.Timeout = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timeout)
-	cfg.ClaudeHeaderDefaults.Timezone = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timezone)
 	cfg.ClaudeHeaderDefaults.AnthropicBetaStrip = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaStrip)
 	cfg.ClaudeHeaderDefaults.AnthropicBetaAppend = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaAppend)
 	mode := strings.ToLower(strings.TrimSpace(cfg.ClaudeHeaderDefaults.ClientRequestID))
@@ -1269,9 +1267,6 @@ func (cfg *Config) mergeUpstreamClaudeHeaderDefaults() {
 	}
 	if src.ClientRequestID != "" {
 		dst.ClientRequestID = src.ClientRequestID
-	}
-	if src.Timezone != "" {
-		dst.Timezone = src.Timezone
 	}
 	cfg.Upstream.Claude.HeaderDefaults = ClaudeHeaderDefaults{}
 }

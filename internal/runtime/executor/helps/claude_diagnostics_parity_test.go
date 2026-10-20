@@ -5,9 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/therealtinhtute/llmhub/internal/config"
-	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 // Focused parity tests for Claude upstream request continuity and probe/helper
@@ -240,29 +237,5 @@ func TestPinClaudeSessionDateRetentionSurvivesContinuityTTLAndCredentialSwitch(t
 	keyC, _, _ := BeginClaudeDiagnostics("credential-c", "session")
 	if got := PinClaudeSessionDate(keyC, "session", "2026-08-02", retention); got != "2026-08-02" {
 		t.Fatalf("post-pin-TTL pin = %q, want re-anchored 2026-08-02", got)
-	}
-}
-
-func TestClaudeCodeTimezoneAndCurrentDate(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.ClaudeHeaderDefaults.Timezone = "Pacific/Honolulu"
-
-	loc := ClaudeCodeTimezone(cfg, nil)
-	if loc.String() != "Pacific/Honolulu" {
-		t.Fatalf("ClaudeCodeTimezone = %v, want Pacific/Honolulu", loc)
-	}
-
-	auth := &cliproxyauth.Auth{
-		Attributes: map[string]string{"timezone": "America/New_York"},
-	}
-	locAuth := ClaudeCodeTimezone(cfg, auth)
-	if locAuth.String() != "America/New_York" {
-		t.Fatalf("ClaudeCodeTimezone(auth) = %v, want America/New_York", locAuth)
-	}
-
-	now := time.Date(2026, 10, 20, 15, 30, 0, 0, time.UTC)
-	dateStr := ClaudeCodeLocalDate(now)
-	if dateStr != "2026-10-20" {
-		t.Fatalf("ClaudeCodeLocalDate = %q, want 2026-10-20", dateStr)
 	}
 }

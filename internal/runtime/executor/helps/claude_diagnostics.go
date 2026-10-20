@@ -15,9 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-
-	"github.com/therealtinhtute/llmhub/internal/config"
-	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 )
 
 // Claude request continuity, probe/helper classification, and billing-tag
@@ -35,57 +32,6 @@ var (
 	claudeRequestIDPattern = regexp.MustCompile(`^req_[A-Za-z0-9_-]{1,36}$`)
 	claudePromptIDPattern  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
-
-// ClaudeCodeLocalDate formats a local calendar date as YYYY-MM-DD.
-func ClaudeCodeLocalDate(now time.Time) string {
-	year, month, day := now.Date()
-	return fmt.Sprintf("%04d-%02d-%02d", year, int(month), day)
-}
-
-// ClaudeCodeCurrentTime returns the current time in the configured Claude timezone.
-func ClaudeCodeCurrentTime(cfg *config.Config, auth *cliproxyauth.Auth) time.Time {
-	return time.Now().In(ClaudeCodeTimezone(cfg, auth))
-}
-
-// ClaudeCodeTimezone returns the configured Claude timezone location, falling back
-// to local time on an invalid or unconfigured timezone.
-func ClaudeCodeTimezone(cfg *config.Config, auth *cliproxyauth.Auth) *time.Location {
-	if timezone := ClaudeCredentialTimezone(auth); timezone != "" {
-		if location, errLocation := time.LoadLocation(timezone); errLocation == nil {
-			return location
-		}
-	}
-	if cfg == nil {
-		return time.Local
-	}
-	timezone := strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timezone)
-	if timezone == "" {
-		return time.Local
-	}
-	location, errLocation := time.LoadLocation(timezone)
-	if errLocation != nil {
-		return time.Local
-	}
-	return location
-}
-
-// ClaudeCredentialTimezone extracts a configured timezone from credential attributes or metadata.
-func ClaudeCredentialTimezone(auth *cliproxyauth.Auth) string {
-	if auth == nil {
-		return ""
-	}
-	if auth.Attributes != nil {
-		if timezone := strings.TrimSpace(auth.Attributes["timezone"]); timezone != "" {
-			return timezone
-		}
-	}
-	if auth.Metadata != nil {
-		if val, ok := auth.Metadata["timezone"].(string); ok {
-			return strings.TrimSpace(val)
-		}
-	}
-	return ""
-}
 
 type claudeContextKey string
 

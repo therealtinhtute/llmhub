@@ -68,8 +68,10 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 					out, _ = sjson.DeleteBytes(out, "thinking.budget_tokens")
 					out, _ = sjson.DeleteBytes(out, "output_config.effort")
 				default:
-					if mapped, ok := thinking.MapToClaudeEffort(effort, supportsMax); ok {
-						effort = mapped
+					if !thinking.HasLevel(mi.Thinking.Levels, effort) {
+						if mapped, ok := thinking.MapToClaudeEffort(effort, supportsMax); ok {
+							effort = mapped
+						}
 					}
 					out, _ = sjson.SetBytes(out, "thinking.type", "adaptive")
 					out, _ = sjson.DeleteBytes(out, "thinking.budget_tokens")
@@ -748,12 +750,40 @@ func stripTrailingClaudeThinkingBlocks(messages [][]byte) [][]byte {
 // disallows trailing assistant prefill. Adapted from upstream 6f25b9a14.
 func claudeModelRejectsAssistantPrefill(modelName string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(modelName))
-	for _, family := range []string{"fable", "opus-5", "sonnet-4-6"} {
-		if strings.Contains(normalized, family) {
-			return true
-		}
+	if index := strings.LastIndexByte(normalized, '/'); index >= 0 {
+		normalized = normalized[index+1:]
 	}
-	return false
+	normalized = strings.TrimPrefix(normalized, "claude-")
+	tokens := strings.Split(strings.ReplaceAll(normalized, ".", "-"), "-")
+	if len(tokens) == 0 {
+		return false
+	}
+	if tokens[0] == "fable" {
+		return true
+	}
+	if len(tokens) < 2 || (tokens[0] != "opus" && tokens[0] != "sonnet" && tokens[0] != "haiku") {
+		return false
+	}
+	parseVersion := func(token string) int {
+		if token == "" || len(token) >= 8 {
+			return -1
+		}
+		for i := range token {
+			if token[i] < '0' || token[i] > '9' {
+				return -1
+			}
+		}
+		version, errAtoi := strconv.Atoi(token)
+		if errAtoi != nil {
+			return -1
+		}
+		return version
+	}
+	major := parseVersion(tokens[1])
+	if major >= 5 {
+		return true
+	}
+	return tokens[0] == "sonnet" && major == 4 && len(tokens) > 2 && parseVersion(tokens[2]) >= 6
 }
 
 // dropUnsupportedClaudeAssistantPrefill removes a trailing assistant prefill

@@ -17,14 +17,23 @@ import (
 func ResolveModelInfo(name, modelType string, support *registry.ThinkingSupport) *registry.ModelInfo {
 	trimmedName := strings.TrimSpace(name)
 	baseName := strings.TrimSpace(thinking.ParseSuffix(trimmedName).ModelName)
-	info := registry.LookupStaticModelInfo(baseName)
+	info := registry.LookupModelInfo(baseName, modelType)
+	if info == nil {
+		info = registry.LookupStaticModelInfo(baseName)
+	}
 	if info == nil {
 		info = &registry.ModelInfo{}
 	}
 	info.ID = trimmedName
 	info.Type = strings.TrimSpace(modelType)
 	if support != nil {
-		info.Thinking = NormalizeThinkingSupport(support)
+		normalized := NormalizeThinkingSupport(support)
+		// Configured levels replace the catalog entry, but the way a known model
+		// turns thinking off is an upstream API fact, not a level choice.
+		if normalized.DisableType == "" && info.Thinking != nil {
+			normalized.DisableType = info.Thinking.DisableType
+		}
+		info.Thinking = normalized
 	}
 	info.UserDefined = false
 	return info

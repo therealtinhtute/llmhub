@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1279,5 +1280,88 @@ func TestConvertOpenAIResponsesRequestToClaude_StringInput(t *testing.T) {
 	}
 	if got := complexMsgs[0].Get("content").String(); got != "line 1\n\"line 2\"\n你好，世界 🌍" {
 		t.Fatalf("unexpected content for complex input, got %q", got)
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToClaude_UnsupportedPrefillModelsStripTrailingAssistant(t *testing.T) {
+	unsupportedModels := []string{
+		"claude-fable-5",
+		"claude-opus-5",
+		"claude-sonnet-4-6",
+		"fable",
+		"opus-5",
+		"sonnet-4.6",
+		"anthropic/claude-opus-5-thinking",
+		"claude-sonnet-4.6",
+		"claude-sonnet-4-7",
+		"claude-sonnet-4-10",
+		"claude-sonnet-5",
+		"claude-opus-6",
+		"claude-opus-5.1",
+		"claude-sonnet-4-6-20260217",
+		" ANTHROPIC/CLAUDE-OPUS-5-THINKING ",
+		"claude-haiku-5-5",
+		"claude-haiku-5",
+		"claude-haiku-5.5",
+		"haiku-5-5",
+		"anthropic/claude-haiku-5-5",
+	}
+	for _, model := range unsupportedModels {
+		t.Run(model, func(t *testing.T) {
+			raw := []byte(fmt.Sprintf(`{
+				"model": %q,
+				"input": [
+					{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hello"}]},
+					{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "progress update"}]}
+				]
+			}`, model))
+			out := ConvertOpenAIResponsesRequestToClaude(model, raw, false)
+			messages := gjson.GetBytes(out, "messages").Array()
+			if len(messages) != 1 {
+				t.Fatalf("expected 1 message after stripping trailing assistant prefill for model %s, got %d: %s", model, len(messages), string(out))
+			}
+			if got := messages[0].Get("role").String(); got != "user" {
+				t.Fatalf("expected final message role = %q, got %q", "user", got)
+			}
+			if got := messages[0].Get("content").String(); got != "hello" {
+				t.Fatalf("expected content = %q, got %q", "hello", got)
+			}
+		})
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToClaude_SupportedPrefillModelsPreserveAssistantPrefill(t *testing.T) {
+	supportedModels := []string{
+		"claude-sonnet-4-5",
+		"claude-haiku-4-5",
+		"claude-haiku-5foo",
+		"claude-haiku-20260217",
+		"claude-3-opus-20240229",
+		"claude-opus-20240229",
+		"claude-sonnet-4-20260217",
+		"claude-sonnet-4.5",
+		"not-a-fable-model",
+		"my-custom-opus-5-wrapper",
+		"my-sonnet-4-6-wrapper",
+		"claude-fabled-5",
+	}
+	for _, model := range supportedModels {
+		t.Run(model, func(t *testing.T) {
+			raw := []byte(fmt.Sprintf(`{
+				"model": %q,
+				"input": [
+					{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hello"}]},
+					{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "progress update"}]}
+				]
+			}`, model))
+			out := ConvertOpenAIResponsesRequestToClaude(model, raw, false)
+			messages := gjson.GetBytes(out, "messages").Array()
+			if len(messages) != 2 {
+				t.Fatalf("expected 2 messages for supported prefill model %s, got %d: %s", model, len(messages), string(out))
+			}
+			if got := messages[1].Get("role").String(); got != "assistant" {
+				t.Fatalf("expected trailing message role = %q, got %q", "assistant", got)
+			}
+		})
 	}
 }

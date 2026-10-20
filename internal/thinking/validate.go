@@ -160,6 +160,20 @@ func ValidateConfig(config ThinkingConfig, modelInfo *registry.ModelInfo, fromFo
 	}
 
 	if config.Mode == ModeNone && toFormat == "claude" {
+		if !support.ZeroAllowed {
+			if lowest, ok := lowestSupportedLevel(support.Levels); ok {
+				config.Mode = ModeLevel
+				config.Level = lowest
+				config.Budget = 0
+				return &config, nil
+			}
+			if support.Min > 0 {
+				config.Mode = ModeBudget
+				config.Budget = support.Min
+				config.Level = ""
+				return &config, nil
+			}
+		}
 		// Claude supports explicit disable via thinking.type="disabled".
 		// Keep Budget=0 so applier can omit budget_tokens.
 		config.Budget = 0
@@ -173,7 +187,9 @@ func ValidateConfig(config ThinkingConfig, modelInfo *registry.ModelInfo, fromFo
 		// ModeNone with clamped Budget > 0: set Level to lowest for Level-only/Hybrid models
 		// This ensures Apply layer doesn't need to access support.Levels
 		if config.Mode == ModeNone && config.Budget > 0 && len(support.Levels) > 0 {
-			config.Level = ThinkingLevel(support.Levels[0])
+			if lowest, ok := lowestSupportedLevel(support.Levels); ok {
+				config.Level = lowest
+			}
 		}
 	}
 
@@ -228,6 +244,23 @@ func convertAutoToMidRange(config ThinkingConfig, support *registry.ThinkingSupp
 
 // standardLevelOrder defines the canonical ordering of thinking levels from lowest to highest.
 var standardLevelOrder = []ThinkingLevel{LevelMinimal, LevelLow, LevelMedium, LevelHigh, LevelXHigh, LevelMax}
+
+// lowestSupportedLevel returns the lowest canonical effort level in supported,
+// ignoring mode markers such as "none" and "auto".
+func lowestSupportedLevel(supported []string) (ThinkingLevel, bool) {
+	bestIdx := -1
+	for _, s := range supported {
+		if idx := levelIndex(strings.TrimSpace(s)); idx != -1 {
+			if bestIdx == -1 || idx < bestIdx {
+				bestIdx = idx
+			}
+		}
+	}
+	if bestIdx >= 0 {
+		return standardLevelOrder[bestIdx], true
+	}
+	return "", false
+}
 
 // clampLevel clamps the given level to the nearest supported level.
 // On tie, prefers the lower level.

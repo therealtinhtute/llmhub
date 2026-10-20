@@ -19,10 +19,16 @@ func ResolveModelInfo(name, modelType string, support *registry.ThinkingSupport)
 	baseName := strings.TrimSpace(thinking.ParseSuffix(trimmedName).ModelName)
 	info := registry.LookupModelInfo(baseName, modelType)
 	if info == nil {
-		info = registry.LookupStaticModelInfo(baseName)
-	}
-	if info == nil {
 		info = &registry.ModelInfo{}
+	}
+	// A runtime entry registered for routing purposes (for example only to
+	// advertise configuration_update) can shadow the static catalog entry for
+	// the same ID without carrying capability data. Keep the catalog's thinking
+	// support in that case; an entry with its own ThinkingSupport still wins.
+	if info.Thinking == nil && !info.ExplicitThinking {
+		if static := registry.LookupStaticModelInfo(baseName); static != nil {
+			info.Thinking = static.Thinking
+		}
 	}
 	info.ID = trimmedName
 	info.Type = strings.TrimSpace(modelType)

@@ -86,6 +86,69 @@ func TestResolveModelInfoConfiguredThinkingKeepsCatalogDisableType(t *testing.T)
 	}
 }
 
+// A runtime registration for the same ID must not hide catalog capabilities it
+// does not declare itself (P13: unlisted execution model lost Thinking).
+func TestResolveModelInfoKeepsCatalogThinkingWhenRegistryEntryShadowsIt(t *testing.T) {
+	const modelID = "gpt-6-luna"
+	static := registry.LookupStaticModelInfo(modelID)
+	if static == nil || static.Thinking == nil {
+		t.Fatalf("catalog entry %q missing thinking support", modelID)
+	}
+	reg := registry.GetGlobalRegistry()
+	reg.RegisterClient("shadow-"+modelID, "codex", []*registry.ModelInfo{{ID: modelID, SupportConfigurationUpdate: true}})
+	t.Cleanup(func() { reg.UnregisterClient("shadow-" + modelID) })
+
+	info := ResolveModelInfo(modelID, "codex", nil)
+	if info == nil || info.Thinking == nil {
+		t.Fatalf("ResolveModelInfo() = %+v, want catalog thinking support", info)
+	}
+	if len(info.Thinking.Levels) != len(static.Thinking.Levels) {
+		t.Fatalf("thinking levels = %v, want catalog %v", info.Thinking.Levels, static.Thinking.Levels)
+	}
+	for i := range static.Thinking.Levels {
+		if info.Thinking.Levels[i] != static.Thinking.Levels[i] {
+			t.Fatalf("thinking levels = %v, want catalog %v", info.Thinking.Levels, static.Thinking.Levels)
+		}
+	}
+}
+
+// A shadowing runtime entry must not disable the family lookup that gives
+// Claude bracket/dated variants their catalog capabilities.
+func TestResolveModelInfoKeepsCatalogThinkingForShadowedClaudeVariant(t *testing.T) {
+	const modelID = "claude-sonnet-5-5[1m]"
+	reg := registry.GetGlobalRegistry()
+	reg.RegisterClient("variant-"+modelID, "claude", []*registry.ModelInfo{{ID: modelID, SupportConfigurationUpdate: true}})
+	t.Cleanup(func() { reg.UnregisterClient("variant-" + modelID) })
+
+	info := ResolveModelInfo(modelID, "claude", nil)
+	if info == nil || info.Thinking == nil {
+		t.Fatalf("ResolveModelInfo() = %+v, want family catalog thinking support", info)
+	}
+	if got := info.Thinking.DisableType; got != "between_tools" {
+		t.Fatalf("DisableType = %q, want catalog between_tools", got)
+	}
+}
+
+// A registry entry that declares its own thinking support still overrides the
+// catalog entry instead of being replaced by it.
+func TestResolveModelInfoPrefersRegistryThinkingOverCatalog(t *testing.T) {
+	const modelID = "gpt-6-luna"
+	reg := registry.GetGlobalRegistry()
+	reg.RegisterClient("thinking-"+modelID, "codex", []*registry.ModelInfo{{
+		ID:       modelID,
+		Thinking: &registry.ThinkingSupport{Levels: []string{"minimal"}},
+	}})
+	t.Cleanup(func() { reg.UnregisterClient("thinking-" + modelID) })
+
+	info := ResolveModelInfo(modelID, "codex", nil)
+	if info == nil || info.Thinking == nil {
+		t.Fatalf("ResolveModelInfo() = %+v, want registry thinking support", info)
+	}
+	if got := info.Thinking.Levels; len(got) != 1 || got[0] != "minimal" {
+		t.Fatalf("thinking levels = %v, want [minimal]", got)
+	}
+}
+
 func TestResolveModelInfoUnknownModelKeepsMissingCapability(t *testing.T) {
 	info := ResolveModelInfo("unknown-configured-model", "claude", nil)
 	if info == nil {

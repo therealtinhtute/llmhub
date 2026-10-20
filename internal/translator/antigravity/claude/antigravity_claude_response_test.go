@@ -419,7 +419,7 @@ func sseDataForEvent(t *testing.T, output string, eventName string) string {
 	return ""
 }
 
-func TestConvertAntigravityResponseToClaude_CachedToken_ZeroCandidatesDoesNotCountCachedAsOutput(t *testing.T) {
+func TestConvertAntigravityResponseToClaude_CachedToken_DoesNotCountCachedAsOutput(t *testing.T) {
 	requestJSON := []byte(`{"model":"gemini-3.8-flash-high"}`)
 	responseJSON := []byte(`{
 		"response": {
@@ -446,6 +446,32 @@ func TestConvertAntigravityResponseToClaude_CachedToken_ZeroCandidatesDoesNotCou
 	}
 	if got := gjson.Get(messageDelta, "usage.cache_read_input_tokens").Int(); got != 140830 {
 		t.Fatalf("cache_read_input_tokens = %d, want 140830: %s", got, messageDelta)
+	}
+}
+
+func TestConvertAntigravityResponseToClaude_CachedToken_EmptyResponseEmitsZeroEventsOnDone(t *testing.T) {
+	requestJSON := []byte(`{"model":"gemini-3.8-flash-high"}`)
+	responseJSON := []byte(`{
+		"response": {
+			"candidates": [{
+				"content": {"role": "model", "parts": []},
+				"finishReason": "STOP"
+			}],
+			"usageMetadata": {"promptTokenCount": 142871, "cachedContentTokenCount": 140830, "candidatesTokenCount": 0, "thoughtsTokenCount": 0, "totalTokenCount": 142871},
+			"modelVersion": "gemini-3.8-flash-n",
+			"responseId": "resp_cached_empty_candidates"
+		}
+	}`)
+
+	var param any
+	output := bytes.Join(ConvertAntigravityResponseToClaude(context.Background(), "gemini-3.8-flash-high", requestJSON, requestJSON, responseJSON, &param), nil)
+	doneOutput := bytes.Join(ConvertAntigravityResponseToClaude(context.Background(), "gemini-3.8-flash-high", requestJSON, requestJSON, []byte("[DONE]"), &param), nil)
+
+	if len(doneOutput) != 0 {
+		t.Fatalf("expected 0 bytes on [DONE] for empty response, got %q", string(doneOutput))
+	}
+	if strings.Contains(string(output), "message_delta") {
+		t.Fatalf("unexpected message_delta emitted for response with no content: %s", string(output))
 	}
 }
 
@@ -540,5 +566,22 @@ func TestConvertAntigravityResponseToClaude_ClaudeTool_ParameterlessContinuation
 	}
 	if strings.Contains(streamText, `"name":""`) {
 		t.Fatalf("continuation must not open an unnamed tool_use block: %s", streamText)
+	}
+}
+
+func TestConvertAntigravityResponseToClaude_ClaudeTool_KeepsReasonWhenTranslatedSchemaHasNoPlaceholder(t *testing.T) {
+	origRequest := []byte(`{"model":"claude-sonnet-4-6","tools":[{"name":"BashOptions","input_schema":{"type":"object","properties":{"flag":{"type":"string"}},"required":["flag"]}}]}`)
+	translatedRequest := ConvertClaudeRequestToAntigravity("claude-sonnet-4-6", origRequest, false)
+	responseJSON := []byte(`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"BashOptions","args":{"flag":"x","reason":"why"}}}]},"finishReason":"STOP"}],"modelVersion":"gemini-3.8-flash-high","responseId":"resp-bash-reason"}}`)
+
+	nonStream := ConvertAntigravityResponseToClaudeNonStream(context.Background(), "claude-sonnet-4-6", origRequest, translatedRequest, responseJSON, nil)
+	if got := gjson.GetBytes(nonStream, "content.0.input").Raw; got != `{"flag":"x","reason":"why"}` {
+		t.Fatalf("expected non-streaming input preserved on translated branch, got %s (translated: %s)", got, string(translatedRequest))
+	}
+
+	// Verify discriminating behavior: fallback without translated schema strips "reason".
+	fallbackOnly := ConvertAntigravityResponseToClaudeNonStream(context.Background(), "claude-sonnet-4-6", origRequest, nil, responseJSON, nil)
+	if got := gjson.GetBytes(fallbackOnly, "content.0.input").Raw; got != `{"flag":"x"}` {
+		t.Fatalf("expected fallback to strip reason, got %s", got)
 	}
 }

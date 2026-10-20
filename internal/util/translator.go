@@ -988,7 +988,7 @@ func cleanClaudeToolObject(argsJSON string, schemas []gjson.Result, root gjson.R
 	return cleaned
 }
 
-func findTranslatedClaudeToolSchemas(translatedRequestRawJSON []byte, toolName string, originalRequestRawJSON []byte) []gjson.Result {
+func findTranslatedClaudeToolSchemas(translatedRequestRawJSON []byte, toolName string) []gjson.Result {
 	if toolName == "" || len(translatedRequestRawJSON) == 0 || !gjson.ValidBytes(translatedRequestRawJSON) {
 		return nil
 	}
@@ -1544,7 +1544,7 @@ func cleanClaudeTranslatedArray(argsJSON string, translatedArraySchemas []gjson.
 // CleanClaudeToolArguments. Parameterless tools are still normalized to "{}" because a
 // strict Claude client rejects any argument for them.
 func CleanClaudeToolArgumentsWithTranslated(rawArgs string, toolName string, originalRequestRawJSON []byte, translatedRequestRawJSON []byte) string {
-	if translatedSchemas := findTranslatedClaudeToolSchemas(translatedRequestRawJSON, toolName, originalRequestRawJSON); len(translatedSchemas) > 0 {
+	if translatedSchemas := findTranslatedClaudeToolSchemas(translatedRequestRawJSON, toolName); len(translatedSchemas) > 0 {
 		rawArgs = strings.TrimSpace(rawArgs)
 		if rawArgs == "" || rawArgs == "{}" {
 			return "{}"

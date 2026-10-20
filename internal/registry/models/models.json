@@ -111,9 +111,8 @@
       "context_length": 1000000,
       "max_completion_tokens": 128000,
       "thinking": {
-        "min": 1024,
-        "max": 128000,
         "zero_allowed": true,
+        "dynamic_allowed": true,
         "levels": [
           "low",
           "medium",
@@ -258,9 +257,8 @@
       "context_length": 1000000,
       "max_completion_tokens": 128000,
       "thinking": {
-        "min": 1024,
-        "max": 128000,
         "zero_allowed": true,
+        "dynamic_allowed": true,
         "levels": [
           "low",
           "medium",
@@ -349,9 +347,8 @@
       "context_length": 1000000,
       "max_completion_tokens": 128000,
       "thinking": {
-        "min": 1024,
-        "max": 128000,
-        "zero_allowed": true,
+        "zero_allowed": false,
+        "dynamic_allowed": true,
         "levels": [
           "low",
           "medium",
@@ -379,9 +376,8 @@
       "context_length": 1000000,
       "max_completion_tokens": 128000,
       "thinking": {
-        "min": 1024,
-        "max": 128000,
-        "zero_allowed": true,
+        "zero_allowed": false,
+        "dynamic_allowed": true,
         "levels": [
           "low",
           "medium",
@@ -412,7 +408,7 @@
       "context_length": 1000000,
       "max_completion_tokens": 128000,
       "thinking": {
-        "zero_allowed": true,
+        "zero_allowed": false,
         "dynamic_allowed": true,
         "levels": [
           "low",
@@ -446,6 +442,7 @@
       "thinking": {
         "zero_allowed": true,
         "dynamic_allowed": true,
+        "disable_type": "between_tools",
         "levels": [
           "low",
           "medium",
@@ -998,6 +995,39 @@
       "supportedOutputModalities": [
         "text"
       ]
+    },
+    {
+      "id": "gemini-4-argon",
+      "object": "model",
+      "owned_by": "google",
+      "type": "gemini",
+      "display_name": "Gemini 4 Argon",
+      "name": "models/gemini-4-argon",
+      "description": "Gemini 4 Argon",
+      "context_length": 1048576,
+      "max_completion_tokens": 1048576,
+      "thinking": {
+        "min": 128,
+        "max": 65535,
+        "dynamic_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     }
   ],
   "vertex": [
@@ -5369,8 +5399,8 @@
       "display_name": "Muse Wonder 1.0",
       "name": "muse-wonder-1.0",
       "description": "Meta's most capable model, built for complex software engineering and long-horizon agentic work.",
-      "context_length": 1048576,
-      "max_completion_tokens": 65536,
+      "context_length": 1007997,
+      "max_completion_tokens": 128000,
       "thinking": {
         "levels": [
           "minimal",
@@ -5400,8 +5430,70 @@
       "display_name": "Muse Wonder 1.0 Contributor",
       "name": "muse-wonder-1.0-contributor",
       "description": "Meta's most capable model, built for complex software engineering and long-horizon agentic work.",
-      "context_length": 1048576,
-      "max_completion_tokens": 65536,
+      "context_length": 1007997,
+      "max_completion_tokens": 128000,
+      "thinking": {
+        "levels": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "muse-wonder-full-1.0",
+      "object": "model",
+      "created": 1791763200,
+      "owned_by": "meta",
+      "type": "meta",
+      "display_name": "Muse Wonder Full 1.0",
+      "name": "muse-wonder-full-1.0",
+      "description": "Meta's most capable model, built for complex software engineering and long-horizon agentic work.",
+      "context_length": 1007997,
+      "max_completion_tokens": 128000,
+      "thinking": {
+        "levels": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "muse-wonder-full-1.0-contributor",
+      "object": "model",
+      "created": 1791763200,
+      "owned_by": "meta",
+      "type": "meta",
+      "display_name": "Muse Wonder Full 1.0 Contributor",
+      "name": "muse-wonder-full-1.0-contributor",
+      "description": "Meta's most capable model, built for complex software engineering and long-horizon agentic work.",
+      "context_length": 1007997,
+      "max_completion_tokens": 128000,
       "thinking": {
         "levels": [
           "minimal",

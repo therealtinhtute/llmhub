@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +53,114 @@ claude-header-defaults:
 	}
 	if got := *cfg.ClaudeHeaderDefaults.StabilizeDeviceProfile; got {
 		t.Fatalf("StabilizeDeviceProfile = %v, want false", got)
+	}
+}
+
+func TestParseConfigBytes_ClaudeHeaderDefaultsOperatorOverrides(t *testing.T) {
+	cfg, err := ParseConfigBytes([]byte(`upstream:
+  claude:
+    header-defaults:
+      anthropic-beta-strip: [" cache-diagnosis-2026-04-07 ", "", "cache-diagnosis-2026-04-07"]
+      anthropic-beta-append: ["context-1m-2025-08-07", " context-1m-2025-08-07 ", "advisor-tool-2026-03-01"]
+      inject-diagnostics: false
+      client-request-id: " PassThrough "
+`))
+	if err != nil {
+		t.Fatalf("ParseConfigBytes() error = %v", err)
+	}
+	hd := cfg.ClaudeHeaderDefaults
+	if want := []string{"cache-diagnosis-2026-04-07"}; !reflect.DeepEqual(hd.AnthropicBetaStrip, want) {
+		t.Fatalf("AnthropicBetaStrip = %q, want %q", hd.AnthropicBetaStrip, want)
+	}
+	if want := []string{"context-1m-2025-08-07", "advisor-tool-2026-03-01"}; !reflect.DeepEqual(hd.AnthropicBetaAppend, want) {
+		t.Fatalf("AnthropicBetaAppend = %q, want %q", hd.AnthropicBetaAppend, want)
+	}
+	if hd.InjectDiagnostics == nil || *hd.InjectDiagnostics {
+		t.Fatalf("InjectDiagnostics = %v, want explicit false", hd.InjectDiagnostics)
+	}
+	if hd.ClientRequestID != ClaudeClientRequestIDPassthrough {
+		t.Fatalf("ClientRequestID = %q, want %q", hd.ClientRequestID, ClaudeClientRequestIDPassthrough)
+	}
+
+	cfg, err = ParseConfigBytes([]byte("claude-header-defaults: {client-request-id: sometimes}\n"))
+	if err != nil {
+		t.Fatalf("ParseConfigBytes() error = %v", err)
+	}
+	if got := cfg.ClaudeHeaderDefaults.ClientRequestID; got != "" {
+		t.Fatalf("ClientRequestID = %q, want unknown mode reset to default", got)
+	}
+}
+
+func TestParseConfigBytes_NestedHeaderDefaultsClearedAfterMerge(t *testing.T) {
+	cfg, err := ParseConfigBytes([]byte(`upstream:
+  claude:
+    header-defaults:
+      client-request-id: "passthrough"
+      anthropic-beta-strip: ["beta-1"]
+`))
+	if err != nil {
+		t.Fatalf("ParseConfigBytes() error = %v", err)
+	}
+	if !reflect.DeepEqual(cfg.Upstream.Claude.HeaderDefaults, ClaudeHeaderDefaults{}) {
+		t.Fatalf("Upstream.Claude.HeaderDefaults = %+v, want empty after merge", cfg.Upstream.Claude.HeaderDefaults)
+	}
+	// A later edit of flat ClaudeHeaderDefaults should not be overridden by a subsequent sanitize call.
+	cfg.ClaudeHeaderDefaults.ClientRequestID = ClaudeClientRequestIDOff
+	cfg.SanitizeClaudeHeaderDefaults()
+	if got := cfg.ClaudeHeaderDefaults.ClientRequestID; got != ClaudeClientRequestIDOff {
+		t.Fatalf("ClientRequestID = %q, want %q after flat edit", got, ClaudeClientRequestIDOff)
+	}
+}
+
+func TestSaveConfigPreserveComments_NestedHeaderDefaultsPrunedAndFlatEditPersists(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	initialYAML := []byte(`
+upstream:
+  claude:
+    header-defaults:
+      client-request-id: "passthrough"
+      anthropic-beta-strip: ["beta-strip-1"]
+`)
+	if err := os.WriteFile(configPath, initialYAML, 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfigOptional(configPath, false)
+	if err != nil {
+		t.Fatalf("LoadConfigOptional() error = %v", err)
+	}
+	if cfg.ClaudeHeaderDefaults.ClientRequestID != ClaudeClientRequestIDPassthrough {
+		t.Fatalf("ClientRequestID = %q, want passthrough", cfg.ClaudeHeaderDefaults.ClientRequestID)
+	}
+
+	// Save back to file using SaveConfigPreserveComments.
+	if err := SaveConfigPreserveComments(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfigPreserveComments() error = %v", err)
+	}
+
+	savedBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(savedBytes), "upstream:") {
+		t.Fatalf("saved file still contains upstream section: %s", string(savedBytes))
+	}
+
+	// Now modify the flat claude-header-defaults in the file and reload.
+	flatEditedYAML := []byte(`
+claude-header-defaults:
+  client-request-id: "off"
+`)
+	if err := os.WriteFile(configPath, flatEditedYAML, 0o600); err != nil {
+		t.Fatalf("failed to write edited config: %v", err)
+	}
+
+	reloaded, err := LoadConfigOptional(configPath, false)
+	if err != nil {
+		t.Fatalf("LoadConfigOptional() reload error = %v", err)
+	}
+	if got := reloaded.ClaudeHeaderDefaults.ClientRequestID; got != ClaudeClientRequestIDOff {
+		t.Fatalf("reloaded ClientRequestID = %q, want off (flat edit was shadowed)", got)
 	}
 }

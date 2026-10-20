@@ -1405,6 +1405,29 @@ func normalizeXAITool(tool gjson.Result) ([]byte, bool, bool) {
 	return normalizeXAIToolWithDeclaration(tool, "", nil, false)
 }
 
+// xaiUnsupportedWebSearchFields are OpenAI Responses web_search options that the
+// xAI Responses API rejects with "Argument not supported". Options xAI accepts,
+// such as filters, user_location and search_content_types, are forwarded as is.
+var xaiUnsupportedWebSearchFields = [...]string{"external_web_access", "search_context_size"}
+
+// stripUnsupportedXAIWebSearchFields removes web_search options that xAI rejects
+// and reports which ones were removed.
+func stripUnsupportedXAIWebSearchFields(raw []byte) ([]byte, []string, bool) {
+	var removed []string
+	for _, field := range xaiUnsupportedWebSearchFields {
+		if !gjson.GetBytes(raw, field).Exists() {
+			continue
+		}
+		updated, errDel := sjson.DeleteBytes(raw, field)
+		if errDel != nil {
+			return nil, nil, false
+		}
+		raw = updated
+		removed = append(removed, field)
+	}
+	return raw, removed, true
+}
+
 func normalizeXAIToolWithDeclaration(tool gjson.Result, namespace string, declarations *xaiToolDeclarations, keepImageGeneration bool) ([]byte, bool, bool) {
 	toolType := tool.Get("type").String()
 	changed := false
@@ -1429,14 +1452,16 @@ func normalizeXAIToolWithDeclaration(tool gjson.Result, namespace string, declar
 		toolType = xaiFunctionToolType
 		changed = true
 	}
-	if toolType == xaiWebSearchToolType && tool.Get("external_web_access").Exists() {
-		updatedTool, errDel := sjson.DeleteBytes(raw, "external_web_access")
-		if errDel != nil {
+	if toolType == xaiWebSearchToolType {
+		updatedTool, removed, ok := stripUnsupportedXAIWebSearchFields(raw)
+		if !ok {
 			return nil, false, false
 		}
-		raw = updatedTool
-		schemaTool = gjson.ParseBytes(raw)
-		changed = true
+		if len(removed) > 0 {
+			raw = updatedTool
+			changed = true
+			log.Debugf("xai: removed unsupported web_search fields %v", removed)
+		}
 	}
 	if toolType == xaiFunctionToolType && !tool.Get("parameters").Exists() {
 		updatedTool, errSet := sjson.SetRawBytes(raw, "parameters", []byte(`{"type":"object","properties":{}}`))

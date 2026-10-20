@@ -15,6 +15,7 @@ import (
 
 type recordingConfigStore struct {
 	data      []byte
+	version   int64
 	saveErr   error
 	saveCount int
 }
@@ -29,6 +30,16 @@ func (s *recordingConfigStore) SaveConfig(_ context.Context, data []byte) (int64
 	}
 	s.saveCount++
 	s.data = append([]byte(nil), data...)
+	if s.version < int64(s.saveCount) {
+		s.version = int64(s.saveCount)
+	}
+	return s.version, nil
+}
+
+func (s *recordingConfigStore) CurrentVersion(context.Context) (int64, error) {
+	if s.version > 0 {
+		return s.version, nil
+	}
 	return int64(s.saveCount), nil
 }
 

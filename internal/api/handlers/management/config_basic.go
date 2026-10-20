@@ -23,11 +23,25 @@ const (
 )
 
 func (h *Handler) GetConfig(c *gin.Context) {
-	if h == nil || h.cfg == nil {
-		c.JSON(200, gin.H{})
+	if h == nil {
+		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
-	c.JSON(200, new(*h.cfg))
+	h.mu.Lock()
+	if h.cfg == nil {
+		h.mu.Unlock()
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
+	snapshot := h.cfg.CloneForRuntime()
+	h.mu.Unlock()
+
+	c.Header("Cache-Control", "no-store")
+	if currentVersion > 0 {
+		c.Header("ETag", formatConfigETag(currentVersion))
+	}
+	c.JSON(http.StatusOK, snapshot)
 }
 
 type releaseInfo struct {
@@ -128,11 +142,19 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		return
 	}
 	h.mu.Lock()
-	if _, errSave := h.configStore.SaveConfig(c.Request.Context(), body); errSave != nil {
+	if !h.validateIfMatchLocked(c) {
+		h.mu.Unlock()
+		return
+	}
+	version, errSave := h.configStore.SaveConfig(c.Request.Context(), body)
+	if errSave != nil {
 		h.mu.Unlock()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errSave.Error()})
 		return
 	}
+	h.configVersion = version
+	newCfg.ConfigVersion = version
+	c.Header("ETag", formatConfigETag(version))
 	h.cfg = newCfg
 	hook := h.configChangeHook
 	h.mu.Unlock()
@@ -145,15 +167,13 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 // GetConfigYAML returns the raw config.yaml file bytes without re-encoding.
 // It preserves comments and original formatting/styles.
 func (h *Handler) GetConfigYAML(c *gin.Context) {
-	var (
-		data []byte
-		err  error
-	)
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.configStore == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": "management config store is not configured"})
 		return
 	}
-	data, err = h.configStore.LoadConfigBytes(c.Request.Context())
+	data, err := h.configStore.LoadConfigBytes(c.Request.Context())
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "config file not found"})
@@ -161,6 +181,10 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": err.Error()})
 		return
+	}
+	currentVersion, _ := h.currentConfigVersionLocked(c.Request.Context())
+	if currentVersion > 0 {
+		c.Header("ETag", formatConfigETag(currentVersion))
 	}
 	c.Header("Content-Type", "application/yaml; charset=utf-8")
 	c.Header("Cache-Control", "no-store")
@@ -205,8 +229,13 @@ func (h *Handler) PutLogsMaxTotalSizeMB(c *gin.Context) {
 	if value < 0 {
 		value = 0
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.LogsMaxTotalSizeMB = value
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 // ErrorLogsMaxFiles
@@ -225,8 +254,13 @@ func (h *Handler) PutErrorLogsMaxFiles(c *gin.Context) {
 	if value < 0 {
 		value = 10
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.ErrorLogsMaxFiles = value
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 // Request log
@@ -301,8 +335,13 @@ func (h *Handler) PutRoutingStrategy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid strategy"})
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.Routing.Strategy = normalized
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }
 
 // Proxy URL
@@ -311,6 +350,11 @@ func (h *Handler) PutProxyURL(c *gin.Context) {
 	h.updateStringField(c, func(v string) { h.cfg.ProxyURL = v })
 }
 func (h *Handler) DeleteProxyURL(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.validateIfMatchLocked(c) {
+		return
+	}
 	h.cfg.ProxyURL = ""
-	h.persist(c)
+	h.persistLockedAndRespond(c)
 }

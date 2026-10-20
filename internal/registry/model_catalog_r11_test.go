@@ -67,13 +67,13 @@ func TestR11GeminiArgonVariants(t *testing.T) {
 }
 
 func TestR11MuseWonderModels(t *testing.T) {
-	for _, id := range []string{"muse-wonder-1.0", "muse-wonder-1.0-contributor"} {
+	for _, id := range []string{"muse-wonder-1.0", "muse-wonder-1.0-contributor", "muse-wonder-full-1.0", "muse-wonder-full-1.0-contributor"} {
 		got := requireModelDefinition(t, GetMetaModels(), id)
 		if got.Type != "meta" {
 			t.Fatalf("%s type = %q, want meta", id, got.Type)
 		}
-		if got.ContextLength != 1048576 || got.MaxCompletionTokens != 65536 {
-			t.Fatalf("%s context/max = %d/%d, want 1048576/65536", id, got.ContextLength, got.MaxCompletionTokens)
+		if got.ContextLength != 1007997 || got.MaxCompletionTokens != 128000 {
+			t.Fatalf("%s context/max = %d/%d, want 1007997/128000", id, got.ContextLength, got.MaxCompletionTokens)
 		}
 		if got.Thinking == nil || len(got.Thinking.Levels) != 6 {
 			t.Fatalf("%s thinking levels = %#v, want 6 levels", id, got.Thinking)
@@ -85,7 +85,7 @@ func TestR11MuseWonderModels(t *testing.T) {
 
 	for _, channel := range []string{"meta", "muse", "META"} {
 		models := GetStaticModelDefinitionsByChannel(channel)
-		for _, id := range []string{"muse-wonder-1.0", "muse-wonder-1.0-contributor"} {
+		for _, id := range []string{"muse-wonder-1.0", "muse-wonder-1.0-contributor", "muse-wonder-full-1.0", "muse-wonder-full-1.0-contributor"} {
 			requireModelDefinition(t, models, id)
 		}
 	}
@@ -152,9 +152,11 @@ func TestR11ModelSpecificMaxTokenDefaults(t *testing.T) {
 	// GetModelInfo; the static catalog must therefore carry max_completion_tokens
 	// for the newly added models.
 	for id, want := range map[string]int{
-		"claude-haiku-5-5":            128000,
-		"muse-wonder-1.0":             65536,
-		"muse-wonder-1.0-contributor": 65536,
+		"claude-haiku-5-5":                 128000,
+		"muse-wonder-1.0":                  128000,
+		"muse-wonder-1.0-contributor":      128000,
+		"muse-wonder-full-1.0":             128000,
+		"muse-wonder-full-1.0-contributor": 128000,
 	} {
 		info := LookupStaticModelInfo(id)
 		if info == nil {

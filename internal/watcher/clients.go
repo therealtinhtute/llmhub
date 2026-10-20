@@ -118,7 +118,7 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 							Now:         time.Now(),
 							IDGenerator: synthesizer.NewStableIDGenerator(),
 						}
-						if generated := synthesizer.SynthesizeAuthFile(ctx, fullPath, data); len(generated) > 0 {
+						if generated, errSynth := synthesizer.SynthesizeAuthFile(ctx, fullPath, data); errSynth == nil && len(generated) > 0 {
 							if pathAuths := authSliceToMap(generated); len(pathAuths) > 0 {
 								w.fileAuthsByPath[normalizedPath] = authIDSet(pathAuths)
 							}
@@ -188,6 +188,9 @@ func (w *Watcher) addOrUpdateClient(path string) {
 	if w.fileAuthsByPath == nil {
 		w.fileAuthsByPath = make(map[string]map[string]*coreauth.Auth)
 	}
+	if w.lastAuthHashes == nil {
+		w.lastAuthHashes = make(map[string]string)
+	}
 	if prev, ok := w.lastAuthHashes[normalized]; ok && prev == curHash {
 		log.Debugf("auth file unchanged (hash match), skipping reload: %s", filepath.Base(path))
 		w.clientsMutex.Unlock()
@@ -232,7 +235,10 @@ func (w *Watcher) addOrUpdateClient(path string) {
 		Now:         time.Now(),
 		IDGenerator: synthesizer.NewStableIDGenerator(),
 	}
-	generated := synthesizer.SynthesizeAuthFile(sctx, path, data)
+	generated, errSynth := synthesizer.SynthesizeAuthFile(sctx, path, data)
+	if errSynth != nil {
+		log.WithError(errSynth).Warnf("failed to synthesize auth file %s", filepath.Base(path))
+	}
 	newByID := authSliceToMap(generated)
 	if len(newByID) > 0 {
 		w.fileAuthsByPath[normalized] = authIDSet(newByID)
@@ -259,6 +265,13 @@ func (w *Watcher) removeClient(path string) {
 	delete(w.fileAuthsByPath, normalized)
 
 	updates := w.computePerPathUpdatesLocked(oldByID, map[string]*coreauth.Auth{})
+	// Only the whole-file removal path gets this mark. Content diffs may drop
+	// individual plugin auth IDs while their source file still exists.
+	for index := range updates {
+		if updates[index].Action == AuthUpdateActionDelete {
+			updates[index].SetFileRemoval(true)
+		}
+	}
 	w.clientsMutex.Unlock()
 
 	w.persistAuthAsync(fmt.Sprintf("Remove auth %s", filepath.Base(path)), path)

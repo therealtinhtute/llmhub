@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/registry"
@@ -98,6 +100,7 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.SanitizeOAuthRequestScopedErrors()
 	cfg.SanitizePayloadRules()
 
+	cfg.NormalizeClaudeConfig()
 	if errCombos := cfg.ValidateCombos(); errCombos != nil {
 		return nil, errCombos
 	}
@@ -161,6 +164,59 @@ func (cfg *Config) ValidateCombos() error {
 		}
 	}
 	return nil
+}
+
+// ClaudeConfig holds Claude-specific runtime configuration.
+type ClaudeConfig struct {
+	// SessionDatePinDays retains the cloaked currentDate pin per session for
+	// this many days, independently of continuity expiry and credential
+	// switches. A nil value (unset) defaults to 7 days; an explicit 0 keeps
+	// the continuity-scoped pin (1h lifetime).
+	SessionDatePinDays *int `yaml:"session-date-pin-days,omitempty" json:"session-date-pin-days,omitempty"`
+}
+
+// DefaultClaudeSessionDatePinDays is the default session date pin retention in days.
+const DefaultClaudeSessionDatePinDays = 7
+
+// SessionDatePinRetention returns the configured session date pin retention duration.
+func (c ClaudeConfig) SessionDatePinRetention() time.Duration {
+	days := DefaultClaudeSessionDatePinDays
+	if c.SessionDatePinDays != nil {
+		days = *c.SessionDatePinDays
+	}
+	if days <= 0 {
+		return 0
+	}
+	maxDays := int((time.Duration(math.MaxInt64) / (24 * time.Hour)))
+	if days > maxDays {
+		days = maxDays
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+// ClaudeSessionDatePinRetention returns the configured session date pin retention duration.
+func (cfg *Config) ClaudeSessionDatePinRetention() time.Duration {
+	if cfg == nil {
+		return time.Duration(DefaultClaudeSessionDatePinDays) * 24 * time.Hour
+	}
+	return cfg.Claude.SessionDatePinRetention()
+}
+
+// NormalizeClaudeConfig applies default Claude provider configuration values.
+func (cfg *Config) NormalizeClaudeConfig() {
+	if cfg == nil {
+		return
+	}
+	if cfg.Upstream.Claude.SessionDatePinDays != nil {
+		cfg.Claude.SessionDatePinDays = cfg.Upstream.Claude.SessionDatePinDays
+		cfg.Upstream.Claude.SessionDatePinDays = nil
+	} else if cfg.ClaudeSessionDatePinDays != nil && cfg.Claude.SessionDatePinDays == nil {
+		cfg.Claude.SessionDatePinDays = cfg.ClaudeSessionDatePinDays
+	}
+	if cfg.Claude.SessionDatePinDays == nil {
+		defaultDays := DefaultClaudeSessionDatePinDays
+		cfg.Claude.SessionDatePinDays = &defaultDays
+	}
 }
 
 // ParseComboCandidate splits a combo candidate on the first "/" into provider and model.

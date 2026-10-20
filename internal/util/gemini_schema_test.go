@@ -2,7 +2,9 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -125,6 +127,7 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_SmartSelection(t *testing
 		"properties": {
 			"query": {
 				"type": "object",
+				"nullable": true,
 				"description": "Accepts: null | object",
 				"properties": {
 					"_": { "type": "boolean" },
@@ -2353,4 +2356,303 @@ func TestCleanJSONSchema_UppercaseTypeRepair(t *testing.T) {
 			t.Fatalf("uppercase OBJECT bare property map was not folded: %s", got)
 		}
 	})
+}
+
+func TestCleanJSONSchemaForAntigravityClaudeTool_FlattensNestedUnions_Issue3662(t *testing.T) {
+	input := `{
+		"type": "object",
+		"properties": {
+			"item": {
+				"anyOf": [
+					{
+						"type": "object",
+						"properties": {
+							"image": {"type": "string"}
+						}
+					},
+					{
+						"type": "object",
+						"properties": {
+							"audio": {"type": "string"}
+						}
+					},
+					{"type": "string"}
+				]
+			}
+		}
+	}`
+
+	flattened := gjson.Parse(CleanJSONSchemaForAntigravityClaudeTool(input, false))
+	item := flattened.Get("properties.item")
+	if item.Get("anyOf").Exists() || item.Get("oneOf").Exists() {
+		t.Fatalf("Antigravity Claude tool union survived cleaning: %s", flattened.Raw)
+	}
+	if got := item.Get("type").String(); got != "object" {
+		t.Fatalf("Antigravity Claude flattened item type = %q, want object (strongest branch): %s", got, flattened.Raw)
+	}
+	if !item.Get("properties.image").Exists() {
+		t.Fatalf("Antigravity Claude flattened item lost the first object branch: %s", flattened.Raw)
+	}
+	if desc := item.Get("description").String(); !strings.Contains(desc, "Accepts:") || !strings.Contains(desc, "string") {
+		t.Fatalf("Antigravity Claude flattened item lost the dropped-branch hint: %s", flattened.Raw)
+	}
+
+	// Idempotency: cleaning twice preserves same shape
+	flattenedTwice := CleanJSONSchemaForAntigravityClaudeTool(flattened.Raw, false)
+	compareJSON(t, flattened.Raw, flattenedTwice)
+
+	// Nullable multi-branch unions must keep nullability through translator -> executor chain
+	nullableUnionInput := `{"type":"object","properties":{"value":{"anyOf":[{"type":"string"},{"type":"integer"},{"type":"null"}]}}}`
+	directFlattened := CleanJSONSchemaForAntigravityClaudeTool(nullableUnionInput, false)
+	directValue := gjson.Parse(directFlattened).Get("properties.value")
+	if !directValue.Get("nullable").Bool() || directValue.Get("type").String() != "string" {
+		t.Fatalf("direct Claude flattening lost nullability: %s", directFlattened)
+	}
+	chainedFlattened := CleanJSONSchemaForAntigravityClaudeTool(CleanJSONSchemaForAntigravity(nullableUnionInput), false)
+	chainedValue := gjson.Parse(chainedFlattened).Get("properties.value")
+	if !chainedValue.Get("nullable").Bool() || chainedValue.Get("type").String() != "string" || chainedValue.Get("anyOf").Exists() {
+		t.Fatalf("translator -> executor chain lost nullability while flattening: %s", chainedFlattened)
+	}
+	compareJSON(t, chainedFlattened, CleanJSONSchemaForAntigravityClaudeTool(chainedFlattened, false))
+}
+
+func TestCleanJSONSchema_RemovesDiscriminatorKeyword_Issue6639(t *testing.T) {
+	input := `{
+		"type": "object",
+		"properties": {
+			"target": {
+				"anyOf": [
+					{"type": "object", "properties": {"kind": {"const": "a"}, "url": {"type": "string"}}},
+					{"type": "object", "properties": {"kind": {"const": "b"}, "path": {"type": "string"}}}
+				],
+				"discriminator": {"propertyName": "kind"}
+			},
+			"deliverables": {
+				"type": "array",
+				"items": {
+					"anyOf": [
+						{"type": "object", "properties": {"kind": {"const": "file"}, "path": {"type": "string"}}},
+						{"type": "object", "properties": {"kind": {"const": "link"}, "url": {"type": "string"}}}
+					],
+					"discriminator": {"propertyName": "kind"}
+				}
+			},
+			"polymorphicObject": {
+				"type": "object",
+				"properties": {
+					"kind": {"type": "string"}
+				},
+				"oneOf": [
+					{"properties": {"a": {"type": "string"}}},
+					{"properties": {"b": {"type": "number"}}}
+				],
+				"discriminator": {
+					"propertyName": "kind",
+					"mapping": {"a": "#/definitions/A", "b": "#/definitions/B"}
+				}
+			},
+			"discriminator": {
+				"type": "string",
+				"description": "Legitimate property named discriminator"
+			},
+			"nestedDiscriminatorProp": {
+				"type": "object",
+				"properties": {
+					"discriminator": {
+						"type": "object",
+						"properties": {
+							"kind": {"type": "string"}
+						},
+						"discriminator": {"propertyName": "kind"}
+					}
+				}
+			}
+		},
+		"discriminator": {"propertyName": "target"}
+	}`
+
+	cleaners := map[string]func(string) string{
+		"Antigravity":           CleanJSONSchemaForAntigravity,
+		"AntigravityTool":       func(s string) string { return CleanJSONSchemaForAntigravityTool(s, false) },
+		"AntigravityClaudeTool": func(s string) string { return CleanJSONSchemaForAntigravityClaudeTool(s, false) },
+		"AntigravityResponse":   CleanJSONSchemaForAntigravityResponse,
+		"Gemini":                CleanJSONSchemaForGemini,
+		"GeminiJSONSchema":      CleanJSONSchemaForGeminiJSONSchema,
+	}
+
+	for name, clean := range cleaners {
+		t.Run(name, func(t *testing.T) {
+			got := clean(input)
+			parsed := gjson.Parse(got)
+
+			for _, forbiddenPath := range []string{
+				"discriminator",
+				"properties.target.discriminator",
+				"properties.deliverables.items.discriminator",
+				"properties.polymorphicObject.discriminator",
+				"properties.nestedDiscriminatorProp.properties.discriminator.discriminator",
+			} {
+				if parsed.Get(forbiddenPath).Exists() {
+					t.Errorf("[%s] %s was not removed: %s", name, forbiddenPath, got)
+				}
+			}
+
+			if name != "AntigravityClaudeTool" {
+				if gotBranches := len(parsed.Get("properties.target.anyOf").Array()); gotBranches != 2 {
+					t.Errorf("[%s] properties.target.anyOf branch count = %d, want 2: %s", name, gotBranches, got)
+				}
+				if gotBranches := len(parsed.Get("properties.deliverables.items.anyOf").Array()); gotBranches != 2 {
+					t.Errorf("[%s] properties.deliverables.items.anyOf branch count = %d, want 2: %s", name, gotBranches, got)
+				}
+			}
+
+			if !parsed.Get("properties.discriminator").Exists() {
+				t.Errorf("[%s] legitimate property \"discriminator\" was removed: %s", name, got)
+			}
+			if !parsed.Get("properties.nestedDiscriminatorProp.properties.discriminator.properties.kind").Exists() {
+				t.Errorf("[%s] nested discriminator property was damaged: %s", name, got)
+			}
+		})
+	}
+}
+
+func TestCleanJSONSchema_RemovesContentMediaTypeKeyword_Issue6699(t *testing.T) {
+	input := `{
+		"type": "object",
+		"contentMediaType": "application/json",
+		"contentEncoding": "utf-8",
+		"properties": {
+			"value": {
+				"anyOf": [
+					{ "type": "object", "properties": {} },
+					{ "type": "string", "contentMediaType": "application/json", "contentEncoding": "base64" }
+				]
+			},
+			"directPayload": {
+				"type": "string",
+				"contentMediaType": "application/json",
+				"contentEncoding": "base64"
+			},
+			"contentMediaType": {
+				"type": "string",
+				"contentMediaType": "text/plain",
+				"description": "Legitimate property named contentMediaType"
+			},
+			"contentEncoding": {
+				"type": "string",
+				"contentEncoding": "base64",
+				"description": "Legitimate property named contentEncoding"
+			}
+		}
+	}`
+
+	cleaners := map[string]func(string) string{
+		"Antigravity":           CleanJSONSchemaForAntigravity,
+		"AntigravityTool":       func(s string) string { return CleanJSONSchemaForAntigravityTool(s, false) },
+		"AntigravityClaudeTool": func(s string) string { return CleanJSONSchemaForAntigravityClaudeTool(s, false) },
+		"AntigravityResponse":   CleanJSONSchemaForAntigravityResponse,
+		"Gemini":                CleanJSONSchemaForGemini,
+		"GeminiJSONSchema":      CleanJSONSchemaForGeminiJSONSchema,
+	}
+
+	for name, clean := range cleaners {
+		t.Run(name, func(t *testing.T) {
+			got := clean(input)
+			parsed := gjson.Parse(got)
+
+			for _, forbiddenPath := range []string{
+				"contentMediaType",
+				"contentEncoding",
+				"properties.value.anyOf.1.contentMediaType",
+				"properties.value.anyOf.1.contentEncoding",
+				"properties.directPayload.contentMediaType",
+				"properties.directPayload.contentEncoding",
+				"properties.contentMediaType.contentMediaType",
+				"properties.contentEncoding.contentEncoding",
+			} {
+				if parsed.Get(forbiddenPath).Exists() {
+					t.Errorf("[%s] %s was not removed: %s", name, forbiddenPath, got)
+				}
+			}
+
+			if name != "AntigravityClaudeTool" {
+				if gotBranches := len(parsed.Get("properties.value.anyOf").Array()); gotBranches != 2 {
+					t.Errorf("[%s] properties.value.anyOf branch count = %d, want 2: %s", name, gotBranches, got)
+				}
+				if gotType := parsed.Get("properties.value.anyOf.1.type").String(); gotType != "string" {
+					t.Errorf("[%s] properties.value.anyOf.1.type = %q, want \"string\": %s", name, gotType, got)
+				}
+			}
+
+			if !parsed.Get("properties.contentMediaType").Exists() {
+				t.Errorf("[%s] legitimate property \"contentMediaType\" was removed: %s", name, got)
+			}
+			if !parsed.Get("properties.contentEncoding").Exists() {
+				t.Errorf("[%s] legitimate property \"contentEncoding\" was removed: %s", name, got)
+			}
+		})
+	}
+}
+
+func TestSanitizeAntigravityRequestSchemasScalesLinearlyWithDeclarations(t *testing.T) {
+	const declCount = 256
+
+	var input, want strings.Builder
+	input.WriteString(`{"request":{"tools":[{"functionDeclarations":[`)
+	want.WriteString(`{"request":{"tools":[{"functionDeclarations":[`)
+	for i := range declCount {
+		if i > 0 {
+			input.WriteByte(',')
+			want.WriteByte(',')
+		}
+		fmt.Fprintf(&input, `{"name":"tool_%d","description":"%s","parametersJsonSchema":{"type":"object","$id":"drop","properties":{"q":{"type":"string"}}}}`, i, strings.Repeat("x", 4096))
+		fmt.Fprintf(&want, `{"name":"tool_%d","description":"%s","parameters":{"type":"object","properties":{"q":{"type":"string"},"_":{"type":"boolean"}},"required":["_"]}}`, i, strings.Repeat("x", 4096))
+	}
+	input.WriteString(`]}]}}`)
+	want.WriteString(`]}]}}`)
+
+	payload := input.String()
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	got := sanitizeAntigravityRequestSchemasForModel(payload, true, false)
+	runtime.ReadMemStats(&after)
+
+	if got != want.String() {
+		t.Fatalf("sanitized tools diverged from the expected bytes\nfirst declaration want: %s\nfirst declaration got:  %s",
+			gjson.Get(want.String(), "request.tools.0.functionDeclarations.0").Raw,
+			gjson.Get(got, "request.tools.0.functionDeclarations.0").Raw)
+	}
+
+	const allowedCopies = 32
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > uint64(allowedCopies*len(payload)) {
+		t.Fatalf("sanitizing %d declarations allocated %d bytes for a %d byte payload, want at most %d (cost must be linear in the tools size, not per declaration)",
+			declCount, allocated, len(payload), allowedCopies*len(payload))
+	}
+}
+
+func TestSanitizeAntigravityRequestSchemasPreservesToolArrayWhitespace(t *testing.T) {
+	input := "{\n" +
+		"  \"request\": {\n" +
+		"    \"tools\": [\n" +
+		"      {\"functionDeclarations\": [\n" +
+		"        {\"name\": \"a\", \"parametersJsonSchema\": {\"type\": \"object\", \"$id\": \"drop\", \"properties\": {\"q\": {\"type\": \"string\"}}}} ,\n" +
+		"        {\"name\": \"b\", \"parameters\": {\"type\": \"object\", \"required\": [\"q\"], \"properties\": {\"q\": {\"type\": \"string\"}}}} ,\n" +
+		"        {\"name\": \"c\"}\n" +
+		"      ]} ,\n" +
+		"      {\"googleSearch\": {}}\n" +
+		"    ]\n" +
+		"  }\n" +
+		"}\n"
+
+	want := strings.Replace(input,
+		`{"name": "a", "parametersJsonSchema": {"type": "object", "$id": "drop", "properties": {"q": {"type": "string"}}}}`,
+		`{"name": "a","parameters":{"type": "object", "properties": {"q": {"type": "string"},"_":{"type":"boolean"}},"required":["_"]}}`, 1)
+	if want == input {
+		t.Fatal("test fixture is broken: declaration a was not replaced in the expected value")
+	}
+
+	if got := sanitizeAntigravityRequestSchemasForModel(input, true, false); got != want {
+		t.Fatalf("pretty-printed tools lost whitespace outside the cleaned declaration\nwant:\n%s\ngot:\n%s", want, got)
+	}
 }

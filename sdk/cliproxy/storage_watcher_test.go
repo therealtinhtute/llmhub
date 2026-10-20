@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -321,5 +323,29 @@ func TestStorageWatcherProbeGatesHydration(t *testing.T) {
 	}
 	if store.nativeListCalls <= firstCalls {
 		t.Fatalf("native List calls = %d, want > %d after native revision change", store.nativeListCalls, firstCalls)
+	}
+}
+
+func TestStorageWatcherSnapshotAuthFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "account.json")
+	if err := os.WriteFile(filePath, []byte(`{"type":"codex","prefix":"pfx-store"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &fakeRuntimeStore{}
+	factory := NewStorageWatcherFactory(store)
+	wrapper, err := factory("", dir, func(*config.Config) {})
+	if err != nil {
+		t.Fatalf("NewStorageWatcherFactory error = %v", err)
+	}
+	wrapper.SetConfig(&config.Config{AuthDir: dir})
+
+	auths, errSnapshot := wrapper.SnapshotAuthFile(filePath)
+	if errSnapshot != nil {
+		t.Fatalf("SnapshotAuthFile error = %v", errSnapshot)
+	}
+	if len(auths) != 1 || auths[0].ID != "account.json" || auths[0].Prefix != "pfx-store" {
+		t.Fatalf("expected 1 auth with ID account.json and prefix pfx-store, got %+v", auths)
 	}
 }

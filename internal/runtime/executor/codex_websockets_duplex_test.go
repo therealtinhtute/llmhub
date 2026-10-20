@@ -465,3 +465,179 @@ func TestCodexDuplexQueuedCreateDoesNotBlockSubsequentSteer(t *testing.T) {
 		t.Fatal("server did not finish")
 	}
 }
+
+func TestCodexAuthUsesSIWC(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		auth *cliproxyauth.Auth
+		want bool
+	}{
+		{name: "nil auth", auth: nil, want: false},
+		{name: "no flag", auth: &cliproxyauth.Auth{}, want: false},
+		{name: "attribute true", auth: &cliproxyauth.Auth{Attributes: map[string]string{"use_siwc": "true"}}, want: true},
+		{name: "attribute false", auth: &cliproxyauth.Auth{Attributes: map[string]string{"use_siwc": "false"}}, want: false},
+		{name: "attribute invalid", auth: &cliproxyauth.Auth{Attributes: map[string]string{"use_siwc": "yes"}}, want: false},
+		{name: "metadata bool", auth: &cliproxyauth.Auth{Metadata: map[string]any{"use_siwc": true}}, want: true},
+		{name: "metadata string", auth: &cliproxyauth.Auth{Metadata: map[string]any{"use_siwc": " TRUE "}}, want: true},
+		{name: "metadata invalid", auth: &cliproxyauth.Auth{Metadata: map[string]any{"use_siwc": 1}}, want: false},
+		{
+			name: "attribute false falls through to metadata true",
+			auth: &cliproxyauth.Auth{
+				Attributes: map[string]string{"use_siwc": "false"},
+				Metadata:   map[string]any{"use_siwc": true},
+			},
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codexAuthUsesSIWC(tc.auth); got != tc.want {
+				t.Fatalf("codexAuthUsesSIWC() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodexDuplexSIWCSteerStripsConfigurationUpdates(t *testing.T) {
+	steerPayload := []byte(`{"type":"response.steer","previous_response_id":"r1","input":[{"type":"configuration_update","reasoning":{"effort":"high"}},{"role":"user","content":[{"type":"input_text","text":"STEER_OK"}]},{"type":"configuration_update","tools":[]}]}`)
+	for _, tc := range []struct {
+		name      string
+		useSIWC   bool
+		wantInput string
+	}{
+		{
+			name:      "siwc drops every configuration update",
+			useSIWC:   true,
+			wantInput: `[{"role":"user","content":[{"type":"input_text","text":"STEER_OK"}]}]`,
+		},
+		{
+			name:      "non siwc keeps the native control frame",
+			useSIWC:   false,
+			wantInput: `[{"type":"configuration_update","reasoning":{"effort":"high"}},{"role":"user","content":[{"type":"input_text","text":"STEER_OK"}]},{"type":"configuration_update","tools":[]}]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			captured := make(chan []byte, 1)
+			serverDone := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(serverDone)
+				conn, errUpgrade := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if errUpgrade != nil {
+					t.Errorf("upgrade websocket: %v", errUpgrade)
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				// This deadline bounds test failures only.
+				_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+				_, first, errRead := conn.ReadMessage()
+				if errRead != nil {
+					t.Errorf("read initial create: %v", errRead)
+					return
+				}
+				if gjson.GetBytes(first, "type").String() != "response.create" {
+					t.Errorf("initial create: %s", first)
+				}
+				if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.created","response":{"id":"r1","output":[]}}`)); errWrite != nil {
+					t.Errorf("write response.created: %v", errWrite)
+					return
+				}
+				_, steer, errSteer := conn.ReadMessage()
+				if errSteer != nil {
+					t.Errorf("read steer: %v", errSteer)
+					return
+				}
+				captured <- append([]byte(nil), steer...)
+				for _, event := range [][]byte{
+					[]byte(`{"type":"response.steer.accepted","sequence_number":2,"steer":{"id":"s1","previous_response_id":"r1"}}`),
+					[]byte(`{"type":"response.completed","response":{"id":"r1","output":[],"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}`),
+				} {
+					if errWrite := conn.WriteMessage(websocket.TextMessage, event); errWrite != nil {
+						t.Errorf("write event: %v", errWrite)
+						return
+					}
+				}
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer server.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			defer cancel()
+			input := make(chan core.WebsocketInput, 1)
+			ctx = core.WithWebsocketInput(core.WithDownstreamWebsocket(ctx), input)
+			exec := NewCodexWebsocketsExecutor(&config.Config{SDKConfig: config.SDKConfig{CodexResponseSteering: true}})
+			exec.store = &codexWebsocketSessionStore{sessions: make(map[string]*codexWebsocketSession)}
+			attributes := map[string]string{"api_key": "test-key", "base_url": server.URL, "websockets": "true"}
+			if tc.useSIWC {
+				attributes["use_siwc"] = "true"
+			}
+			auth := &cliproxyauth.Auth{ID: "duplex-siwc-steer", Provider: "codex", Attributes: attributes}
+			req := core.Request{
+				Model:   "gpt-6-astra",
+				Payload: []byte(`{"model":"gpt-6-astra","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"instructions":"Initial settings"}`),
+			}
+			opts := core.Options{SourceFormat: sdktranslator.FromString("codex"), Metadata: map[string]any{core.ExecutionSessionMetadataKey: "duplex-siwc-steer"}}
+			result, err := exec.ExecuteStream(ctx, auth, req, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var order []string
+			completed := false
+			for !completed {
+				select {
+				case chunk, ok := <-result.Chunks:
+					if !ok {
+						t.Fatal("stream ended before response.completed")
+					}
+					if chunk.Err != nil {
+						t.Fatal(chunk.Err)
+					}
+					event := gjson.GetBytes(chunk.Payload, "type").String()
+					id := gjson.GetBytes(chunk.Payload, "response.id").String()
+					order = append(order, event)
+					if event == "response.created" && id == "r1" {
+						input <- core.WebsocketInput{Payload: append([]byte(nil), steerPayload...)}
+					}
+					if event == "response.completed" && id == "r1" {
+						// Usage telemetry must survive the control-frame strip.
+						if got := gjson.GetBytes(chunk.Payload, "response.usage.total_tokens").Int(); got != 10 {
+							t.Fatalf("usage total_tokens = %d, want 10; payload=%s", got, chunk.Payload)
+						}
+						completed = true
+					}
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			cancel()
+			for range result.Chunks {
+			}
+			select {
+			case <-serverDone:
+			case <-time.After(3 * time.Second):
+				t.Fatal("upstream did not close")
+			}
+
+			if len(order) < 3 || order[len(order)-3] != "response.created" || order[len(order)-2] != "response.steer.accepted" || order[len(order)-1] != "response.completed" {
+				t.Fatalf("stream ordering changed: %v", order)
+			}
+
+			select {
+			case got := <-captured:
+				if gjson.GetBytes(got, "type").String() != "response.steer" || gjson.GetBytes(got, "previous_response_id").String() != "r1" {
+					t.Fatalf("steer routing changed: %s", got)
+				}
+				if input := gjson.GetBytes(got, "input").Raw; input != tc.wantInput {
+					t.Fatalf("steer input = %s, want %s; body=%s", input, tc.wantInput, got)
+				}
+				if gjson.GetBytes(got, "reasoning").Exists() {
+					t.Fatalf("steer must not promote reasoning: %s", got)
+				}
+				if gjson.GetBytes(got, "store").Exists() || gjson.GetBytes(got, "stream").Exists() {
+					t.Fatalf("steer must not inherit response.create defaults: %s", got)
+				}
+			default:
+				t.Fatal("upstream steer was not captured")
+			}
+		})
+	}
+}

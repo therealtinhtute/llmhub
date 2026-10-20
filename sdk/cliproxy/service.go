@@ -7,13 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"reflect"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/api"
 	"github.com/therealtinhtute/llmhub/internal/home"
@@ -34,6 +27,13 @@ import (
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/executionregistry"
 	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 	"github.com/therealtinhtute/llmhub/sdk/config"
+	"os"
+	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
@@ -236,6 +236,31 @@ func (s *Service) handleAuthUpdate(ctx context.Context, update watcher.AuthUpdat
 		if id == "" {
 			return
 		}
+		if existing, ok := s.coreManager.GetByID(id); ok && existing != nil {
+			if update.Auth != nil && isStaleCoreAuth(existing, update.Auth) {
+				log.Debugf("skipping stale auth delete for %s: incoming gen=%d, existing gen=%d", id, update.Auth.Generation, existing.Generation)
+				return
+			}
+			// Whole-file deletes can outlive a persisted re-create whose inline
+			// sync did not carry a revision. Recheck local files, including remote
+			// store mirrors, but do not suppress per-ID content/config deletes.
+			if update.Auth == nil && update.IsFileRemoval() {
+				path := existing.Attributes[coreauth.AttributePath]
+				switch existing.AuthSourceKind() {
+				case coreauth.AuthSourceFile:
+					if path == "" {
+						path = existing.Attributes[coreauth.AttributeSource]
+					}
+				case coreauth.AuthSourceGit, coreauth.AuthSourcePostgres, coreauth.AuthSourceObjectStore:
+					// Remote stores are file-backed only when they provide a local path.
+				default:
+					path = ""
+				}
+				if path != "" && s.shouldSkipFileAuthDelete(path, id) {
+					return
+				}
+			}
+		}
 		s.applyCoreAuthRemoval(ctx, id)
 	default:
 		log.Debugf("received unknown auth update action: %v", update.Action)
@@ -335,9 +360,20 @@ func (s *Service) applyCoreAuthAddOrUpdate(ctx context.Context, auth *coreauth.A
 			}
 		}
 		op = "update"
-		_, err = s.coreManager.Update(ctx, auth)
+		var updated *coreauth.Auth
+		updated, err = s.coreManager.Update(ctx, auth)
+		if err == nil && updated != nil {
+			if updated.Generation == existing.Generation {
+				log.Debugf("skipping stale auth update for %s: incoming snapshot did not advance generation (gen=%d)", auth.ID, existing.Generation)
+			}
+			auth = updated
+		}
 	} else {
-		_, err = s.coreManager.Register(ctx, auth)
+		var registered *coreauth.Auth
+		registered, err = s.coreManager.Register(ctx, auth)
+		if err == nil && registered != nil {
+			auth = registered
+		}
 	}
 	if err != nil {
 		log.Errorf("failed to %s auth %s: %v", op, auth.ID, err)
@@ -352,14 +388,7 @@ func (s *Service) applyCoreAuthAddOrUpdate(ctx context.Context, auth *coreauth.A
 	// Register models after auth is updated in coreManager.
 	// This operation may block on network calls, but the auth configuration
 	// is already effective at this point.
-	s.registerModelsForAuth(auth)
-	s.coreManager.ReconcileRegistryModelStates(ctx, auth.ID)
-
-	// Refresh the scheduler entry so that the auth's supportedModelSet is rebuilt
-	// from the now-populated global model registry. Without this, newly added auths
-	// have an empty supportedModelSet (because Register/Update upserts into the
-	// scheduler before registerModelsForAuth runs) and are invisible to the scheduler.
-	s.coreManager.RefreshSchedulerEntry(auth.ID)
+	s.completeModelRegistrationForAuth(ctx, auth)
 }
 
 func (s *Service) applyCoreAuthRemoval(ctx context.Context, id string) {
@@ -376,6 +405,69 @@ func (s *Service) applyCoreAuthRemoval(ctx context.Context, id string) {
 			executor.CloseCodexWebsocketSessionsForAuthID(existing.ID, "auth_removed")
 		}
 	}
+}
+
+// shouldSkipFileAuthDelete retains re-created IDs and preserves auths on uncertain reads.
+func (s *Service) shouldSkipFileAuthDelete(path, id string) bool {
+	_, errStat := os.Stat(path)
+	if os.IsNotExist(errStat) {
+		return false
+	}
+	if errStat != nil {
+		log.Debugf("skipping auth delete for %s: backing file is not confirmed missing", id)
+		return true
+	}
+	// A file can return with only a subset of its previous plugin auth IDs.
+	// Read just this file so another file with the same ID cannot retain the auth.
+	auths, errSnapshotAuthFile := s.currentWatcher().SnapshotAuthFile(path)
+	if errSnapshotAuthFile != nil || len(auths) == 0 {
+		log.Debugf("skipping auth delete for %s: file auth snapshot is uncertain (err=%v)", id, errSnapshotAuthFile)
+		return true
+	}
+	hasAuth := false
+	for _, auth := range auths {
+		if auth == nil || auth.ID == "" {
+			continue
+		}
+		hasAuth = true
+		// Store IDs retain case, but the file synthesizer lowercases IDs on Windows.
+		// Other platforms keep exact matching for case-sensitive plugin auth IDs.
+		if authIDMatches(auth.ID, id, runtime.GOOS == "windows") {
+			log.Debugf("skipping auth delete for %s: auth ID is present in the re-created file", id)
+			return true
+		}
+	}
+	if !hasAuth {
+		log.Debugf("skipping auth delete for %s: file auth snapshot has no valid IDs", id)
+	}
+	return !hasAuth
+}
+
+func (s *Service) currentWatcher() *WatcherWrapper {
+	if s == nil {
+		return nil
+	}
+	return s.watcher
+}
+
+func authIDMatches(snapshotID, id string, foldCase bool) bool {
+	if foldCase {
+		return strings.EqualFold(snapshotID, id)
+	}
+	return snapshotID == id
+}
+
+func isStaleCoreAuth(existing, incoming *coreauth.Auth) bool {
+	if existing == nil || incoming == nil {
+		return false
+	}
+	if incoming.RegistrationEpoch > 0 && incoming.RegistrationEpoch < existing.RegistrationEpoch {
+		return true
+	}
+	if incoming.Generation > 0 && incoming.Generation < existing.Generation {
+		return true
+	}
+	return false
 }
 
 func (s *Service) applyRetryConfig(cfg *config.Config) {
@@ -507,15 +599,22 @@ func (s *Service) registerComboModels(cfg *config.Config) {
 	GlobalModelRegistry().RegisterClient(comboModelsClientID, "combo", models)
 }
 
-func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, providerKey string, models []*ModelInfo) {
+func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) bool {
+	return s.registerResolvedModelsForAuthWithContext(context.Background(), a, fence, providerKey, models)
+}
+
+func (s *Service) registerResolvedModelsForAuthWithContext(ctx context.Context, a *coreauth.Auth, fence modelRegistrationFence, providerKey string, models []*ModelInfo) bool {
 	if a == nil || a.ID == "" {
-		return
+		return true
 	}
-	if len(models) == 0 {
-		GlobalModelRegistry().UnregisterClient(a.ID)
-		return
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	GlobalModelRegistry().RegisterClient(a.ID, providerKey, models)
+	published := s.registerResolvedModelsForAuthFenced(a, fence, providerKey, models)
+	if !published && ctx.Err() == nil {
+		s.reconcileSupersededAuthRegistration(ctx, a.ID)
+	}
+	return published
 }
 
 // rebindExecutors refreshes provider executors so they observe the latest configuration.
@@ -1269,13 +1368,77 @@ func (s *Service) requiresLocalAuthDir() bool {
 }
 
 // registerModelsForAuth (re)binds provider models in the global registry using the core auth ID as client identifier.
-func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
-	if a == nil || a.ID == "" {
-		return
+func (s *Service) registerModelsForAuth(a *coreauth.Auth) bool {
+	return s.completeModelRegistrationForAuth(context.Background(), a)
+}
+
+func (s *Service) completeModelRegistrationForAuth(ctx context.Context, auth *coreauth.Auth) bool {
+	if s == nil || auth == nil || auth.ID == "" {
+		return false
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	targetAuth := auth
+	if s.coreManager != nil {
+		if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
+			targetAuth = latest
+		}
+	}
+	published := s.registerModelsForAuthDirect(ctx, targetAuth)
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	if !published && s.coreManager != nil {
+		// The registration was fenced out because its registration inputs
+		// or the registry epoch changed mid-computation. Reconcile the latest
+		// auth once instead of risking an empty model list. The retry
+		// recomputes from the latest snapshot and never republishes the superseded computation's models.
+		if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
+			targetAuth = latest
+			if latest.Disabled {
+				accepted := s.unregisterModelsForAuthFenced(latest, newModelRegistrationFence(latest, s.cfg))
+				log.WithFields(log.Fields{"auth_id": latest.ID, "provider": latest.Provider, "superseded": !accepted}).Debugf("model registration reconciliation attempted for disabled auth %s", latest.ID)
+			} else {
+				accepted := s.registerModelsForAuthDirect(ctx, targetAuth)
+				if ctx != nil && ctx.Err() != nil {
+					return false
+				}
+				log.WithFields(log.Fields{"auth_id": latest.ID, "provider": latest.Provider, "superseded": !accepted}).Debugf("model registration reconciliation attempted for auth %s", latest.ID)
+			}
+		}
+	}
+	if s.coreManager != nil {
+		s.coreManager.ReconcileRegistryModelStates(ctx, targetAuth.ID)
+		s.coreManager.RefreshSchedulerEntry(targetAuth.ID)
+	}
+	return true
+}
+
+func (s *Service) registerModelsForAuthDirect(ctx context.Context, a *coreauth.Auth) bool {
+	if a == nil || a.ID == "" {
+		return true
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+	// Capture the publication fence once before any runtime read or model resolution.
+	fence := newModelRegistrationFence(a, s.cfg)
 	if a.Disabled {
-		GlobalModelRegistry().UnregisterClient(a.ID)
-		return
+		if s != nil && s.coreManager != nil {
+			if current, ok := s.coreManager.GetByID(a.ID); ok && current != nil && !current.Disabled {
+				return false
+			}
+		}
+		return s.unregisterModelsForAuthFenced(a, fence)
+	}
+	if s != nil && s.coreManager != nil {
+		if current, ok := s.coreManager.GetByID(a.ID); !ok || current == nil || current.Disabled {
+			return true
+		}
 	}
 	authKind := strings.ToLower(strings.TrimSpace(a.Attributes["auth_kind"]))
 	if authKind == "" {
@@ -1285,8 +1448,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	}
 	if a.Attributes != nil {
 		if v := strings.TrimSpace(a.Attributes["gemini_virtual_primary"]); strings.EqualFold(v, "true") {
-			GlobalModelRegistry().UnregisterClient(a.ID)
-			return
+			return s.unregisterModelsForAuthFenced(a, fence)
 		}
 	}
 	// Unregister legacy client ID (if present) to avoid double counting
@@ -1303,8 +1465,8 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		provider = "openai-compatibility"
 	}
 	excluded := s.oauthExcludedModels(provider, authKind)
-	// The synthesizer pre-merges per-account and global exclusions into the "excluded_models" attribute.
-	// If this attribute is present, it represents the complete list of exclusions and overrides the global config.
+	// Credential-specific exclusions take priority and override the global config.
+	// If this attribute is present, it represents the effective list of exclusions for this credential.
 	if a.Attributes != nil {
 		if val, ok := a.Attributes["excluded_models"]; ok && strings.TrimSpace(val) != "" {
 			excluded = strings.Split(val, ",")
@@ -1463,20 +1625,20 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 						if providerKey == "" {
 							providerKey = "openai-compatibility"
 						}
-						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
-					} else {
-						// Ensure stale registrations are cleared when model list becomes empty.
-						GlobalModelRegistry().UnregisterClient(a.ID)
+						return s.registerResolvedModelsForAuthFenced(a, fence, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					}
-					return
+					// Ensure stale registrations are cleared when model list becomes empty.
+					return s.unregisterModelsForAuthFenced(a, fence)
 				}
 			}
 			if isCompatAuth {
 				// No matching provider found or models removed entirely; drop any prior registration.
-				GlobalModelRegistry().UnregisterClient(a.ID)
-				return
+				return s.unregisterModelsForAuthFenced(a, fence)
 			}
 		}
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return true
 	}
 	models = applyOAuthModelAlias(s.cfg, provider, authKind, models)
 	if len(models) > 0 {
@@ -1484,11 +1646,10 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		if key == "" {
 			key = strings.ToLower(strings.TrimSpace(a.Provider))
 		}
-		s.registerResolvedModelsForAuth(a, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
-		return
+		return s.registerResolvedModelsForAuthFenced(a, fence, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
 	}
 
-	GlobalModelRegistry().UnregisterClient(a.ID)
+	return s.unregisterModelsForAuthFenced(a, fence)
 }
 
 func (s *Service) resolveKiroModelsForAuth(a *coreauth.Auth) ([]*ModelInfo, *coreauth.Auth, error) {
@@ -1512,9 +1673,7 @@ func (s *Service) registerLoadedCoreAuths(ctx context.Context) {
 		if !auth.Disabled {
 			s.ensureExecutorsForAuth(auth)
 		}
-		s.registerModelsForAuth(auth)
-		s.coreManager.ReconcileRegistryModelStates(ctx, auth.ID)
-		s.coreManager.RefreshSchedulerEntry(auth.ID)
+		s.completeModelRegistrationForAuth(ctx, auth)
 	}
 }
 
@@ -1533,12 +1692,16 @@ func (s *Service) refreshModelRegistrationForAuth(current *coreauth.Auth) bool {
 	if !current.Disabled {
 		s.ensureExecutorsForAuth(current)
 	}
-	s.registerModelsForAuth(current)
+	s.registerModelsForAuthDirect(context.Background(), current)
 	s.coreManager.ReconcileRegistryModelStates(context.Background(), current.ID)
 
 	latest, ok := s.latestAuthForModelRegistration(current.ID)
-	if !ok || latest.Disabled {
-		GlobalModelRegistry().UnregisterClient(current.ID)
+	if !ok || latest == nil {
+		// If the auth is absent, applyCoreAuthRemoval owns unregistration.
+		return false
+	}
+	if latest.Disabled {
+		s.unregisterModelsForAuthFenced(latest, newModelRegistrationFence(latest, s.cfg))
 		s.coreManager.RefreshSchedulerEntry(current.ID)
 		return false
 	}
@@ -1547,7 +1710,7 @@ func (s *Service) refreshModelRegistrationForAuth(current *coreauth.Auth) bool {
 	// stale model registrations behind. This may duplicate registration work when
 	// no auth fields changed, but keeps the refresh path simple and correct.
 	s.ensureExecutorsForAuth(latest)
-	s.registerModelsForAuth(latest)
+	s.registerModelsForAuthDirect(context.Background(), latest)
 	s.coreManager.ReconcileRegistryModelStates(context.Background(), latest.ID)
 	s.coreManager.RefreshSchedulerEntry(current.ID)
 	return true

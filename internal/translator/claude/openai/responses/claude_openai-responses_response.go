@@ -16,9 +16,12 @@ import (
 )
 
 type claudeToResponsesState struct {
-	Seq                int
-	ResponseID         string
-	CreatedAt          int64
+	Seq        int
+	ResponseID string
+	CreatedAt  int64
+	// RequestJSON is the validated request body picked once per stream;
+	// the per-chunk path reuses it instead of re-validating the full body.
+	RequestJSON        []byte
 	NextOutputIndex    int
 	CurrentMsgID       string
 	CurrentFCID        string
@@ -413,6 +416,7 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 			FuncOutputIndices:  make(map[int]int),
 			WebSearchByBlock:   make(map[int]*claudeResponsesWebSearchItem),
 			WebSearchByToolID:  make(map[string]*claudeResponsesWebSearchItem),
+			RequestJSON:        pickRequestJSON(originalRequestRawJSON, requestRawJSON),
 		}
 	}
 	st := (*param).(*claudeToResponsesState)
@@ -423,7 +427,7 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 	}
 	rawJSON = bytes.TrimSpace(rawJSON[5:])
 	root := gjson.ParseBytes(rawJSON)
-	requestForToolMetadata := pickRequestJSON(originalRequestRawJSON, requestRawJSON)
+	requestForToolMetadata := st.RequestJSON
 	customToolNames := responsesCustomToolNames(requestForToolMetadata)
 	ev := root.Get("type").String()
 	var out [][]byte
@@ -749,7 +753,7 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 		}
 		// Inject original request fields into response as per docs/response.completed.json
 
-		reqBytes := pickRequestJSON(originalRequestRawJSON, requestRawJSON)
+		reqBytes := st.RequestJSON
 		if len(reqBytes) > 0 {
 			req := gjson.ParseBytes(reqBytes)
 			if v := req.Get("instructions"); v.Exists() {

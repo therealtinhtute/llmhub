@@ -169,6 +169,9 @@ type ThinkingSupport struct {
 	// Levels defines discrete reasoning effort levels (e.g., "low", "medium", "high").
 	// When set, the model uses level-based reasoning instead of token budgets.
 	Levels []string `json:"levels,omitempty" yaml:"levels,omitempty"`
+	// DisableType is the Claude thinking.type sent when thinking is turned off.
+	// Empty means "disabled"; claude-sonnet-5-5 needs "between_tools".
+	DisableType string `json:"disable_type,omitempty" yaml:"disable-type,omitempty"`
 }
 
 // ModelRegistration tracks a model's availability
@@ -275,9 +278,86 @@ func LookupModelInfo(modelID string, provider ...string) *ModelInfo {
 	}
 
 	if info := GetGlobalRegistry().GetModelInfo(modelID, p); info != nil {
-		return cloneModelInfo(info)
+		return postProcessClaudeModelInfo(cloneModelInfo(info))
 	}
-	return cloneModelInfo(LookupStaticModelInfo(modelID))
+	info := LookupStaticModelInfo(modelID)
+	if info == nil {
+		for _, familyID := range claudeFamilyModelIDs(modelID) {
+			if familyID != modelID {
+				if info = LookupStaticModelInfo(familyID); info != nil {
+					break
+				}
+			}
+		}
+	}
+	return postProcessClaudeModelInfo(cloneModelInfo(info))
+}
+
+func claudeFamilyModelIDs(modelID string) []string {
+	clean := strings.ToLower(strings.TrimSpace(modelID))
+	if clean == "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{clean: true}
+	out = append(out, clean)
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	// Bracketed context variants: claude-sonnet-5-5[1m] -> claude-sonnet-5-5
+	if bracket := strings.IndexByte(clean, '['); bracket != -1 {
+		add(clean[:bracket])
+	}
+	// Dated variants: claude-sonnet-5-5-20261001 -> claude-sonnet-5-5
+	if lastDash := strings.LastIndexByte(clean, '-'); lastDash != -1 && lastDash+1 < len(clean) {
+		suffix := clean[lastDash+1:]
+		if len(suffix) == 8 {
+			isDate := true
+			for i := range suffix {
+				if suffix[i] < '0' || suffix[i] > '9' {
+					isDate = false
+					break
+				}
+			}
+			if isDate {
+				add(clean[:lastDash])
+			}
+		}
+	}
+	return out
+}
+
+func postProcessClaudeModelInfo(info *ModelInfo) *ModelInfo {
+	if info == nil || info.Thinking == nil {
+		return info
+	}
+	id := strings.ToLower(strings.TrimSpace(info.ID))
+	if id == "claude-sonnet-5-5" || strings.HasPrefix(id, "claude-sonnet-5-5-") || strings.HasPrefix(id, "claude-sonnet-5-5[") {
+		if info.Thinking.DisableType == "" {
+			info.Thinking.DisableType = "between_tools"
+		}
+	}
+	if id == "claude-opus-5-5" || strings.HasPrefix(id, "claude-opus-5-5[") || strings.HasPrefix(id, "claude-opus-5-5-") {
+		info.Thinking.ZeroAllowed = false
+	}
+	if id == "claude-fable-5" || strings.HasPrefix(id, "claude-fable-5-") || strings.HasPrefix(id, "claude-fable-5[") ||
+		id == "claude-fable-5-1" || strings.HasPrefix(id, "claude-fable-5-1-") || strings.HasPrefix(id, "claude-fable-5-1[") {
+		info.Thinking.ZeroAllowed = false
+		info.Thinking.Min = 0
+		info.Thinking.Max = 0
+		info.Thinking.DynamicAllowed = true
+	}
+	if id == "claude-opus-4-7" || strings.HasPrefix(id, "claude-opus-4-7-") || strings.HasPrefix(id, "claude-opus-4-7[") ||
+		id == "claude-opus-4-8" || strings.HasPrefix(id, "claude-opus-4-8-") || strings.HasPrefix(id, "claude-opus-4-8[") {
+		info.Thinking.Min = 0
+		info.Thinking.Max = 0
+		info.Thinking.DynamicAllowed = true
+	}
+	return info
 }
 
 // NativeCapabilityRoute describes one registered route to a public model.
@@ -422,8 +502,43 @@ func (r *ModelRegistry) triggerModelsUnregistered(provider, clientID string) {
 func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models []*ModelInfo) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.ensureAvailableModelsCacheLocked()
+	r.registerClientLocked(clientID, clientProvider, models)
+}
 
+// RegisterClientIfEpochCurrent registers a client's models only if its
+// registration epoch still equals expectedEpoch and publish is non-nil. The
+// fence evaluation and the registration runs atomically under the registry
+// mutex. publish must be fast and must not call back into the registry or
+// block. The returned value reports whether the registration was applied.
+func (r *ModelRegistry) RegisterClientIfEpochCurrent(clientID, clientProvider string, expectedEpoch uint64, models []*ModelInfo, publish func() bool) bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.clientEpochs[clientID] != expectedEpoch || publish == nil || !publish() {
+		return false
+	}
+	r.registerClientLocked(clientID, clientProvider, models)
+	return true
+}
+
+// UnregisterClientIfEpochCurrent removes a client only if its registration
+// epoch still equals expectedEpoch and publish is non-nil. The fence
+// evaluation and the removal runs atomically under the registry mutex.
+// publish must be fast and must not call back into the registry or block.
+// The returned value reports whether the removal was applied.
+func (r *ModelRegistry) UnregisterClientIfEpochCurrent(clientID string, expectedEpoch uint64, publish func() bool) bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.clientEpochs[clientID] != expectedEpoch || publish == nil || !publish() {
+		return false
+	}
+	r.unregisterClientInternal(clientID)
+	r.invalidateAvailableModelsCacheLocked()
+	return true
+}
+
+// registerClientLocked reconciles a client's models while the registry mutex is held.
+func (r *ModelRegistry) registerClientLocked(clientID, clientProvider string, models []*ModelInfo) {
+	r.ensureAvailableModelsCacheLocked()
 	provider := strings.ToLower(clientProvider)
 	uniqueModelIDs := make([]string, 0, len(models))
 	rawModelIDs := make([]string, 0, len(models))

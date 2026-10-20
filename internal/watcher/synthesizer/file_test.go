@@ -379,7 +379,7 @@ func TestFileSynthesizer_Synthesize_PriorityParsing(t *testing.T) {
 	}
 }
 
-func TestFileSynthesizer_Synthesize_OAuthExcludedModelsMerged(t *testing.T) {
+func TestFileSynthesizer_Synthesize_OAuthExcludedModelsCredentialPriority(t *testing.T) {
 	tempDir := t.TempDir()
 	authData := map[string]any{
 		"type":            "claude",
@@ -412,7 +412,7 @@ func TestFileSynthesizer_Synthesize_OAuthExcludedModelsMerged(t *testing.T) {
 	}
 
 	got := auths[0].Attributes["excluded_models"]
-	want := "custom-model,model-b,shared"
+	want := "custom-model,model-b"
 	if got != want {
 		t.Fatalf("expected excluded_models %q, got %q", want, got)
 	}
@@ -421,7 +421,7 @@ func TestFileSynthesizer_Synthesize_OAuthExcludedModelsMerged(t *testing.T) {
 // Ported from upstream CLIProxyAPI commit 8335eac7
 // (internal/watcher/synthesizer/file_test.go
 // TestFileSynthesizer_Synthesize_MetaOAuthExcludedModelsMerged).
-func TestFileSynthesizer_Synthesize_MetaOAuthExcludedModelsMerged(t *testing.T) {
+func TestFileSynthesizer_Synthesize_MetaOAuthExcludedModelsCredentialPriority(t *testing.T) {
 	tempDir := t.TempDir()
 	authData := map[string]any{
 		"type":            "meta",
@@ -459,7 +459,7 @@ func TestFileSynthesizer_Synthesize_MetaOAuthExcludedModelsMerged(t *testing.T) 
 	}
 
 	got := auths[0].Attributes["excluded_models"]
-	want := "muse-spark-1.1,muse-spark-1.2"
+	want := "muse-spark-1.2"
 	if got != want {
 		t.Fatalf("expected excluded_models %q, got %q", want, got)
 	}
@@ -1133,7 +1133,10 @@ func TestSynthesizeAuthFileAppliesSourcePriority(t *testing.T) {
 				Now:         time.Now(),
 				IDGenerator: NewStableIDGenerator(),
 			}
-			auths := SynthesizeAuthFile(ctx, fullPath, []byte(testCase.raw))
+			auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, []byte(testCase.raw))
+			if errSynthesize != nil {
+				t.Fatalf("unexpected error from SynthesizeAuthFile: %v", errSynthesize)
+			}
 			if len(auths) != 1 {
 				t.Fatalf("SynthesizeAuthFile() len = %d, want 1", len(auths))
 			}

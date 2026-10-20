@@ -9,7 +9,7 @@ import (
 	"github.com/therealtinhtute/llmhub/sdk/config"
 )
 
-func TestRegisterModelsForAuth_UsesPreMergedExcludedModelsAttribute(t *testing.T) {
+func TestRegisterModelsForAuth_UsesEffectiveExcludedModelsAttribute(t *testing.T) {
 	service := &Service{
 		cfg: &config.Config{
 			OAuthExcludedModels: map[string][]string{

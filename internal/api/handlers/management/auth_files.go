@@ -35,6 +35,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/registry"
 	runtimeexecutor "github.com/therealtinhtute/llmhub/internal/runtime/executor"
 	"github.com/therealtinhtute/llmhub/internal/util"
+	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	"github.com/tidwall/gjson"
@@ -1256,6 +1257,10 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "file must be .json"})
 				return
 			}
+			if isInvalidAuthFileError(errUpload) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": errUpload.Error()})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": errUpload.Error()})
 			return
 		}
@@ -1697,6 +1702,10 @@ func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Aut
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return nil, fmt.Errorf("invalid auth file: %w", err)
 	}
+	// Loading tolerates invalid exclusion rules, so reject them here before anything is persisted.
+	if _, errExcluded := synthesizer.ExtractExcludedModelsFromMetadata(metadata); errExcluded != nil {
+		return nil, fmt.Errorf("invalid auth file: %w", errExcluded)
+	}
 	provider, _ := metadata["type"].(string)
 	if provider == "" {
 		provider = "unknown"
@@ -1855,14 +1864,23 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	delete(req, "auth_index")
 	delete(req, "provider")
 
+	var errNormalize error
+	req, errNormalize = normalizeAuthFilePatchFields(req)
+	if errNormalize != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errNormalize.Error()})
+		return
+	}
+
 	ctx := c.Request.Context()
 	targetAuth := h.findAuthFileBySelector(selector)
 
-	if targetAuth == nil {
+	// Config-sourced credentials are managed through config endpoints, not as auth files.
+	if targetAuth == nil || targetAuth.AuthSourceKind() == coreauth.AuthSourceConfig {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
 		return
 	}
 	targetAuth = targetAuth.Clone()
+	coreauth.NormalizeCredentialMetadata(targetAuth.Metadata)
 
 	changed := false
 	touchedRoots := make(map[string]struct{}, len(req))
@@ -1879,6 +1897,24 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		}
 		if targetAuth.Metadata == nil {
 			targetAuth.Metadata = make(map[string]any)
+		}
+		if rootAuthFileField(fieldPath) == "excluded_models" {
+			if fieldPath != "excluded_models" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models does not support nested fields"})
+				return
+			}
+			// Accept the same shapes as auth-file loading, but reject anything it would ignore.
+			models, errExcluded := synthesizer.ExtractExcludedModelsFromMetadata(map[string]any{"excluded_models": value})
+			if errExcluded != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "excluded_models must be a string array, a comma-separated string, or null"})
+				return
+			}
+			// Persist the legacy comma-separated form as a canonical array.
+			if _, isString := value.(string); isString {
+				value = models
+			}
+			fieldPath = "excluded_models"
+			delete(targetAuth.Metadata, "excluded-models")
 		}
 
 		if fieldPath == "headers" {
@@ -1897,6 +1933,18 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": errSync.Error()})
 			return
 		}
+		if _, touched := touchedRoots["excluded_models"]; touched {
+			excluded, errExcluded := synthesizer.ExtractExcludedModelsFromMetadata(targetAuth.Metadata)
+			if errExcluded != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": errExcluded.Error()})
+				return
+			}
+			if targetAuth.Attributes != nil {
+				delete(targetAuth.Attributes, "excluded_models")
+				delete(targetAuth.Attributes, "excluded_models_hash")
+			}
+			synthesizer.ApplyAuthExcludedModelsMeta(targetAuth, excluded, "")
+		}
 	}
 
 	if !changed {
@@ -1905,6 +1953,8 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	}
 
 	targetAuth.UpdatedAt = time.Now()
+
+	coreauth.NormalizeCredentialMetadata(targetAuth.Metadata)
 
 	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
@@ -1954,9 +2004,40 @@ func rootAuthFileField(path string) string {
 		return ""
 	}
 	if idx := strings.Index(path, "."); idx >= 0 {
-		return strings.TrimSpace(path[:idx])
+		path = strings.TrimSpace(path[:idx])
 	}
-	return path
+	return coreauth.CanonicalCredentialMetadataKey(path)
+}
+
+func normalizeAuthFilePatchFields(fields map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	normalized := make(map[string]json.RawMessage, len(fields))
+	originalNames := make(map[string]string, len(fields))
+	canonicalNames := make(map[string]bool, len(fields))
+	for key, value := range fields {
+		parts := strings.Split(strings.TrimSpace(key), ".")
+		for index := range parts {
+			parts[index] = strings.TrimSpace(parts[index])
+		}
+		originalRoot := parts[0]
+		parts[0] = coreauth.CanonicalCredentialMetadataKey(originalRoot)
+		canonicalPath := strings.Join(parts, ".")
+		if original, exists := originalNames[canonicalPath]; exists {
+			currentCanonical := originalRoot == parts[0]
+			if canonicalNames[canonicalPath] != currentCanonical {
+				if currentCanonical {
+					normalized[canonicalPath] = value
+					originalNames[canonicalPath] = key
+					canonicalNames[canonicalPath] = true
+				}
+				continue
+			}
+			return nil, fmt.Errorf("auth file fields %q and %q refer to the same field", original, key)
+		}
+		normalized[canonicalPath] = value
+		originalNames[canonicalPath] = key
+		canonicalNames[canonicalPath] = originalRoot == parts[0]
+	}
+	return normalized, nil
 }
 
 func setAuthFileMetadataValue(metadata map[string]any, path string, value any) error {

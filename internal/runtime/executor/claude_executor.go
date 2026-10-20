@@ -96,6 +96,37 @@ func (e *ClaudeExecutor) modelLevelCooling() bool {
 	return e != nil && e.cfg != nil && e.cfg.ClaudeModelLevelCooling
 }
 
+func (e *ClaudeExecutor) injectDiagnosticsEnabled() bool {
+	return e == nil || e.cfg == nil || e.cfg.ClaudeHeaderDefaults.InjectDiagnostics == nil || *e.cfg.ClaudeHeaderDefaults.InjectDiagnostics
+}
+
+// isClaudeCallerOwned reports whether the request preserves caller-supplied
+// headers and betas instead of synthesizing the full Claude Code CLI profile.
+// Real Claude OAuth tokens, credentials with fingerprint_profile="claude-code-cli",
+// and credentials with cloak_mode="always" use the CLI profile. An explicit
+// caller_owned attribute ("true" / "false") or cloak_mode="never" on an API-key
+// credential explicitly marks the credential as caller-owned or CLI-profile.
+func isClaudeCallerOwned(auth *cliproxyauth.Auth, apiKey string) bool {
+	if isClaudeOAuthToken(apiKey) {
+		return false
+	}
+	if auth != nil && auth.Attributes != nil {
+		if v, ok := auth.Attributes["caller_owned"]; ok {
+			return strings.EqualFold(strings.TrimSpace(v), "true")
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["cloak_mode"]), "never") {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["fingerprint_profile"]), "claude-code-cli") {
+			return false
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.Attributes["cloak_mode"]), "always") {
+			return false
+		}
+	}
+	return false
+}
+
 // PrepareRequest injects Claude credentials into the outgoing HTTP request.
 func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
@@ -140,6 +171,9 @@ func (e *ClaudeExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Aut
 		return nil, err
 	}
 	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
+		httpClient.Transport = rt
+	}
 	return httpClient.Do(httpReq)
 }
 
@@ -212,7 +246,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 	diagnosticsInjectedByCPA := false
 	oauthToken := isClaudeOAuthToken(apiKey)
-	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper {
+	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper && e.injectDiagnosticsEnabled() {
 		diagnosticsInjectedByCPA = true
 		if continuityCtx.Initialized {
 			body, diagnosticsState = injectClaudeDiagnosticsWithState(body, continuityCtx.Key, continuityCtx.Sequence, continuityCtx.PreviousMessageID, continuityCtx.PromptID)
@@ -221,6 +255,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		}
 	}
 
+	body = applyClaudePreservedThinkingBinding(body)
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
 	var touchedPayloadPaths map[string]bool
@@ -265,7 +300,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 					*continuityCtx = cCtx
 				}
 				body = helps.InjectClaudeBillingTags(body, prevReq, promptID)
-				if oauthToken && isAnthropicUpstreamBase(baseURL) {
+				if oauthToken && isAnthropicUpstreamBase(baseURL) && e.injectDiagnosticsEnabled() {
 					body, diagnosticsState = injectClaudeDiagnosticsWithState(body, cCtx.Key, cCtx.Sequence, cCtx.PreviousMessageID, promptID)
 				}
 			}
@@ -366,6 +401,9 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	})
 
 	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
+		httpClient.Transport = rt
+	}
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -535,7 +573,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	}
 	diagnosticsInjectedByCPA := false
 	oauthToken := isClaudeOAuthToken(apiKey)
-	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper {
+	if cloaked && oauthToken && isAnthropicUpstreamBase(baseURL) && !isProbeOrHelper && e.injectDiagnosticsEnabled() {
 		diagnosticsInjectedByCPA = true
 		if continuityCtx.Initialized {
 			body, diagnosticsState = injectClaudeDiagnosticsWithState(body, continuityCtx.Key, continuityCtx.Sequence, continuityCtx.PreviousMessageID, continuityCtx.PromptID)
@@ -544,6 +582,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		}
 	}
 
+	body = applyClaudePreservedThinkingBinding(body)
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
 	var touchedPayloadPaths map[string]bool
@@ -586,7 +625,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 					*continuityCtx = cCtx
 				}
 				body = helps.InjectClaudeBillingTags(body, prevReq, promptID)
-				if oauthToken && isAnthropicUpstreamBase(baseURL) {
+				if oauthToken && isAnthropicUpstreamBase(baseURL) && e.injectDiagnosticsEnabled() {
 					body, diagnosticsState = injectClaudeDiagnosticsWithState(body, cCtx.Key, cCtx.Sequence, cCtx.PreviousMessageID, promptID)
 				}
 			}
@@ -677,6 +716,9 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	})
 
 	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
+		httpClient.Transport = rt
+	}
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -731,10 +773,17 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			scanner := bufio.NewScanner(decodedBody)
 			scanner.Buffer(nil, 52_428_800) // 50MB
 			var upstreamMessageID string
+			var upstreamStreamErr error
+			var eventBuf bytes.Buffer
 			upstreamCompleted := false
 			for scanner.Scan() {
 				line := scanner.Bytes()
-				observeClaudeStreamLine(line, &upstreamMessageID, &upstreamCompleted)
+				eventBuf.Write(line)
+				eventBuf.WriteByte('\n')
+				if len(bytes.TrimSpace(line)) == 0 {
+					observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+					eventBuf.Reset()
+				}
 				helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 				reporter.ObserveResponseModel(line)
 				if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
@@ -764,12 +813,22 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				// Stop reading once the terminal event (message_stop) has been
 				// fully forwarded — a client disconnect after upstream completion
 				// must not surface as a stream failure (upstream 7c32971b91c8).
-				if upstreamCompleted && len(bytes.TrimSpace(line)) == 0 {
+				if (upstreamCompleted || upstreamStreamErr != nil) && len(bytes.TrimSpace(line)) == 0 {
 					break
 				}
 			}
+			if eventBuf.Len() > 0 {
+				observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+			}
 			if !upstreamCompleted {
-				if errScan := scanner.Err(); errScan != nil {
+				errScan := scanner.Err()
+				if errScan == nil {
+					errScan = upstreamStreamErr
+				}
+				if errScan == nil && ctx.Err() == nil {
+					errScan = statusErr{code: http.StatusBadGateway, msg: "upstream stream closed before message_stop"}
+				}
+				if errScan != nil {
 					helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 					reporter.PublishFailure(ctx, errScan)
 					select {
@@ -793,10 +852,17 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		scanner.Buffer(nil, 52_428_800) // 50MB
 		var param any
 		var upstreamMessageID string
+		var upstreamStreamErr error
+		var eventBuf bytes.Buffer
 		upstreamCompleted := false
 		for scanner.Scan() {
 			line := scanner.Bytes()
-			observeClaudeStreamLine(line, &upstreamMessageID, &upstreamCompleted)
+			eventBuf.Write(line)
+			eventBuf.WriteByte('\n')
+			if len(bytes.TrimSpace(line)) == 0 {
+				observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+				eventBuf.Reset()
+			}
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 			reporter.ObserveResponseModel(line)
 			if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
@@ -839,12 +905,22 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			// Stop reading once upstream completion is reached — a client
 			// disconnect after completion must not surface as a stream failure
 			// (upstream 7c32971b91c8).
-			if upstreamCompleted {
+			if upstreamCompleted || upstreamStreamErr != nil {
 				break
 			}
 		}
+		if eventBuf.Len() > 0 {
+			observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+		}
 		if !upstreamCompleted {
-			if errScan := scanner.Err(); errScan != nil {
+			errScan := scanner.Err()
+			if errScan == nil {
+				errScan = upstreamStreamErr
+			}
+			if errScan == nil && ctx.Err() == nil {
+				errScan = statusErr{code: http.StatusBadGateway, msg: "upstream stream closed before message_stop"}
+			}
+			if errScan != nil {
 				helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 				reporter.PublishFailure(ctx, errScan)
 				select {
@@ -942,6 +1018,8 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	body = enforceCacheControlLimit(body, 4)
 	body = normalizeCacheControlTTL(body)
 
+	body = applyClaudePreservedThinkingBinding(body)
+
 	// Extract betas from body and convert to header (for count_tokens too)
 	var extraBetas []string
 	extraBetas, body = extractAndRemoveBetas(body)
@@ -974,6 +1052,9 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	})
 
 	httpClient := helps.NewUtlsHTTPClient(e.cfg, auth, 0)
+	if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
+		httpClient.Transport = rt
+	}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -1740,6 +1821,23 @@ func withoutClaudeBeta(betas, removeBeta string) string {
 	return strings.Join(res, ",")
 }
 
+// withClaudeBetaAppended appends beta at the end unless it is already present.
+func withClaudeBetaAppended(betas, beta string) string {
+	beta = strings.TrimSpace(beta)
+	if beta == "" {
+		return betas
+	}
+	for _, existing := range strings.Split(betas, ",") {
+		if strings.TrimSpace(existing) == beta {
+			return betas
+		}
+	}
+	if strings.TrimSpace(betas) == "" {
+		return beta
+	}
+	return betas + "," + beta
+}
+
 // withClaudeExtendedCacheTTLBeta appends extended-cache-ttl-2025-04-11 to the
 // assembled list at its captured trailer position when absent
 // (upstream d7052c96af78: a body carrying 1h cache TTL pairs with the beta).
@@ -1837,7 +1935,7 @@ func classifyClaudeUpstreamError(statusCode int, headers http.Header, body []byt
 func classifyClaudeUpstreamErrorWithCooling(statusCode int, headers http.Header, body []byte, modelLevelCooling bool) error {
 	var retryAfter *time.Duration
 	if statusCode == http.StatusTooManyRequests || (statusCode >= 400 && statusCode < 600) {
-		retryAfter = helps.ParseClaudeRateLimitReset(headers, time.Now())
+		retryAfter = helps.ParseClaudeRateLimitResetForError(headers, body, time.Now())
 	}
 	err := statusErr{code: statusCode, msg: string(body), retryAfter: retryAfter}
 	if statusCode == http.StatusTooManyRequests {
@@ -2003,11 +2101,16 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 
 	incomingBetas := strings.TrimSpace(strings.Join(helps.HeaderValuesCaseInsensitive(ginHeaders, "Anthropic-Beta"), ","))
 	countTokens := r.URL != nil && strings.HasSuffix(r.URL.Path, "/count_tokens")
-	baseBetas := claudeCodeCLIBetas(body, claudeRequestedBetas(incomingBetas, extraBetas), oauthToken)
-	if countTokens {
-		baseBetas = strings.Join(claudeCountTokensBetas, ",")
+	isCallerOwned := isClaudeCallerOwned(auth, apiKey)
+	var baseBetas string
+	if isCallerOwned {
+		baseBetas = incomingBetas
+	} else {
+		baseBetas = claudeCodeCLIBetas(body, claudeRequestedBetas(incomingBetas, extraBetas), oauthToken)
+		if countTokens {
+			baseBetas = strings.Join(claudeCountTokensBetas, ",")
+		}
 	}
-
 	existingSet := make(map[string]bool)
 	appendBeta := func(beta string) {
 		beta = strings.TrimSpace(beta)
@@ -2029,7 +2132,7 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	// outright, so they are forwarded (upstream #5738, bd584a752329). Other
 	// Anthropic-compatible upstreams (Kimi, custom gateways) keep all caller
 	// extensions.
-	if incomingBetas != "" {
+	if !isCallerOwned && incomingBetas != "" {
 		for _, beta := range strings.Split(incomingBetas, ",") {
 			beta = strings.TrimSpace(beta)
 			if beta == "" {
@@ -2083,8 +2186,25 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	if isClaudeHaikuModel(reqModel) && !gjson.GetBytes(body, "fallbacks").Exists() {
 		baseBetas = withoutClaudeBeta(baseBetas, claudeServerSideFallbackBeta)
 	}
-	r.Header.Set("Anthropic-Beta", baseBetas)
+	if gjson.GetBytes(body, "thinking.block_binding").Exists() {
+		baseBetas = withClaudeBetaAppended(baseBetas, claudeThinkingBindingBeta)
+	}
 
+	applyBetaHeader := func() {
+		emittedBetas := baseBetas
+		for _, beta := range hd.AnthropicBetaStrip {
+			emittedBetas = withoutClaudeBeta(emittedBetas, beta)
+		}
+		for _, beta := range hd.AnthropicBetaAppend {
+			emittedBetas = withClaudeBetaAppended(emittedBetas, beta)
+		}
+		if strings.TrimSpace(emittedBetas) == "" {
+			r.Header.Del("Anthropic-Beta")
+			return
+		}
+		r.Header.Set("Anthropic-Beta", emittedBetas)
+	}
+	applyBetaHeader()
 	misc.EnsureHeader(r.Header, ginHeaders, "Anthropic-Version", "2023-06-01")
 	// Only set browser access header for API key mode; real Claude Code CLI does not send it.
 	if useAPIKey {
@@ -2102,8 +2222,29 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	// Session ID: stable per auth/apiKey, matches Claude Code's X-Claude-Code-Session-Id header.
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Claude-Code-Session-Id", helps.CachedSessionID(apiKey))
 	// Per-request UUID, matches Claude Code's x-client-request-id for first-party API.
-	if isAnthropicBase {
-		misc.EnsureHeader(r.Header, ginHeaders, "x-client-request-id", uuid.New().String())
+	// On api.anthropic.com, synthesize a fresh UUID unless passthrough mode is configured.
+	// On non-Anthropic bases (third-party gateways), unsolicited UUIDs are never synthesized,
+	// but when the client explicitly supplies an x-client-request-id, it is forwarded in both
+	// "on" and "passthrough" modes to preserve caller trace continuity across proxies (pinned
+	// by TestClaudeP4_HelperRequestIDFollowsUpstreamBase and TestApplyClaudeHeaders_GatewayClientRequestIDModes).
+	// Setting client-request-id="off" removes the header on both first-party and gateway endpoints.
+	incomingClientRequestID := claudeIncomingHeaderValue(ginHeaders, "x-client-request-id")
+	if hd.ClientRequestID != config.ClaudeClientRequestIDOff {
+		if hd.ClientRequestID == config.ClaudeClientRequestIDPassthrough {
+			if incomingClientRequestID != "" {
+				r.Header.Set("x-client-request-id", incomingClientRequestID)
+			} else {
+				r.Header.Del("X-Client-Request-Id")
+				r.Header.Del("x-client-request-id")
+			}
+		} else if isAnthropicBase {
+			r.Header.Set("x-client-request-id", uuid.New().String())
+		} else if incomingClientRequestID != "" {
+			r.Header.Set("x-client-request-id", incomingClientRequestID)
+		}
+	} else {
+		r.Header.Del("X-Client-Request-Id")
+		r.Header.Del("x-client-request-id")
 	}
 	r.Header.Set("Connection", "keep-alive")
 	if stream {
@@ -2141,6 +2282,9 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 		attrs = auth.Attributes
 	}
 	util.ApplyCustomHeadersFromAttrs(r, attrs, ginHeaders)
+	if isAnthropicBase {
+		applyBetaHeader()
+	}
 	// Re-enforce Accept-Encoding: identity after ApplyCustomHeadersFromAttrs, which
 	// may override it with a user-configured value.  Compressed SSE breaks the line
 	// scanner regardless of user preference, so this is non-negotiable for streams.

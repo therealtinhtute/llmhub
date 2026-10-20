@@ -20,6 +20,7 @@ import (
 	"github.com/therealtinhtute/llmhub/internal/wsrelay"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	"github.com/therealtinhtute/llmhub/sdk/cliproxy/usage"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -180,9 +181,15 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth,
 		return resp, statusErr{code: wsResp.Status, msg: string(wsResp.Body)}
 	}
 	reporter.ObserveResponseModel(wsResp.Body)
-	reporter.Publish(ctx, helps.ParseGeminiUsage(wsResp.Body))
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, body.toFormat, opts.SourceFormat, req.Model, opts.OriginalRequest, translatedReq, wsResp.Body, &param)
+	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
+	if errPayload, okErr := helps.TranslatedClaudeErrorPayload(responseFormat, out); okErr {
+		err = statusErr{code: http.StatusBadGateway, msg: errPayload}
+		reporter.PublishFailureWithDetail(ctx, helps.ParseGeminiUsage(wsResp.Body), err)
+		return cliproxyexecutor.Response{}, err
+	}
+	reporter.Publish(ctx, helps.ParseGeminiUsage(wsResp.Body))
 	if opts.SourceFormat == sdktranslator.FormatOpenAIResponse {
 		out = helps.EnsureResponsesUsageDetails(out)
 	}
@@ -280,9 +287,15 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 		}
 		return nil, statusErr{code: firstEvent.Status, msg: body.String()}
 	}
-	out := make(chan cliproxyexecutor.StreamChunk)
+	out := make(chan cliproxyexecutor.StreamChunk, 1)
 	go func(first wsrelay.StreamEvent) {
 		defer close(out)
+		responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
+		var streamUsage usage.Detail
+		var streamErr error
+		defer func() {
+			_ = helps.StopTranslatedClaudeStreamWithDetail(ctx, &streamErr, reporter, streamUsage, out)
+		}()
 		originalRequest := opts.OriginalRequest
 		if len(originalRequest) == 0 {
 			originalRequest = req.Payload
@@ -310,17 +323,26 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				if len(event.Payload) > 0 {
 					helps.AppendAPIResponseChunk(ctx, e.cfg, event.Payload)
 					reporter.ObserveResponseModel(event.Payload)
-					filtered := helps.FilterSSEUsageMetadata(event.Payload)
-					if detail, ok := helps.ParseGeminiStreamUsage(filtered); ok {
-						reporter.Publish(ctx, detail)
+					if detail, ok := helps.ParseGeminiStreamUsage(event.Payload); ok {
+						streamUsage = detail
 					}
+					filtered := helps.FilterSSEUsageMetadata(event.Payload)
 					lines := helps.TranslateStreamWithClaudeInputTokens(ctx, body.toFormat, opts.SourceFormat, req.Model, opts.OriginalRequest, translatedReq, filtered, &param, claudeInputTokens)
+					helps.CaptureTranslatedClaudeStreamError(responseFormat, lines, &streamErr, func(msg string) error {
+						return statusErr{code: http.StatusBadGateway, msg: msg}
+					})
 					for i := range lines {
 						select {
 						case out <- cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(lines[i])}:
 						case <-ctx.Done():
 							return false
 						}
+					}
+					if helps.StopTranslatedClaudeStreamWithDetail(ctx, &streamErr, reporter, streamUsage, out) {
+						return false
+					}
+					if streamUsage.TotalTokens > 0 {
+						reporter.Publish(ctx, streamUsage)
 					}
 					break
 				}
@@ -334,7 +356,11 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				if len(event.Payload) > 0 {
 					helps.AppendAPIResponseChunk(ctx, e.cfg, event.Payload)
 				}
+				streamUsage = helps.ParseGeminiUsage(event.Payload)
 				lines := helps.TranslateStreamWithClaudeInputTokens(ctx, body.toFormat, opts.SourceFormat, req.Model, opts.OriginalRequest, translatedReq, event.Payload, &param, claudeInputTokens)
+				helps.CaptureTranslatedClaudeStreamError(responseFormat, lines, &streamErr, func(msg string) error {
+					return statusErr{code: http.StatusBadGateway, msg: msg}
+				})
 				for i := range lines {
 					select {
 					case out <- cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(lines[i])}:
@@ -343,7 +369,10 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 					}
 				}
 				reporter.ObserveResponseModel(event.Payload)
-				reporter.Publish(ctx, helps.ParseGeminiUsage(event.Payload))
+				if helps.StopTranslatedClaudeStreamWithDetail(ctx, &streamErr, reporter, streamUsage, out) {
+					return false
+				}
+				reporter.Publish(ctx, streamUsage)
 				return false
 			case wsrelay.MessageTypeError:
 				helps.RecordAPIResponseError(ctx, e.cfg, event.Err)

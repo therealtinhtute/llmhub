@@ -4,6 +4,9 @@ package watcher
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,11 +14,12 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/therealtinhtute/llmhub/internal/config"
+	"github.com/therealtinhtute/llmhub/internal/watcher/synthesizer"
 	"gopkg.in/yaml.v3"
 
+	log "github.com/sirupsen/logrus"
 	sdkAuth "github.com/therealtinhtute/llmhub/sdk/auth"
 	coreauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
-	log "github.com/sirupsen/logrus"
 )
 
 // storePersister captures persistence-capable token store methods used by the watcher.
@@ -76,10 +80,28 @@ const (
 
 // AuthUpdate describes an incremental change to auth configuration.
 type AuthUpdate struct {
-	Action   AuthUpdateAction
-	ID       string
-	Auth     *coreauth.Auth
-	revision uint64 // Watcher-local ordering, independent of runtime auth generations.
+	Action      AuthUpdateAction
+	ID          string
+	Auth        *coreauth.Auth
+	revision    uint64 // Watcher-local ordering, independent of runtime auth generations.
+	fileRemoval bool   // The source file was removed, not just an ID from its content.
+}
+
+// IsFileRemoval reports whether this delete was observed as a whole-file removal.
+func (u AuthUpdate) IsFileRemoval() bool {
+	return u.fileRemoval
+}
+
+// SetFileRemoval marks a delete as a whole-file removal rather than a per-ID diff.
+func (u *AuthUpdate) SetFileRemoval(fileRemoval bool) {
+	if u != nil {
+		u.fileRemoval = fileRemoval
+	}
+}
+
+// Revision returns the monotonic watcher revision assigned to this update.
+func (u AuthUpdate) Revision() uint64 {
+	return u.revision
 }
 
 const (
@@ -164,4 +186,42 @@ func (w *Watcher) SnapshotCoreAuths() []*coreauth.Auth {
 	cfg := w.config
 	w.clientsMutex.RUnlock()
 	return snapshotCoreAuths(cfg, w.authDir)
+}
+
+// SnapshotAuthFile re-synthesizes one source file without consulting cached auth state.
+// Parse errors are surfaced so deletion reconciliation never relies on fallback auths.
+func (w *Watcher) SnapshotAuthFile(path string) ([]*coreauth.Auth, error) {
+	if w == nil {
+		return nil, fmt.Errorf("file auth snapshot is unavailable")
+	}
+	w.clientsMutex.RLock()
+	cfg := w.config
+	authDir := w.authDir
+	w.clientsMutex.RUnlock()
+	if cfg == nil || authDir == "" {
+		return nil, fmt.Errorf("file auth snapshot is not configured")
+	}
+	// Management uploads use absolute paths even when authDir is configured
+	// relatively. Keep both absolute so synthesis retains file-relative IDs.
+	absoluteAuthDir, errAbsAuthDir := filepath.Abs(authDir)
+	if errAbsAuthDir != nil {
+		return nil, fmt.Errorf("resolve auth directory: %w", errAbsAuthDir)
+	}
+	absolutePath, errAbsPath := filepath.Abs(path)
+	if errAbsPath != nil {
+		return nil, fmt.Errorf("resolve auth file path: %w", errAbsPath)
+	}
+	authDir = filepath.Clean(absoluteAuthDir)
+	path = filepath.Clean(absolutePath)
+	data, errReadFile := os.ReadFile(path)
+	if errReadFile != nil {
+		return nil, fmt.Errorf("read auth file: %w", errReadFile)
+	}
+	return synthesizer.SynthesizeAuthFile(&synthesizer.SynthesisContext{
+		Config:            cfg,
+		AuthDir:           authDir,
+		Now:               time.Now(),
+		IDGenerator:       synthesizer.NewStableIDGenerator(),
+		StrictFileParsing: true,
+	}, path, data)
 }

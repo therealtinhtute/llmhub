@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/therealtinhtute/llmhub/internal/auth/codex"
 	kimiauth "github.com/therealtinhtute/llmhub/internal/auth/kimi"
 	"github.com/therealtinhtute/llmhub/internal/runtime/geminicli"
@@ -50,7 +51,11 @@ func (s *FileSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth, e
 		if errRead != nil || len(data) == 0 {
 			continue
 		}
-		auths := synthesizeFileAuths(ctx, full, data)
+		auths, errSynthesize := synthesizeFileAuths(ctx, full, data)
+		if errSynthesize != nil {
+			log.WithError(errSynthesize).Warnf("skipping auth file %s", name)
+			continue
+		}
 		if len(auths) == 0 {
 			continue
 		}
@@ -61,23 +66,25 @@ func (s *FileSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth, e
 
 // SynthesizeAuthFile generates Auth entries for one auth JSON file payload.
 // It shares exactly the same mapping behavior as FileSynthesizer.Synthesize.
-func SynthesizeAuthFile(ctx *SynthesisContext, fullPath string, data []byte) []*coreauth.Auth {
+func SynthesizeAuthFile(ctx *SynthesisContext, fullPath string, data []byte) ([]*coreauth.Auth, error) {
 	return synthesizeFileAuths(ctx, fullPath, data)
 }
 
-func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []*coreauth.Auth {
+func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([]*coreauth.Auth, error) {
 	if ctx == nil || len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 	now := ctx.Now
-	cfg := ctx.Config
 	var metadata map[string]any
 	if errUnmarshal := json.Unmarshal(data, &metadata); errUnmarshal != nil {
-		return nil
+		if ctx.StrictFileParsing {
+			return nil, fmt.Errorf("parse auth file: %w", errUnmarshal)
+		}
+		return nil, nil
 	}
 	t, _ := metadata["type"].(string)
 	if t == "" {
-		return nil
+		return nil, nil
 	}
 	provider := strings.ToLower(t)
 	if provider == "gemini" {
@@ -118,9 +125,12 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 		status = coreauth.StatusDisabled
 	}
 
-	// Read per-account excluded models from the OAuth JSON file.
-	perAccountExcluded := extractExcludedModelsFromMetadata(metadata)
-
+	// Invalid per-account rules must not drop an existing credential: keep the valid
+	// entries and warn. Write entry points (upload and PATCH) reject them before persisting.
+	perAccountExcluded, errExcluded := ExtractExcludedModelsFromMetadata(metadata)
+	if errExcluded != nil {
+		log.WithError(errExcluded).Warnf("ignoring invalid excluded models in auth file %s", filepath.Base(fullPath))
+	}
 	a := &coreauth.Auth{
 		ID:       id,
 		FileName: filepath.Base(fullPath),
@@ -149,7 +159,7 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 		}
 	}
 	coreauth.ApplyCustomHeadersFromMetadata(a)
-	ApplyAuthExcludedModelsMeta(a, cfg, perAccountExcluded, "oauth")
+	ApplyAuthExcludedModelsMeta(a, perAccountExcluded, "oauth")
 	// For Kimi auth files, preserve domain and base_url attributes.
 	if provider == "kimi" || provider == "kimi-ai" || provider == "kimi.ai" || provider == "kimi.com" {
 		if bu, ok := metadata["base_url"].(string); ok && strings.TrimSpace(bu) != "" {
@@ -180,16 +190,19 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 	}
 	if provider == "gemini-cli" {
 		if virtuals := SynthesizeGeminiVirtualAuths(a, metadata, now); len(virtuals) > 0 {
+			a.BindFileSnapshot(fullPath, data)
 			for _, v := range virtuals {
-				ApplyAuthExcludedModelsMeta(v, cfg, perAccountExcluded, "oauth")
+				ApplyAuthExcludedModelsMeta(v, perAccountExcluded, "oauth")
+				v.BindFileSnapshot(fullPath, data)
 			}
 			out := make([]*coreauth.Auth, 0, 1+len(virtuals))
 			out = append(out, a)
 			out = append(out, virtuals...)
-			return out
+			return out, nil
 		}
 	}
-	return []*coreauth.Auth{a}
+	a.BindFileSnapshot(fullPath, data)
+	return []*coreauth.Auth{a}, nil
 }
 
 // SynthesizeGeminiVirtualAuths creates virtual Auth entries for multi-project Gemini credentials.
@@ -321,39 +334,58 @@ func buildGeminiVirtualID(baseID, projectID string) string {
 	return fmt.Sprintf("%s::%s", baseID, replacer.Replace(project))
 }
 
-// extractExcludedModelsFromMetadata reads per-account excluded models from the OAuth JSON metadata.
-// Supports both "excluded_models" and "excluded-models" keys, and accepts both []string and []interface{}.
-func extractExcludedModelsFromMetadata(metadata map[string]any) []string {
+// ExtractExcludedModelsFromMetadata reads per-account excluded models from the OAuth JSON metadata.
+// "excluded_models" is canonical; "excluded-models" remains a legacy alias. The value must be a
+// string array; a single string is also accepted for older hand-written files and is split on
+// commas. Any other type (or a null / empty value, which represents no exclusions) is accepted
+// or rejected according to the caller: a non-nil non-string value that cannot be used as a rule
+// is an error. For non-string elements the valid string entries are still returned with the
+// error, so lenient readers can keep the usable rules while strict writers reject the value.
+func ExtractExcludedModelsFromMetadata(metadata map[string]any) ([]string, error) {
 	if metadata == nil {
-		return nil
+		return nil, nil
 	}
-	// Try both key formats
 	raw, ok := metadata["excluded_models"]
+	key := "excluded_models"
 	if !ok {
 		raw, ok = metadata["excluded-models"]
+		key = "excluded-models"
 	}
 	if !ok || raw == nil {
-		return nil
+		return nil, nil
 	}
-	var stringSlice []string
+	var (
+		result     []string
+		errInvalid error
+	)
 	switch v := raw.(type) {
+	case string:
+		for _, part := range strings.Split(v, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
 	case []string:
-		stringSlice = v
-	case []interface{}:
-		stringSlice = make([]string, 0, len(v))
 		for _, item := range v {
-			if s, ok := item.(string); ok {
-				stringSlice = append(stringSlice, s)
+			if trimmed := strings.TrimSpace(item); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+	case []any:
+		for index, item := range v {
+			s, okString := item.(string)
+			if !okString {
+				if errInvalid == nil {
+					errInvalid = fmt.Errorf("metadata %s[%d] must be a string, got %T", key, index, item)
+				}
+				continue
+			}
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				result = append(result, trimmed)
 			}
 		}
 	default:
-		return nil
+		return nil, fmt.Errorf("metadata %s must be a string array, got %T", key, raw)
 	}
-	result := make([]string, 0, len(stringSlice))
-	for _, s := range stringSlice {
-		if trimmed := strings.TrimSpace(s); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
+	return result, errInvalid
 }

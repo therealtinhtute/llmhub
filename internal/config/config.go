@@ -6,6 +6,8 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -195,12 +197,22 @@ type Config struct {
 	// These are used as fallbacks when the client does not send its own headers.
 	ClaudeHeaderDefaults ClaudeHeaderDefaults `yaml:"claude-header-defaults" json:"claude-header-defaults"`
 
+	// Upstream nests provider-specific upstream request defaults.
+	Upstream UpstreamConfig `yaml:"upstream,omitempty" json:"upstream,omitempty"`
+
 	// ClaudeModelLevelCooling scopes Claude quota cooldowns to the requested model
 	// rather than cooling down the entire credential across all sibling models.
 	// Upstream CLIProxyAPI nests this under claude.model-level-cooling (44eaef0009f8);
 	// this repository's flat schema keeps it as a top-level key. Default false keeps
 	// the credential-wide behavior.
 	ClaudeModelLevelCooling bool `yaml:"claude-model-level-cooling,omitempty" json:"claude-model-level-cooling,omitempty"`
+	// Claude holds Claude-specific provider configuration.
+	Claude ClaudeConfig `yaml:"claude,omitempty" json:"claude,omitempty"`
+
+	// ClaudeSessionDatePinDays retains the cloaked currentDate pin per session
+	// for this many days, independently of continuity expiry and credential switches.
+	// Nil defaults to 7 days; explicit 0 keeps continuity-scoped (1h) pin.
+	ClaudeSessionDatePinDays *int `yaml:"claude-session-date-pin-days,omitempty" json:"claude-session-date-pin-days,omitempty"`
 
 	// XAI holds xAI provider configuration settings.
 	XAI XAIConfig `yaml:"xai" json:"xai"`
@@ -240,6 +252,20 @@ type Config struct {
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
 	legacyMigrationPending bool `yaml:"-" json:"-"`
+
+	// SourceHash is runtime-only: the SHA-256 of the config file bytes this config was
+	// parsed from, or empty when the config was not loaded from a file.
+	SourceHash string `yaml:"-" json:"-"`
+
+	// ConfigVersion is runtime-only: the store version this config was loaded from,
+	// or 0 when not loaded from a versioned store.
+	ConfigVersion int64 `yaml:"-" json:"-"`
+}
+
+// ComputeSourceHash returns the Config.SourceHash value for config file bytes.
+func ComputeSourceHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // CodexMultiAgentV2Enabled reports whether Codex multi-agent v2 optimization is
@@ -266,14 +292,40 @@ func (cfg *Config) CodexApplyPatchEnabled() bool {
 // the client omits them, while OS/Arch remain runtime-derived. When stabilized device
 // profiles are enabled, OS/Arch become the pinned platform baseline, while
 // UserAgent/PackageVersion/RuntimeVersion seed the upgradeable software fingerprint.
+// AnthropicBetaStrip and AnthropicBetaAppend are exact-name operator overrides applied
+// to the final Anthropic-Beta set; InjectDiagnostics and ClientRequestID tune the
+// first-party Claude Code CLI request shape.
 type ClaudeHeaderDefaults struct {
-	UserAgent              string `yaml:"user-agent" json:"user-agent"`
-	PackageVersion         string `yaml:"package-version" json:"package-version"`
-	RuntimeVersion         string `yaml:"runtime-version" json:"runtime-version"`
-	OS                     string `yaml:"os" json:"os"`
-	Arch                   string `yaml:"arch" json:"arch"`
-	Timeout                string `yaml:"timeout" json:"timeout"`
-	StabilizeDeviceProfile *bool  `yaml:"stabilize-device-profile,omitempty" json:"stabilize-device-profile,omitempty"`
+	UserAgent              string   `yaml:"user-agent" json:"user-agent"`
+	PackageVersion         string   `yaml:"package-version" json:"package-version"`
+	RuntimeVersion         string   `yaml:"runtime-version" json:"runtime-version"`
+	OS                     string   `yaml:"os" json:"os"`
+	Arch                   string   `yaml:"arch" json:"arch"`
+	Timeout                string   `yaml:"timeout" json:"timeout"`
+	StabilizeDeviceProfile *bool    `yaml:"stabilize-device-profile,omitempty" json:"stabilize-device-profile,omitempty"`
+	AnthropicBetaStrip     []string `yaml:"anthropic-beta-strip,omitempty" json:"anthropic-beta-strip,omitempty"`
+	AnthropicBetaAppend    []string `yaml:"anthropic-beta-append,omitempty" json:"anthropic-beta-append,omitempty"`
+	InjectDiagnostics      *bool    `yaml:"inject-diagnostics,omitempty" json:"inject-diagnostics,omitempty"`
+	ClientRequestID        string   `yaml:"client-request-id,omitempty" json:"client-request-id,omitempty"`
+}
+
+// Supported ClaudeHeaderDefaults.ClientRequestID values. An empty value means
+// ClaudeClientRequestIDOn.
+const (
+	ClaudeClientRequestIDOn          = "on"
+	ClaudeClientRequestIDOff         = "off"
+	ClaudeClientRequestIDPassthrough = "passthrough"
+)
+
+// UpstreamConfig configures provider-specific upstream settings.
+type UpstreamConfig struct {
+	Claude ClaudeUpstreamConfig `yaml:"claude,omitempty" json:"claude,omitempty"`
+}
+
+// ClaudeUpstreamConfig configures Claude upstream settings.
+type ClaudeUpstreamConfig struct {
+	HeaderDefaults     ClaudeHeaderDefaults `yaml:"header-defaults,omitempty" json:"header-defaults,omitempty"`
+	SessionDatePinDays *int                 `yaml:"session-date-pin-days,omitempty" json:"session-date-pin-days,omitempty"`
 }
 
 // CodexHeaderDefaults configures fallback header values injected into Codex
@@ -1058,6 +1110,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// }
 
 	// Return the populated configuration struct.
+	// Record the exact bytes this config was parsed from, so a consumer can tell
+	// it apart from a newer version of the file.
+	cfg.SourceHash = ComputeSourceHash(data)
 	return &cfg, nil
 }
 
@@ -1127,17 +1182,93 @@ func (cfg *Config) SanitizeCodexHeaderDefaults() {
 }
 
 // SanitizeClaudeHeaderDefaults trims surrounding whitespace from the
-// configured Claude fingerprint baseline values.
+// configured Claude fingerprint baseline values, normalizes the beta override
+// lists, and resets an unknown client-request-id mode to the default.
 func (cfg *Config) SanitizeClaudeHeaderDefaults() {
 	if cfg == nil {
 		return
 	}
+	cfg.mergeUpstreamClaudeHeaderDefaults()
 	cfg.ClaudeHeaderDefaults.UserAgent = strings.TrimSpace(cfg.ClaudeHeaderDefaults.UserAgent)
 	cfg.ClaudeHeaderDefaults.PackageVersion = strings.TrimSpace(cfg.ClaudeHeaderDefaults.PackageVersion)
 	cfg.ClaudeHeaderDefaults.RuntimeVersion = strings.TrimSpace(cfg.ClaudeHeaderDefaults.RuntimeVersion)
 	cfg.ClaudeHeaderDefaults.OS = strings.TrimSpace(cfg.ClaudeHeaderDefaults.OS)
 	cfg.ClaudeHeaderDefaults.Arch = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Arch)
 	cfg.ClaudeHeaderDefaults.Timeout = strings.TrimSpace(cfg.ClaudeHeaderDefaults.Timeout)
+	cfg.ClaudeHeaderDefaults.AnthropicBetaStrip = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaStrip)
+	cfg.ClaudeHeaderDefaults.AnthropicBetaAppend = normalizeClaudeBetaNames(cfg.ClaudeHeaderDefaults.AnthropicBetaAppend)
+	mode := strings.ToLower(strings.TrimSpace(cfg.ClaudeHeaderDefaults.ClientRequestID))
+	switch mode {
+	case "", ClaudeClientRequestIDOn, ClaudeClientRequestIDOff, ClaudeClientRequestIDPassthrough:
+	default:
+		log.Warnf("unrecognized claude header-defaults client-request-id %q (supported: on, off, passthrough); falling back to on", cfg.ClaudeHeaderDefaults.ClientRequestID)
+		mode = ""
+	}
+	cfg.ClaudeHeaderDefaults.ClientRequestID = mode
+}
+
+// normalizeClaudeBetaNames trims beta names and drops empty and duplicate
+// entries while keeping the configured order.
+func normalizeClaudeBetaNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(names))
+	out := make([]string, 0, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (cfg *Config) mergeUpstreamClaudeHeaderDefaults() {
+	if cfg == nil {
+		return
+	}
+	src := cfg.Upstream.Claude.HeaderDefaults
+	dst := &cfg.ClaudeHeaderDefaults
+	if src.UserAgent != "" {
+		dst.UserAgent = src.UserAgent
+	}
+	if src.PackageVersion != "" {
+		dst.PackageVersion = src.PackageVersion
+	}
+	if src.RuntimeVersion != "" {
+		dst.RuntimeVersion = src.RuntimeVersion
+	}
+	if src.OS != "" {
+		dst.OS = src.OS
+	}
+	if src.Arch != "" {
+		dst.Arch = src.Arch
+	}
+	if src.Timeout != "" {
+		dst.Timeout = src.Timeout
+	}
+	if src.StabilizeDeviceProfile != nil {
+		dst.StabilizeDeviceProfile = src.StabilizeDeviceProfile
+	}
+	if len(src.AnthropicBetaStrip) > 0 {
+		dst.AnthropicBetaStrip = src.AnthropicBetaStrip
+	}
+	if len(src.AnthropicBetaAppend) > 0 {
+		dst.AnthropicBetaAppend = src.AnthropicBetaAppend
+	}
+	if src.InjectDiagnostics != nil {
+		dst.InjectDiagnostics = src.InjectDiagnostics
+	}
+	if src.ClientRequestID != "" {
+		dst.ClientRequestID = src.ClientRequestID
+	}
+	cfg.Upstream.Claude.HeaderDefaults = ClaudeHeaderDefaults{}
 }
 
 // SanitizeOAuthModelAlias normalizes and deduplicates global OAuth model name aliases.
@@ -1549,6 +1680,7 @@ func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-excluded-models")
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-model-alias")
+	pruneNestedClaudeHeaderDefaults(original.Content[0])
 
 	// Merge generated into original in-place, preserving comments/order of existing nodes.
 	mergeMappingPreserve(original.Content[0], generated.Content[0])
@@ -1813,6 +1945,11 @@ func isKnownDefaultValue(path []string, node *yaml.Node) bool {
 	if len(path) > 0 && (path[len(path)-1] == "cache-user-id" || path[len(path)-1] == "disable-cooling") && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!bool" {
 		return false
 	}
+	// session-date-pin-days is pointer-backed: only an explicit zero is
+	// preserved; the default value must not pollute saves.
+	if len(path) > 0 && path[len(path)-1] == "session-date-pin-days" && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!int" && node.Value == "0" {
+		return false
+	}
 
 	// First check if it's a zero value
 	if isZeroValueNode(node) {
@@ -1841,6 +1978,8 @@ func isKnownDefaultValue(path []string, node *yaml.Node) bool {
 		switch fullPath {
 		case "error-logs-max-files":
 			return node.Value == "10"
+		case "claude.session-date-pin-days", "claude-session-date-pin-days":
+			return node.Value == strconv.Itoa(DefaultClaudeSessionDatePinDays)
 		}
 	}
 
@@ -2165,6 +2304,36 @@ func pruneMappingToGeneratedKeys(dstRoot, srcRoot *yaml.Node, key string) {
 		return
 	}
 	pruneMissingMapKeys(dstVal, srcVal)
+}
+
+func pruneNestedClaudeHeaderDefaults(root *yaml.Node) {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return
+	}
+	upstreamIdx := findMapKeyIndex(root, "upstream")
+	if upstreamIdx < 0 || upstreamIdx+1 >= len(root.Content) {
+		return
+	}
+	upstreamNode := root.Content[upstreamIdx+1]
+	if upstreamNode == nil || upstreamNode.Kind != yaml.MappingNode {
+		return
+	}
+	claudeIdx := findMapKeyIndex(upstreamNode, "claude")
+	if claudeIdx < 0 || claudeIdx+1 >= len(upstreamNode.Content) {
+		return
+	}
+	claudeNode := upstreamNode.Content[claudeIdx+1]
+	if claudeNode == nil || claudeNode.Kind != yaml.MappingNode {
+		return
+	}
+	removeMapKey(claudeNode, "header-defaults")
+	removeMapKey(claudeNode, "session-date-pin-days")
+	if len(claudeNode.Content) == 0 {
+		removeMapKey(upstreamNode, "claude")
+	}
+	if len(upstreamNode.Content) == 0 {
+		removeMapKey(root, "upstream")
+	}
 }
 
 func pruneMissingMapKeys(dstMap, srcMap *yaml.Node) {

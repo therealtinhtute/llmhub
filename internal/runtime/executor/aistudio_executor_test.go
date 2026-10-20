@@ -228,10 +228,6 @@ func TestAIStudioExecutorClaudeMalformedFunctionCallReturnsRetryableError(t *tes
 
 // TestAIStudioExecutorClaudeMalformedFunctionCallCancelAfterErrorRecordsConductorFailure
 // tests that canceling context after an error event records a failure in the conductor.
-// Note: This test exercises client context cancellation against wsrelay, which trips a
-// pre-existing data race internal to internal/wsrelay (session.go:182 vs session.go:160)
-// on concurrent session cleanup; it is excluded from the -race gate command as wsrelay is
-// out of scope for P6.
 func TestAIStudioExecutorClaudeMalformedFunctionCallCancelAfterErrorRecordsConductorFailure(t *testing.T) {
 	malformedBody := `{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"MALFORMED_FUNCTION_CALL"}],"usageMetadata":{"promptTokenCount":120,"candidatesTokenCount":10,"thoughtsTokenCount":313,"totalTokenCount":443},"modelVersion":"gemini-4-argon"}`
 	for _, mode := range []string{"stream_end", "http_resp"} {

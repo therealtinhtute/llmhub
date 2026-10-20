@@ -179,7 +179,7 @@ func (s *session) cleanup(cause error) {
 			req.close()
 			return true
 		})
-		s.pending = sync.Map{}
+		// Cleanup owns the terminal drain of pending requests and the session is not reused.
 		_ = s.conn.Close()
 		if s.manager != nil {
 			s.manager.handleSessionClosed(s, cause)

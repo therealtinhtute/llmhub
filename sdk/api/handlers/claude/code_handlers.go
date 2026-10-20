@@ -436,6 +436,13 @@ func (h *ClaudeCodeAPIHandler) forwardClaudeStreamWithState(c *gin.Context, flus
 			if errMsg == nil {
 				return
 			}
+			if !c.Writer.Written() {
+				status := http.StatusInternalServerError
+				if errMsg.StatusCode > 0 {
+					status = errMsg.StatusCode
+				}
+				c.Status(status)
+			}
 			if state.sawErrorEvent {
 				state.ensureSSEEventBoundary(c.Writer)
 				return
@@ -463,7 +470,6 @@ func (h *ClaudeCodeAPIHandler) forwardClaudeStreamWithState(c *gin.Context, flus
 		},
 	})
 }
-
 
 type claudeErrorDetail struct {
 	Type    string `json:"type"`

@@ -773,10 +773,17 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			scanner := bufio.NewScanner(decodedBody)
 			scanner.Buffer(nil, 52_428_800) // 50MB
 			var upstreamMessageID string
+			var upstreamStreamErr error
+			var eventBuf bytes.Buffer
 			upstreamCompleted := false
 			for scanner.Scan() {
 				line := scanner.Bytes()
-				observeClaudeStreamLine(line, &upstreamMessageID, &upstreamCompleted)
+				eventBuf.Write(line)
+				eventBuf.WriteByte('\n')
+				if len(bytes.TrimSpace(line)) == 0 {
+					observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+					eventBuf.Reset()
+				}
 				helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 				reporter.ObserveResponseModel(line)
 				if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
@@ -806,12 +813,22 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				// Stop reading once the terminal event (message_stop) has been
 				// fully forwarded — a client disconnect after upstream completion
 				// must not surface as a stream failure (upstream 7c32971b91c8).
-				if upstreamCompleted && len(bytes.TrimSpace(line)) == 0 {
+				if (upstreamCompleted || upstreamStreamErr != nil) && len(bytes.TrimSpace(line)) == 0 {
 					break
 				}
 			}
+			if eventBuf.Len() > 0 {
+				observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+			}
 			if !upstreamCompleted {
-				if errScan := scanner.Err(); errScan != nil {
+				errScan := scanner.Err()
+				if errScan == nil {
+					errScan = upstreamStreamErr
+				}
+				if errScan == nil && ctx.Err() == nil {
+					errScan = statusErr{code: http.StatusBadGateway, msg: "upstream stream closed before message_stop"}
+				}
+				if errScan != nil {
 					helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 					reporter.PublishFailure(ctx, errScan)
 					select {
@@ -835,10 +852,17 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		scanner.Buffer(nil, 52_428_800) // 50MB
 		var param any
 		var upstreamMessageID string
+		var upstreamStreamErr error
+		var eventBuf bytes.Buffer
 		upstreamCompleted := false
 		for scanner.Scan() {
 			line := scanner.Bytes()
-			observeClaudeStreamLine(line, &upstreamMessageID, &upstreamCompleted)
+			eventBuf.Write(line)
+			eventBuf.WriteByte('\n')
+			if len(bytes.TrimSpace(line)) == 0 {
+				observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+				eventBuf.Reset()
+			}
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 			reporter.ObserveResponseModel(line)
 			if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
@@ -881,12 +905,22 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			// Stop reading once upstream completion is reached — a client
 			// disconnect after completion must not surface as a stream failure
 			// (upstream 7c32971b91c8).
-			if upstreamCompleted {
+			if upstreamCompleted || upstreamStreamErr != nil {
 				break
 			}
 		}
+		if eventBuf.Len() > 0 {
+			observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+		}
 		if !upstreamCompleted {
-			if errScan := scanner.Err(); errScan != nil {
+			errScan := scanner.Err()
+			if errScan == nil {
+				errScan = upstreamStreamErr
+			}
+			if errScan == nil && ctx.Err() == nil {
+				errScan = statusErr{code: http.StatusBadGateway, msg: "upstream stream closed before message_stop"}
+			}
+			if errScan != nil {
 				helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 				reporter.PublishFailure(ctx, errScan)
 				select {

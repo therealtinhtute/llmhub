@@ -445,3 +445,111 @@ func TestClaudeDiagnosticsObservation_MultiLineAndErrors(t *testing.T) {
 		t.Fatalf("expected streamErr to be set on error event")
 	}
 }
+
+// ClaudeExecutor must surface a clean upstream EOF without message_stop as a
+// 502 truncation error on both its passthrough and translated stream loops, so
+// consumers other than the /v1/messages proxy (e.g. the OpenAI handlers) do not
+// mistake a truncated response for a completed one (upstream 4f2e52709).
+func TestClaudeExecutorStreamTruncationReportsError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		from sdktranslator.Format
+	}{
+		{name: "passthrough", from: sdktranslator.FormatClaude},
+		{name: "translated to OpenAI Responses", from: sdktranslator.FormatOpenAIResponse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "event: message_start\n"+
+					`data: {"type":"message_start","message":{"id":"msg_truncated","type":"message","role":"assistant","content":[],"model":"claude-opus-5","stop_reason":null,"usage":{"input_tokens":4,"output_tokens":1}}}`+"\n\n"+
+					"event: content_block_delta\n"+
+					`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`+"\n\n")
+			}))
+			defer server.Close()
+
+			exec := NewClaudeExecutor(&config.Config{})
+			auth := &cliproxyauth.Auth{
+				Provider: "claude",
+				Attributes: map[string]string{
+					"api_key":  "test-claude-key",
+					"base_url": server.URL,
+				},
+			}
+			result, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+				Model:   "claude-opus-5",
+				Payload: []byte(`{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+			}, cliproxyexecutor.Options{
+				SourceFormat:   tc.from,
+				ResponseFormat: tc.from,
+				Stream:         true,
+			})
+			if err != nil {
+				t.Fatalf("ExecuteStream() error = %v", err)
+			}
+
+			var streamErr error
+			for chunk := range result.Chunks {
+				if chunk.Err != nil && streamErr == nil {
+					streamErr = chunk.Err
+				}
+			}
+			if streamErr == nil {
+				t.Fatal("expected truncation error chunk on clean EOF without message_stop")
+			}
+			status, ok := streamErr.(interface{ StatusCode() int })
+			if !ok || status.StatusCode() != http.StatusBadGateway {
+				t.Fatalf("truncation error = %T (%v), want status %d", streamErr, streamErr, http.StatusBadGateway)
+			}
+			if !strings.Contains(streamErr.Error(), "upstream stream closed before message_stop") {
+				t.Fatalf("truncation error = %v, want message_stop truncation message", streamErr)
+			}
+		})
+	}
+}
+
+// A stream that reaches message_stop must keep closing cleanly and committing
+// continuity for both the passthrough and translated loops.
+func TestClaudeExecutorStreamWithMessageStopCompletes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		from sdktranslator.Format
+	}{
+		{name: "passthrough", from: sdktranslator.FormatClaude},
+		{name: "translated to OpenAI Responses", from: sdktranslator.FormatOpenAIResponse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, claudeTerminalStreamData)
+			}))
+			defer server.Close()
+
+			exec := NewClaudeExecutor(&config.Config{})
+			auth := &cliproxyauth.Auth{
+				Provider: "claude",
+				Attributes: map[string]string{
+					"api_key":  "test-claude-key",
+					"base_url": server.URL,
+				},
+			}
+			result, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+				Model:   "claude-opus-5",
+				Payload: []byte(`{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+			}, cliproxyexecutor.Options{
+				SourceFormat:   tc.from,
+				ResponseFormat: tc.from,
+				Stream:         true,
+			})
+			if err != nil {
+				t.Fatalf("ExecuteStream() error = %v", err)
+			}
+
+			for chunk := range result.Chunks {
+				if chunk.Err != nil {
+					t.Fatalf("unexpected error chunk on completed stream: %v", chunk.Err)
+				}
+			}
+		})
+	}
+}

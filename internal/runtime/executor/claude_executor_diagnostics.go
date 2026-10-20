@@ -91,21 +91,6 @@ func claudeMessageIDFromResponse(data []byte) string {
 	return strings.TrimSpace(gjson.GetBytes(data, "id").String())
 }
 
-// observeClaudeStreamLine tracks the upstream message id (message_start) and
-// whether the stream reached message_stop, so continuity commits only complete
-// responses and truncated streams cannot corrupt state (upstream 086ad91bd970).
-func observeClaudeStreamLine(line []byte, messageID *string, completed *bool) {
-	line = bytes.TrimSpace(line)
-	if !bytes.HasPrefix(line, []byte("data:")) {
-		return
-	}
-	payload := bytes.TrimSpace(line[len("data:"):])
-	if !gjson.ValidBytes(payload) {
-		return
-	}
-	observeClaudeStreamJSONPayload(payload, true, messageID, completed)
-}
-
 func observeClaudeStreamJSONPayload(payload []byte, hasDataPrefix bool, messageID *string, completed *bool) {
 	root := gjson.ParseBytes(payload)
 	switch root.Get("type").String() {
@@ -125,6 +110,10 @@ func observeClaudeStreamJSONPayload(payload []byte, hasDataPrefix bool, messageI
 	}
 }
 
+// observeClaudeSSEEvent tracks the upstream message id (message_start), whether
+// the stream reached message_stop, and any error event, so continuity commits
+// only complete responses and truncated streams cannot corrupt state
+// (upstream 086ad91bd970).
 func observeClaudeSSEEvent(rawEvent []byte, messageID *string, completed *bool, streamErr *error) {
 	var dataLines [][]byte
 	for _, line := range bytes.Split(rawEvent, []byte("\n")) {

@@ -208,7 +208,7 @@ func TestClaudeMessagesHandlerTruncatedStreamWithoutMessageStopWritesSSEError(t 
 	}
 }
 
-func TestClaudeStreamTerminalErrorDoesNotOverwriteSSEStatusWhenUnwritten(t *testing.T) {
+func TestClaudeStreamTerminalErrorSetsStatusWhenUnwritten(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -225,8 +225,8 @@ func TestClaudeStreamTerminalErrorDoesNotOverwriteSSEStatusWhenUnwritten(t *test
 
 	handler.forwardClaudeStream(c, c.Writer, func(error) {}, nil, errs)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 for committed SSE stream; body=%q", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d for unwritten SSE stream; body=%q", recorder.Code, http.StatusBadGateway, recorder.Body.String())
 	}
 	if !strings.HasPrefix(recorder.Body.String(), "event: error\ndata: ") {
 		t.Fatalf("unexpected SSE error body: %q", recorder.Body.String())
@@ -566,8 +566,8 @@ func TestClaudeMessagesHandlerEmptyStreamClosesWithSSEError(t *testing.T) {
 		t.Fatal("forwardClaudeStream hung when data and errs channels closed without chunks")
 	}
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%q", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d; body=%q", recorder.Code, http.StatusBadGateway, recorder.Body.String())
 	}
 	body := recorder.Body.String()
 	if !strings.Contains(body, "event: error\ndata: ") || !strings.Contains(body, "message_stop") {

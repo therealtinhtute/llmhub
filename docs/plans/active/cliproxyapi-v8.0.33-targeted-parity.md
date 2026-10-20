@@ -3,9 +3,9 @@ id: plan-20261019-v8033
 type: plan
 intake_id: intake-20261019-v8033
 lane: high-risk
-status: active
+status: implemented
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-10-20
 ---
 
 # Plan: CLIProxyAPI v8.0.33 targeted parity
@@ -546,3 +546,10 @@ updated: 2026-10-19
 
 ## Handoff
 - Next steps: run the P1 baseline and contract map first; then dispatch P1, P2, P3 in order, followed by P4/P5 and the low-risk area phases. Do not start deferred slices without the trigger named in Non-goals. Final action is P13 with the upstream re-resolve gate.
+
+## Execution Record (2026-10-20)
+- All 13 phases merged into `quaqua/llmhub-integ` (base `771e5cefb`; integration tip `56c3eed49`): P1 `88616dd9c`, P2 `9ea7041e7`, P3 `51851dc92`, P4 `1c9058654`, P5 `feaa3afac`, P6 `9ea7041e7`→`ea36dbef2` (P6 content `187abc485`), P7 `e40611423`, P8 `9719714a5` (fix `5609fc477`), P9 `4f7104484` (fix `0e11cfca3`), P10 `5b2a0baa0`, P11 `75f28c834`, P12 `5525a95e0` (content commit `a3b67728c`), P13 gate `56c3eed49`.
+- Final gate on `56c3eed49` is green: `make build` ok, `go test ./internal/... ./sdk/... -count=1` ok, `git diff --check` clean.
+- Scope audit vs base `771e5cefb` (non-doc paths): 123 paths, +14967/−675; 0 `web/**/*_test.go`, 0 `internal/pluginhost/**` or `sdk/pluginapi/**`, 0 branding paths. Postgres authority, additive SDK surface, monolithic xAI executor, and Claude/Amp/Kiro/Gemini CLI/Codex route behavior all unchanged.
+- Upstream pin: v8.0.34 (`e7d4c7316`) and v8.0.35 (`ae3ee3be3`) were fetched to `refs/upstream-checkpoints/cliproxyapi/{v8.0.34,v8.0.35}`. The 34 commits / 145 paths between the v8.0.33 checkpoint (`2422c6b0f`) and v8.0.35 are NOT ported and must not be silently absorbed; they are a pinned follow-up cycle under R24. `docs/upstream/cliproxyapi-checkpoint.json` stays at v8.0.33.
+- Partial deliveries and pins carried forward: R12 consumer side (cloaking `currentDate` injection) deferred out of this plan; P9 F4 store-level CAS follow-up; P10 duplicate Claude-variant normalizer cleanup; P2 two low-severity test gaps; merging `quaqua/llmhub-integ` into master pending owner approval.

@@ -446,14 +446,18 @@ func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, _ string, or
 	modelName := gjson.GetBytes(requestRawJSON, "model").String()
 
 	root := gjson.ParseBytes(rawJSON)
-	promptTokens := root.Get("response.usageMetadata.promptTokenCount").Int()
+	rawPromptTokens := root.Get("response.usageMetadata.promptTokenCount").Int()
 	candidateTokens := root.Get("response.usageMetadata.candidatesTokenCount").Int()
 	thoughtTokens := root.Get("response.usageMetadata.thoughtsTokenCount").Int()
 	totalTokens := root.Get("response.usageMetadata.totalTokenCount").Int()
 	cachedTokens := root.Get("response.usageMetadata.cachedContentTokenCount").Int()
+	promptTokens := rawPromptTokens - cachedTokens
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
 	outputTokens := candidateTokens + thoughtTokens
 	if outputTokens == 0 && totalTokens > 0 {
-		outputTokens = totalTokens - promptTokens
+		outputTokens = totalTokens - rawPromptTokens
 		if outputTokens < 0 {
 			outputTokens = 0
 		}

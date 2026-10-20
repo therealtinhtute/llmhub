@@ -3,12 +3,15 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/therealtinhtute/llmhub/internal/config"
 	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
 	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
 	"github.com/tidwall/gjson"
@@ -701,7 +704,7 @@ func TestSanitizeAntigravityRequestSchemasNormalizesTrueBooleanSubschemas(t *tes
 	}}`
 
 	for _, useAntigravitySchema := range []bool{false, true} {
-		got := sanitizeAntigravityRequestSchemas(payload, useAntigravitySchema)
+		got := sanitizeAntigravityRequestSchemasForModel(payload, useAntigravitySchema, false)
 		decl := gjson.Get(got, "request.tools.0.functionDeclarations.0")
 		params := decl.Get("parameters")
 		if !params.Exists() {
@@ -737,5 +740,150 @@ func TestSanitizeAntigravityRequestSchemasNormalizesTrueBooleanSubschemas(t *tes
 		if val := params.Get("properties.large_int"); val.Raw != "9007199254740993" {
 			t.Errorf("useAntigravitySchema=%v: large_int corrupted, got %s", useAntigravitySchema, val.Raw)
 		}
+	}
+}
+
+func TestAntigravityBuildRequestScalesLinearlyWithDeclarations(t *testing.T) {
+	const declCount = 256
+
+	var input strings.Builder
+	input.WriteString(`{"request":{"tools":[{"functionDeclarations":[`)
+	for i := range declCount {
+		if i > 0 {
+			input.WriteByte(',')
+		}
+		fmt.Fprintf(&input, `{"name":"tool_%d","description":"%s","parametersJsonSchema":{"type":"object","$id":"drop","properties":{"q":{"type":"string"}}}}`, i, strings.Repeat("x", 4096))
+	}
+	input.WriteString(`]}]}}`)
+
+	payload := []byte(input.String())
+	exec := NewAntigravityExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{ID: "test-auth", Provider: "antigravity", Metadata: map[string]any{"project_id": "test-project"}}
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	req, errReq := exec.buildRequest(context.Background(), auth, "token", "gemini-3.8-flash-high", payload, false, "", "")
+	runtime.ReadMemStats(&after)
+
+	if errReq != nil {
+		t.Fatalf("buildRequest() error = %v", errReq)
+	}
+	reqBody, _ := io.ReadAll(req.Body)
+	firstDecl := gjson.GetBytes(reqBody, "request.tools.0.functionDeclarations.0")
+	if !firstDecl.Get("parameters.properties.q").Exists() {
+		t.Fatalf("first declaration parameter q missing: %s", firstDecl.Raw)
+	}
+	if firstDecl.Get("parametersJsonSchema").Exists() {
+		t.Fatalf("parametersJsonSchema was not renamed: %s", firstDecl.Raw)
+	}
+
+	const allowedCopies = 48
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > uint64(allowedCopies*len(payload)) {
+		t.Fatalf("live buildRequest with %d declarations allocated %d bytes for a %d byte payload, want at most %d (must scale linearly with tools size)",
+			declCount, allocated, len(payload), allowedCopies*len(payload))
+	}
+}
+
+func TestAntigravityEnsureGeminiBoundaryUserContent_DropsTrailingThoughtTurns(t *testing.T) {
+	payload := []byte(`{"request":{"contents":[{"role":"user","parts":[{"text":"hello"}]},{"role":"model","parts":[{"text":"thought","thought":true}]}]}}`)
+
+	out := ensureAntigravityGeminiBoundaryUserContent("gemini-3.8-flash-high", payload)
+	contents := gjson.GetBytes(out, "request.contents").Array()
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 turn (trailing thought dropped), got %d turns: %s", len(contents), out)
+	}
+	if contents[0].Get("role").String() != "user" || contents[0].Get("parts.0.text").String() != "hello" {
+		t.Fatalf("user turn corrupted: %s", out)
+	}
+}
+
+func TestAntigravityBuildRequest_NonClaudeSourceTargetingClaudeModel_FlattensToolUnions(t *testing.T) {
+	payload := []byte(`{"request":{"tools":[{"functionDeclarations":[{
+		"name": "edit_item",
+		"parametersJsonSchema": {
+			"type": "object",
+			"properties": {
+				"item": {
+					"anyOf": [
+						{"type": "object", "properties": {"image": {"type": "string"}}},
+						{"type": "object", "properties": {"audio": {"type": "string"}}},
+						{"type": "string"}
+					]
+				}
+			}
+		}
+	}]}]}}`)
+
+	exec := NewAntigravityExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{ID: "test-auth", Provider: "antigravity", Metadata: map[string]any{"project_id": "test-project"}}
+
+	// 1. Non-Claude source request targeting Claude model flattens the union
+	claudeReq, errClaude := exec.buildRequest(context.Background(), auth, "token", "claude-sonnet-4-6", payload, false, "", "")
+	if errClaude != nil {
+		t.Fatalf("buildRequest(claude) error = %v", errClaude)
+	}
+	claudeBody, _ := io.ReadAll(claudeReq.Body)
+	claudeItem := gjson.GetBytes(claudeBody, "request.tools.0.functionDeclarations.0.parameters.properties.item")
+	if claudeItem.Get("anyOf").Exists() || claudeItem.Get("oneOf").Exists() {
+		t.Fatalf("Claude model tool union was not flattened: %s", claudeBody)
+	}
+	if got := claudeItem.Get("type").String(); got != "object" {
+		t.Fatalf("Claude model tool item type = %q, want object: %s", got, claudeBody)
+	}
+	if !claudeItem.Get("properties.image").Exists() {
+		t.Fatalf("Claude model tool item lost first object branch: %s", claudeBody)
+	}
+
+	// 2. Non-Claude source request targeting Gemini model preserves the union
+	geminiReq, errGemini := exec.buildRequest(context.Background(), auth, "token", "gemini-3.8-flash-high", payload, false, "", "")
+	if errGemini != nil {
+		t.Fatalf("buildRequest(gemini) error = %v", errGemini)
+	}
+	geminiBody, _ := io.ReadAll(geminiReq.Body)
+	geminiItem := gjson.GetBytes(geminiBody, "request.tools.0.functionDeclarations.0.parameters.properties.item")
+	if !geminiItem.Get("anyOf").Exists() {
+		t.Fatalf("Gemini model tool union should be preserved: %s", geminiBody)
+	}
+}
+
+func TestAntigravityBuildRequestGenerationSchemaAllEightSpellings(t *testing.T) {
+	cases := []string{
+		"request.generationConfig.responseSchema",
+		"request.generationConfig.response_schema",
+		"request.generationConfig.responseJsonSchema",
+		"request.generationConfig.response_json_schema",
+		"request.generation_config.responseSchema",
+		"request.generation_config.response_schema",
+		"request.generation_config.responseJsonSchema",
+		"request.generation_config.response_json_schema",
+	}
+	exec := NewAntigravityExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{ID: "test-auth", Provider: "antigravity", Metadata: map[string]any{"project_id": "test-project"}}
+
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			container := ""
+			key := ""
+			for i := len(path) - 1; i >= 0; i-- {
+				if path[i] == '.' {
+					container = path[:i]
+					key = path[i+1:]
+					break
+				}
+			}
+			payload := []byte(`{"request":{"` + container[len("request."):] + `":{"` + key + `":{"type":"object","$id":"drop","properties":{"d":{"type":"string"}}}}}}`)
+			req, err := exec.buildRequest(context.Background(), auth, "token", "gemini-3.1-pro", payload, false, "", "")
+			if err != nil {
+				t.Fatalf("buildRequest() error = %v", err)
+			}
+			raw, _ := io.ReadAll(req.Body)
+			if gjson.GetBytes(raw, path+".\\$id").Exists() {
+				t.Fatalf("unsupported keyword $id survived cleaning at %s: %s", path, raw)
+			}
+			if !gjson.GetBytes(raw, path+".properties.d").Exists() {
+				t.Fatalf("property d was lost at %s: %s", path, raw)
+			}
+		})
 	}
 }

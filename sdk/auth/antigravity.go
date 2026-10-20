@@ -272,3 +272,20 @@ func FetchAntigravityProjectID(ctx context.Context, accessToken string, httpClie
 	authSvc := antigravity.NewAntigravityAuth(cfg, httpClient)
 	return authSvc.FetchProjectID(ctx, accessToken)
 }
+
+// AntigravityUserAgent returns the User-Agent header value for Antigravity requests.
+func AntigravityUserAgent() string {
+	return misc.AntigravityUserAgent()
+}
+
+// StartAntigravityVersionUpdater starts background refresh for the Antigravity Hub version.
+// Pass a process-lifetime ctx; it runs only once and is not auto-started by SDK packages.
+func StartAntigravityVersionUpdater(ctx context.Context) {
+	misc.StartAntigravityVersionUpdater(ctx)
+}
+
+// AntigravityRequestUserAgent returns the User-Agent for Antigravity runtime requests,
+// falling back to AntigravityUserAgent when userAgent is empty.
+func AntigravityRequestUserAgent(userAgent string) string {
+	return misc.AntigravityRequestUserAgent(userAgent)
+}

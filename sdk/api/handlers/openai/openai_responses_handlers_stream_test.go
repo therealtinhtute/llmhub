@@ -250,3 +250,24 @@ func TestForwardResponsesStreamDropsIncompleteTrailingDataChunkOnFlush(t *testin
 		t.Fatalf("unterminated framing test stream did not end with an error: %q", got)
 	}
 }
+
+func TestResponsesSSEFramer_FiltersSubscriptionUsage(t *testing.T) {
+	h, recorder, c, flusher := newResponsesStreamTestHandler(t)
+
+	data := make(chan []byte, 3)
+	errs := make(chan *interfaces.ErrorMessage)
+	data <- []byte("event: response.subscription_usage\ndata: {\"subscription\":{\"tier\":\"1234567890123456\",\"weekly\":{\"resets_at\":1792368000,\"used_percent\":80},\"window\":{\"resets_at\":1792272519,\"used_percent\":10,\"window_duration_mins\":300}},\"type\":\"response.subscription_usage\"}\n\n")
+	data <- []byte("event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"arguments\":\"{}\"}}\n\n")
+	data <- []byte("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"output\":[]}}\n\n")
+	close(data)
+	close(errs)
+
+	h.forwardResponsesStream(c, flusher, func(error) {}, data, errs, nil)
+	body := recorder.Body.String()
+	if strings.Contains(body, "response.subscription_usage") || strings.Contains(body, "1234567890123456") {
+		t.Fatalf("expected response.subscription_usage to be filtered from SSE stream, got: %q", body)
+	}
+	if !strings.Contains(body, "response.completed") {
+		t.Fatalf("expected response.completed to be preserved, got: %q", body)
+	}
+}

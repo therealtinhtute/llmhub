@@ -1,0 +1,447 @@
+package executor
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/therealtinhtute/llmhub/internal/config"
+	cliproxyauth "github.com/therealtinhtute/llmhub/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/therealtinhtute/llmhub/sdk/cliproxy/executor"
+	sdktranslator "github.com/therealtinhtute/llmhub/sdk/translator"
+)
+
+// GeminiExecutor with ResponseFormat: FormatClaude must fail the stream on clean EOF
+// when no chunk carried a finishReason, instead of synthesizing [DONE] and emitting a fake message_stop.
+func TestGeminiExecutorClaudeStreamTruncationReportsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"partial gemini\"}]}}]}\n\n")
+	}))
+	defer server.Close()
+
+	exec := NewGeminiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Provider: "gemini",
+		Attributes: map[string]string{
+			"api_key":  "test-gemini-key",
+			"base_url": server.URL,
+		},
+	}
+	req := cliproxyexecutor.Request{
+		Model:   "gemini-2.5-flash",
+		Payload: []byte(`{"model":"gemini-2.5-flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+	}
+
+	result, err := exec.ExecuteStream(context.Background(), auth, req, cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatClaude,
+		ResponseFormat: sdktranslator.FormatClaude,
+		Stream:         true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+
+	var output bytes.Buffer
+	var streamErr error
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			streamErr = chunk.Err
+			continue
+		}
+		output.Write(chunk.Payload)
+	}
+	if streamErr == nil {
+		t.Fatalf("expected error chunk on truncated Gemini-to-Claude stream missing finishReason, got nil; output=%q", output.String())
+	}
+	if !strings.Contains(streamErr.Error(), "finishReason") {
+		t.Fatalf("expected error to mention finishReason, got: %v", streamErr)
+	}
+	if strings.Contains(output.String(), "message_stop") {
+		t.Fatalf("truncated Gemini-to-Claude stream must not synthesize message_stop: %q", output.String())
+	}
+}
+
+// GeminiExecutor must still complete FormatClaude streams
+// when an upstream chunk carries finishReason or promptFeedback.blockReason.
+func TestGeminiExecutorClaudeStreamWithFinishSignalCompletes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		chunk string
+	}{
+		{
+			name:  "finishReason STOP",
+			chunk: "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":1}}\n\n",
+		},
+		{
+			name:  "promptFeedback blockReason",
+			chunk: "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"blocked\"}]}}],\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}\n\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, tc.chunk)
+			}))
+			defer server.Close()
+
+			exec := NewGeminiExecutor(&config.Config{})
+			auth := &cliproxyauth.Auth{
+				Provider: "gemini",
+				Attributes: map[string]string{
+					"api_key":  "test-gemini-key",
+					"base_url": server.URL,
+				},
+			}
+			result, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+				Model:   "gemini-2.5-flash",
+				Payload: []byte(`{"model":"gemini-2.5-flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+			}, cliproxyexecutor.Options{
+				SourceFormat:   sdktranslator.FormatClaude,
+				ResponseFormat: sdktranslator.FormatClaude,
+				Stream:         true,
+			})
+			if err != nil {
+				t.Fatalf("ExecuteStream() error = %v", err)
+			}
+			var output bytes.Buffer
+			for chunk := range result.Chunks {
+				if chunk.Err != nil {
+					t.Fatalf("unexpected error chunk: %v", chunk.Err)
+				}
+				output.Write(chunk.Payload)
+			}
+			if !strings.Contains(output.String(), "message_stop") {
+				t.Fatalf("expected message_stop on completed Gemini stream; output=%q", output.String())
+			}
+		})
+	}
+}
+
+// GeminiVertexExecutor with ResponseFormat: FormatClaude must fail the stream on clean EOF
+// when no chunk carried a finishReason, instead of synthesizing [DONE] and emitting a fake message_stop.
+func TestGeminiVertexExecutorClaudeStreamTruncationReportsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"partial vertex\"}]}}]}\n\n")
+	}))
+	defer server.Close()
+
+	exec := NewGeminiVertexExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Provider: "vertex",
+		Attributes: map[string]string{
+			"api_key":  "test-vertex-key",
+			"base_url": server.URL,
+		},
+	}
+	req := cliproxyexecutor.Request{
+		Model:   "gemini-2.5-flash",
+		Payload: []byte(`{"model":"gemini-2.5-flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+	}
+
+	result, err := exec.ExecuteStream(context.Background(), auth, req, cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatClaude,
+		ResponseFormat: sdktranslator.FormatClaude,
+		Stream:         true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+
+	var output bytes.Buffer
+	var streamErr error
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			streamErr = chunk.Err
+			continue
+		}
+		output.Write(chunk.Payload)
+	}
+	if streamErr == nil {
+		t.Fatalf("expected error chunk on truncated Vertex-to-Claude stream missing finishReason, got nil; output=%q", output.String())
+	}
+	if !strings.Contains(streamErr.Error(), "finishReason") {
+		t.Fatalf("expected error to mention finishReason, got: %v", streamErr)
+	}
+	if strings.Contains(output.String(), "message_stop") {
+		t.Fatalf("truncated Vertex-to-Claude stream must not synthesize message_stop: %q", output.String())
+	}
+}
+
+// GeminiVertexExecutor must complete FormatClaude streams when finishReason is present.
+func TestGeminiVertexExecutorClaudeStreamWithFinishSignalCompletes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":1}}\n\n")
+	}))
+	defer server.Close()
+
+	exec := NewGeminiVertexExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Provider: "vertex",
+		Attributes: map[string]string{
+			"api_key":  "test-vertex-key",
+			"base_url": server.URL,
+		},
+	}
+	result, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "gemini-2.5-flash",
+		Payload: []byte(`{"model":"gemini-2.5-flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatClaude,
+		ResponseFormat: sdktranslator.FormatClaude,
+		Stream:         true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+	var output bytes.Buffer
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error chunk: %v", chunk.Err)
+		}
+		output.Write(chunk.Payload)
+	}
+	if !strings.Contains(output.String(), "message_stop") {
+		t.Fatalf("expected message_stop on completed Vertex stream; output=%q", output.String())
+	}
+}
+
+// OpenAICompatExecutor with ResponseFormat: FormatClaude must fail the stream on clean EOF
+// when no chunk carried finish_reason, rather than synthesizing [DONE] and emitting a fake message_stop.
+func TestOpenAICompatExecutorClaudeEOFBeforeFinishReasonFailsStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-truncated\",\"object\":\"chat.completion.chunk\",\"created\":1773896263,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"partial\"},\"finish_reason\":null}]}\n\n")
+	}))
+	defer server.Close()
+
+	exec := NewOpenAICompatExecutor("openai-compatibility", &config.Config{
+		OpenAICompatibility: []config.OpenAICompatibility{{
+			Name: "compat",
+			Models: []config.OpenAICompatibilityModel{{
+				Name:  "test-model",
+				Alias: "test-model",
+			}},
+		}},
+	})
+	auth := &cliproxyauth.Auth{
+		Provider: "openai-compatibility",
+		Attributes: map[string]string{
+			"api_key":  "test-key",
+			"base_url": server.URL,
+		},
+	}
+
+	request := []byte(`{"model":"test-model","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+
+	result, errExecuteStream := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{Model: "test-model", Payload: request}, cliproxyexecutor.Options{
+		SourceFormat:    sdktranslator.FormatClaude,
+		ResponseFormat:  sdktranslator.FormatClaude,
+		OriginalRequest: request,
+		Stream:          true,
+	})
+	if errExecuteStream != nil {
+		t.Fatal(errExecuteStream)
+	}
+
+	var output bytes.Buffer
+	var streamErr error
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			streamErr = chunk.Err
+			continue
+		}
+		output.Write(chunk.Payload)
+	}
+	if !strings.Contains(output.String(), `"type":"content_block_delta"`) {
+		t.Fatalf("truncated Claude stream did not deliver its valid content frame: %q", output.String())
+	}
+	if streamErr == nil {
+		t.Fatalf("expected error chunk on truncated OpenAI-to-Claude stream missing finish_reason, got nil; output=%q", output.String())
+	}
+	if !strings.Contains(streamErr.Error(), "[DONE]") {
+		t.Fatalf("expected error to mention [DONE], got: %v", streamErr)
+	}
+	if strings.Contains(output.String(), "message_stop") {
+		t.Fatalf("truncated OpenAI-to-Claude stream must not synthesize message_stop: %q", output.String())
+	}
+}
+
+// OpenAICompatExecutor with ResponseFormat: FormatClaude must still finalize the stream on clean EOF
+// when a chunk already carried a non-empty finish_reason (compatibility with providers omitting [DONE]).
+func TestOpenAICompatExecutorClaudeEOFAfterFinishReasonCompletesStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-eof\",\"object\":\"chat.completion.chunk\",\"created\":1773896263,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":null}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-eof\",\"object\":\"chat.completion.chunk\",\"created\":1773896263,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+	}))
+	defer server.Close()
+
+	exec := NewOpenAICompatExecutor("openai-compatibility", &config.Config{
+		OpenAICompatibility: []config.OpenAICompatibility{{
+			Name: "compat",
+			Models: []config.OpenAICompatibilityModel{{
+				Name:  "test-model",
+				Alias: "test-model",
+			}},
+		}},
+	})
+	auth := &cliproxyauth.Auth{
+		Provider: "openai-compatibility",
+		Attributes: map[string]string{
+			"api_key":  "test-key",
+			"base_url": server.URL,
+		},
+	}
+	request := []byte(`{"model":"test-model","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+
+	result, errExecuteStream := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{Model: "test-model", Payload: request}, cliproxyexecutor.Options{
+		SourceFormat:    sdktranslator.FormatClaude,
+		ResponseFormat:  sdktranslator.FormatClaude,
+		OriginalRequest: request,
+		Stream:          true,
+	})
+	if errExecuteStream != nil {
+		t.Fatal(errExecuteStream)
+	}
+
+	var output bytes.Buffer
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected stream error after finish_reason was received: %v", chunk.Err)
+		}
+		output.Write(chunk.Payload)
+	}
+	if !strings.Contains(output.String(), "message_stop") {
+		t.Fatalf("expected message_stop when finish_reason was received before clean EOF: %q", output.String())
+	}
+}
+
+type truncationFailingReader struct {
+	prefix io.Reader
+	err    error
+}
+
+func (r *truncationFailingReader) Read(p []byte) (int, error) {
+	if r.prefix != nil {
+		n, err := r.prefix.Read(p)
+		if err == io.EOF {
+			r.prefix = nil
+			if n > 0 {
+				return n, nil
+			}
+			return 0, r.err
+		}
+		return n, err
+	}
+	return 0, r.err
+}
+
+func (r *truncationFailingReader) Close() error { return nil }
+
+// KimiExecutor.ExecuteStream must check scanner.Err() before synthesizing [DONE]
+// so a mid-stream read error does not emit a synthetic terminal completion chunk first.
+func TestKimiExecutorStreamReadErrorDoesNotSynthesizeDoneBeforeScanError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-kimi\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"kimi-k2.5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"part\"},\"finish_reason\":null}]}\n\n")
+		// Force connection drop without [DONE]
+		hj, ok := w.(http.Hijacker)
+		if ok {
+			conn, _, _ := hj.Hijack()
+			_ = conn.Close()
+		}
+	}))
+	defer server.Close()
+
+	exec := NewKimiExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{
+			"base_url": server.URL,
+		},
+		Metadata: map[string]any{"access_token": "test-kimi-key"},
+	}
+	req := cliproxyexecutor.Request{
+		Model:   "kimi-k2.5",
+		Payload: []byte(`{"model":"kimi-k2.5","messages":[{"role":"user","content":"hi"}],"stream":true}`),
+	}
+
+	result, err := exec.ExecuteStream(context.Background(), auth, req, cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatOpenAI,
+		ResponseFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:         true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+
+	var output bytes.Buffer
+	var streamErr error
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			streamErr = chunk.Err
+			continue
+		}
+		output.Write(chunk.Payload)
+	}
+	if streamErr == nil {
+		t.Fatalf("expected scan error from KimiExecutor stream, got nil; output=%q", output.String())
+	}
+	if strings.Contains(output.String(), "response.completed") {
+		t.Fatalf("KimiExecutor must not synthesize [DONE] (response.completed) when scanner.Err() != nil; output=%q", output.String())
+	}
+}
+
+func TestClaudeDiagnosticsObservation_MultiLineAndErrors(t *testing.T) {
+	multiLineSuccess := "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\n" +
+		"data: \"message\":{\"id\":\"msg_multi_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\n" +
+		"data: \"message_stop\"}\n\n"
+
+	if gotID := claudeMessageIDFromSSE([]byte(multiLineSuccess)); gotID != "msg_multi_1" {
+		t.Fatalf("claudeMessageIDFromSSE() on multi-line SSE = %q, want %q", gotID, "msg_multi_1")
+	}
+
+	nestedMultiLineTruncated := "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_nested_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n" +
+		"event: content_block_start\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"emit\",\"input\":\n" +
+		"data: {\"type\":\"message_stop\"}\n" +
+		"data: }}\n\n"
+
+	if gotID := claudeMessageIDFromSSE([]byte(nestedMultiLineTruncated)); gotID != "" {
+		t.Fatalf("claudeMessageIDFromSSE() on truncated stream with nested message_stop line = %q, want empty string", gotID)
+	}
+
+	sseWithError := "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_err_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n" +
+		"event: error\n" +
+		"data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"
+
+	if gotID := claudeMessageIDFromSSE([]byte(sseWithError)); gotID != "" {
+		t.Fatalf("claudeMessageIDFromSSE() on error stream = %q, want empty string so failed turn is not committed", gotID)
+	}
+
+	errorEvent := "event: error\n" +
+		"data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"
+
+	var messageID string
+	var completed bool
+	var streamErr error
+	observeClaudeSSEEvent([]byte(errorEvent), &messageID, &completed, &streamErr)
+	if completed {
+		t.Fatalf("expected stream with error event to not be completed")
+	}
+	if streamErr == nil {
+		t.Fatalf("expected streamErr to be set on error event")
+	}
+}

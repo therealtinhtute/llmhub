@@ -118,9 +118,34 @@ func (f *responsesSSEFramer) Flush(w io.Writer) {
 func (f *responsesSSEFramer) writeFrame(w io.Writer, frame []byte) {
 	writeResponsesSSEChunk(w, f.repairFrame(frame))
 }
+func (f *responsesSSEFramer) shouldFilterPrivateEvent(streamEvent, payloadType string) bool {
+	check := func(name string) bool {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return false
+		}
+		if responsesSSEErrorEvent(name) {
+			return false
+		}
+
+		// Always filter internal WebSocket timing telemetry and Meta subscription usage from SSE streams.
+		if strings.HasPrefix(name, "responsesapi.") || name == "response.subscription_usage" {
+			return true
+		}
+
+		return false
+	}
+
+	return check(streamEvent) || check(payloadType)
+}
+
 
 func (f *responsesSSEFramer) repairFrame(frame []byte) []byte {
 	payload, ok := responsesSSEDataPayload(frame)
+	streamEvent := responsesSSEEventName(frame)
+	if streamEvent != "" && f.shouldFilterPrivateEvent(streamEvent, "") {
+		return nil
+	}
 	if !ok || len(payload) == 0 {
 		return frame
 	}
@@ -131,16 +156,22 @@ func (f *responsesSSEFramer) repairFrame(frame []byte) []byte {
 	if !json.Valid(payload) {
 		return frame
 	}
-	f.dataFrames++
 
 	payloadType := gjson.GetBytes(payload, "type").String()
+	if f.shouldFilterPrivateEvent(streamEvent, payloadType) {
+		return nil
+	}
+	if payloadType == "" && gjson.GetBytes(payload, "subscription").IsObject() {
+		return nil
+	}
+
+	f.dataFrames++
 	if responsesSSEErrorEvent(payloadType) || responsesSSEPayloadHasError(payload) {
 		if payloadType != "" {
 			f.lastEvent = sanitizeResponsesStreamEventName(payloadType)
 		}
 		return f.repairErrorPayload(payload)
 	}
-	streamEvent := responsesSSEEventName(frame)
 	eventType := payloadType
 	if responsesSSETerminalEvent(streamEvent) {
 		eventType = streamEvent

@@ -667,16 +667,6 @@ func (m *Manager) RestoreCooldownState(ctx context.Context) (int, error) {
 	return applied, nil
 }
 
-// RestoreCooldownStates reapplies durable runtime cooldowns after auth/model registration.
-// It is an alias for RestoreCooldownState for upstream test compatibility.
-func (m *Manager) RestoreCooldownStates(ctx context.Context) error {
-	if m == nil {
-		return nil
-	}
-	_, err := m.RestoreCooldownState(ctx)
-	return err
-}
-
 // nextExecutionSeq stamps a new upstream dispatch with the next monotonic
 // execution sequence. The stamp travels on the execution's Result so that
 // MarkResult can order the execution against cooldowns recorded meanwhile.
@@ -1700,8 +1690,8 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if refreshed, okRefresh := m.tryRefreshAfterUnauthorized(ctx, auth, errStream, didRefreshOnUnauthorized); okRefresh {
 				auth = refreshed
 				didRefreshOnUnauthorized = true
-				streamResult, errStream = executor.ExecuteStream(ctx, auth, execReq, opts)
 				executionSeq = m.nextExecutionSeq()
+				streamResult, errStream = executor.ExecuteStream(ctx, auth, execReq, opts)
 				if errStream != nil {
 					if errCtx := ctx.Err(); errCtx != nil {
 						return nil, errCtx
@@ -1753,8 +1743,8 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				discardStreamChunks(streamResult.Chunks)
 				auth = refreshed
 				didRefreshOnUnauthorized = true
-				retryStream, retryErr := executor.ExecuteStream(ctx, auth, execReq, opts)
 				executionSeq = m.nextExecutionSeq()
+				retryStream, retryErr := executor.ExecuteStream(ctx, auth, execReq, opts)
 				if retryErr != nil {
 					if errCtx := ctx.Err(); errCtx != nil {
 						return nil, errCtx
@@ -3896,13 +3886,11 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		} else {
 			auth.Failed++
 		}
-		wasTerminalUnauthorized := hasUnauthorizedAuthFailure(auth)
-
 		// retainModelCooldown pins a still-live model cooldown against a success
 		// from an execution dispatched before that cooldown was recorded. Such a
 		// success predates the failure and proves nothing about recovery, so the
 		// state transition it normally causes is skipped entirely.
-		retainModelCooldown := modelKey != "" && !wasTerminalUnauthorized && result.ExecutionSeq > 0
+		retainModelCooldown := modelKey != "" && result.ExecutionSeq > 0
 		if retainModelCooldown {
 			if existing := existingModelState(auth, modelKey); existing != nil && isModelStateActiveCooldown(existing, now) &&
 				existing.cooldownRecordedSeq > 0 && result.ExecutionSeq <= existing.cooldownRecordedSeq {
@@ -3911,16 +3899,11 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				retainModelCooldown = false
 			}
 		}
-		retainAuthCooldown := modelKey == "" && !wasTerminalUnauthorized && result.ExecutionSeq > 0 &&
+		retainAuthCooldown := modelKey == "" && result.ExecutionSeq > 0 &&
 			isAuthActiveCooldown(auth, now) && auth.cooldownRecordedSeq > 0 && result.ExecutionSeq <= auth.cooldownRecordedSeq
 
 		if result.Success {
-			if wasTerminalUnauthorized {
-				if modelKey != "" {
-					state := ensureModelState(auth, modelKey)
-					resetModelState(state, now)
-				}
-			} else if auth.Quota.Reason == "credential_quota" && auth.Quota.NextRecoverAt.After(now) {
+			if auth.Quota.Reason == "credential_quota" && auth.Quota.NextRecoverAt.After(now) {
 				// Retain active credential-scoped cooldown
 			} else if retainModelCooldown || retainAuthCooldown {
 				// Retain a cooldown recorded after this execution was dispatched.
@@ -4135,10 +4118,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 					updateAggregatedAvailability(auth, now)
 				}
 			} else {
-				if !wasTerminalUnauthorized {
-					applyAuthFailureState(auth, result.Error, result.RetryAfter, now, m.cooldownDisabledForAuth(auth))
-					auth.cooldownRecordedSeq = m.currentExecutionSeq()
-				}
+				applyAuthFailureState(auth, result.Error, result.RetryAfter, now, m.cooldownDisabledForAuth(auth))
+				auth.cooldownRecordedSeq = m.currentExecutionSeq()
 			}
 		}
 

@@ -277,8 +277,8 @@ func TestManager_Issue6643_RestoreKeepsCooldownWatermark(t *testing.T) {
 
 	// A runtime configuration update restores the persisted cooldown into
 	// the live auth while the earlier dispatch is still in flight.
-	if errRestore := manager.RestoreCooldownStates(context.Background()); errRestore != nil {
-		t.Fatalf("RestoreCooldownStates returned error: %v", errRestore)
+	if _, errRestore := manager.RestoreCooldownState(context.Background()); errRestore != nil {
+		t.Fatalf("RestoreCooldownState returned error: %v", errRestore)
 	}
 
 	manager.MarkResult(context.Background(), Result{AuthID: authID, Provider: "antigravity", Model: model, Success: true, ExecutionSeq: staleSeq})
@@ -374,5 +374,153 @@ func TestManager_Issue6643_InFlightSuccessesKeepFreshQuotaCooldown(t *testing.T)
 	}
 	if blocked, _, _ := isAuthBlockedForModel(updated, model, time.Now()); !blocked {
 		t.Fatal("exhausted credential is selectable again during its quota cooldown")
+	}
+}
+
+func TestMergeModelState_RetainsStrongestCooldownWatermark(t *testing.T) {
+	now := time.Now()
+	target := &ModelState{
+		Status:              StatusError,
+		Unavailable:         true,
+		NextRetryAfter:      now.Add(time.Hour),
+		cooldownRecordedSeq: 10,
+	}
+	source := &ModelState{
+		Status:              StatusError,
+		Unavailable:         true,
+		NextRetryAfter:      now.Add(2 * time.Hour),
+		cooldownRecordedSeq: 25,
+	}
+
+	merged := mergeModelState(target, source)
+	if merged.cooldownRecordedSeq != 25 {
+		t.Fatalf("mergeModelState cooldownRecordedSeq = %d, want 25", merged.cooldownRecordedSeq)
+	}
+
+	target.cooldownRecordedSeq = 30
+	source.cooldownRecordedSeq = 15
+	mergedRev := mergeModelState(target, source)
+	if mergedRev.cooldownRecordedSeq != 30 {
+		t.Fatalf("mergeModelState reversed cooldownRecordedSeq = %d, want 30", mergedRev.cooldownRecordedSeq)
+	}
+}
+
+type issue6643StreamRetryExecutor struct {
+	onExecuteStream func(context.Context, *Auth, cliproxyexecutor.Request) (*cliproxyexecutor.StreamResult, error)
+	onRefresh       func(context.Context, *Auth) (*Auth, error)
+}
+
+func (*issue6643StreamRetryExecutor) Identifier() string { return "antigravity" }
+
+func (*issue6643StreamRetryExecutor) Execute(context.Context, *Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, &Error{HTTPStatus: http.StatusNotImplemented, Message: "not implemented"}
+}
+
+func (e *issue6643StreamRetryExecutor) ExecuteStream(ctx context.Context, auth *Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
+	if e.onExecuteStream != nil {
+		return e.onExecuteStream(ctx, auth, req)
+	}
+	return nil, &Error{HTTPStatus: http.StatusNotImplemented, Message: "not implemented"}
+}
+
+func (e *issue6643StreamRetryExecutor) Refresh(ctx context.Context, auth *Auth) (*Auth, error) {
+	if e.onRefresh != nil {
+		return e.onRefresh(ctx, auth)
+	}
+	return auth, nil
+}
+
+func (*issue6643StreamRetryExecutor) CountTokens(context.Context, *Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, &Error{HTTPStatus: http.StatusNotImplemented, Message: "not implemented"}
+}
+
+func (*issue6643StreamRetryExecutor) HttpRequest(context.Context, *Auth, *http.Request) (*http.Response, error) {
+	return nil, &Error{HTTPStatus: http.StatusNotImplemented, Message: "not implemented"}
+}
+
+// TestManager_Issue6643_Stream401RetryStampsBeforeDispatch ensures the 401 retry
+// execution sequence is stamped BEFORE upstream dispatch so that any cooldown
+// recorded during the retry is protected from being cleared by the retry's success.
+func TestManager_Issue6643_Stream401RetryStampsBeforeDispatch(t *testing.T) {
+	withQuotaCooldownEnabled(t)
+	const (
+		authID = "issue6643-stream-retry-auth"
+		model  = "gemini-4-argon-high"
+	)
+	registry.GetGlobalRegistry().RegisterClient(authID, "antigravity", []*registry.ModelInfo{{ID: model}})
+	t.Cleanup(func() { registry.GetGlobalRegistry().UnregisterClient(authID) })
+
+	var streamAttempts atomic.Int64
+	var retryDispatched = make(chan struct{})
+	var cooldownRecorded = make(chan struct{})
+
+	executor := &issue6643StreamRetryExecutor{
+		onExecuteStream: func(ctx context.Context, auth *Auth, req cliproxyexecutor.Request) (*cliproxyexecutor.StreamResult, error) {
+			attempt := streamAttempts.Add(1)
+			if attempt == 1 {
+				return nil, &Error{Code: "unauthorized", Message: "unauthorized", HTTPStatus: http.StatusUnauthorized}
+			}
+			close(retryDispatched)
+			<-cooldownRecorded
+			out := make(chan cliproxyexecutor.StreamChunk, 1)
+			out <- cliproxyexecutor.StreamChunk{Payload: []byte("ok")}
+			close(out)
+			return &cliproxyexecutor.StreamResult{Chunks: out}, nil
+		},
+		onRefresh: func(ctx context.Context, auth *Auth) (*Auth, error) {
+			cloned := auth.Clone()
+			cloned.Metadata["access_token"] = "new-token"
+			return cloned, nil
+		},
+	}
+
+	manager := NewManager(nil, &RoundRobinSelector{}, nil)
+	manager.RegisterExecutor(executor)
+	if _, errRegister := manager.Register(WithSkipPersist(context.Background()), &Auth{
+		ID:       authID,
+		Provider: "antigravity",
+		Status:   StatusActive,
+		Metadata: map[string]any{"refresh_token": "rt", "access_token": "old-token"},
+	}); errRegister != nil {
+		t.Fatalf("Register returned error: %v", errRegister)
+	}
+
+	execDone := make(chan struct{})
+	go func() {
+		defer close(execDone)
+		res, err := manager.ExecuteStream(context.Background(), []string{"antigravity"}, cliproxyexecutor.Request{Model: model, Payload: []byte("hi")}, cliproxyexecutor.Options{})
+		if err != nil {
+			t.Errorf("ExecuteStream failed: %v", err)
+			return
+		}
+		for chunk := range res.Chunks {
+			_ = chunk
+		}
+	}()
+
+	select {
+	case <-retryDispatched:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for retry dispatch")
+	}
+
+	manager.MarkResult(context.Background(), issue6643QuotaFailure(authID, model, manager.nextExecutionSeq()))
+	state := issue6643ModelState(t, manager, authID, model)
+	if !state.Quota.Exceeded {
+		t.Fatalf("expected quota cooldown after failure, got %+v", state)
+	}
+
+	close(cooldownRecorded)
+	select {
+	case <-execDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for stream completion")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	state = issue6643ModelState(t, manager, authID, model)
+	if !state.Unavailable || !state.Quota.Exceeded || !state.NextRetryAfter.After(time.Now()) {
+		t.Fatalf("stale stream retry success cleared the quota cooldown: state = %+v", state)
 	}
 }
